@@ -5,19 +5,77 @@ fn chrome_smoke_requires_configured_browser() -> anyhow::Result<()> {
         std::env::var("CMUX_MUX_BROWSER_TEST").ok().as_deref(),
         std::env::var_os("CMUX_MUX_BROWSER_TEST_CHROME"),
     )?;
-    let chrome = cmux_tui_cdp::Chrome::launch_with(&cmux_tui_cdp::ChromeLaunchOptions {
-        binary,
-        mode: cmux_tui_cdp::BrowserMode::Headless,
-        user_data_dir: None,
-        ephemeral: true,
-    })?;
+    let chrome = TestChrome::launch(&binary)?;
     let (tx, _rx) = std::sync::mpsc::sync_channel(cmux_tui_cdp::CDP_EVENT_QUEUE_CAPACITY);
-    let client = cmux_tui_cdp::CdpClient::connect(chrome.web_socket_url(), tx)?;
+    let client = cmux_tui_cdp::CdpClient::connect(&chrome.web_socket_url, tx)?;
     client.set_discover_targets(true)?;
     let target = client.create_target("about:blank")?;
     let session = client.attach_to_target(&target)?;
     client.page_enable(&session)?;
     Ok(())
+}
+
+/// A headless Chrome for this test only. cmux itself launches no browser
+/// (cx-2u5k: no cmux process opens a loopback DevTools port).
+struct TestChrome {
+    child: std::process::Child,
+    profile: std::path::PathBuf,
+    web_socket_url: String,
+}
+
+impl TestChrome {
+    fn launch(binary: &std::path::Path) -> anyhow::Result<TestChrome> {
+        use std::io::BufRead;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let profile =
+            std::env::temp_dir().join(format!("cmux-tui-cdp-smoke-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&profile)?;
+        let spawned = std::process::Command::new(binary)
+            .args([
+                "--headless=new",
+                "--remote-debugging-port=0",
+                "--no-first-run",
+                "--no-default-browser-check",
+                &format!("--user-data-dir={}", profile.display()),
+                "about:blank",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn();
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&profile);
+                return Err(error.into());
+            }
+        };
+        let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("no Chrome stderr"))?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(url) = line.split("DevTools listening on ").nth(1) {
+                    let _ = tx.send(url.trim().to_owned());
+                }
+            }
+        });
+        let mut chrome = TestChrome { child, profile, web_socket_url: String::new() };
+        chrome.web_socket_url = rx
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .map_err(|_| anyhow::anyhow!("Chrome published no DevTools endpoint within 20 s"))?;
+        Ok(chrome)
+    }
+}
+
+impl Drop for TestChrome {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.profile);
+    }
 }
 
 fn configured_browser_binary(

@@ -137,12 +137,10 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
         now: Date
     ) throws {
         let time = now.timeIntervalSince1970
-        guard time.isFinite,
-              time >= TimeInterval(Int64.min),
-              time <= TimeInterval(Int64.max) else {
+        // Int64(exactly:) is nil for NaN, infinity and 2^63.
+        guard let nowSeconds = Int64(exactly: time.rounded(.down)) else {
             throw CmxIrohRelayPolicyError.invalidClaims
         }
-        let nowSeconds = Int64(time.rounded(.down))
         let futureTolerance = nowSeconds.addingReportingOverflow(30)
         let lifetime = policy.expiresAt.subtractingReportingOverflow(policy.issuedAt)
         let notBeforeFloor = policy.issuedAt.subtractingReportingOverflow(30)

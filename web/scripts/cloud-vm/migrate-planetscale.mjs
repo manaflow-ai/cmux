@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { createRequire } from "node:module";
-import path from "node:path";
+import { applyPendingMigrations } from "./apply-migrations.mjs";
 import { loadTargetEnv, parseWebDirAndTarget } from "./projects.mjs";
 import { createPlanetScaleOperatorPool, PlanetScaleOperatorConfigError } from "./planetscale-operator.mjs";
 
@@ -22,10 +21,7 @@ try {
         await pool.query("rollback");
       }
     } else {
-      const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-      const { drizzle } = requireFromWeb("drizzle-orm/node-postgres");
-      const { migrate } = requireFromWeb("drizzle-orm/node-postgres/migrator");
-      await migrate(drizzle({ client: pool }), { migrationsFolder: path.join(webDir, "db/migrations") });
+      await applyPendingMigrations(pool, webDir);
     }
   } finally {
     await pool.end();

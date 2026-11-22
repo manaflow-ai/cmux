@@ -21,6 +21,7 @@ stops matching any job fails this test rather than quietly guarding nothing.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -32,15 +33,20 @@ from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metada
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
-# `gh api repos/manaflow-ai/cmux/rules/branches/main`, the
-# required_status_checks rule. Update alongside the ruleset.
-REQUIRED_CONTEXTS = (
-    "CLA Assistant",
-    "CLA policy guard",
-    "ci-status",
-    "Web complexity",
-    "web-validation",
+# The required contexts on main, from the one in-tree mirror of the ruleset.
+# scripts/ci/required_status_checks.py reconciles that mirror against GitHub.
+_SPEC = importlib.util.spec_from_file_location(
+    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
 )
+_required_status_checks = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+# Registered before execution: the module defines a dataclass.
+sys.modules["required_status_checks"] = _required_status_checks
+_SPEC.loader.exec_module(_required_status_checks)
+# A hung job wastes runners whether or not its check is required.
+ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
+# Every context whose workflows must be bounded. Tests patch this name.
+REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
 
 
 def load(path: Path) -> dict:
@@ -142,7 +148,7 @@ def main() -> int:
                 failures.append(
                     f"{path.relative_to(ROOT)}:{job_id} has no "
                     "timeout-minutes, so it inherits GitHub's six-hour "
-                    "default -- in a workflow that owns a required check"
+                    "default -- in a workflow that owns a required or always-bounded check"
                 )
 
     for path, workflow in workflows.items():
@@ -166,7 +172,7 @@ def main() -> int:
         return 1
 
     print(
-        f"{len(REQUIRED_CONTEXTS)} required checks are bounded; "
+        f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
         "every pull_request workflow has a concurrency group"
     )
     return 0

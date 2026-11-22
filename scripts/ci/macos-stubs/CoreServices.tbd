@@ -1,0 +1,19 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices'
+current-version: 1226.0.0
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_FSEventStreamCreate',
+                       '_FSEventStreamGetDeviceBeingWatched',
+                       '_FSEventStreamInvalidate',
+                       '_FSEventStreamRelease',
+                       '_FSEventStreamScheduleWithRunLoop',
+                       '_FSEventStreamStart',
+                       '_FSEventStreamStop',
+                       '_FSEventsGetCurrentEventId',
+                       '_FSEventsPurgeEventsForDeviceUpToEventId' ]
+...

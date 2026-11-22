@@ -121,7 +121,9 @@ public struct AppChannelSwitcher: Sendable {
         progress(.downloading(fractionCompleted: nil))
         do {
             try fileSystem.createDirectory(at: workDirectory)
-            try await downloader.download(from: target.downloadURL(architecture: architecture), to: image) { fraction in
+            // A constant URL that fails to parse surfaces as a failed download, not a trap.
+            guard let url = target.downloadURL(architecture: architecture) else { throw URLError(.badURL) }
+            try await downloader.download(from: url, to: image) { fraction in
                 progress(.downloading(fractionCompleted: fraction))
             }
         } catch {

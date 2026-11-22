@@ -1,5 +1,7 @@
 # Agent-Browser Port Spec
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). This proposal predates it. Current browser commands: `cmux browser <tab_…|page> navigate|back|forward|reload|state|eval|snapshot|click|focus|text|value|fill|type` for app browser tabs, and the `cmux browser <browser_…> …` mux scope for daemon browsers.
+
 Last updated: February 13, 2026  
 Source inventory snapshot: `vercel-labs/agent-browser` @ `03a8cb9`
 

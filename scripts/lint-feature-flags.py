@@ -4,7 +4,7 @@ https://posthog.com/newsletter/feature-flag-mistakes.
 
 Registries:
   - web/app/lib/feature-flags.ts   (FEATURE_FLAGS object literals)
-  - Sources/FeatureFlags.swift     (FLAG(...) comments)
+  - any Swift file under Packages/ or ios/ (FLAG(key: ...) comments)
 
 Enforced rules:
   1. Naming: kebab-case, a type suffix (-release / -experiment /
@@ -36,7 +36,7 @@ RETIRED = REPO / "scripts/retired-feature-flags.txt"
 # Discovery and parsing must agree on what counts as a declaration, or a file is
 # found by one and misread by the other. A declaration is literally `FLAG(key:`.
 # A prose reference such as `// FLAG(sidebar-appkit-list-experiment): ...`
-# (Sources/ContentView.swift:1771) is not one, and matching it would report
+# is not one, and matching it would report
 # "flag entry without a key" against an untouched comment instead of against the
 # flag someone just declared beside the code that reads it.
 FLAG_DECLARATION = "FLAG(key:"
@@ -75,7 +75,7 @@ def swift_registry_files() -> list[str]:
     """
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", FLAG_DECLARATION, "--",
-         "Sources", "Packages", "CLI", "ios", ":!*node_modules*"],
+         "Packages", "ios", ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )
     return sorted({line.strip() for line in out.stdout.splitlines() if line.strip()})
@@ -99,10 +99,23 @@ def parse_swift_registry(text: str, source: str) -> list[dict]:
     return flags
 
 
+def collect_flags() -> tuple[list[dict], list[str]]:
+    """Return declarations and the registry paths discovered in the same walk."""
+    flags: list[dict] = []
+    if WEB_REGISTRY.exists():
+        flags += parse_web_registry(WEB_REGISTRY.read_text(encoding="utf-8", errors="replace"))
+    swift_registries = swift_registry_files()
+    for rel in swift_registries:
+        path = REPO / rel
+        if path.exists():
+            flags += parse_swift_registry(path.read_text(encoding="utf-8", errors="replace"), rel)
+    return flags, [WEB_REGISTRY_REL, *swift_registries]
+
+
 def grep_key_files(key: str) -> set[str]:
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Sources", "Packages", "ios", "CLI",
+         "web", "Packages", "ios",
          ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )
@@ -110,14 +123,7 @@ def grep_key_files(key: str) -> set[str]:
 
 
 def main() -> int:
-    flags: list[dict] = []
-    if WEB_REGISTRY.exists():
-        flags += parse_web_registry(WEB_REGISTRY.read_text())
-    swift_registries = swift_registry_files()
-    for rel in swift_registries:
-        path = REPO / rel
-        if path.exists():
-            flags += parse_swift_registry(path.read_text(), rel)
+    flags, registry_files = collect_flags()
 
     if not flags:
         print("lint-feature-flags: no flags declared")
@@ -126,7 +132,7 @@ def main() -> int:
     today = datetime.date.today()
     seen: dict[str, str] = {}
     # git grep returns repo-relative paths.
-    registries = {WEB_REGISTRY_REL, *swift_registries}
+    registries = set(registry_files)
 
     retired = set()
     if RETIRED.exists():
@@ -160,11 +166,17 @@ def main() -> int:
         review = flag.get("reviewBy")
         if not review or not DATE_RE.match(review):
             fail(f"{where}: '{key}' needs reviewBy: YYYY-MM-DD")
-        elif datetime.date.fromisoformat(review) < today:
-            fail(
-                f"{where}: '{key}' reviewBy {review} has passed — remove the "
-                "zombie flag or consciously extend the date"
-            )
+        else:
+            try:
+                review_date = datetime.date.fromisoformat(review)
+            except ValueError:
+                fail(f"{where}: '{key}' needs reviewBy: YYYY-MM-DD")
+            else:
+                if review_date < today:
+                    fail(
+                        f"{where}: '{key}' reviewBy {review} has passed — remove the "
+                        "zombie flag or consciously extend the date"
+                    )
         if not flag.get("hasDefault"):
             fail(f"{where}: '{key}' must declare defaultWhenUnavailable")
         if key in retired:

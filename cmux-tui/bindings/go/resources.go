@@ -87,6 +87,16 @@ type LayoutColumn struct {
 	ColumnID SplitID    `json:"column_id"`
 	Width    float64    `json:"width"`
 	Root     LayoutNode `json:"root"`
+	// Dock is the column's dock flag (dock-columns-v1); nil while it
+	// scrolls.
+	Dock *LayoutColumnDock `json:"dock,omitempty"`
+}
+
+// LayoutColumnDock is a pinned column's Edge ("left", "right", "top" or
+// "bottom") and Mode ("docked" or "overlay").
+type LayoutColumnDock struct {
+	Edge string `json:"edge"`
+	Mode string `json:"mode"`
 }
 
 type LayoutViewport struct {
@@ -289,6 +299,10 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 		ColumnID *SplitID        `json:"column_id"`
 		Width    *float64        `json:"width"`
 		Root     json.RawMessage `json:"root"`
+		Dock     json.RawMessage `json:"dock"`
+		// Sticky is the pre-R87 name of Dock: read so a replayed or
+		// older result still decodes; dock wins when both are present.
+		Sticky json.RawMessage `json:"sticky"`
 	}
 	if err := strictDecode(data, &wire); err != nil {
 		return LayoutColumn{}, err
@@ -307,9 +321,43 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 	if err != nil {
 		return LayoutColumn{}, err
 	}
+	flag := wire.Dock
+	if len(flag) == 0 {
+		flag = wire.Sticky
+	}
+	dock, err := decodeLayoutColumnDock(flag)
+	if err != nil {
+		return LayoutColumn{}, err
+	}
 	return LayoutColumn{
-		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root,
+		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root, Dock: dock,
 	}, nil
+}
+
+// decodeLayoutColumnDock reads an omitted or null flag as nil.
+func decodeLayoutColumnDock(data json.RawMessage) (*LayoutColumnDock, error) {
+	if len(data) == 0 || string(bytes.TrimSpace(data)) == "null" {
+		return nil, nil
+	}
+	var wire struct {
+		Edge *string `json:"edge"`
+		Mode *string `json:"mode"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return nil, err
+	}
+	if wire.Edge == nil || wire.Mode == nil {
+		return nil, fmt.Errorf("layout column dock requires edge and mode")
+	}
+	switch *wire.Edge {
+	case "left", "right", "top", "bottom":
+	default:
+		return nil, fmt.Errorf("layout column dock edge %q is not left, right, top, or bottom", *wire.Edge)
+	}
+	if *wire.Mode != "docked" && *wire.Mode != "overlay" {
+		return nil, fmt.Errorf("layout column dock mode %q is not docked or overlay", *wire.Mode)
+	}
+	return &LayoutColumnDock{Edge: *wire.Edge, Mode: *wire.Mode}, nil
 }
 
 func validLayoutWidth(value float64) bool {

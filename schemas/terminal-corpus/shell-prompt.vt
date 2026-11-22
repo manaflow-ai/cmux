@@ -1,0 +1,281 @@
+]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/0
+]133;C\-rw-r--r--  1 dev staff   1000 Oct  2 12:00 [31mfile_0_0.zig[0m
+-rw-r--r--  1 dev staff   1037 Oct  2 12:01 [32mfile_0_1.zig[0m
+-rw-r--r--  1 dev staff   1074 Oct  2 12:02 [33mfile_0_2.zig[0m
+-rw-r--r--  1 dev staff   1111 Oct  2 12:03 [34mfile_0_3.zig[0m
+-rw-r--r--  1 dev staff   1148 Oct  2 12:04 [35mfile_0_4.zig[0m
+-rw-r--r--  1 dev staff   1185 Oct  2 12:05 [36mfile_0_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/1
+]133;C\-rw-r--r--  1 dev staff   1001 Oct  2 12:00 [31mfile_1_0.zig[0m
+-rw-r--r--  1 dev staff   1038 Oct  2 12:01 [32mfile_1_1.zig[0m
+-rw-r--r--  1 dev staff   1075 Oct  2 12:02 [33mfile_1_2.zig[0m
+-rw-r--r--  1 dev staff   1112 Oct  2 12:03 [34mfile_1_3.zig[0m
+-rw-r--r--  1 dev staff   1149 Oct  2 12:04 [35mfile_1_4.zig[0m
+-rw-r--r--  1 dev staff   1186 Oct  2 12:05 [36mfile_1_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/2
+]133;C\-rw-r--r--  1 dev staff   1002 Oct  2 12:00 [31mfile_2_0.zig[0m
+-rw-r--r--  1 dev staff   1039 Oct  2 12:01 [32mfile_2_1.zig[0m
+-rw-r--r--  1 dev staff   1076 Oct  2 12:02 [33mfile_2_2.zig[0m
+-rw-r--r--  1 dev staff   1113 Oct  2 12:03 [34mfile_2_3.zig[0m
+-rw-r--r--  1 dev staff   1150 Oct  2 12:04 [35mfile_2_4.zig[0m
+-rw-r--r--  1 dev staff   1187 Oct  2 12:05 [36mfile_2_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/3
+]133;C\-rw-r--r--  1 dev staff   1003 Oct  2 12:00 [31mfile_3_0.zig[0m
+-rw-r--r--  1 dev staff   1040 Oct  2 12:01 [32mfile_3_1.zig[0m
+-rw-r--r--  1 dev staff   1077 Oct  2 12:02 [33mfile_3_2.zig[0m
+-rw-r--r--  1 dev staff   1114 Oct  2 12:03 [34mfile_3_3.zig[0m
+-rw-r--r--  1 dev staff   1151 Oct  2 12:04 [35mfile_3_4.zig[0m
+-rw-r--r--  1 dev staff   1188 Oct  2 12:05 [36mfile_3_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/4
+]133;C\-rw-r--r--  1 dev staff   1004 Oct  2 12:00 [31mfile_4_0.zig[0m
+-rw-r--r--  1 dev staff   1041 Oct  2 12:01 [32mfile_4_1.zig[0m
+-rw-r--r--  1 dev staff   1078 Oct  2 12:02 [33mfile_4_2.zig[0m
+-rw-r--r--  1 dev staff   1115 Oct  2 12:03 [34mfile_4_3.zig[0m
+-rw-r--r--  1 dev staff   1152 Oct  2 12:04 [35mfile_4_4.zig[0m
+-rw-r--r--  1 dev staff   1189 Oct  2 12:05 [36mfile_4_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/5
+]133;C\-rw-r--r--  1 dev staff   1005 Oct  2 12:00 [31mfile_5_0.zig[0m
+-rw-r--r--  1 dev staff   1042 Oct  2 12:01 [32mfile_5_1.zig[0m
+-rw-r--r--  1 dev staff   1079 Oct  2 12:02 [33mfile_5_2.zig[0m
+-rw-r--r--  1 dev staff   1116 Oct  2 12:03 [34mfile_5_3.zig[0m
+-rw-r--r--  1 dev staff   1153 Oct  2 12:04 [35mfile_5_4.zig[0m
+-rw-r--r--  1 dev staff   1190 Oct  2 12:05 [36mfile_5_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/6
+]133;C\-rw-r--r--  1 dev staff   1006 Oct  2 12:00 [31mfile_6_0.zig[0m
+-rw-r--r--  1 dev staff   1043 Oct  2 12:01 [32mfile_6_1.zig[0m
+-rw-r--r--  1 dev staff   1080 Oct  2 12:02 [33mfile_6_2.zig[0m
+-rw-r--r--  1 dev staff   1117 Oct  2 12:03 [34mfile_6_3.zig[0m
+-rw-r--r--  1 dev staff   1154 Oct  2 12:04 [35mfile_6_4.zig[0m
+-rw-r--r--  1 dev staff   1191 Oct  2 12:05 [36mfile_6_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/7
+]133;C\-rw-r--r--  1 dev staff   1007 Oct  2 12:00 [31mfile_7_0.zig[0m
+-rw-r--r--  1 dev staff   1044 Oct  2 12:01 [32mfile_7_1.zig[0m
+-rw-r--r--  1 dev staff   1081 Oct  2 12:02 [33mfile_7_2.zig[0m
+-rw-r--r--  1 dev staff   1118 Oct  2 12:03 [34mfile_7_3.zig[0m
+-rw-r--r--  1 dev staff   1155 Oct  2 12:04 [35mfile_7_4.zig[0m
+-rw-r--r--  1 dev staff   1192 Oct  2 12:05 [36mfile_7_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/8
+]133;C\-rw-r--r--  1 dev staff   1008 Oct  2 12:00 [31mfile_8_0.zig[0m
+-rw-r--r--  1 dev staff   1045 Oct  2 12:01 [32mfile_8_1.zig[0m
+-rw-r--r--  1 dev staff   1082 Oct  2 12:02 [33mfile_8_2.zig[0m
+-rw-r--r--  1 dev staff   1119 Oct  2 12:03 [34mfile_8_3.zig[0m
+-rw-r--r--  1 dev staff   1156 Oct  2 12:04 [35mfile_8_4.zig[0m
+-rw-r--r--  1 dev staff   1193 Oct  2 12:05 [36mfile_8_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/9
+]133;C\-rw-r--r--  1 dev staff   1009 Oct  2 12:00 [31mfile_9_0.zig[0m
+-rw-r--r--  1 dev staff   1046 Oct  2 12:01 [32mfile_9_1.zig[0m
+-rw-r--r--  1 dev staff   1083 Oct  2 12:02 [33mfile_9_2.zig[0m
+-rw-r--r--  1 dev staff   1120 Oct  2 12:03 [34mfile_9_3.zig[0m
+-rw-r--r--  1 dev staff   1157 Oct  2 12:04 [35mfile_9_4.zig[0m
+-rw-r--r--  1 dev staff   1194 Oct  2 12:05 [36mfile_9_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/10
+]133;C\-rw-r--r--  1 dev staff   1010 Oct  2 12:00 [31mfile_10_0.zig[0m
+-rw-r--r--  1 dev staff   1047 Oct  2 12:01 [32mfile_10_1.zig[0m
+-rw-r--r--  1 dev staff   1084 Oct  2 12:02 [33mfile_10_2.zig[0m
+-rw-r--r--  1 dev staff   1121 Oct  2 12:03 [34mfile_10_3.zig[0m
+-rw-r--r--  1 dev staff   1158 Oct  2 12:04 [35mfile_10_4.zig[0m
+-rw-r--r--  1 dev staff   1195 Oct  2 12:05 [36mfile_10_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/11
+]133;C\-rw-r--r--  1 dev staff   1011 Oct  2 12:00 [31mfile_11_0.zig[0m
+-rw-r--r--  1 dev staff   1048 Oct  2 12:01 [32mfile_11_1.zig[0m
+-rw-r--r--  1 dev staff   1085 Oct  2 12:02 [33mfile_11_2.zig[0m
+-rw-r--r--  1 dev staff   1122 Oct  2 12:03 [34mfile_11_3.zig[0m
+-rw-r--r--  1 dev staff   1159 Oct  2 12:04 [35mfile_11_4.zig[0m
+-rw-r--r--  1 dev staff   1196 Oct  2 12:05 [36mfile_11_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/12
+]133;C\-rw-r--r--  1 dev staff   1012 Oct  2 12:00 [31mfile_12_0.zig[0m
+-rw-r--r--  1 dev staff   1049 Oct  2 12:01 [32mfile_12_1.zig[0m
+-rw-r--r--  1 dev staff   1086 Oct  2 12:02 [33mfile_12_2.zig[0m
+-rw-r--r--  1 dev staff   1123 Oct  2 12:03 [34mfile_12_3.zig[0m
+-rw-r--r--  1 dev staff   1160 Oct  2 12:04 [35mfile_12_4.zig[0m
+-rw-r--r--  1 dev staff   1197 Oct  2 12:05 [36mfile_12_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/13
+]133;C\-rw-r--r--  1 dev staff   1013 Oct  2 12:00 [31mfile_13_0.zig[0m
+-rw-r--r--  1 dev staff   1050 Oct  2 12:01 [32mfile_13_1.zig[0m
+-rw-r--r--  1 dev staff   1087 Oct  2 12:02 [33mfile_13_2.zig[0m
+-rw-r--r--  1 dev staff   1124 Oct  2 12:03 [34mfile_13_3.zig[0m
+-rw-r--r--  1 dev staff   1161 Oct  2 12:04 [35mfile_13_4.zig[0m
+-rw-r--r--  1 dev staff   1198 Oct  2 12:05 [36mfile_13_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/14
+]133;C\-rw-r--r--  1 dev staff   1014 Oct  2 12:00 [31mfile_14_0.zig[0m
+-rw-r--r--  1 dev staff   1051 Oct  2 12:01 [32mfile_14_1.zig[0m
+-rw-r--r--  1 dev staff   1088 Oct  2 12:02 [33mfile_14_2.zig[0m
+-rw-r--r--  1 dev staff   1125 Oct  2 12:03 [34mfile_14_3.zig[0m
+-rw-r--r--  1 dev staff   1162 Oct  2 12:04 [35mfile_14_4.zig[0m
+-rw-r--r--  1 dev staff   1199 Oct  2 12:05 [36mfile_14_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/15
+]133;C\-rw-r--r--  1 dev staff   1015 Oct  2 12:00 [31mfile_15_0.zig[0m
+-rw-r--r--  1 dev staff   1052 Oct  2 12:01 [32mfile_15_1.zig[0m
+-rw-r--r--  1 dev staff   1089 Oct  2 12:02 [33mfile_15_2.zig[0m
+-rw-r--r--  1 dev staff   1126 Oct  2 12:03 [34mfile_15_3.zig[0m
+-rw-r--r--  1 dev staff   1163 Oct  2 12:04 [35mfile_15_4.zig[0m
+-rw-r--r--  1 dev staff   1200 Oct  2 12:05 [36mfile_15_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/16
+]133;C\-rw-r--r--  1 dev staff   1016 Oct  2 12:00 [31mfile_16_0.zig[0m
+-rw-r--r--  1 dev staff   1053 Oct  2 12:01 [32mfile_16_1.zig[0m
+-rw-r--r--  1 dev staff   1090 Oct  2 12:02 [33mfile_16_2.zig[0m
+-rw-r--r--  1 dev staff   1127 Oct  2 12:03 [34mfile_16_3.zig[0m
+-rw-r--r--  1 dev staff   1164 Oct  2 12:04 [35mfile_16_4.zig[0m
+-rw-r--r--  1 dev staff   1201 Oct  2 12:05 [36mfile_16_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/17
+]133;C\-rw-r--r--  1 dev staff   1017 Oct  2 12:00 [31mfile_17_0.zig[0m
+-rw-r--r--  1 dev staff   1054 Oct  2 12:01 [32mfile_17_1.zig[0m
+-rw-r--r--  1 dev staff   1091 Oct  2 12:02 [33mfile_17_2.zig[0m
+-rw-r--r--  1 dev staff   1128 Oct  2 12:03 [34mfile_17_3.zig[0m
+-rw-r--r--  1 dev staff   1165 Oct  2 12:04 [35mfile_17_4.zig[0m
+-rw-r--r--  1 dev staff   1202 Oct  2 12:05 [36mfile_17_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/18
+]133;C\-rw-r--r--  1 dev staff   1018 Oct  2 12:00 [31mfile_18_0.zig[0m
+-rw-r--r--  1 dev staff   1055 Oct  2 12:01 [32mfile_18_1.zig[0m
+-rw-r--r--  1 dev staff   1092 Oct  2 12:02 [33mfile_18_2.zig[0m
+-rw-r--r--  1 dev staff   1129 Oct  2 12:03 [34mfile_18_3.zig[0m
+-rw-r--r--  1 dev staff   1166 Oct  2 12:04 [35mfile_18_4.zig[0m
+-rw-r--r--  1 dev staff   1203 Oct  2 12:05 [36mfile_18_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/19
+]133;C\-rw-r--r--  1 dev staff   1019 Oct  2 12:00 [31mfile_19_0.zig[0m
+-rw-r--r--  1 dev staff   1056 Oct  2 12:01 [32mfile_19_1.zig[0m
+-rw-r--r--  1 dev staff   1093 Oct  2 12:02 [33mfile_19_2.zig[0m
+-rw-r--r--  1 dev staff   1130 Oct  2 12:03 [34mfile_19_3.zig[0m
+-rw-r--r--  1 dev staff   1167 Oct  2 12:04 [35mfile_19_4.zig[0m
+-rw-r--r--  1 dev staff   1204 Oct  2 12:05 [36mfile_19_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/20
+]133;C\-rw-r--r--  1 dev staff   1020 Oct  2 12:00 [31mfile_20_0.zig[0m
+-rw-r--r--  1 dev staff   1057 Oct  2 12:01 [32mfile_20_1.zig[0m
+-rw-r--r--  1 dev staff   1094 Oct  2 12:02 [33mfile_20_2.zig[0m
+-rw-r--r--  1 dev staff   1131 Oct  2 12:03 [34mfile_20_3.zig[0m
+-rw-r--r--  1 dev staff   1168 Oct  2 12:04 [35mfile_20_4.zig[0m
+-rw-r--r--  1 dev staff   1205 Oct  2 12:05 [36mfile_20_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/21
+]133;C\-rw-r--r--  1 dev staff   1021 Oct  2 12:00 [31mfile_21_0.zig[0m
+-rw-r--r--  1 dev staff   1058 Oct  2 12:01 [32mfile_21_1.zig[0m
+-rw-r--r--  1 dev staff   1095 Oct  2 12:02 [33mfile_21_2.zig[0m
+-rw-r--r--  1 dev staff   1132 Oct  2 12:03 [34mfile_21_3.zig[0m
+-rw-r--r--  1 dev staff   1169 Oct  2 12:04 [35mfile_21_4.zig[0m
+-rw-r--r--  1 dev staff   1206 Oct  2 12:05 [36mfile_21_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/22
+]133;C\-rw-r--r--  1 dev staff   1022 Oct  2 12:00 [31mfile_22_0.zig[0m
+-rw-r--r--  1 dev staff   1059 Oct  2 12:01 [32mfile_22_1.zig[0m
+-rw-r--r--  1 dev staff   1096 Oct  2 12:02 [33mfile_22_2.zig[0m
+-rw-r--r--  1 dev staff   1133 Oct  2 12:03 [34mfile_22_3.zig[0m
+-rw-r--r--  1 dev staff   1170 Oct  2 12:04 [35mfile_22_4.zig[0m
+-rw-r--r--  1 dev staff   1207 Oct  2 12:05 [36mfile_22_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/23
+]133;C\-rw-r--r--  1 dev staff   1023 Oct  2 12:00 [31mfile_23_0.zig[0m
+-rw-r--r--  1 dev staff   1060 Oct  2 12:01 [32mfile_23_1.zig[0m
+-rw-r--r--  1 dev staff   1097 Oct  2 12:02 [33mfile_23_2.zig[0m
+-rw-r--r--  1 dev staff   1134 Oct  2 12:03 [34mfile_23_3.zig[0m
+-rw-r--r--  1 dev staff   1171 Oct  2 12:04 [35mfile_23_4.zig[0m
+-rw-r--r--  1 dev staff   1208 Oct  2 12:05 [36mfile_23_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/24
+]133;C\-rw-r--r--  1 dev staff   1024 Oct  2 12:00 [31mfile_24_0.zig[0m
+-rw-r--r--  1 dev staff   1061 Oct  2 12:01 [32mfile_24_1.zig[0m
+-rw-r--r--  1 dev staff   1098 Oct  2 12:02 [33mfile_24_2.zig[0m
+-rw-r--r--  1 dev staff   1135 Oct  2 12:03 [34mfile_24_3.zig[0m
+-rw-r--r--  1 dev staff   1172 Oct  2 12:04 [35mfile_24_4.zig[0m
+-rw-r--r--  1 dev staff   1209 Oct  2 12:05 [36mfile_24_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/25
+]133;C\-rw-r--r--  1 dev staff   1025 Oct  2 12:00 [31mfile_25_0.zig[0m
+-rw-r--r--  1 dev staff   1062 Oct  2 12:01 [32mfile_25_1.zig[0m
+-rw-r--r--  1 dev staff   1099 Oct  2 12:02 [33mfile_25_2.zig[0m
+-rw-r--r--  1 dev staff   1136 Oct  2 12:03 [34mfile_25_3.zig[0m
+-rw-r--r--  1 dev staff   1173 Oct  2 12:04 [35mfile_25_4.zig[0m
+-rw-r--r--  1 dev staff   1210 Oct  2 12:05 [36mfile_25_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/26
+]133;C\-rw-r--r--  1 dev staff   1026 Oct  2 12:00 [31mfile_26_0.zig[0m
+-rw-r--r--  1 dev staff   1063 Oct  2 12:01 [32mfile_26_1.zig[0m
+-rw-r--r--  1 dev staff   1100 Oct  2 12:02 [33mfile_26_2.zig[0m
+-rw-r--r--  1 dev staff   1137 Oct  2 12:03 [34mfile_26_3.zig[0m
+-rw-r--r--  1 dev staff   1174 Oct  2 12:04 [35mfile_26_4.zig[0m
+-rw-r--r--  1 dev staff   1211 Oct  2 12:05 [36mfile_26_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/27
+]133;C\-rw-r--r--  1 dev staff   1027 Oct  2 12:00 [31mfile_27_0.zig[0m
+-rw-r--r--  1 dev staff   1064 Oct  2 12:01 [32mfile_27_1.zig[0m
+-rw-r--r--  1 dev staff   1101 Oct  2 12:02 [33mfile_27_2.zig[0m
+-rw-r--r--  1 dev staff   1138 Oct  2 12:03 [34mfile_27_3.zig[0m
+-rw-r--r--  1 dev staff   1175 Oct  2 12:04 [35mfile_27_4.zig[0m
+-rw-r--r--  1 dev staff   1212 Oct  2 12:05 [36mfile_27_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/28
+]133;C\-rw-r--r--  1 dev staff   1028 Oct  2 12:00 [31mfile_28_0.zig[0m
+-rw-r--r--  1 dev staff   1065 Oct  2 12:01 [32mfile_28_1.zig[0m
+-rw-r--r--  1 dev staff   1102 Oct  2 12:02 [33mfile_28_2.zig[0m
+-rw-r--r--  1 dev staff   1139 Oct  2 12:03 [34mfile_28_3.zig[0m
+-rw-r--r--  1 dev staff   1176 Oct  2 12:04 [35mfile_28_4.zig[0m
+-rw-r--r--  1 dev staff   1213 Oct  2 12:05 [36mfile_28_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/29
+]133;C\-rw-r--r--  1 dev staff   1029 Oct  2 12:00 [31mfile_29_0.zig[0m
+-rw-r--r--  1 dev staff   1066 Oct  2 12:01 [32mfile_29_1.zig[0m
+-rw-r--r--  1 dev staff   1103 Oct  2 12:02 [33mfile_29_2.zig[0m
+-rw-r--r--  1 dev staff   1140 Oct  2 12:03 [34mfile_29_3.zig[0m
+-rw-r--r--  1 dev staff   1177 Oct  2 12:04 [35mfile_29_4.zig[0m
+-rw-r--r--  1 dev staff   1214 Oct  2 12:05 [36mfile_29_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/30
+]133;C\-rw-r--r--  1 dev staff   1030 Oct  2 12:00 [31mfile_30_0.zig[0m
+-rw-r--r--  1 dev staff   1067 Oct  2 12:01 [32mfile_30_1.zig[0m
+-rw-r--r--  1 dev staff   1104 Oct  2 12:02 [33mfile_30_2.zig[0m
+-rw-r--r--  1 dev staff   1141 Oct  2 12:03 [34mfile_30_3.zig[0m
+-rw-r--r--  1 dev staff   1178 Oct  2 12:04 [35mfile_30_4.zig[0m
+-rw-r--r--  1 dev staff   1215 Oct  2 12:05 [36mfile_30_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/31
+]133;C\-rw-r--r--  1 dev staff   1031 Oct  2 12:00 [31mfile_31_0.zig[0m
+-rw-r--r--  1 dev staff   1068 Oct  2 12:01 [32mfile_31_1.zig[0m
+-rw-r--r--  1 dev staff   1105 Oct  2 12:02 [33mfile_31_2.zig[0m
+-rw-r--r--  1 dev staff   1142 Oct  2 12:03 [34mfile_31_3.zig[0m
+-rw-r--r--  1 dev staff   1179 Oct  2 12:04 [35mfile_31_4.zig[0m
+-rw-r--r--  1 dev staff   1216 Oct  2 12:05 [36mfile_31_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/32
+]133;C\-rw-r--r--  1 dev staff   1032 Oct  2 12:00 [31mfile_32_0.zig[0m
+-rw-r--r--  1 dev staff   1069 Oct  2 12:01 [32mfile_32_1.zig[0m
+-rw-r--r--  1 dev staff   1106 Oct  2 12:02 [33mfile_32_2.zig[0m
+-rw-r--r--  1 dev staff   1143 Oct  2 12:03 [34mfile_32_3.zig[0m
+-rw-r--r--  1 dev staff   1180 Oct  2 12:04 [35mfile_32_4.zig[0m
+-rw-r--r--  1 dev staff   1217 Oct  2 12:05 [36mfile_32_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/33
+]133;C\-rw-r--r--  1 dev staff   1033 Oct  2 12:00 [31mfile_33_0.zig[0m
+-rw-r--r--  1 dev staff   1070 Oct  2 12:01 [32mfile_33_1.zig[0m
+-rw-r--r--  1 dev staff   1107 Oct  2 12:02 [33mfile_33_2.zig[0m
+-rw-r--r--  1 dev staff   1144 Oct  2 12:03 [34mfile_33_3.zig[0m
+-rw-r--r--  1 dev staff   1181 Oct  2 12:04 [35mfile_33_4.zig[0m
+-rw-r--r--  1 dev staff   1218 Oct  2 12:05 [36mfile_33_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/34
+]133;C\-rw-r--r--  1 dev staff   1034 Oct  2 12:00 [31mfile_34_0.zig[0m
+-rw-r--r--  1 dev staff   1071 Oct  2 12:01 [32mfile_34_1.zig[0m
+-rw-r--r--  1 dev staff   1108 Oct  2 12:02 [33mfile_34_2.zig[0m
+-rw-r--r--  1 dev staff   1145 Oct  2 12:03 [34mfile_34_3.zig[0m
+-rw-r--r--  1 dev staff   1182 Oct  2 12:04 [35mfile_34_4.zig[0m
+-rw-r--r--  1 dev staff   1219 Oct  2 12:05 [36mfile_34_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/35
+]133;C\-rw-r--r--  1 dev staff   1035 Oct  2 12:00 [31mfile_35_0.zig[0m
+-rw-r--r--  1 dev staff   1072 Oct  2 12:01 [32mfile_35_1.zig[0m
+-rw-r--r--  1 dev staff   1109 Oct  2 12:02 [33mfile_35_2.zig[0m
+-rw-r--r--  1 dev staff   1146 Oct  2 12:03 [34mfile_35_3.zig[0m
+-rw-r--r--  1 dev staff   1183 Oct  2 12:04 [35mfile_35_4.zig[0m
+-rw-r--r--  1 dev staff   1220 Oct  2 12:05 [36mfile_35_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/36
+]133;C\-rw-r--r--  1 dev staff   1036 Oct  2 12:00 [31mfile_36_0.zig[0m
+-rw-r--r--  1 dev staff   1073 Oct  2 12:01 [32mfile_36_1.zig[0m
+-rw-r--r--  1 dev staff   1110 Oct  2 12:02 [33mfile_36_2.zig[0m
+-rw-r--r--  1 dev staff   1147 Oct  2 12:03 [34mfile_36_3.zig[0m
+-rw-r--r--  1 dev staff   1184 Oct  2 12:04 [35mfile_36_4.zig[0m
+-rw-r--r--  1 dev staff   1221 Oct  2 12:05 [36mfile_36_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project1\]2;dev@host: ~/project1[1;32mdev@host[0m:[1;34m~/project1[0m$ ]133;B\ls -la src/37
+]133;C\-rw-r--r--  1 dev staff   1037 Oct  2 12:00 [31mfile_37_0.zig[0m
+-rw-r--r--  1 dev staff   1074 Oct  2 12:01 [32mfile_37_1.zig[0m
+-rw-r--r--  1 dev staff   1111 Oct  2 12:02 [33mfile_37_2.zig[0m
+-rw-r--r--  1 dev staff   1148 Oct  2 12:03 [34mfile_37_3.zig[0m
+-rw-r--r--  1 dev staff   1185 Oct  2 12:04 [35mfile_37_4.zig[0m
+-rw-r--r--  1 dev staff   1222 Oct  2 12:05 [36mfile_37_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project2\]2;dev@host: ~/project2[1;32mdev@host[0m:[1;34m~/project2[0m$ ]133;B\ls -la src/38
+]133;C\-rw-r--r--  1 dev staff   1038 Oct  2 12:00 [31mfile_38_0.zig[0m
+-rw-r--r--  1 dev staff   1075 Oct  2 12:01 [32mfile_38_1.zig[0m
+-rw-r--r--  1 dev staff   1112 Oct  2 12:02 [33mfile_38_2.zig[0m
+-rw-r--r--  1 dev staff   1149 Oct  2 12:03 [34mfile_38_3.zig[0m
+-rw-r--r--  1 dev staff   1186 Oct  2 12:04 [35mfile_38_4.zig[0m
+-rw-r--r--  1 dev staff   1223 Oct  2 12:05 [36mfile_38_5.zig[0m
+]133;D;0\]133;A\]7;file://localhost/Users/dev/project0\]2;dev@host: ~/project0[1;32mdev@host[0m:[1;34m~/project0[0m$ ]133;B\ls -la src/39
+]133;C\-rw-r--r--  1 dev staff   1039 Oct  2 12:00 [31mfile_39_0.zig[0m
+-rw-r--r--  1 dev staff   1076 Oct  2 12:01 [32mfile_39_1.zig[0m
+-rw-r--r--  1 dev staff   1113 Oct  2 12:02 [33mfile_39_2.zig[0m
+-rw-r--r--  1 dev staff   1150 Oct  2 12:03 [34mfile_39_3.zig[0m
+-rw-r--r--  1 dev staff   1187 Oct  2 12:04 [35mfile_39_4.zig[0m
+-rw-r--r--  1 dev staff   1224 Oct  2 12:05 [36mfile_39_5.zig[0m
+]133;D;0\

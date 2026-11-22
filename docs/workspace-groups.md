@@ -8,7 +8,7 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
-A group's anchor is always a brand new workspace at creation time; grouping a selection or `create` never promotes one of your existing workspaces into the anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+When a group is created from existing workspaces, the first listed workspace becomes the anchor and no extra terminal is created. An empty group gets a new generated anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`). A generated anchor that is still an untouched shell is skipped when you click the header name area and the first real member is focused instead.
 
 Closing the anchor workspace closes only that workspace and **promotes the group's next member to be the new anchor**, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group back into ungrouped workspaces, use **Ungroup**; to close every workspace in a group, use **Delete Group**.
 
@@ -32,7 +32,7 @@ The sidebar layout, top to bottom:
 
 Press `⌃⌘G` to create a new empty workspace group. cmux inserts a fresh anchor workspace as the group header and auto-names it `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
-Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. The first selected workspace becomes the anchor; all selected workspaces become children without creating an extra terminal. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
 
 Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
 
@@ -52,51 +52,43 @@ Pressing `⌘N` while the active workspace is a group anchor or group member als
 
 ## CLI
 
-All group operations are scriptable via `cmux workspace-group <subcommand>`. The hyphenated form ships first; once the broader `cmux workspace <noun>` namespace lands, `cmux workspace group ...` will be the canonical form with the hyphenated form kept as an alias forever.
-
-### Subcommands
+Groups are scriptable with `cmux workspace group …`. Group and workspace arguments take a group id or key and a workspace id or key.
 
 ```bash
-cmux workspace-group list [--json]
-cmux workspace-group create --name "manaflow" [--cwd ~/projects/manaflow] [--from <id>,<id>] [--idempotency-key <key>]
-cmux workspace-group ungroup <group-id> [--remove-generated-anchor]
-cmux workspace-group delete <group-id>                         # dissolve; keep workspaces
-cmux workspace-group delete <group-id> --close-workspaces      # explicitly destructive
-cmux workspace-group rename <group-id> --name "new name"
-cmux workspace-group collapse <group-id>
-cmux workspace-group expand <group-id>
-cmux workspace-group pin <group-id>
-cmux workspace-group unpin <group-id>
-cmux workspace-group add --group <group-id> --workspace <workspace-id>
-cmux workspace-group remove --workspace <workspace-id>
-cmux workspace-group set-anchor --group <group-id> --workspace <workspace-id>
-cmux workspace-group new-workspace <group-id> [--placement afterCurrent|top|end]
+cmux workspace group list
+cmux workspace group create --name "manaflow" [--color <token|#hex>] [--id <id>] [--index <n>] [--collapse]
+cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color] [--collapse|--expand]
+cmux workspace group <group> delete
+cmux workspace group <group> move --index <n>
+cmux workspace group <group> add --workspace <key|id> [--index <n>]
+cmux workspace group remove --workspace <key|id>
 ```
 
-`create` returns a group handle (`workspace_group:N` by default). Omitting `--from` creates an anchor-only group; existing workspaces are never inferred from selection or caller context. Pass `--json` for the full structured payload.
+The rest are app actions on the focused group, or the one `--target` names (list them with `cmux action list --noun workspace-group`):
 
-Use a stable `--idempotency-key` (or `--external-id`) when more than one controller can reconcile the same logical group. The key is atomic within the target window and is persisted with the group. `--remove-generated-anchor` is an explicit cleanup path for an anchor-only group whose current anchor still has cmux-generated provenance; it refuses groups with child workspaces or user-selected anchors.
+```bash
+cmux workspace-group new-workspace
+cmux workspace-group ungroup
+cmux workspace-group toggle-pin
+cmux workspace-group close-workspaces     # closes every member workspace
+```
 
-`delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
+The Swift CLI's `cmux workspace-group …` flags `--cwd`, `--from`, `--idempotency-key`, `--external-id`, `--remove-generated-anchor`, `--close-workspaces`, and `--placement`, and the `set-anchor` verb, were removed with no Rust equivalent yet (see [plans/cmux-next/cli.md](../plans/cmux-next/cli.md)).
 
 ### Examples
 
 Group two explicitly chosen workspaces under a name:
 
 ```bash
-cmux workspace-group create --name manaflow --from workspace:1,workspace:2
+cmux workspace group create --name manaflow --id manaflow
+cmux workspace group manaflow add --workspace ws_0123456789abcdef0123456789abcdef
+cmux workspace group manaflow add --workspace ws_fedcba9876543210fedcba9876543210
 ```
 
-Spin up a new workspace inside an existing group (e.g. wired to a worktree script):
+List groups:
 
 ```bash
-cmux workspace-group new-workspace workspace_group:1
-```
-
-List groups in the focused window:
-
-```bash
-cmux workspace-group list
+cmux --json workspace group list
 ```
 
 ## Configuration
@@ -137,7 +129,7 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
 Matching: keys containing `*` or `?` are globs; otherwise they are path prefixes. Longest match wins.
 
 Resolution order for group new-workspace placement:
-1. Explicit `--placement afterCurrent|top|end` on `cmux workspace-group new-workspace`, or `"placement"` in the v2 `workspace.group.new_workspace` params.
+1. Explicit `"placement"` in the v2 `workspace.group.new_workspace` params.
 2. The per-cwd entry above.
 3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `afterCurrent`).
 

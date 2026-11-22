@@ -1021,6 +1021,11 @@ class CppEmitter:
                     f"    if (value == {_literal_json(value)}) "
                     f"return {name}::{_cpp_enum_value(value)};"
                 )
+            if "fallback" in expression:
+                lines.append(
+                    f"    if (value.is_string()) "
+                    f"return {name}::{_cpp_enum_value(expression['fallback'])};"
+                )
             lines.extend(
                 [
                     f'    return make_error(ErrorCode::decode, "unknown {name} value");',

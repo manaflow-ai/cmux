@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { Sidebar } from "../src/components/Sidebar";
 import { StatusBar } from "../src/components/StatusBar";
 import type { WorkspaceView } from "../src/lib/tree";
@@ -9,20 +9,22 @@ const workspace: WorkspaceView = {
   name: "alpha",
   active: true,
   subtitle: "shell",
-  screens: [{
-    id: 2n,
-    workspaceId: 1n,
-    label: "shell title",
-    statusLabel: "named",
-    active: true,
-    pane: null,
-    tab: null,
-    panes: [],
-    layout: { type: "leaf", pane: 3n },
-    activePane: 3n,
-    zoomedPane: null,
-    unread: false,
-  }],
+  screens: [
+    {
+      id: 2n,
+      workspaceId: 1n,
+      label: "shell title",
+      statusLabel: "named",
+      active: true,
+      pane: null,
+      tab: null,
+      panes: [],
+      layout: { type: "leaf", pane: 3n },
+      activePane: 3n,
+      zoomedPane: null,
+      unread: false,
+    },
+  ],
 };
 
 describe("TUI chrome components", () => {

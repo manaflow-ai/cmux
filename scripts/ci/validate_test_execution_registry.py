@@ -54,7 +54,7 @@ RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
 TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
 ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
-SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
+SUPPORTED_REQUIREMENTS = {"fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"
@@ -86,7 +86,8 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
-    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    routed CI lanes run guards too -- the Testbox checks now live in
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
     no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.

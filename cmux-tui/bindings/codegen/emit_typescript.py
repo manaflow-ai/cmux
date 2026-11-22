@@ -111,7 +111,11 @@ def _field_lines(expr: Mapping[str, Any], ref_prefix: str = "") -> list[str]:
             rendered = f"({rendered}) | null"
         lines.append(f"  {_property(name)}{optional}: {rendered};")
     if expr["additional_properties"]:
-        lines.append(f"  [key: string]: {ref_prefix}JsonValue;")
+        # An index signature must admit every declared property's type
+        # (TS2411), and optional ones are `| undefined`; unknown keys are
+        # still JSON values at runtime.
+        index = "unknown" if expr["fields"] else f"{ref_prefix}JsonValue"
+        lines.append(f"  [key: string]: {index};")
     return lines
 
 

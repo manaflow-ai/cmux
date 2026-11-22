@@ -1,0 +1,131 @@
+{
+  "family": "search_app",
+  "operations": [
+    {
+      "name": "search_app.search",
+      "owner": "app:cmux/search",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Text to find. Prefixes t: f: b: w: a: narrow sources; /regex/ is a regular expression; in:here or in:all sets the scope."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "workspaces",
+                "terminals",
+                "browser",
+                "apps",
+                "files"
+              ]
+            },
+            "description": "Only these sources (default: every enabled source)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 20,
+            "description": "Most results to return."
+          },
+          "scope": {
+            "enum": [
+              "workspace",
+              "all"
+            ],
+            "description": "The current workspace or everything (default: the defaultScope setting)."
+          },
+          "regex": {
+            "type": "boolean",
+            "default": false,
+            "description": "Treat the query as a regular expression."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "cli": {
+        "path": "search",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Search Everything"
+      },
+      "docs": "Search workspaces, terminals, browser pages, apps and files; it never moves focus.",
+      "since": "search_app/1",
+      "export": "search"
+    },
+    {
+      "name": "search_app.clear_recent",
+      "owner": "app:cmux/search",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "clear-recent",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Clear Recent Searches"
+      },
+      "docs": "Clear recent searches and recently opened results.",
+      "since": "search_app/1",
+      "export": "clearRecent"
+    },
+    {
+      "name": "search_app.cycle_variant",
+      "owner": "app:cmux/search",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Search Variant"
+      },
+      "docs": "Switch to the next Search design variant (DEV and NIGHTLY).",
+      "since": "search_app/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

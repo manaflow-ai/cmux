@@ -14,3 +14,6 @@ workspace = true
 anyhow.workspace = true
 libc.workspace = true
 portable-pty.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects"] }

@@ -1,0 +1,8 @@
+{"t":"2026-10-07T05:12:11.885Z","run":"r12q13","op":"create","kind":"vpc","id":"vpc-29124fddbc91473e94f219d768f8b2db","note":"q13"}
+{"t":"2026-10-07T05:12:18.949Z","run":"r12q13","op":"create","kind":"vm","id":"vm-91f882d786d9493393559b9eb63ad913","note":"q13-vm {\"cpu\":2,\"memory\":4096,\"storage\":16384}"}
+{"t":"2026-10-07T05:12:20.266Z","run":"r12q13","op":"create","kind":"tunnel","id":"tun-4a31485c233244b68500e71d4372b6c5","note":"q13-t"}
+{"t":"2026-10-07T05:12:20.313Z","run":"r12q13","op":"create","kind":"rule","id":"fw-360eea39abf048fbb9a811738dd1ea10","note":"q13"}
+{"t":"2026-10-07T05:20:20.086Z","run":"r12q13","op":"delete","kind":"rule","id":"fw-360eea39abf048fbb9a811738dd1ea10","note":"204"}
+{"t":"2026-10-07T05:20:20.164Z","run":"r12q13","op":"delete","kind":"tunnel","id":"tun-4a31485c233244b68500e71d4372b6c5","note":"204"}
+{"t":"2026-10-07T05:20:20.208Z","run":"r12q13","op":"delete","kind":"vm","id":"vm-91f882d786d9493393559b9eb63ad913","note":"204"}
+{"t":"2026-10-07T05:20:22.265Z","run":"r12q13","op":"delete","kind":"vpc","id":"vpc-29124fddbc91473e94f219d768f8b2db","note":"204"}

@@ -1,5 +1,7 @@
 # Live Reload Behavior
 
+This describes the Markdown panel of the old app. cmux-next has no Markdown viewer yet.
+
 The panel watches the file with a kernel-level watcher (`DispatchSource` with `O_EVTONLY`) for write, extend, delete, and rename events, and re-renders on change.
 
 ## Supported write patterns

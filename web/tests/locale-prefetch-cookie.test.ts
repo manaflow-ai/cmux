@@ -29,7 +29,7 @@ describe("locale preference during prefetch", () => {
 
   test("still persists the destination locale for a real navigation", () => {
     const response = middleware(new NextRequest("https://cmux.com/ko/blog/cmux-vault", {
-      headers: { host: "cmux.com", cookie: "NEXT_LOCALE=en", rsc: "1" },
+      headers: { host: "cmux.com", cookie: "NEXT_LOCALE=en", "sec-fetch-dest": "document" },
     }));
 
     expect(response.cookies.get("NEXT_LOCALE")?.value).toBe("ko");

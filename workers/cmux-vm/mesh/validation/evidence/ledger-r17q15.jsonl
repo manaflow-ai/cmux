@@ -1,0 +1,4 @@
+{"t":"2026-10-07T05:48:48.909Z","run":"r17q15","op":"create","kind":"vm","id":"vm-db95dc4125c7436c9ae4a1fcecca6659","note":"q15-noegress {\"cpu\":2,\"memory\":4096,\"storage\":16384}"}
+{"t":"2026-10-07T05:48:49.024Z","run":"r17q15","op":"create","kind":"vm","id":"vm-3c8bfe2f665b4950a4543e8048f6cfbf","note":"q15-egress {\"cpu\":2,\"memory\":4096,\"storage\":16384}"}
+{"t":"2026-10-07T05:50:38.931Z","run":"r17q15","op":"delete","kind":"vm","id":"vm-db95dc4125c7436c9ae4a1fcecca6659","note":"204"}
+{"t":"2026-10-07T05:50:39.005Z","run":"r17q15","op":"delete","kind":"vm","id":"vm-3c8bfe2f665b4950a4543e8048f6cfbf","note":"204"}

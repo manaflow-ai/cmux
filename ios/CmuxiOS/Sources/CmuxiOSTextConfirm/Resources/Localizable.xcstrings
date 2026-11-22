@@ -1,0 +1,2495 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "textConfirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "textConfirm.cooldown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone の設定から 24 時間後に下げられるようになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lowering works 24 hours after this iPhone is set up for it."
+          }
+        }
+      }
+    },
+    "textConfirm.destructiveOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإجراءات المدمرة فقط: تؤكد عمليات الحذف والإجراءات التي لا يمكن التراجع عنها. قد ينفق Chief المال ويرسل الرسائل ويغير الصلاحيات من رسالة دون أن يسألك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo destruktivne: potvrđuješ brisanja i radnje koje se ne mogu poništiti. Chief može trošiti novac, slati poruke i mijenjati pristup iz poruke bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun destruktive: Du bekræfter sletninger og handlinger, der ikke kan fortrydes. Chief kan bruge penge, sende beskeder og ændre adgang fra en besked uden at spørge dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur destruktive: Du bestätigst Löschungen und Aktionen, die sich nicht rückgängig machen lassen. Chief kann per Nachricht ohne Rückfrage Geld ausgeben, Nachrichten senden und Zugriff ändern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destructive only: you confirm deletions and actions that cannot be undone. Chief may spend money, send messages and change access from a text without asking you."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo destructivas: confirmas los borrados y las acciones que no se pueden deshacer. Chief puede gastar dinero, enviar mensajes y cambiar accesos desde un mensaje sin preguntarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destructives uniquement : vous confirmez les suppressions et les actions irréversibles. Chief peut dépenser, envoyer des messages et modifier les accès depuis un message sans vous demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo distruttive: confermi eliminazioni e azioni irreversibili. Chief può spendere, inviare messaggi e cambiare gli accessi da un messaggio senza chiederti nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破壊的な操作のみ: 削除と取り消せない操作だけを確認します。チーフはテキストから確認なしで支払い、送信、アクセス権の変更を行うことがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែសកម្មភាពបំផ្លិចបំផ្លាញ៖ អ្នកបញ្ជាក់ការលុប និងសកម្មភាពដែលមិនអាចត្រឡប់វិញបាន។ Chief អាចចំណាយលុយ ផ្ញើសារ និងប្ដូរសិទ្ធិចូលពីសារដោយមិនសួរអ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파괴적 작업만: 삭제와 되돌릴 수 없는 작업만 확인합니다. Chief는 문자만으로 묻지 않고 결제, 전송, 접근 권한 변경을 할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare destruktive: Du bekrefter slettinger og handlinger som ikke kan angres. Chief kan bruke penger, sende meldinger og endre tilgang fra en melding uten å spørre deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko destrukcyjne: potwierdzasz usunięcia i działania, których nie da się cofnąć. Chief może wydawać pieniądze, wysyłać wiadomości i zmieniać dostęp z wiadomości bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só destrutivas: você confirma exclusões e ações que não podem ser desfeitas. O Chief pode gastar, enviar mensagens e mudar acessos a partir de uma mensagem sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только разрушительные: вы подтверждаете удаления и необратимые действия. Chief может тратить деньги, отправлять сообщения и менять доступ по сообщению без вопросов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะที่ทำลาย: คุณยืนยันการลบและการกระทำที่ย้อนกลับไม่ได้ Chief อาจใช้เงิน ส่งข้อความ และเปลี่ยนสิทธิ์จากข้อความโดยไม่ถามคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca yıkıcı: Silmeleri ve geri alınamayan işlemleri onaylarsın. Chief bir mesajla sana sormadan para harcayabilir, mesaj gönderebilir ve erişimi değiştirebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише руйнівні: ви підтверджуєте видалення та незворотні дії. Chief може витрачати гроші, надсилати повідомлення й змінювати доступ із повідомлення без запитань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ hành động phá hủy: bạn xác nhận việc xóa và các hành động không thể hoàn tác. Chief có thể tiêu tiền, gửi tin nhắn và thay đổi quyền truy cập từ tin nhắn mà không hỏi bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅破坏性操作：你只需确认删除和无法撤销的操作。Chief 可能会根据短信直接花钱、发送消息和更改访问权限，而不询问你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅限破壞性操作：你只需確認刪除和無法復原的操作。Chief 可能會依簡訊直接花錢、傳送訊息並變更存取權限，而不詢問你。"
+          }
+        }
+      }
+    },
+    "textConfirm.keyAdded.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أضيف جهاز جديد يمكنه تخفيض حماية الرسائل بعد 24 ساعة. إذا لم تكن أنت، فأزله من إعدادات cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodan je novi uređaj koji nakon 24 sata može smanjiti zaštitu poruka. Ako to nisi ti, ukloni ga u postavkama cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny enhed, der kan sænke din beskyttelse efter 24 timer, er tilføjet. Hvis det ikke var dig, så fjern den i cmux-indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein neues Gerät wurde hinzugefügt, das nach 24 Stunden deinen Nachrichtenschutz verringern kann. Wenn du das nicht warst, entferne es in den cmux-Einstellungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new device was added that can lower your text protection after 24 hours. If this was not you, remove it in cmux Settings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se añadió un dispositivo nuevo que podrá reducir tu protección de mensajes en 24 horas. Si no fuiste tú, quítalo en los ajustes de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel appareil pouvant réduire votre protection des messages dans 24 heures a été ajouté. Si ce n'était pas vous, supprimez-le dans les réglages de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È stato aggiunto un nuovo dispositivo che tra 24 ore potrà ridurre la protezione dei messaggi. Se non sei stato tu, rimuovilo nelle impostazioni di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24時間後にテキストの保護を弱められる新しいデバイスが追加されました。心当たりがない場合は、cmux の設定で削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍ថ្មីមួយដែលអាចបន្ថយការការពារសាររបស់អ្នកបន្ទាប់ពី 24 ម៉ោង ត្រូវបានបន្ថែម។ បើមិនមែនអ្នកទេ សូមដកវាចេញក្នុងការកំណត់ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "24시간 후 문자 보호를 낮출 수 있는 새 기기가 추가되었습니다. 본인이 아니라면 cmux 설정에서 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny enhet som kan senke beskyttelsen etter 24 timer er lagt til. Hvis det ikke var deg, fjern den i cmux-innstillingene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodano nowe urządzenie, które po 24 godzinach może obniżyć ochronę wiadomości. Jeśli to nie Ty, usuń je w ustawieniach cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foi adicionado um novo dispositivo que poderá reduzir sua proteção de mensagens em 24 horas. Se não foi você, remova-o nos ajustes do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавлено новое устройство, которое через 24 часа сможет снизить защиту сообщений. Если это были не вы, удалите его в настройках cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีการเพิ่มอุปกรณ์ใหม่ที่จะลดการป้องกันข้อความได้หลังจาก 24 ชั่วโมง หากไม่ใช่คุณ ให้ลบออกในการตั้งค่า cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "24 saat sonra mesaj korumanı düşürebilecek yeni bir cihaz eklendi. Bu sen değilsen cmux ayarlarından kaldır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додано новий пристрій, який через 24 години зможе знизити захист повідомлень. Якщо це були не ви, видаліть його в налаштуваннях cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một thiết bị mới có thể giảm bảo vệ tin nhắn của bạn sau 24 giờ đã được thêm. Nếu không phải bạn, hãy xóa nó trong cài đặt cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已添加一台新设备，它将在 24 小时后可以降低你的短信保护。如果不是你，请在 cmux 设置中移除它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已新增一台裝置，它將在 24 小時後可以降低你的簡訊保護。如果不是你，請在 cmux 設定中移除它。"
+          }
+        }
+      }
+    },
+    "textConfirm.keyAdded.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز جديد يمكنه تخفيض حماية الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi uređaj može smanjiti zaštitu poruka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny enhed kan sænke beskyttelsen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neues Gerät kann den Schutz verringern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New device can lower text protection"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un dispositivo nuevo puede reducir la protección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel appareil peut réduire la protection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuovo dispositivo può ridurre la protezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストの保護を弱められる新しいデバイス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍ថ្មីអាចបន្ថយការការពារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 기기가 문자 보호를 낮출 수 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny enhet kan senke beskyttelsen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe urządzenie może obniżyć ochronę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo dispositivo pode reduzir a proteção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое устройство может снизить защиту"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อุปกรณ์ใหม่ลดการป้องกันได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni cihaz korumayı düşürebilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий пристрій може знизити захист"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết bị mới có thể giảm bảo vệ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新设备可以降低短信保护"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新裝置可以降低簡訊保護"
+          }
+        }
+      }
+    },
+    "textConfirm.level.destructiveOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المدمرة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo destruktivne"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun destruktive"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur destruktive"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destructive only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo destructivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destructives uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo distruttive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破壊的な操作のみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែសកម្មភាពបំផ្លិចបំផ្លាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파괴적 작업만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare destruktive"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko destrukcyjne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só destrutivas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только разрушительные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะที่ทำลาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca yıkıcı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише руйнівні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ hành động phá hủy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅破坏性操作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅限破壞性操作"
+          }
+        }
+      }
+    },
+    "textConfirm.level.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "textConfirm.level.strict": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صارم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strogo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strict"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estricto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strict"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rigoroso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "厳格"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តឹងរ៉ឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "엄격"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ścisły"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rigoroso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Строго"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เข้มงวด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Katı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Суворо"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nghiêm ngặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "严格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "嚴格"
+          }
+        }
+      }
+    },
+    "textConfirm.lockedBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مقفل بواسطة {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaključao {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Låst af {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesperrt von {name}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked by {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloqueado por {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verrouillé par {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloccato da {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} によってロックされています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាក់សោដោយ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name}에서 잠금"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Låst av {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zablokowane przez {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bloqueado por {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заблокировано: {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ล็อกโดย {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} tarafından kilitlendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Заблоковано: {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bị khóa bởi {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已被 {name} 锁定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已被 {name} 鎖定"
+          }
+        }
+      }
+    },
+    "textConfirm.lowered.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تغير تأكيد الرسائل إلى Chief من {from} إلى {to}. إذا لم تفعل ذلك، افتح cmux على جهاز موثوق وأعده إلى صارم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potvrda poruka za Chiefa promijenjena je s {from} na {to}. Ako to nisi ti, otvori cmux na pouzdanom uređaju i vrati na Strogo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bekræftelse af beskeder til Chief blev ændret fra {from} til {to}. Hvis det ikke var dig, så åbn cmux på en betroet enhed og sæt den tilbage til Streng."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Bestätigung für Nachrichten an Chief wurde von {from} auf {to} geändert. Wenn du das nicht warst, öffne cmux auf einem vertrauenswürdigen Gerät und stelle Streng wieder ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmation for texts to Chief changed from {from} to {to}. If you did not do this, open cmux on a trusted device and set it back to Strict."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La confirmación de mensajes a Chief cambió de {from} a {to}. Si no fuiste tú, abre cmux en un dispositivo de confianza y vuelve a Estricto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La confirmation des messages à Chief est passée de {from} à {to}. Si ce n'était pas vous, ouvrez cmux sur un appareil de confiance et remettez Strict."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La conferma dei messaggi a Chief è passata da {from} a {to}. Se non sei stato tu, apri cmux su un dispositivo fidato e torna a Rigoroso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーフへのテキストの確認レベルが {from} から {to} に変更されました。心当たりがない場合は、信頼できるデバイスで cmux を開き、厳格に戻してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ជាក់សម្រាប់សារទៅ Chief បានប្ដូរពី {from} ទៅ {to}។ បើមិនមែនអ្នកធ្វើទេ សូមបើក cmux នៅលើឧបករណ៍ដែលទុកចិត្ត ហើយប្ដូរត្រឡប់ទៅតឹងរ៉ឹង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief에게 보내는 문자의 확인 수준이 {from}에서 {to}(으)로 바뀌었습니다. 본인이 아니라면 신뢰할 수 있는 기기에서 cmux를 열고 엄격으로 되돌리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bekreftelse av meldinger til Chief ble endret fra {from} til {to}. Hvis det ikke var deg, åpne cmux på en klarert enhet og sett den tilbake til Streng."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potwierdzanie wiadomości do Chiefa zmieniono z {from} na {to}. Jeśli to nie Ty, otwórz cmux na zaufanym urządzeniu i przywróć Ścisły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A confirmação de mensagens ao Chief mudou de {from} para {to}. Se não foi você, abra o cmux em um dispositivo confiável e volte para Rigoroso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подтверждение сообщений для Chief изменено с {from} на {to}. Если это были не вы, откройте cmux на доверенном устройстве и верните «Строго»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การยืนยันข้อความถึง Chief เปลี่ยนจาก {from} เป็น {to} หากไม่ใช่คุณ ให้เปิด cmux บนอุปกรณ์ที่เชื่อถือได้และตั้งกลับเป็นเข้มงวด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'e gönderilen mesajların onayı {from} düzeyinden {to} düzeyine değişti. Bunu sen yapmadıysan cmux'u güvenilir bir cihazda aç ve Katı'ya geri al."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підтвердження повідомлень для Chief змінено з {from} на {to}. Якщо це були не ви, відкрийте cmux на довіреному пристрої та поверніть «Суворо»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mức xác nhận tin nhắn gửi Chief đã đổi từ {from} sang {to}. Nếu không phải bạn, hãy mở cmux trên thiết bị tin cậy và đặt lại Nghiêm ngặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发给 Chief 的短信确认级别已从{from}改为{to}。如果不是你操作的，请在受信任的设备上打开 cmux 并改回严格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳給 Chief 的簡訊確認等級已從{from}改為{to}。如果不是你操作的，請在受信任的裝置上開啟 cmux 並改回嚴格。"
+          }
+        }
+      }
+    },
+    "textConfirm.lowered.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更は受け付けられませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "The change was not accepted. Try again."
+          }
+        }
+      }
+    },
+    "textConfirm.lowered.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم تخفيض حماية الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaštita poruka je smanjena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskyttelse af beskeder sænket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichtenschutz verringert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text protection lowered"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Protección de mensajes reducida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Protection des messages réduite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Protezione dei messaggi ridotta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストの保護が弱められました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការការពារសារត្រូវបានបន្ថយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문자 보호 수준이 낮아졌습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskyttelse av meldinger senket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obniżono ochronę wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proteção de mensagens reduzida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Защита сообщений снижена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลดการป้องกันข้อความแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj koruması düşürüldü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Захист повідомлень знижено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã giảm bảo vệ tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "短信保护已降低"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "簡訊保護已降低"
+          }
+        }
+      }
+    },
+    "textConfirm.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف: ينفذ Chief كل ما تطلبه الرسالة دون أن يسألك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno: Chief radi sve što poruka traži bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra: Chief gør alt, hvad en besked beder om, uden at spørge dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus: Chief tut alles, worum eine Nachricht bittet, ohne dich zu fragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Chief does everything a text asks without asking you."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado: Chief hace todo lo que pide un mensaje sin preguntarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé : Chief fait tout ce qu'un message demande sans vous demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato: Chief fa tutto ciò che un messaggio chiede senza chiederti nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: チーフはテキストで頼まれたことを確認なしですべて行います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ៖ Chief ធ្វើគ្រប់យ៉ាងដែលសារស្នើដោយមិនសួរអ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔: Chief는 문자가 요청한 모든 것을 묻지 않고 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av: Chief gjør alt en melding ber om uten å spørre deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone: Chief robi wszystko, o co prosi wiadomość, bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado: o Chief faz tudo o que uma mensagem pede sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выкл.: Chief делает всё, о чём просит сообщение, не спрашивая вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด: Chief ทำทุกอย่างที่ข้อความขอโดยไม่ถามคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı: Chief, bir mesajın istediği her şeyi sana sormadan yapar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимк.: Chief робить усе, про що просить повідомлення, не питаючи вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt: Chief làm mọi thứ tin nhắn yêu cầu mà không hỏi bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭：Chief 会直接执行短信要求的一切，不询问你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉：Chief 會直接執行簡訊要求的一切，不詢問你。"
+          }
+        }
+      }
+    },
+    "textConfirm.raiseBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في هذا المستوى، يمكن لشخص يستولي على رقم هاتفك أن يفعل المزيد باسمك. تابع فقط إذا كنت تقبل هذه المخاطرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na ovom nivou osoba koja preuzme tvoj broj može učiniti više u tvoje ime. Nastavi samo ako prihvataš taj rizik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "På dette niveau kan en person, der overtager dit nummer, gøre mere som dig. Fortsæt kun, hvis du accepterer den risiko."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf dieser Stufe kann jemand, der deine Nummer übernimmt, mehr in deinem Namen tun. Fahre nur fort, wenn du dieses Risiko akzeptierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With this level, a person who takes over your phone number can do more as you. Continue only if you accept that risk."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con este nivel, quien se apodere de tu número puede hacer más en tu nombre. Continúa solo si aceptas ese riesgo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "À ce niveau, une personne qui prend votre numéro peut faire davantage en votre nom. Continuez seulement si vous acceptez ce risque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con questo livello, chi si impossessa del tuo numero può fare di più a tuo nome. Continua solo se accetti questo rischio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレベルでは、電話番号を乗っ取った人があなたとしてより多くのことを行えます。そのリスクを受け入れる場合のみ続けてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅកម្រិតនេះ អ្នកដែលយកលេខទូរស័ព្ទរបស់អ្នកអាចធ្វើបានច្រើនជាងមុនក្នុងនាមអ្នក។ បន្តតែបើអ្នកទទួលយកហានិភ័យនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 수준에서는 전화번호를 가로챈 사람이 당신 이름으로 더 많은 일을 할 수 있습니다. 그 위험을 받아들일 때만 계속하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "På dette nivået kan en person som tar over nummeret ditt gjøre mer som deg. Fortsett bare hvis du godtar den risikoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na tym poziomie osoba, która przejmie Twój numer, może zrobić więcej w Twoim imieniu. Kontynuuj tylko, jeśli akceptujesz to ryzyko."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neste nível, quem tomar seu número pode fazer mais em seu nome. Continue só se aceitar esse risco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этом уровне человек, захвативший ваш номер, может сделать больше от вашего имени. Продолжайте, только если принимаете этот риск."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ในระดับนี้ คนที่ยึดหมายเลขของคุณได้จะทำสิ่งต่างๆ ในนามคุณได้มากขึ้น ดำเนินการต่อเฉพาะเมื่อคุณยอมรับความเสี่ยงนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu seviyede numaranı ele geçiren biri senin adına daha fazlasını yapabilir. Yalnızca bu riski kabul ediyorsan devam et."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цьому рівні людина, яка захопила ваш номер, може зробити більше від вашого імені. Продовжуйте, лише якщо приймаєте цей ризик."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ở mức này, người chiếm số điện thoại của bạn có thể làm nhiều hơn nhân danh bạn. Chỉ tiếp tục nếu bạn chấp nhận rủi ro đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此级别下，夺取你号码的人能以你的名义做更多事。只有在你接受这一风险时才继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此等級下，奪取你號碼的人能以你的名義做更多事。只有在你接受這項風險時才繼續。"
+          }
+        }
+      }
+    },
+    "textConfirm.raiseConfirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تقليل الحماية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Smanji zaštitu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sænk beskyttelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schutz verringern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lower protection"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reducir protección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduire la protection"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riduci protezione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護を弱める"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថយការការពារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보호 낮추기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senk beskyttelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obniż ochronę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reduzir proteção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снизить защиту"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลดการป้องกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumayı düşür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знизити захист"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giảm bảo vệ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "降低保护"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "降低保護"
+          }
+        }
+      }
+    },
+    "textConfirm.raiseTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد تقليل الحماية؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Smanjiti zaštitu?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sænk din beskyttelse?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schutz verringern?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lower your protection?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Reducir tu protección?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réduire votre protection ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ridurre la protezione?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護を弱めますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថយការការពាររបស់អ្នក?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보호 수준을 낮출까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senke beskyttelsen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obniżyć ochronę?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reduzir sua proteção?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снизить защиту?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลดการป้องกันของคุณหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korumanı düşürmek mi istiyorsun?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знизити захист?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giảm mức bảo vệ?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "降低你的保护级别？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "降低你的保護等級？"
+          }
+        }
+      }
+    },
+    "textConfirm.simSwapRisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أي شخص يسيطر على رقم هاتفك (هاتف مسروق أو تبديل شريحة SIM أو رقم معاد تدويره) يمكنه مراسلة Chief باسمك. كلما قل ما تؤكده، زاد ما يمكن لذلك الشخص فعله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svako ko preuzme tvoj broj telefona (ukraden telefon, zamjena SIM kartice ili reciklirani broj) može pisati Chiefu kao ti. Što manje potvrđuješ, ta osoba može više."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle, der overtager dit telefonnummer (en stjålet telefon, et SIM-bytte eller et genbrugt nummer), kan skrive til Chief som dig. Jo mindre du bekræfter, jo mere kan den person gøre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wer deine Telefonnummer übernimmt (gestohlenes Telefon, SIM-Tausch oder neu vergebene Nummer), kann Chief als du schreiben. Je weniger du bestätigst, desto mehr kann diese Person tun."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anyone who takes control of your phone number (a stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm, the more that person can do."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quien tome el control de tu número de teléfono (un teléfono robado, un cambio de SIM o un número reciclado) puede escribir a Chief como tú. Cuanto menos confirmes, más podrá hacer esa persona."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toute personne qui prend le contrôle de votre numéro (téléphone volé, échange de SIM ou numéro réattribué) peut écrire à Chief en votre nom. Moins vous confirmez, plus cette personne peut agir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiunque prenda il controllo del tuo numero (telefono rubato, scambio di SIM o numero riassegnato) può scrivere a Chief come te. Meno confermi, più quella persona può fare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの電話番号を乗っ取った人（盗まれた電話、SIMスワップ、再利用された番号）は、あなたとしてチーフにテキストを送れます。確認が少ないほど、その人ができることは増えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកណាដែលគ្រប់គ្រងលេខទូរស័ព្ទរបស់អ្នក (ទូរស័ព្ទដែលត្រូវលួច ការប្ដូរ SIM ឬលេខដែលប្រើឡើងវិញ) អាចផ្ញើសារទៅ Chief ក្នុងនាមអ្នក។ អ្នកបញ្ជាក់កាន់តែតិច មនុស្សនោះអាចធ្វើបានកាន់តែច្រើន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전화번호를 장악한 사람(도난된 휴대폰, SIM 스와프, 재사용된 번호)은 당신인 척 Chief에게 문자를 보낼 수 있습니다. 확인을 적게 할수록 그 사람이 할 수 있는 일이 많아집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle som tar kontroll over telefonnummeret ditt (en stjålet telefon, et SIM-bytte eller et gjenbrukt nummer) kan sende meldinger til Chief som deg. Jo mindre du bekrefter, jo mer kan den personen gjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każdy, kto przejmie Twój numer telefonu (skradziony telefon, podmiana karty SIM lub ponownie przydzielony numer), może pisać do Chiefa jako Ty. Im mniej potwierdzasz, tym więcej ta osoba może zrobić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quem assumir o controle do seu número (celular roubado, troca de SIM ou número reciclado) pode mandar mensagens ao Chief como você. Quanto menos você confirma, mais essa pessoa pode fazer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Любой, кто завладеет вашим номером (украденный телефон, подмена SIM или повторно выданный номер), может писать Chief от вашего имени. Чем меньше вы подтверждаете, тем больше может сделать этот человек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใครก็ตามที่ควบคุมหมายเลขโทรศัพท์ของคุณได้ (โทรศัพท์ถูกขโมย การสลับซิม หรือหมายเลขที่นำกลับมาใช้) สามารถส่งข้อความถึง Chief ในนามคุณ ยิ่งคุณยืนยันน้อย คนนั้นก็ยิ่งทำได้มาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefon numaranın kontrolünü ele geçiren herkes (çalınan telefon, SIM değiştirme veya yeniden atanmış numara) Chief'e senin yerine yazabilir. Ne kadar az onaylarsan o kişi o kadar çok şey yapabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Будь-хто, хто заволодіє вашим номером (викрадений телефон, заміна SIM або повторно виданий номер), може писати Chief від вашого імені. Що менше ви підтверджуєте, то більше може зробити ця людина."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bất kỳ ai chiếm được số điện thoại của bạn (điện thoại bị đánh cắp, hoán đổi SIM hoặc số được cấp lại) đều có thể nhắn cho Chief với tư cách là bạn. Bạn xác nhận càng ít, người đó càng làm được nhiều."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "任何控制了你的电话号码的人（手机被盗、SIM 卡被换或号码被回收再分配）都能以你的身份给 Chief 发短信。你确认得越少，这个人能做的就越多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "任何控制了你電話號碼的人（手機遭竊、SIM 卡被換或號碼被回收再分配）都能以你的身分傳簡訊給 Chief。你確認得越少，這個人能做的就越多。"
+          }
+        }
+      }
+    },
+    "textConfirm.strict": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صارم (موصى به): عندما تطلب رسالة من Chief حذف شيء أو إنفاق مال أو إرسال شيء خارج cmux أو تغيير الصلاحيات أو أي إجراء لا يمكن التراجع عنه، تؤكد ذلك في التطبيق أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strogo (preporučeno): kada poruka traži od Chiefa da nešto obriše, potroši novac, pošalje nešto izvan cmuxa, promijeni pristup ili uradi nešto što se ne može poništiti, prvo to potvrdiš u aplikaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng (anbefalet): Når en besked beder Chief om at slette noget, bruge penge, sende noget uden for cmux, ændre adgang eller gøre noget, der ikke kan fortrydes, bekræfter du det først i appen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng (empfohlen): Wenn eine Nachricht Chief bittet, etwas zu löschen, Geld auszugeben, etwas außerhalb von cmux zu senden, Zugriff zu ändern oder etwas Unumkehrbares zu tun, bestätigst du es zuerst in der App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strict (recommended): when a text asks Chief to delete something, spend money, send something outside cmux, change who has access or do anything that cannot be undone, you confirm it in the app first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estricto (recomendado): cuando un mensaje pide a Chief borrar algo, gastar dinero, enviar algo fuera de cmux, cambiar el acceso o hacer algo que no se puede deshacer, lo confirmas primero en la app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strict (recommandé) : quand un message demande à Chief de supprimer quelque chose, de dépenser de l'argent, d'envoyer quelque chose hors de cmux, de modifier les accès ou de faire une action irréversible, vous le confirmez d'abord dans l'app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rigoroso (consigliato): quando un messaggio chiede a Chief di eliminare qualcosa, spendere denaro, inviare qualcosa fuori da cmux, cambiare gli accessi o fare qualcosa di irreversibile, lo confermi prima nell'app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "厳格（推奨）: テキストでチーフに削除、支払い、cmux外への送信、アクセス権の変更、または取り消せない操作を頼んだときは、先にアプリで確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តឹងរ៉ឹង (ណែនាំ)៖ នៅពេលសារស្នើឱ្យ Chief លុប ចំណាយលុយ ផ្ញើអ្វីមួយក្រៅ cmux ប្ដូរសិទ្ធិចូល ឬធ្វើអ្វីដែលមិនអាចត្រឡប់វិញបាន អ្នកបញ្ជាក់វានៅក្នុងកម្មវិធីជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "엄격(권장): 문자가 Chief에게 삭제, 결제, cmux 밖으로의 전송, 접근 권한 변경 또는 되돌릴 수 없는 작업을 요청하면 먼저 앱에서 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Streng (anbefalt): Når en melding ber Chief slette noe, bruke penger, sende noe utenfor cmux, endre tilgang eller gjøre noe som ikke kan angres, bekrefter du det i appen først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ścisły (zalecany): gdy wiadomość prosi Chiefa o usunięcie czegoś, wydanie pieniędzy, wysłanie czegoś poza cmux, zmianę dostępu lub coś, czego nie da się cofnąć, najpierw potwierdzasz to w aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rigoroso (recomendado): quando uma mensagem pede ao Chief para excluir algo, gastar dinheiro, enviar algo para fora do cmux, mudar acessos ou fazer algo que não pode ser desfeito, você confirma primeiro no app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Строго (рекомендуется): когда сообщение просит Chief что-то удалить, потратить деньги, отправить что-то за пределы cmux, изменить доступ или сделать что-то необратимое, вы сначала подтверждаете это в приложении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เข้มงวด (แนะนำ): เมื่อข้อความขอให้ Chief ลบบางอย่าง ใช้เงิน ส่งบางอย่างออกนอก cmux เปลี่ยนสิทธิ์การเข้าถึง หรือทำสิ่งที่ย้อนกลับไม่ได้ คุณจะยืนยันในแอปก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Katı (önerilen): Bir mesaj Chief'ten bir şeyi silmesini, para harcamasını, cmux dışına bir şey göndermesini, erişimi değiştirmesini veya geri alınamayan bir şey yapmasını istediğinde önce uygulamada onaylarsın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Суворо (рекомендовано): коли повідомлення просить Chief щось видалити, витратити гроші, надіслати щось за межі cmux, змінити доступ або зробити щось незворотне, ви спершу підтверджуєте це в застосунку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nghiêm ngặt (khuyên dùng): khi tin nhắn yêu cầu Chief xóa thứ gì đó, tiêu tiền, gửi thứ gì ra ngoài cmux, thay đổi quyền truy cập hoặc làm điều không thể hoàn tác, bạn xác nhận trong ứng dụng trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "严格（推荐）：当短信要求 Chief 删除内容、花钱、向 cmux 之外发送内容、更改访问权限或执行无法撤销的操作时，你需要先在应用中确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "嚴格（建議）：當簡訊要求 Chief 刪除內容、花錢、向 cmux 以外傳送內容、變更存取權限或執行無法復原的操作時，你需要先在 App 中確認。"
+          }
+        }
+      }
+    },
+    "textConfirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تأكيد الإجراءات الخطرة المطلوبة عبر الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potvrdi rizične radnje tražene porukom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bekræft risikable handlinger bedt om via sms"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riskante Aktionen per Nachricht bestätigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm risky actions asked by text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Confirmar acciones de riesgo pedidas por mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Confirmer les actions risquées demandées par message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conferma le azioni rischiose richieste via messaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストで頼まれた危険な操作を確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជាក់សកម្មភាពប្រថុយប្រថានដែលស្នើតាមសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "문자로 요청된 위험한 작업 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bekreft risikable handlinger bedt om via melding"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potwierdzaj ryzykowne działania zlecone SMS-em"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Confirmar ações arriscadas pedidas por mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подтверждать рискованные действия, запрошенные по SMS"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยืนยันการกระทำที่มีความเสี่ยงซึ่งสั่งผ่านข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesajla istenen riskli işlemleri onayla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підтверджувати ризиковані дії, запитані повідомленням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xác nhận hành động rủi ro được yêu cầu qua tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "确认通过短信请求的风险操作"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認透過簡訊要求的風險操作"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

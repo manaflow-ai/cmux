@@ -111,6 +111,8 @@ class FailoverTests(unittest.TestCase):
         values, problems = switch.failover_values(PIN, "")
         self.assertEqual(problems, [])
         self.assertEqual(values["LINUX_RUNNER"], "ubuntu-24.04")
+        # The merge-gating checks leave Blacksmith with the rest of Linux.
+        self.assertEqual(values["CI_TRUSTED_RUNNER"], "ubuntu-24.04")
         for name in switch.STD_VARIABLES:
             self.assertEqual(values[name], "glaeda-std-xcode-26.6")
         self.assertEqual(values["MACOS_RUNNER_DISPLAY"], "glaeda-gui-std-xcode-26.6")
@@ -141,7 +143,8 @@ class FailoverTests(unittest.TestCase):
 
     def test_no_pin_leaves_macos_alone(self) -> None:
         values, problems = switch.failover_values("", "")
-        self.assertEqual(values, {"LINUX_RUNNER": "ubuntu-24.04"})
+        # Linux variables alone never turn on paid macOS overflow.
+        self.assertEqual(values, {"LINUX_RUNNER": "ubuntu-24.04", "CI_TRUSTED_RUNNER": "ubuntu-24.04"})
         self.assertEqual(len(problems), 1)
 
 

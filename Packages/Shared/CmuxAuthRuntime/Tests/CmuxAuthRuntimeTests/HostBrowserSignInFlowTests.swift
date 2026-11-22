@@ -140,6 +140,38 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
     }
 
+    @Test func signInDoesNotAskForTheAccountChooserByDefault() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        let url = harness.factory.sessions[0].signInURL
+        #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "prompt" } == false)
+    }
+
+    /// Switch Account asks the hosted page to confirm the account, on the
+    /// popup and on the default-browser fallback alike, and the next normal
+    /// attempt goes back to plain sign-in.
+    @Test func selectAccountAttemptCarriesThePromptEverywhere() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        harness.flow.beginSignIn(selectAccount: true)
+        await harness.waitForSession()
+
+        let prompt = { (url: URL?) in
+            url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "prompt" }?.value }
+        }
+        #expect(prompt(harness.factory.sessions[0].signInURL) == "select_account")
+        #expect(prompt(harness.flow.activeAttemptSignInURL) == "select_account")
+        #expect(harness.factory.sessions[0].signInURL.absoluteString.contains("cmux_auth_state="))
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+        #expect(prompt(harness.factory.sessions[1].signInURL) == nil)
+        #expect(harness.factory.sessions[0].cancelled)
+    }
+
     @Test func newAttemptCancelsPreviousPopup() async {
         let harness = HostBrowserSignInFlowHarness()
 
@@ -492,19 +524,6 @@ import Testing
         #expect(harness.coordinator.isAuthenticated)
         #expect(harness.coordinator.currentUser == user)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-    }
-
-    @Test func fallbackExternalCallbackWithoutActiveAttemptSignsIn() async {
-        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
-
-        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
-
-        #expect(result)
-        #expect(harness.coordinator.isAuthenticated)
-        #expect(harness.coordinator.currentUser == user)
-        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
     }
 
     @Test func statefulExternalCallbackWithoutActiveAttemptIsRejected() async {

@@ -25,7 +25,7 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
 
     /// Canonical text (`inet_ntop`), usable as a connect target.
     public var text: String {
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         switch self {
         case .v4(let bytes):
             var address = in_addr()
@@ -62,15 +62,16 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
         case .v6(let bytes):
             // IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible (::a.b.c.d), and
             // NAT64 (64:ff9b::a.b.c.d) addresses reach the embedded IPv4.
-            let prefix = Array(bytes[0..<12])
+            let prefix = Array(bytes.prefix(12))
+            let embeddedV4 = Array(bytes.dropFirst(12).prefix(4))
             if prefix == Array(repeating: 0, count: 10) + [0xFF, 0xFF]
                 || prefix == [0x00, 0x64, 0xFF, 0x9B] + Array(repeating: 0, count: 8) {
-                return Self.scopeV4(Array(bytes[12..<16]))
+                return Self.scopeV4(embeddedV4)
             }
             if prefix == Array(repeating: 0, count: 12) {
-                if bytes[12..<16].allSatisfy({ $0 == 0 }) { return .loopback } // ::
-                if bytes[12..<15].allSatisfy({ $0 == 0 }), bytes[15] == 1 { return .loopback } // ::1
-                return Self.scopeV4(Array(bytes[12..<16]))
+                if embeddedV4.allSatisfy({ $0 == 0 }) { return .loopback } // ::
+                if embeddedV4 == [0, 0, 0, 1] { return .loopback } // ::1
+                return Self.scopeV4(embeddedV4)
             }
             if bytes[0] == 0xFE, bytes[1] & 0xC0 == 0x80 { return .forbidden } // fe80::/10 link-local
             if bytes[0] == 0xFE, bytes[1] & 0xC0 == 0xC0 { return .forbidden } // fec0::/10 site-local

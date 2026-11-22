@@ -72,6 +72,7 @@ jobs:
       # /synthetics page graphs. The token can only ingest.
       - name: Send the run to Axiom
         if: ${{ always() && github.event_name == 'schedule' }}
+        continue-on-error: true
         working-directory: .
         env:
           AXIOM_INGEST_TOKEN: ${{ secrets.AXIOM_INGEST_TOKEN }}
@@ -87,7 +88,7 @@ jobs:
           result="$RUNNER_TEMP/canary-result.json"
           # No result file means the runner failed before the check ran.
           [ -s "$result" ] || echo '{"ok":false,"stage":"runner","error":"the check did not start"}' > "$result"
-          jq -c --arg run_url "$RUN_URL" --arg revision "$REVISION" '[{
+          if ! jq -c --arg run_url "$RUN_URL" --arg revision "$REVISION" '[{
               name: "cmux.synthetic.check",
               synthetic_check: "cloud_vm_canary",
               synthetic_target: (.target // "production"),
@@ -104,7 +105,9 @@ jobs:
               synthetic_host: "github-actions"
             } | with_entries(select(.value != null))]' "$result" |
             curl -fsS -X POST -H "authorization: Bearer $AXIOM_INGEST_TOKEN" -H 'content-type: application/json' \
-              --data @- "https://api.axiom.co/v1/datasets/$AXIOM_DATASET/ingest" | jq -e '.failed == 0' >/dev/null
+              --data @- "https://api.axiom.co/v1/datasets/$AXIOM_DATASET/ingest" | jq -e '.failed == 0' >/dev/null; then
+            echo "::warning::Axiom ingest failed; rotate AXIOM_INGEST_TOKEN. The Cloud VM canary result is retained."
+          fi
 
       - name: Tell Slack when the state changes
         if: ${{ always() && github.event_name == 'schedule' }}

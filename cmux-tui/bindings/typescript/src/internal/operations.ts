@@ -65,6 +65,7 @@ export const operations = Object.freeze({
   screenClose: op("screen.close", "mutation"),
   screenLayoutExport: op("screen.layout.export", "read"),
   screenLayoutUndo: op("screen.layout.undo", "mutation"),
+  screenColumnUpdate: op("column.update", "mutation"),
 
   paneList: op("pane.list", "read"),
   paneGet: op("pane.get", "read"),

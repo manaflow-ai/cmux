@@ -1,0 +1,213 @@
+{
+  "prompt": "The reconnect test fails about one run in five on CI. Find out why and fix it.",
+  "steps": [
+    {
+      "atMs": 1500,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "I'll find where the reconnect backoff is scheduled and run the test a few times to catch the race."
+        }
+      }
+    },
+    {
+      "atMs": 3000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "s1",
+        "kind": "search",
+        "title": "Search scheduleReconnect in src",
+        "status": "in_progress"
+      }
+    },
+    {
+      "atMs": 4200,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "s1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "src/relay/reconnect.ts:12  export function scheduleReconnect(socket: RelaySocket, attempt: number) {\nsrc/relay/socket.ts:88      scheduleReconnect(this, this.attempt++);\nsrc/relay/socket.ts:104     onOpen(this);"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 5000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "r1",
+        "kind": "read",
+        "title": "Read src/relay/reconnect.ts",
+        "status": "in_progress",
+        "locations": [
+          {
+            "path": "/work/relay/src/relay/reconnect.ts"
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 5600,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "r1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "export function scheduleReconnect(socket: RelaySocket, attempt: number) {\n  const delay = Math.min(30_000, 250 * 2 ** attempt);\n  socket.timer = setTimeout(() => socket.connect(), delay);\n}\n\nexport function onOpen(socket: RelaySocket) {\n  socket.attempt = 0;\n}\n"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 7000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "x1",
+        "kind": "execute",
+        "title": "bun test reconnect --rerun-each 10",
+        "status": "in_progress"
+      }
+    },
+    {
+      "atMs": 19000,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "x1",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "reconnect.test.ts:\n(pass) reconnects after a drop [304ms]\n(fail) reconnects after a drop [301ms]\n  expect(received).toBe(expected)\n  Expected: 2\n  Received: 3\n\n 8 pass\n 2 fail"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 21000,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "Two problems. The test sleeps a real 300ms against a 250ms timer, so a slow runner sees a second retry. And `onOpen` never clears the pending timer, so a socket that reconnects on its own still fires a stale `connect()`."
+        }
+      }
+    },
+    {
+      "atMs": 24000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "e1",
+        "kind": "edit",
+        "title": "Edit src/relay/reconnect.ts",
+        "status": "in_progress",
+        "locations": [
+          {
+            "path": "/work/relay/src/relay/reconnect.ts",
+            "line": 12
+          }
+        ],
+        "content": [
+          {
+            "type": "diff",
+            "path": "/work/relay/src/relay/reconnect.ts",
+            "oldText": "export function scheduleReconnect(socket: RelaySocket, attempt: number) {\n  const delay = Math.min(30_000, 250 * 2 ** attempt);\n  socket.timer = setTimeout(() => socket.connect(), delay);\n}\n\nexport function onOpen(socket: RelaySocket) {\n  socket.attempt = 0;\n}\n",
+            "newText": "export function scheduleReconnect(socket: RelaySocket, attempt: number) {\n  clearTimeout(socket.timer);\n  const delay = Math.min(30_000, 250 * 2 ** attempt);\n  socket.timer = setTimeout(() => socket.connect(), delay);\n}\n\nexport function onOpen(socket: RelaySocket) {\n  clearTimeout(socket.timer);\n  socket.timer = undefined;\n  socket.attempt = 0;\n}\n"
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 24500,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "e1",
+        "status": "completed"
+      }
+    },
+    {
+      "atMs": 27000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "e2",
+        "kind": "edit",
+        "title": "Edit src/relay/reconnect.test.ts",
+        "status": "in_progress",
+        "locations": [
+          {
+            "path": "/work/relay/src/relay/reconnect.test.ts",
+            "line": 30
+          }
+        ],
+        "content": [
+          {
+            "type": "diff",
+            "path": "/work/relay/src/relay/reconnect.test.ts",
+            "oldText": "test(\"reconnects after a drop\", async () => {\n  const socket = await connected();\n  socket.drop();\n  await sleep(300);\n  expect(socket.connects).toBe(2);\n});\n",
+            "newText": "test(\"reconnects after a drop\", async () => {\n  const clock = fakeTimers();\n  const socket = await connected();\n  socket.drop();\n  clock.advance(250);\n  expect(socket.connects).toBe(2);\n});\n\ntest(\"an open socket cancels the pending reconnect\", async () => {\n  const clock = fakeTimers();\n  const socket = await connected();\n  socket.drop();\n  socket.open();\n  clock.advance(30_000);\n  expect(socket.connects).toBe(2);\n});\n"
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 27500,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "e2",
+        "status": "completed"
+      }
+    },
+    {
+      "atMs": 29000,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "x2",
+        "kind": "execute",
+        "title": "bun test reconnect --rerun-each 50",
+        "status": "in_progress"
+      }
+    },
+    {
+      "atMs": 61000,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "x2",
+        "status": "completed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "reconnect.test.ts:\n(pass) reconnects after a drop\n(pass) an open socket cancels the pending reconnect\n\n 100 pass\n 0 fail"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 72000,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "content": {
+          "type": "text",
+          "text": "Fixed. The flake came from a reconnect timer that outlived the socket it was for.\n\n- `onOpen` now cancels the pending timer, so a socket that comes back on its own doesn't connect twice.\n- `scheduleReconnect` clears any earlier timer before arming a new one.\n- The test runs on fake timers instead of a real 300ms sleep, and a new test covers the stale timer.\n\nThe core of the change:\n\n```ts\nexport function onOpen(socket: RelaySocket) {\n  clearTimeout(socket.timer);\n  socket.timer = undefined;\n  socket.attempt = 0;\n}\n```\n\n`bun test reconnect --rerun-each 50` passes 100 of 100."
+        }
+      }
+    }
+  ],
+  "endAtMs": 76000
+}

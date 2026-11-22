@@ -39,6 +39,14 @@ export const MAX_ANALYTICS_EVENT_PROPERTIES = 64;
 // sync with the P0/P1/P2 catalog as new events ship.
 const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "$identify",
+  // In-app purchase funnel (CmuxMobileBilling)
+  "ios_paywall_viewed",
+  "ios_purchase_started",
+  "ios_purchase_cancelled",
+  "ios_purchase_failed",
+  "ios_purchase_pending",
+  "ios_restore_started",
+  "ios_restore_completed",
   // App lifecycle + session
   "ios_app_first_launch",
   "ios_app_launched",

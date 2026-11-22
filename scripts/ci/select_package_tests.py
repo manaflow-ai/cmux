@@ -18,11 +18,6 @@ from pathlib import Path
 
 PATH_DEPENDENCY = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
 
-# Inputs outside a package's own directory and its path dependencies.
-EXTRA_INPUTS = {
-    "CmuxCommandPalette": ("Native/CommandPaletteNucleoFFI/",),
-}
-
 # The job itself: its workflow, the scripts its test steps call, and the pinned
 # toolchain and GhosttyKit revision. A change to any of these selects everything.
 GLOBAL_INPUTS = (
@@ -40,6 +35,8 @@ GLOBAL_INPUTS = (
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/package_input_key.py",
+    "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
@@ -56,14 +53,7 @@ GLOBAL_INPUTS = (
 # Paths that cannot reach a package test. Anything not listed here, not under
 # Packages/, and not a path dependency selects every package.
 UNRELATED_PREFIXES = (
-    "Sources/",
-    "CLI/",
-    "TunnelExtension/",
     "Resources/",
-    "cmuxTests/",
-    "cmuxCLITests/",
-    "cmuxCLITestSupport/",
-    "cmuxUITests/",
     "cmux.xcodeproj/",
     "cmux.xcworkspace/",
     "ios/",
@@ -115,10 +105,6 @@ def input_prefixes(root: Path, name: str, dirs: dict[str, str]) -> set[str]:
         prefixes.add(prefix)
         if (root / directory / "Package.swift").is_file():
             pending.extend(path_dependencies(root, directory))
-    dependency_names = {Path(prefix).name for prefix in prefixes}
-    for owner, extra in EXTRA_INPUTS.items():
-        if owner in dependency_names:
-            prefixes.update(extra)
     return prefixes
 
 

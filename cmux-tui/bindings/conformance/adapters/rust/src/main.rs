@@ -148,6 +148,7 @@ fn dispatch(request: Request) -> Result<Value, Box<dyn std::error::Error>> {
                     name: Some(request.constants.name.clone()),
                     initial_content: InitialContent::Empty,
                     correlation_key: Some(request.constants.correlation_key.clone()),
+                    ephemeral: false,
                 },
                 MutationOptions::new(request.constants.idempotency_key.clone())?,
             );
@@ -485,7 +486,7 @@ fn create_empty_workspace(
             CreateWorkspaceOptions {
                 name: Some(name.to_string()),
                 initial_content: InitialContent::Empty,
-                correlation_key: None,
+                ..CreateWorkspaceOptions::default()
             },
             MutationOptions::new(key)?,
         )?

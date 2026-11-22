@@ -7,6 +7,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
+NAMESPACE_FIX=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --namespace-fix) NAMESPACE_FIX=1 ;;
+        -h|--help)
+            echo "usage: $0 [--namespace-fix]"
+            exit 0
+            ;;
+        *)
+            echo "error: unknown option: $1" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
 cd "$REPO_ROOT"
 
 GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
@@ -30,6 +46,11 @@ case "$PYTHON3_BIN" in
 esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+if (( NAMESPACE_FIX )); then
+    install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
+    install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
+    install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
+fi
 install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DIR/validate_test_execution_registry.py"
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
@@ -104,9 +125,9 @@ MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
-install -m 0644 scripts/ci/catch_up_pr.py "$MERGE_DRIVER_DIR/ci/catch_up_pr.py"
+install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
-printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P' \
+printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
@@ -123,3 +144,9 @@ git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
 git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
 git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."
+# Generated web bundles keep the current branch's copy and are rebuilt by
+# scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
+# checkout path, so this driver needs no trusted copy.
+git config merge.cmux-generated-v1.name "Generated web bundle (keep ours, then regenerate)"
+git config merge.cmux-generated-v1.driver true
+echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.driver)."

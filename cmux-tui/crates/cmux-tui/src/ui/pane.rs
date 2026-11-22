@@ -172,7 +172,11 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
         buf[(x1, y1)].set_symbol(glyphs.bottom_right).set_style(style);
     }
 
-    if let Some(label) = app.client_border_labels.get(&area.surface) {
+    let label = match app.size_state_labels.get(&area.surface) {
+        Some(label) => label.as_ref(),
+        None => app.client_border_labels.get(&area.surface),
+    };
+    if let Some(label) = label {
         let width = label.width() as u16;
         if area.has_left_edge() && area.has_right_edge() && width + 2 < rect.width {
             let hit = Rect { x: x0 + 1, y: y1, width, height: 1 };

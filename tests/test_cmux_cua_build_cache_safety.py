@@ -198,6 +198,7 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
                 arch,
                 "--cache-dir",
                 str(cache_dir),
+                "--helper-app",
             ],
             env=successful_build_environment(root, sha),
             capture_output=True,

@@ -1,0 +1,34 @@
+[package]
+name = "cmux-mobile-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "uniffi bindings of cmux-mobile-core for the iOS (Swift) and Android (Kotlin) apps"
+
+[lints]
+workspace = true
+
+[lib]
+# staticlib: the iOS xcframework. cdylib: the Android .so files and the JVM
+# host library the Kotlin tests load. lib: the Rust tests.
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+# Generates the Swift and Kotlin bindings from the built library (uniffi
+# library mode). Built only with --features bindgen, so the app libraries do
+# not link the generator.
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+cmux-mobile-core.workspace = true
+serde_json.workspace = true
+# The version the manaflow-ai/iroh-ffi fork uses, so Iroh can fold into this
+# library later (MOBILE-RUST-2: one uniffi staticlib per platform).
+uniffi = "=0.31.1"

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/ci/lint-swift-post-edit.sh 1>&2; printf '{}\\n'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

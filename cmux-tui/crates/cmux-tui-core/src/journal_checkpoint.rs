@@ -140,7 +140,7 @@ pub(crate) fn terminal_replay_blob(
         "format":"cmux.vt-replay.v1",
         "cols":cols,
         "rows":rows,
-        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(replay.self_contained_bytes()),
         "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
             "image_id":alias.image_id,
             "image_number":alias.image_number,

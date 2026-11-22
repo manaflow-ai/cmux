@@ -73,6 +73,13 @@ class ConfigTransactionTests(unittest.TestCase):
         self.assertFalse(root['computerUse']['enabled'])
         self.assertIn('// keep', self.config.read_text())
 
+    def test_dotted_shortcut_action_id_is_one_binding_key(self):
+        self.set_value('"cmd+shift+f"', key='shortcuts.bindings.tab.search')
+        self.set_value('"terminalFocus"', key='shortcuts.when.tab.search')
+        root = helper.load_settings(self.config)
+        self.assertEqual(root['shortcuts']['bindings'], {'tab.search': 'cmd+shift+f'})
+        self.assertEqual(root['shortcuts']['when'], {'tab.search': 'terminalFocus'})
+
     def test_reset_receipt_restores_explicit_pin(self):
         args = self.args()
         args.receipt = str(self.receipt)

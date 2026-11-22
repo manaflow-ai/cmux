@@ -2,37 +2,31 @@ import { useEffect, type RefObject } from "react";
 import { KEYMAP, MENU_KEYMAP, keyDispatchFor, type KeyAction } from "../keymap";
 import type { CtrlJMode, OptionValue, SessionOption } from "../session";
 import { isEditableTarget } from "./useTypeToFocus";
-import { visibleChoices } from "../components/options";
+import { cycleSelect, planToggleValue, visibleChoices } from "../components/options";
 
 function cycleOption(options: SessionOption[], ids: string[], setOption: (id: string, value: OptionValue) => void) {
   const opt = ids.includes("effort")
     ? options.find((o) => o.role === "effort")
     : ids.map((id) => options.find((o) => o.id === id)).find(Boolean);
-  const choices = opt ? visibleChoices(opt) : [];
-  if (!opt || opt.kind !== "select" || !choices.length || opt.disabled) return false;
-  const i = choices.findIndex((c) => c.value === opt.value);
-  const next = choices[(i + 1 + choices.length) % choices.length];
-  if (!next) return false;
-  setOption(opt.id, next.value);
-  return true;
+  return opt ? cycleSelect(opt, setOption) : false;
 }
 
 function togglePlan(options: SessionOption[], setOption: (id: string, value: OptionValue) => void) {
-  const opt = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select" && o.choices?.some((c) => c.value === "plan"));
-  if (!opt || opt.disabled) return false;
-  const fallback = opt.choices?.some((c) => c.value === "build") ? "build" : "default";
-  setOption(opt.id, opt.value === "plan" ? fallback : "plan");
+  const opt = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
+  const value = planToggleValue(opt);
+  if (!opt || value === undefined) return false;
+  setOption(opt.id, value);
   return true;
 }
 
 export function actionSupported(action: KeyAction, options: SessionOption[], running: boolean): boolean {
   if (action === "help") return true;
   if (action === "interrupt") return running;
-  if (action === "cycle-mode") return Boolean(options.find((o) => ["permissionMode", "mode", "approvals"].includes(o.id) && o.kind === "select" && !o.disabled));
+  if (action === "cycle-mode") return Boolean(options.find((o) => ["permissionMode", "mode", "approvals"].includes(o.id) && o.kind === "select" && !o.disabled && visibleChoices(o).some((choice) => !choice.disabled)));
   if (action === "cycle-model" || action === "open-model") return Boolean(options.find((o) => o.id === "model" && o.kind === "select" && !o.disabled));
   if (action === "cycle-thinking") return Boolean(options.find((o) => o.role === "effort" && o.kind === "select" && visibleChoices(o).length && !o.disabled));
   if (action === "toggle-fast") return Boolean(options.find((o) => o.id === "fastMode" && o.kind === "toggle" && !o.disabled));
-  if (action === "toggle-plan") return Boolean(options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.choices?.some((c) => c.value === "plan") && !o.disabled));
+  if (action === "toggle-plan") return planToggleValue(options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select")) !== undefined;
   return false;
 }
 

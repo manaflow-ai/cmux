@@ -17,28 +17,29 @@ skills/cmux-diagnostics/scripts/cmux-diagnostics            # cmux checkout
 ~/.codex/skills/cmux-diagnostics/scripts/cmux-diagnostics   # Codex-only skills.sh install
 ```
 
-Add `--include-context` only when workspace names, cwd paths, and current cmux identifiers are relevant to the reported issue.
+Add `--include-context` only when the app identity and the caller terminal record are relevant to the reported issue.
 
 ## What to check
 
-1. **CLI and socket health**: `command -v cmux`, `cmux ping`, `cmux capabilities --json`. If socket commands fail, check whether the agent is running inside a cmux terminal and whether socket automation is enabled.
-2. **Settings health**: `cmux-settings validate` and `cmux-settings get terminal.autoResumeAgentSessions` (from `~/.agents/skills/cmux-settings/scripts/`, or `~/.codex/skills/...` for a `skills.sh` install). When `terminal.autoResumeAgentSessions` is false, cmux restores panes but does not resume saved agent sessions.
-3. **Hook installation**: `cmux hooks setup --agent codex`, `--agent opencode`, or bare `cmux hooks setup` (installs supported agents found on PATH, skips missing ones). Run install or uninstall commands only after the user agrees.
-4. **Session restore evidence**: `ls -lh ~/.cmuxterm/*-hook-sessions.json 2>/dev/null`. Missing stores usually mean the agent has not run inside cmux since hooks were installed, hooks are disabled, or the integration does not support resume capture.
-5. **Notification path**: `cmux notify "cmux diagnostic test"`, only when the user is ready for a visible test notification.
+1. **CLI and sockets**: `command -v cmux`, `cmux app ping` (the app), `cmux session list` (the cmux-tui daemon), `cmux app capabilities`. Exit code 3 is a transport failure. Inside a cmux terminal, `CMUX_TUI_TERMINAL_ID`, `CMUX_TUI_SOCKET` and `CMUX_SOCKET_PATH` are set.
+2. **Settings**: `cmux settings get terminal.autoResumeAgentSessions` with the app running. When it is false, cmux restores panes but does not resume saved agent sessions.
+3. **Agent hooks**: `cmux agent hook status` lists each provider as installed, partial or absent. Install with `cmux agent hook install codex` (or another provider; bare `install` covers every provider found on PATH) only after the user agrees. Providers load hooks at start, so restart the agent inside a cmux terminal afterwards.
+4. **Notification path**: `cmux notify --title "cmux diagnostic test"`, only when the user is ready for a visible test notification.
+
+The script no longer checks per-provider hook config markers, `~/.cmuxterm/*-hook-sessions.json` session stores, or `cmux-settings validate`. Those belonged to the Swift CLI's hooks; `cmux agent hook status` replaces the first, and the new `cmux` has no config validator yet.
 
 ## Interpretation
 
 - `cmux` not found: the CLI is not installed or not on PATH for this shell.
-- `cmux ping` fails: the app is closed, unreachable through the current socket path, or automation access is disabled.
-- No `CMUX_WORKSPACE_ID` or `CMUX_SURFACE_ID`: the command is running outside a cmux terminal. Some hooks intentionally no-op there.
-- Hook config but no session store: run one supported agent inside cmux after installing hooks, then re-check.
-- Session store but no agents on restore: check `terminal.autoResumeAgentSessions` and whether the saved executable still exists on PATH.
-- Settings validation fails: fix the config first. Invalid config makes later symptoms misleading.
+- `cmux app ping` fails: the app is closed, its socket is unreachable from this shell, or socket automation is off.
+- `cmux session list` fails: no cmux-tui daemon is reachable through `--socket`, `CMUX_TUI_SOCKET`, or the app's session.
+- No `CMUX_TUI_TERMINAL_ID`: the command is running outside a cmux terminal. Hooks and `cmux notify` then have no caller terminal.
+- A provider shows `partial`: rerun `cmux agent hook install <provider>` after the user agrees.
+- Hooks installed but no agent state: the agent started before the install, or outside a cmux terminal. Restart it inside one.
 
 ## Rules
 
 - Stay read-only until the user asks to fix something.
 - Never print raw hook files, session JSON, prompt logs, shell history, tokens, or API keys. Summarize file presence, size, modified time, and marker presence instead.
-- Prefer a narrow fix such as `cmux hooks setup --agent codex` over reinstalling every integration.
+- Prefer a narrow fix such as `cmux agent hook install codex` over reinstalling every integration.
 - After a fix, rerun the diagnostic script and report the changed lines.

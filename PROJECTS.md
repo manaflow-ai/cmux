@@ -2,6 +2,10 @@
 
 Cross-project tracking (features, bugs, backlog) for cmux.
 
+The entries below are a historical log. Most describe the legacy app, which was
+removed with `Sources/`, `cmuxTests/` and Bonsplit (`vendor/bonsplit`); their
+paths no longer exist. Do not use them as implementation pointers.
+
 ## Done
 - 2026-02-14: Fixed updater release regression path: made `.github/workflows/release.yml` Sparkle Info.plist key injection idempotent (re-running tags no longer fails with "Entry Already Exists"), and hardened `scripts/bump-version.sh` to keep `CURRENT_PROJECT_VERSION` above the latest published Sparkle appcast build number so upgrades from `0.27.0` can be detected.
 - 2026-02-14: Relicensed the repository to strong copyleft (`AGPL-3.0-or-later`), added canonical `LICENSE` text, and updated project/package metadata to advertise AGPL consistently.

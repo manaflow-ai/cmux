@@ -82,19 +82,16 @@ struct IrxEventFrameAligner: Sendable {
     /// framed, as one contiguous block; nil when no frame completed.
     mutating func append(_ chunk: Data) throws -> Data? {
         buffer.append(chunk)
+        var reader = WireByteReader(buffer)
         var consumed = 0
-        while buffer.count - consumed >= Self.headerByteCount {
-            let start = buffer.startIndex + consumed
-            var length = 0
-            for byte in buffer[start..<(start + Self.headerByteCount)] {
-                length = (length << 8) | Int(byte)
-            }
+        while true {
+            guard let header = reader.bigEndian(UInt32.self) else { break }
+            let length = Int(clamping: header)
             guard length <= maximumFrameByteCount else {
                 throw Failure.frameTooLarge(length)
             }
-            let frameByteCount = Self.headerByteCount + length
-            guard buffer.count - consumed >= frameByteCount else { break }
-            consumed += frameByteCount
+            guard reader.skip(length) else { break }
+            consumed += Self.headerByteCount + length
         }
         guard consumed > 0 else { return nil }
         let complete = Data(buffer.prefix(consumed))

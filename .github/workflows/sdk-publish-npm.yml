@@ -24,6 +24,10 @@ on:
 permissions: {}
 
 env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
   RUST_TOOLCHAIN: "1.95.0"
 
 concurrency:
@@ -94,6 +98,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-typescript:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
@@ -108,7 +114,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -169,6 +175,9 @@ jobs:
           artifact_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
           [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
           echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Check the npm artifact license
+        run: python3 cmux-tui/bindings/check_package_license.py npm "$RUNNER_TEMP"/cmux-npm-dist/*.tgz
 
       - name: Upload the validated npm artifact
         id: upload

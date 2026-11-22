@@ -1,0 +1,92 @@
+# Real-Chromium suite of cmux-browser-host (the #[ignore] tests in
+# cmux-tui/crates/cmux-browser-host/tests/chromium.rs).
+#
+# Results only: this workflow is never a required check. Owner: the cmux-next
+# browser REPL lane (requested by the cmux-next browser umbrella owner).
+#
+# Triggers: push to feat-cmux-next that touches the crate, this file or the
+# Playwright pin in tests/browser-parity; workflow_dispatch. No schedule:
+# GitHub runs schedules only from main, which does not have the crate.
+#
+# Chromium comes from the pinned Playwright in tests/browser-parity, the same
+# browser the parity runner and the Testbox use.
+name: cmux-browser-host-chromium
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-browser-host/**"
+      - ".github/workflows/cmux-browser-host-chromium.yml"
+      - "tests/browser-parity/package.json"
+      - "tests/browser-parity/package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-browser-host-chromium-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMUX_GHOSTTY_SRC: ""
+
+jobs:
+  chromium:
+    name: browser host real-Chromium tests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install pinned Playwright Chromium
+        working-directory: tests/browser-parity
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          path="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+          test -x "$path"
+          echo "CMUX_BROWSER_HOST_TEST_CHROME=$path" >> "$GITHUB_ENV"
+          echo "Using Chromium at $path"
+
+      # The headful tests (a_headful_tab_gets_its_first_click,
+      # headful_leaves_a_persons_chooser_to_the_browser) start their own Xvfb.
+      - name: Install Xvfb for the headful tests
+        run: |
+          set -euo pipefail
+          command -v Xvfb >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q xvfb; }
+          command -v Xvfb
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Run the ignored real-Chromium tests
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          cargo test -p cmux-browser-host --test chromium --locked -- --ignored --list \
+            | tee "$RUNNER_TEMP/tests.txt"
+          grep -Eq ': test$' "$RUNNER_TEMP/tests.txt" || {
+            echo "::error::no ignored Chromium test selected" >&2
+            exit 1
+          }
+          cargo test -p cmux-browser-host --test chromium --locked -- --ignored \
+            | tee "$RUNNER_TEMP/results.txt"
+          # The headful tests ran (not filtered out or skipped) and passed.
+          for name in a_headful_tab_gets_its_first_click headful_leaves_a_persons_chooser_to_the_browser; do
+            grep -Eq "test files::$name \.\.\. ok$" "$RUNNER_TEMP/results.txt" || {
+              echo "::error::headful test $name did not run and pass" >&2
+              exit 1
+            }
+          done

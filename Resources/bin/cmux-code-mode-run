@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+if [ -x "$root/scripts/cmux-next/cmux-code-mode-runner" ]; then
+  runner="$root/scripts/cmux-next/cmux-code-mode-runner"
+else
+  runner="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/cmux-code-mode-runner"
+fi
+exec "$runner" "$@"

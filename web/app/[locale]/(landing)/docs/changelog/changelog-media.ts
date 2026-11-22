@@ -53,10 +53,8 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
-  // Placeholder key for the next release. The release cut renames it to the
-  // new version (see .claude/commands/release.md step 3).
-  Unreleased: {
-    title: "Agents over SSH, Predictive Echo, Prompt Markers",
+  "0.65.0": {
+    title: "Agents over SSH, Crash Recovery, Predictive Echo, Settings Redesign, Terminal Import",
     features: [
       {
         title: "Agents on SSH Hosts",
@@ -65,10 +63,28 @@ export const changelogMedia: Record<string, VersionMedia> = {
         tryIt: "Run `cmux session move <session-id> --to user@host`.",
       },
       {
-        title: "Predictive Local Echo (Beta)",
+        title: "Predictive Local Echo",
         description:
-          "Over a slow remote link, the characters you type appear right away, underlined until the remote shell confirms them.",
-        tryIt: "Settings > Beta Features > Predictive local echo.",
+          "Over a slow remote link, the characters you type appear right away, underlined until the remote shell confirms them. It is on by default for remote terminals.",
+        tryIt: "Settings > Terminal > Predictive Local Echo.",
+      },
+      {
+        title: "Crash-Proof Sessions",
+        description:
+          "Terminal scrollback is checkpointed, and interrupted Claude sessions can be recovered after a crash. Agents whose turn ends on a retryable error, such as model capacity or a dropped connection, are told to continue automatically.",
+        tryIt: "Run `cmux session restore` to bring back interrupted agent sessions.",
+      },
+      {
+        title: "Redesigned Settings",
+        description:
+          "Settings shows one categorized section at a time, with a theme gallery and controls for Ghostty fonts, cursor, and opacity.",
+        tryIt: "Open Settings with `⌘,` and pick a section from the sidebar.",
+      },
+      {
+        title: "Bring Your Terminal Setup",
+        description:
+          "Import settings from iTerm2, Terminal, Alacritty, Kitty, WezTerm, or Warp, and pick a Base Keymap preset that matches the shortcuts you already know.",
+        tryIt: "Run `cmux import`, or open Settings > Keyboard Shortcuts.",
       },
       {
         title: "Jump to Your Prompts",

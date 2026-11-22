@@ -1,5 +1,5 @@
 import { fireEvent, render as renderInTestRoot, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CmuxClient } from "cmux/raw";
 import type { ReactElement } from "react";
 import { RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";
@@ -8,9 +8,7 @@ import { renderAttrs } from "../src/lib/renderStyles";
 import { RenderTerminal } from "../src/components/RenderTerminal";
 
 function render(element: ReactElement) {
-  return renderInTestRoot(
-    <RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>,
-  );
+  return renderInTestRoot(<RenderGraphicsBudgetProvider>{element}</RenderGraphicsBudgetProvider>);
 }
 
 const renderHook = vi.hoisted(() => ({
@@ -32,14 +30,16 @@ const model: RenderModel = {
   historyEpoch: 1n,
   graphics: {
     generation: 4n,
-    images: [{
-      id: 9,
-      generation: 2n,
-      width: 2,
-      height: 2,
-      format: "rgba",
-      data: "/wAA/wD/AP8AAP///////w==",
-    }],
+    images: [
+      {
+        id: 9,
+        generation: 2n,
+        width: 2,
+        height: 2,
+        format: "rgba",
+        data: "/wAA/wD/AP8AAP///////w==",
+      },
+    ],
     placements: [
       {
         image_id: 9,
@@ -121,17 +121,17 @@ vi.mock("../src/hooks/useRenderTerminal", () => ({
     foreignSize: null,
     model: renderHook.graphicsEnabled
       ? {
-        ...model,
-        graphics: renderHook.graphicsVisible
-          ? model.graphics
-          : {
-            ...model.graphics,
-            placements: model.graphics.placements.map((candidate) => ({
-              ...candidate,
-              viewport_visible: false,
-            })),
-          },
-      }
+          ...model,
+          graphics: renderHook.graphicsVisible
+            ? model.graphics
+            : {
+                ...model.graphics,
+                placements: model.graphics.placements.map((candidate) => ({
+                  ...candidate,
+                  viewport_visible: false,
+                })),
+              },
+        }
       : { ...model, graphics: undefined },
     history: {
       active: renderHook.historyActive,
@@ -163,10 +163,10 @@ describe("RenderTerminal DOM grid", () => {
 
     expect(container.querySelectorAll(".render-row")).toHaveLength(2);
     expect(container.querySelector(".render-row")?.textContent).toBe("界");
-    expect(container.querySelector<HTMLElement>(".render-grid")?.style.width)
-      .toBe("calc(var(--render-cell-width) * 4)");
-    expect(container.querySelector<HTMLElement>(".render-run")?.style.width)
-      .toBe("calc(var(--render-cell-width) * 2)");
+    expect(container.querySelector<HTMLElement>(".render-grid")?.style.width).toBe(
+      "calc(var(--render-cell-width) * 4)",
+    );
+    expect(container.querySelector<HTMLElement>(".render-run")?.style.width).toBe("calc(var(--render-cell-width) * 2)");
     expect(container.querySelector(".render-cursor-bar.render-cursor-blink")).toHaveStyle({
       left: "calc(var(--render-cell-width) * 2)",
       top: "calc(var(--render-cell-height) * 1)",
@@ -221,8 +221,7 @@ describe("RenderTerminal DOM grid", () => {
       expect(container.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
     });
     const below = container.querySelector<HTMLElement>(".render-graphics-below");
-    const belowBackground =
-      container.querySelector<HTMLElement>(".render-graphics-below-background");
+    const belowBackground = container.querySelector<HTMLElement>(".render-graphics-below-background");
     const above = container.querySelector<HTMLElement>(".render-graphics-above");
     const cropped = below?.querySelector<HTMLCanvasElement>("[data-graphic-placement='9:3:0']");
     expect(cropped).toHaveAttribute("width", "1");
@@ -234,15 +233,13 @@ describe("RenderTerminal DOM grid", () => {
     expect(above?.querySelector("[data-graphic-placement='9:4:0']")).not.toBeNull();
 
     const gridChildren = [...container.querySelector(".render-grid")!.children];
-    const backgrounds =
-      container.querySelectorAll<HTMLElement>(".render-row-background .render-run");
+    const backgrounds = container.querySelectorAll<HTMLElement>(".render-row-background .render-run");
     expect(backgrounds[0].style.backgroundColor).toBe("transparent");
     expect(backgrounds[1]).toHaveStyle({ backgroundColor: "#223344" });
     expect(container.querySelector(".render-row-background")).toHaveStyle({
       backgroundColor: "#111111",
     });
-    expect(container.querySelector<HTMLElement>(".render-row .render-run")?.style.backgroundColor)
-      .toBe("transparent");
+    expect(container.querySelector<HTMLElement>(".render-row .render-run")?.style.backgroundColor).toBe("transparent");
     expect(gridChildren.indexOf(belowBackground!)).toBeLessThan(
       gridChildren.findIndex((child) => child.classList.contains("render-row-background")),
     );
@@ -283,7 +280,8 @@ describe("RenderTerminal DOM grid", () => {
       putImageData: vi.fn(),
     };
     vi.stubGlobal("ImageData", FakeImageData);
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext")
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
       .mockReturnValue(context as unknown as CanvasRenderingContext2D);
     try {
       const { container, unmount } = render(

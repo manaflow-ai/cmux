@@ -63,7 +63,7 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
               Self.isCanonicalUUID(appInstanceID),
               cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
               cmxIrohIsSafeToken(tag),
-              (1 ... Int(Int32.max)).contains(identityGeneration),
+              identityGeneration.isValidIdentityGeneration,
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
               capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }) else {

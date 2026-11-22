@@ -1,0 +1,113 @@
+{
+  "description": "Scroll-offset writer handoff of the split compositor, host side, one scroller (plans/cmux-next/remote-tab-protocol.md section 5.3). Each case starts from a scroller with the server as writer, the given offset and max, no pending offset and seq 0. After each step the reducer returns exactly these effects (in order) or this reject (state unchanged) and reaches this state. Implementations: cmux-tui/crates/cmux-remote-browser (scroll.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "the client writes during its gesture and hands the offset back on release",
+      "initial": {"offset": 0.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "claim", "gesture": 1},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "update", "gesture": 1, "offset": 120.0},
+         "expect": {"reject": null, "effects": [{"effect": "apply_to_page", "offset": 120.0}],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 120.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "update", "gesture": 1, "offset": 2000.0},
+         "expect": {"reject": null, "effects": [{"effect": "apply_to_page", "offset": 1000.0}],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 1000.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "release", "gesture": 1, "offset": 400.0},
+         "expect": {"reject": null, "effects": [{"effect": "apply_to_page", "offset": 400.0}],
+           "state": {"writer": {"kind": "server"}, "offset": 400.0, "max": 1000.0, "pending": null, "seq": 0}}}
+      ]
+    },
+    {
+      "name": "only the current writer may update or release",
+      "initial": {"offset": 0.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "update", "gesture": 1, "offset": 10.0},
+         "expect": {"reject": "not_writer", "effects": [],
+           "state": {"writer": {"kind": "server"}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "claim", "gesture": 2},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "update", "gesture": 1, "offset": 10.0},
+         "expect": {"reject": "not_writer", "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "release", "gesture": 1, "offset": 10.0},
+         "expect": {"reject": "not_writer", "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}}
+      ]
+    },
+    {
+      "name": "a programmatic scroll during a gesture waits for the release; the last one wins",
+      "initial": {"offset": 100.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "claim", "gesture": 1},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 100.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "programmatic", "offset": 500.0},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 100.0, "max": 1000.0, "pending": 500.0, "seq": 0}}},
+        {"input": {"op": "programmatic", "offset": 700.0},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 100.0, "max": 1000.0, "pending": 700.0, "seq": 0}}},
+        {"input": {"op": "release", "gesture": 1, "offset": 300.0},
+         "expect": {"reject": null, "effects": [
+           {"effect": "apply_to_page", "offset": 700.0},
+           {"effect": "send_offset", "offset": 700.0, "seq": 1}],
+           "state": {"writer": {"kind": "server"}, "offset": 700.0, "max": 1000.0, "pending": null, "seq": 1}}}
+      ]
+    },
+    {
+      "name": "a programmatic scroll while the server writes is clamped and sent",
+      "initial": {"offset": 0.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "programmatic", "offset": 250.0},
+         "expect": {"reject": null, "effects": [{"effect": "send_offset", "offset": 250.0, "seq": 1}],
+           "state": {"writer": {"kind": "server"}, "offset": 250.0, "max": 1000.0, "pending": null, "seq": 1}}},
+        {"input": {"op": "programmatic", "offset": 5000.0},
+         "expect": {"reject": null, "effects": [{"effect": "send_offset", "offset": 1000.0, "seq": 2}],
+           "state": {"writer": {"kind": "server"}, "offset": 1000.0, "max": 1000.0, "pending": null, "seq": 2}}}
+      ]
+    },
+    {
+      "name": "a smaller extent clamps the offset; a writing client gets the new extent",
+      "initial": {"offset": 900.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "extent", "max": 600.0},
+         "expect": {"reject": null, "effects": [{"effect": "send_offset", "offset": 600.0, "seq": 1}],
+           "state": {"writer": {"kind": "server"}, "offset": 600.0, "max": 600.0, "pending": null, "seq": 1}}},
+        {"input": {"op": "extent", "max": 2000.0},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "server"}, "offset": 600.0, "max": 2000.0, "pending": null, "seq": 1}}},
+        {"input": {"op": "claim", "gesture": 1},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 600.0, "max": 2000.0, "pending": null, "seq": 1}}},
+        {"input": {"op": "extent", "max": 300.0},
+         "expect": {"reject": null, "effects": [{"effect": "send_extent", "max": 300.0}],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 300.0, "max": 300.0, "pending": null, "seq": 1}}},
+        {"input": {"op": "extent", "max": 800.0},
+         "expect": {"reject": null, "effects": [{"effect": "send_extent", "max": 800.0}],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 300.0, "max": 800.0, "pending": null, "seq": 1}}}
+      ]
+    },
+    {
+      "name": "a new claim replaces the older gesture",
+      "initial": {"offset": 0.0, "max": 1000.0},
+      "steps": [
+        {"input": {"op": "claim", "gesture": 1},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 1}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "claim", "gesture": 2},
+         "expect": {"reject": null, "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "update", "gesture": 1, "offset": 50.0},
+         "expect": {"reject": "not_writer", "effects": [],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 0.0, "max": 1000.0, "pending": null, "seq": 0}}},
+        {"input": {"op": "update", "gesture": 2, "offset": 50.0},
+         "expect": {"reject": null, "effects": [{"effect": "apply_to_page", "offset": 50.0}],
+           "state": {"writer": {"kind": "client", "gesture": 2}, "offset": 50.0, "max": 1000.0, "pending": null, "seq": 0}}}
+      ]
+    }
+  ]
+}

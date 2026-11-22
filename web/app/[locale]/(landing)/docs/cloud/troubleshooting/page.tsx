@@ -53,6 +53,7 @@ export default async function CloudTroubleshootingPage({
           <tr><td>{t("errPlan")}</td><td>{t("fixPlan")}</td></tr>
           <tr><td>{t("errSize")}</td><td>{t("fixSize")}</td></tr>
           <tr><td>{t("errLimit")}</td><td>{t("fixLimit")}</td></tr>
+          <tr><td>{t("errPool")}</td><td>{t("fixPool")}</td></tr>
           <tr><td>{t("errLocked")}</td><td>{t("fixLocked")}</td></tr>
           <tr><td>{t("errAgentMissing")}</td><td>{t("fixAgentMissing")}</td></tr>
           <tr><td>{t("errExecTimeout")}</td><td>{t("fixExecTimeout")}</td></tr>

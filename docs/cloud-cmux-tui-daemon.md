@@ -1,5 +1,10 @@
 # Cloud VMs on the cmux-tui remote daemon
 
+> **CLI note (2026-09-30):** the Mac-side `cmux vm …`, `cmux surface …` and `cmux vpn …`
+> verbs named in this design were removed in the Rust CLI cutover; the Mac reaches
+> machines through the app's `cmux cloud <verb>` actions. The in-VM guest `cmux`
+> described here still ships.
+
 Design for replacing the Go `cmuxd-remote` daemon in Cloud VMs with the
 cmux-tui remote daemon, validated by a working transport spike. North star:
 every cloud terminal is a

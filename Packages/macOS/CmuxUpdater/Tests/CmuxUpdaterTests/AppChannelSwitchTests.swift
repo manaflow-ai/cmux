@@ -15,17 +15,17 @@ import Testing
     }
 
     @Test func nightlyDownloadIsThePerArchitectureNightlyDMG() {
-        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .arm64).absoluteString
+        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .arm64)?.absoluteString
             == "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg")
-        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .x86_64).absoluteString
+        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .x86_64)?.absoluteString
             == "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-x86_64.dmg")
-        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .arm64).absoluteString
+        #expect(AppChannelSwitchTarget.nightly.downloadURL(architecture: .arm64)?.absoluteString
             == UpdateManualDownloadRecovery.nightlyDownloadURLString(for: .arm64))
     }
 
     /// The stable DMG comes from the same release as the stable Sparkle feed.
     @Test func stableDownloadSitsInTheStableFeedRelease() throws {
-        let dmg = AppChannelSwitchTarget.stable.downloadURL(architecture: .arm64)
+        let dmg = try #require(AppChannelSwitchTarget.stable.downloadURL(architecture: .arm64))
         let feed = try #require(URL(string: UpdateFeedResolver().fallbackFeedURL))
         #expect(dmg.deletingLastPathComponent() == feed.deletingLastPathComponent())
         #expect(dmg.lastPathComponent == "cmux-macos.dmg")
@@ -153,7 +153,8 @@ import Testing
 
         let destination = harness.systemApplications.appendingPathComponent("cmux NIGHTLY.app", isDirectory: true)
         #expect(outcome == .installedAndOpened(destination))
-        #expect(harness.downloader.requested == [AppChannelSwitchTarget.nightly.downloadURL(architecture: .x86_64)])
+        let nightlyDMG = try #require(AppChannelSwitchTarget.nightly.downloadURL(architecture: .x86_64))
+        #expect(harness.downloader.requested == [nightlyDMG])
         #expect(FileManagerAppInstallFileSystem().bundleIdentifier(ofAppAt: destination) == "com.cmuxterm.app.nightly")
         #expect(harness.inspector.inspected.count == 1)
         #expect(harness.inspector.inspected.first?.lastPathComponent == "cmux NIGHTLY.app")
@@ -174,7 +175,8 @@ import Testing
 
         let destination = harness.userApplications.appendingPathComponent("cmux.app", isDirectory: true)
         #expect(outcome == .installedAndOpened(destination))
-        #expect(harness.downloader.requested == [AppChannelSwitchTarget.stable.downloadURL()])
+        let stableDMG = try #require(AppChannelSwitchTarget.stable.downloadURL())
+        #expect(harness.downloader.requested == [stableDMG])
     }
 
     @Test func refusesAppThatFailsVerification() async throws {

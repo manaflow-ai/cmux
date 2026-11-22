@@ -28,7 +28,7 @@ Review production Swift and runtime changes for:
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 - Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
-- Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, new workspace/surface/tab ID param names missing from the scoped key sets, and any weakening of deny-by-default in `RemoteRelayCommandPolicy`.
+- Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, workspace/surface/tab ID params not scoped to the remote session's owned objects, and any weakening of deny-by-default. The legacy `RemoteRelayCommandPolicy` is deleted; a relay path to the app without a default-deny policy is a failure.
 
 ## Runtime No Hacky Sleeps
 
@@ -37,14 +37,6 @@ For production non-Swift app/runtime code and build/runtime scripts, flag fixed 
 Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal from the owning subsystem or a dedicated cancellation-aware timeout/retry abstraction with tests.
 
 Pass for deterministic test-only scaffolding, GitHub Actions workflow or action YAML sleeps used only for CI orchestration, pure presentation animation or progress timing, and existing delay code the PR does not introduce or worsen. Swift sleeps are covered by the Swift blocking runtime rule.
-
-## Browser Automation WebKit Waits Off Main
-
-For browser socket automation in `Sources/TerminalController.swift` and the cmux control socket policy, keep blocking waits off the main actor.
-
-Flag any `browser.*` command that waits on page JavaScript, WebKit callbacks, `WKHTTPCookieStore`, screenshot callbacks, or injected page hooks while routed through `.mainActor` or the main `processV2Command` switch. Require the command to be listed in `ControlCommandExecutionPolicy.socketWorkerMethods`, dispatched by the worker browser automation router, and covered by policy tests that prove worker routing.
-
-Worker-lane handlers may resolve panels, access WebKit/AppKit, or mutate browser state only inside explicit main hops such as `v2BrowserWithPanelContext` and `v2MainSync`. Pass for direct focus/show commands that do not wait, and for existing debt that the PR does not worsen.
 
 ## Full Internationalization
 

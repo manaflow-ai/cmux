@@ -18,6 +18,8 @@ export type ReportErrorOptions = {
 };
 
 const SENSITIVE_KEY_PATTERN = /authorization|cookie|credential|dsn|key|password|providerMetadata|secret|token|webhook/i;
+const SENSITIVE_KEY_TOKEN =
+  /(?:^|_)(?:account|authorization|body|completion|content|cookie|credential|dsn|email|handoff|header|key|lease|output|password|prompt|provider|request|response|secret|session|team|webhook)(?:_|$)/;
 
 export function reportError(
   error: unknown,
@@ -95,7 +97,7 @@ function boundedTags(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(tags ?? {})) {
     if (value === undefined || value === null) continue;
-    if (SENSITIVE_KEY_PATTERN.test(key)) continue;
+    if (isSensitiveObservabilityKey(key)) continue;
     out[key] = String(value).slice(0, TAG_VALUE_MAX);
   }
   if (trace) out.trace_id = trace.traceId;
@@ -110,7 +112,7 @@ function scrubContext(context: Record<string, unknown>): Record<string, unknown>
   return scrubbed;
 }
 
-const SENSITIVE_TEXT_PATTERN = /(srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
+const SENSITIVE_TEXT_PATTERN = /((?:crt|crh|crk)_[A-Za-z0-9_-]{32,}|srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
 
 function scrubErrorForLog(error: unknown): string {
   const name =
@@ -125,7 +127,7 @@ function scrubErrorForLog(error: unknown): string {
 }
 
 function scrubValue(key: string, value: unknown): unknown {
-  if (SENSITIVE_KEY_PATTERN.test(key)) return "[redacted]";
+  if (isSensitiveObservabilityKey(key)) return "[redacted]";
   if (Array.isArray(value)) return value.map((entry) => scrubValue(key, entry));
   if (!value || typeof value !== "object") return value;
   const scrubbed: Record<string, unknown> = {};
@@ -133,4 +135,15 @@ function scrubValue(key: string, value: unknown): unknown {
     scrubbed[childKey] = scrubValue(childKey, childValue);
   }
   return scrubbed;
+}
+
+/** Returns whether an observability key can contain credentials or tenant data. */
+export function isSensitiveObservabilityKey(key: string): boolean {
+  const normalized = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  return SENSITIVE_KEY_PATTERN.test(key) || SENSITIVE_KEY_TOKEN.test(normalized);
 }

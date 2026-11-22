@@ -4,14 +4,20 @@
 //! and `src/detect/mod.rs` at commit
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). The strict Pi
 //! bundled-launcher suffixes also incorporate herdr commit
-//! `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` (Apache-2.0). The plugin keeps
-//! this platform code outside cmux core, adds bounded traversal and precise
-//! attached-versus-separate runtime option boundaries, and resolves names
-//! through the replaceable manifest set instead of a closed agent enum.
+//! `b1ff4582e9688f52ffb943cfa8bee4871ae122e4` (Apache-2.0). Package
+//! launchers, the Hermes installer, Letta interactivity, Cline's hidden
+//! launcher and the agent pid follow herdr `2563803dca97c040beaf3dc3acdcb5a3221b4238`
+//! (see `launchers`). The plugin keeps this platform code outside cmux core,
+//! adds bounded traversal and precise attached-versus-separate runtime option
+//! boundaries, and resolves names through the replaceable manifest set
+//! instead of a closed agent enum.
 
 use cmux::ProcessInfoResult;
 
 use crate::manifest::{CompiledManifest, ManifestSet};
+
+mod launchers;
+use launchers::{cursor_bundled_agent, known_package_agent, known_package_path_agent};
 
 /// One process in the terminal's foreground process group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,24 +80,32 @@ pub fn identify_job<'a>(
     manifests: &'a ManifestSet,
     job: &ForegroundJob,
 ) -> Option<(&'a CompiledManifest, String)> {
-    if let Some(leader) = job.processes.iter().find(|process| process.pid == job.process_group_id)
-        && let Some(found) = identify_process(manifests, leader)
-    {
-        return Some(found);
-    }
+    identify_job_process(manifests, job).map(|(manifest, candidate, _)| (manifest, candidate))
+}
 
-    let mut best: Option<(u8, &'a CompiledManifest, String)> = None;
+/// Like [`identify_job`], plus the pid of the process that matched. That
+/// process need not lead its job (herdr 950d012c), and the scanner uses it to
+/// keep a suspended or backgrounded agent's identity.
+pub fn identify_job_process<'a>(
+    manifests: &'a ManifestSet,
+    job: &ForegroundJob,
+) -> Option<(&'a CompiledManifest, String, u32)> {
+    if let Some(leader) = job.processes.iter().find(|process| process.pid == job.process_group_id)
+        && let Some((manifest, candidate)) = identify_process(manifests, leader)
+    {
+        return Some((manifest, candidate, leader.pid));
+    }
+    let mut best: Option<(u8, &'a CompiledManifest, String, u32)> = None;
     for process in &job.processes {
         let Some((manifest, candidate)) = identify_process(manifests, process) else {
             continue;
         };
-        let priority = process_priority(process);
         match best {
-            Some((best_priority, _, _)) if best_priority >= priority => {}
-            _ => best = Some((priority, manifest, candidate)),
+            Some((best_priority, ..)) if best_priority >= process_priority(process) => {}
+            _ => best = Some((process_priority(process), manifest, candidate, process.pid)),
         }
     }
-    best.map(|(_, manifest, candidate)| (manifest, candidate))
+    best.map(|(_, manifest, candidate, pid)| (manifest, candidate, pid))
 }
 
 /// Identify a process using the same foreground-group and public-process
@@ -102,14 +116,21 @@ pub fn identify_job_with_process_fallback<'a>(
     job: &ForegroundJob,
     process: &ProcessInfoResult,
 ) -> Option<(&'a CompiledManifest, String)> {
-    identify_job(manifests, job).or_else(|| {
-        process
-            .foreground_executable
-            .as_deref()
-            .or(process.executable.as_deref())
-            .or_else(|| process.argv.first().map(String::as_str))
-            .and_then(|name| manifests.identify(name).map(|manifest| (manifest, name.to_string())))
-    })
+    identify_job(manifests, job).or_else(|| identify_process_info(manifests, process))
+}
+
+/// Identify the public process response alone. It is the fallback for hosts
+/// without native process-group APIs and is never authoritative.
+pub fn identify_process_info<'a>(
+    manifests: &'a ManifestSet,
+    process: &ProcessInfoResult,
+) -> Option<(&'a CompiledManifest, String)> {
+    process
+        .foreground_executable
+        .as_deref()
+        .or(process.executable.as_deref())
+        .or_else(|| process.argv.first().map(String::as_str))
+        .and_then(|name| manifests.identify(name).map(|manifest| (manifest, name.to_string())))
 }
 
 fn identify_process<'a>(
@@ -131,17 +152,21 @@ where
     // record. Try it first so ordinary agent scans do not read /proc or the
     // macOS process environment. The explicit hint remains a fallback for a
     // VM, sandbox, or other wrapper that hides the real executable.
-    if let Some(found) = process_candidates(process)
+    let found = process_candidates(process)
         .into_iter()
         .find_map(|candidate| manifests.identify(&candidate).map(|manifest| (manifest, candidate)))
-    {
-        return Some(found);
-    }
-
-    // An explicit process hint is optional and stays inside the plugin. The
-    // replaceable manifest set validates the value before it becomes an
-    // adapter identity.
-    hint(process.pid).and_then(|hint| manifests.identify(&hint).map(|manifest| (manifest, hint)))
+        // An explicit process hint is optional and stays inside the plugin.
+        // The replaceable manifest set validates it before it becomes an
+        // adapter identity.
+        .or_else(|| {
+            hint(process.pid)
+                .and_then(|hint| manifests.identify(&hint).map(|manifest| (manifest, hint)))
+        });
+    // Letta's one-shot, server and subcommand modes are not agent sessions
+    // (herdr fc1cb77f).
+    found.filter(|(manifest, _)| {
+        manifest.id() != "letta" || launchers::letta_is_interactive(process)
+    })
 }
 
 fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
@@ -187,7 +212,9 @@ fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
 
     // A runtime can expose a generic argv[0] while its script path names the
     // agent. Inspect path components, but never inspect arbitrary eval text.
-    if !is_eval_invocation(&runtime, &process.argv) {
+    // Only a runtime's script is an identity; another program's arguments
+    // are data (herdr f3cbe03f rejects `other /path/to/cline`).
+    if is_runtime_or_shell(&runtime) && !is_eval_invocation(&runtime, &process.argv) {
         let arguments = runtime_path_arguments(&runtime, &process.argv);
         for argument in arguments {
             for candidate in path_candidates(argument) {
@@ -209,7 +236,7 @@ fn process_candidates(process: &ForegroundProcess) -> Vec<String> {
         }
     }
 
-    candidates
+    launchers::with_hidden_launcher_aliases(candidates)
 }
 
 fn process_priority(process: &ForegroundProcess) -> u8 {
@@ -241,7 +268,10 @@ fn wrapped_agent_from_argv(runtime: &str, argv: &[String]) -> Option<String> {
             }
         }
         name if is_python_runtime(name) => {
-            if is_eval_invocation(runtime, argv) {
+            // Hermes' installer runs `python -I -c <bootstrap>` (herdr e35f3937).
+            if let Some(agent) = launchers::hermes_installer_agent(argv) {
+                Some(agent)
+            } else if is_eval_invocation(runtime, argv) {
                 None
             } else {
                 runtime_path_arguments(runtime, argv)
@@ -822,98 +852,6 @@ fn path_candidates(token: &str) -> Vec<String> {
     // a package-specific identity, which is a false-positive risk in wrapper
     // processes.
     candidates
-}
-
-fn known_package_agent(effective: &str, argv: &[String]) -> Option<String> {
-    let runtime = normalized_name(effective);
-    if runtime != "node" && runtime != "bun" {
-        return None;
-    }
-    // A package-shaped path can be script text in an attached eval flag.
-    // Check the runtime grammar before applying the path-specific launcher
-    // exception, or eval text could claim an agent identity.
-    if is_eval_invocation(&runtime, argv) {
-        return None;
-    }
-    argv.get(1).and_then(|script| known_package_path_agent(script))
-}
-
-fn known_package_path_agent(path: &str) -> Option<String> {
-    let raw_components =
-        path.split(['/', '\\']).filter(|component| !component.is_empty()).collect::<Vec<_>>();
-    let ends_with = |suffix: &[&str]| {
-        raw_components.len() >= suffix.len()
-            && raw_components[raw_components.len() - suffix.len()..]
-                .iter()
-                .zip(suffix)
-                .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
-    };
-    // Pi's current Windows package emits either the direct CLI or the
-    // bundled CLI entrypoint. Compare raw components here. Normalizing file
-    // extensions first would turn `cli.exe` into `cli` and accept an invalid
-    // executable as a live agent.
-    if ends_with(&["node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"])
-        || ends_with(&[
-            "node_modules",
-            "@earendil-works",
-            "pi-coding-agent",
-            "dist",
-            "bundle",
-            "cli.js",
-        ])
-    {
-        return Some("pi".into());
-    }
-
-    let components = raw_components.into_iter().map(normalized_name).collect::<Vec<_>>();
-    for window in components.windows(5) {
-        if window == ["node_modules", "@qwen-code", "qwen-code", "dist", "index"] {
-            return Some("qwen".into());
-        }
-    }
-    for window in components.windows(4) {
-        if window == ["node_modules", "mastracode", "dist", "cli"] {
-            return Some("mastracode".into());
-        }
-    }
-    // pnpm's package exposes opencode through `opencode-ai/bin/opencode`.
-    if components.windows(3).any(|window| window == ["opencode-ai", "bin", "opencode"]) {
-        return Some("opencode".into());
-    }
-    None
-}
-
-fn cursor_bundled_agent(argv: &[String]) -> Option<String> {
-    let runtime = argv.first().map(|value| normalized_name(value))?;
-    if runtime != "node" {
-        return None;
-    }
-    let runtime_path = argv.first()?;
-    let script_path = argv.get(1)?;
-    let (runtime_parent, runtime_name) = path_parent_and_basename(runtime_path)?;
-    let (script_parent, script_name) = path_parent_and_basename(script_path)?;
-    if !runtime_name.eq_ignore_ascii_case("node.exe")
-        || !script_name.eq_ignore_ascii_case("index.js")
-        || !runtime_parent.eq_ignore_ascii_case(script_parent)
-    {
-        return None;
-    }
-    let mut tail = runtime_parent.rsplit(['/', '\\']).filter(|component| !component.is_empty());
-    let (Some(version), Some(versions), Some(package)) = (tail.next(), tail.next(), tail.next())
-    else {
-        return None;
-    };
-    (package.eq_ignore_ascii_case("cursor-agent")
-        && versions.eq_ignore_ascii_case("versions")
-        && !version.is_empty())
-    .then(|| "cursor".into())
-}
-
-fn path_parent_and_basename(path: &str) -> Option<(&str, &str)> {
-    let split = path.rfind(['/', '\\'])?;
-    let parent = path[..split].trim_end_matches(['/', '\\']);
-    let basename = &path[split + 1..];
-    (!parent.is_empty() && !basename.is_empty()).then_some((parent, basename))
 }
 
 fn canonical_path_basename(path: &str) -> Option<String> {

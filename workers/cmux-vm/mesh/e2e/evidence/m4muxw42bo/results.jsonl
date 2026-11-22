@@ -1,0 +1,40 @@
+{"t":1791364401499,"event":"mesh","meshId":"mesh_gjecba5q47canxc1r39g1sr2pg","ipv4Cidr":"10.196.208.0/20","ms":135}
+{"t":1791364401618,"event":"vm","vmId":"vm_n5y7b5sfzbjkwz6rf7nz2wz65g","state":"running","idleTimeoutSeconds":300,"ms":119}
+{"t":1791364401796,"event":"vm-joined","ipv4":"10.196.208.1","ms":178}
+{"t":1791364401799,"event":"acl","version":1,"ruleCount":0}
+{"t":1791364402234,"event":"code-enroll","code":0,"deviceId":"dev_pz4kc8wq4kz4hvgxx3hv2j8vj0","stderr":""}
+{"t":1791364402234,"event":"check","label":"the device belongs to the member","ok":true,"deviceId":"dev_pz4kc8wq4kz4hvgxx3hv2j8vj0","createdBy":"user:user_mesh_m4_m4muxw42bo"}
+{"t":1791364402234,"event":"check","label":"one provider tunnel recorded for the device","ok":true,"tunnels":1}
+{"t":1791364402243,"event":"check","label":"signed peers before removal: ok","ok":true,"stderr":""}
+{"t":1791364404560,"event":"ping","code":0,"stdout":["{\"rttMs\":19.633,\"seq\":1}","{\"rttMs\":9.864,\"seq\":2}","{\"rttMs\":10.51,\"seq\":3}","{\"avgMs\":13.336,\"maxMs\":19.633,\"minMs\":9.864,\"peer\":\"10.196.208.1\",\"received\":3,\"sent\":3,\"summary\":true}"],"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":293}"]}
+{"t":1791364404560,"event":"check","label":"ping before removal: replies","ok":true}
+{"t":1791364404560,"event":"check","label":"membership cached before removal","ok":true}
+{"t":1791364405070,"event":"check","label":"running ping replies before the webhook","ok":true,"replies":5}
+{"t":1791364405170,"event":"webhook","status":200,"body":{"ok":true,"devicesRevoked":1,"meshesReapplied":1},"ms":99}
+{"t":1791364405170,"event":"check","label":"webhook: 200, one device revoked","ok":true,"body":{"ok":true,"devicesRevoked":1,"meshesReapplied":1}}
+{"t":1791364405186,"event":"check","label":"provider GET tunnel by recorded id: 404","ok":true,"msAfterWebhookSent":116}
+{"t":1791364405192,"event":"check","label":"signed peers after the webhook: 404","ok":true,"stderr":"{\"error\":\"NotFound\",\"message\":\"Not found\",\"status\":404}"}
+{"t":1791364405194,"event":"check","label":"device read by the admin key: 404","ok":true}
+{"t":1791364410281,"event":"timing","webhookAnsweredMs":100,"providerTunnel404Ms":116,"lastReplyMsAfterWebhookSent":-17,"firstLossLineMsAfterWebhookSent":376,"repliesBefore":5,"repliesAfter":0,"lossesAfter":17,"repliesAfterFirstLoss":0,"runningPing":{"exitedEarly":false,"exit":143,"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":74}"]}}
+{"t":1791364410281,"event":"check","label":"the running ping stopped and did not come back","ok":true,"lateReplies":0}
+{"t":1791364435287,"event":"ping-after","code":1,"stdout":[""],"stderr":["{\"error\":\"Tunnel\",\"message\":\"no WireGuard handshake after 25002 ms\"}"]}
+{"t":1791364435287,"event":"check","label":"a new ping after the webhook: no reply","ok":true}
+{"t":1791364435287,"event":"check","label":"membership cache entry gone (revoked at or after the cached answer)","ok":true,"askedAt":"2026-10-07T09:13:21.801Z","revokedAt":"2026-10-07T09:13:25.075Z"}
+{"t":1791364435290,"event":"check","label":"the member's session is refused (403) and Stack was asked again","ok":true}
+{"t":1791364435291,"event":"webhook-retry","status":200,"body":{"ok":true,"duplicate":true},"ms":1}
+{"t":1791364435291,"event":"check","label":"retry: 200 duplicate, no provider call, no audit row","ok":true,"providerCalls":0,"auditRows":0}
+{"t":1791364435292,"event":"webhook-other-message","status":200,"body":{"ok":true,"devicesRevoked":0,"meshesReapplied":0}}
+{"t":1791364435292,"event":"check","label":"another message for the same removal revokes nothing","ok":true}
+{"t":1791364435292,"event":"check","label":"one device.revoke audit row as the webhook, owner the member","ok":true,"rows":1}
+{"t":1791364435293,"event":"cleanup","path":"/v1/devices/dev_pz4kc8wq4kz4hvgxx3hv2j8vj0","status":404}
+{"t":1791364435430,"event":"cleanup","path":"/v1/meshes/mesh_gjecba5q47canxc1r39g1sr2pg/vms/vm_n5y7b5sfzbjkwz6rf7nz2wz65g","status":204}
+{"t":1791364435481,"event":"cleanup","path":"/v1/vms/vm_n5y7b5sfzbjkwz6rf7nz2wz65g","status":204}
+{"t":1791364435527,"event":"cleanup","path":"/v1/meshes/mesh_gjecba5q47canxc1r39g1sr2pg","status":204}
+{"t":1791364435529,"event":"cmux-404","path":"/v1/devices/dev_pz4kc8wq4kz4hvgxx3hv2j8vj0","status":404}
+{"t":1791364435530,"event":"cmux-404","path":"/v1/vms/vm_n5y7b5sfzbjkwz6rf7nz2wz65g","status":404}
+{"t":1791364435532,"event":"cmux-404","path":"/v1/meshes/mesh_gjecba5q47canxc1r39g1sr2pg","status":404}
+{"t":1791364435548,"event":"provider-404","kind":"vpc","id":"vpc-5743388e78a2421eb9047b041c4bb338","status":404}
+{"t":1791364435565,"event":"provider-404","kind":"vm","id":"vm-5aadf96e0c6444f18abdd77ebb306a70","status":404}
+{"t":1791364435589,"event":"provider-404","kind":"tunnel","id":"tun-a3b88f3a3fb342b188fb51a60ab6044d","status":404}
+{"t":1791364435608,"event":"provider-404","kind":"rule","id":"fw-ce6f3782be334419828686cda73516f9","status":404}
+{"t":1791364435608,"event":"done","run":"m4muxw42bo","ok":true,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m4muxw42bo"}

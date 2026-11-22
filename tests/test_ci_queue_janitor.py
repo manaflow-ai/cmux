@@ -58,11 +58,11 @@ def mac_jobs(queued=0, running=0, age=20, running_name="macos / app-host shard",
 
 def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, name=None,
                 completed_at=True):
-    """macOS jobs for a run whose app-host shard has already concluded."""
-    jobs = mac_jobs(queued=queued, running=running, running_name="macos / app-host unit tests (4/6)")
+    """macOS jobs for a run whose cli-product-tests job has already concluded."""
+    jobs = mac_jobs(queued=queued, running=running, running_name="macos / swift-package-tests")
     jobs.append({
         "status": "completed", "labels": [MAC], "created_at": iso(60),
-        "name": name or "macos / app-host unit tests (3/6)",
+        "name": name or "macos / Shell regressions",
         "conclusion": conclusion,
         "completed_at": iso(failed_age) if completed_at else None,
     })
@@ -213,13 +213,11 @@ class CategoryTests(unittest.TestCase):
 
 
 class DoomedCategoryTests(unittest.TestCase):
-    """An `app-host unit tests` shard failure decides ci-status by construction.
+    """A `Shell regressions` failure decides ci-status by construction.
 
     ci-status accepts only `success` or `skipped` from the `macos`
-    reusable-workflow call, so one failed shard fails the required check and no
-    later job takes it back. Across the 299 CI runs created between
-    2026-09-22T06:05Z and 17:00Z, 21 runs had such a failure and ci-status
-    concluded `failure` in all 21.
+    reusable-workflow call, so one failed job it wants fails the required
+    check and no later job takes it back.
     """
 
     def classify(self, *, jobs=None, pr=None, run=None):
@@ -229,26 +227,26 @@ class DoomedCategoryTests(unittest.TestCase):
             newer_ci_run_waiting=False, pull_request_policy="compile-only", now=NOW,
         )
 
-    def test_failed_shard_with_macos_jobs_still_held_is_doomed(self):
+    def test_failed_cli_product_tests_with_macos_jobs_still_held_is_doomed(self):
         verdict = self.classify()
         self.assertEqual(verdict[0], "doomed")
-        self.assertIn("app-host unit tests (3/6)", verdict[1])
+        self.assertIn("Shell regressions", verdict[1])
         self.assertIn("3 macOS job(s) still held", verdict[1])
         self.assertIn("PR #1 (feature)", verdict[1])
 
-    def test_earliest_failed_shard_is_the_one_reported(self):
+    def test_earliest_deciding_failure_is_the_one_reported(self):
         jobs = doomed_jobs(failed_age=30)
         jobs.append({"status": "completed", "labels": [MAC], "created_at": iso(60),
-                     "name": "macos / app-host unit tests (5/6)", "conclusion": "failure",
+                     "name": "macos / macOS compile admission", "conclusion": "failure",
                      "completed_at": iso(40)})
-        self.assertIn("(5/6)", self.classify(jobs=jobs)[1])
+        self.assertIn("macOS compile admission", self.classify(jobs=jobs)[1])
 
     def test_no_macos_job_left_to_reclaim_is_kept(self):
         # usage.held == 0 short-circuits every category: cancelling would free
         # nothing and only destroy the Linux results.
         self.assertIsNone(self.classify(jobs=doomed_jobs(queued=0, running=0)))
 
-    def test_macos_jobs_held_without_a_shard_failure_are_kept(self):
+    def test_macos_jobs_held_without_a_deciding_failure_are_kept(self):
         for conclusion in ("success", "skipped", "cancelled"):
             with self.subTest(conclusion=conclusion):
                 self.assertIsNone(self.classify(jobs=doomed_jobs(conclusion=conclusion)))
@@ -261,7 +259,7 @@ class DoomedCategoryTests(unittest.TestCase):
         jobs[-1]["steps"] = [{"name": "Upload xcresults", "conclusion": "failure"}]
         self.assertIsNone(self.classify(jobs=jobs))
 
-    def test_app_host_job_has_no_job_level_continue_on_error(self):
+    def test_compile_admission_has_no_job_level_continue_on_error(self):
         # Job-level continue-on-error is not absorbed by the job conclusion the
         # test above relies on, so reading a `failure` conclusion as decisive
         # would stop being sound.
@@ -269,7 +267,7 @@ class DoomedCategoryTests(unittest.TestCase):
         # The job ends at the next line indented exactly two spaces. Splitting
         # on "\n  " alone stopped after the job's first key, so a job-level
         # continue-on-error anywhere below it went unseen.
-        block = re.split(r"\n  (?=\S)", macos.split("\n  app-host-unit-tests:\n", 1)[1], maxsplit=1)[0]
+        block = re.split(r"\n  (?=\S)", macos.split("\n  macos-compile-admission:\n", 1)[1], maxsplit=1)[0]
         self.assertIn("\n    steps:", "\n" + block)
         self.assertNotIn("\n    continue-on-error", "\n" + block)
 
@@ -283,13 +281,9 @@ class DoomedCategoryTests(unittest.TestCase):
         was cancelled by hand for exactly this and had to be restarted.
         """
         repairs = {
-            "PR #13643 app-host test sources": "cmuxTests/AgentSessionAutoResumeSettingsTests.swift",
-            "PR #13408 the failing regression itself": "cmuxTests/WorkspaceSSHFishShellTests.swift",
-            "PR #13579 shard splitter": "scripts/ci/cmux_unit_test_shard.py",
-            "PR #13579 shard workload": "scripts/ci/workloads/macos-app-host-test-shard.sh",
             "PR #13427 job definition": ".github/workflows/ci-macos.yml",
             "PR #13414 test product build": "scripts/ci/compile-app-host-test-product.sh",
-            "quarantine list": "scripts/ci/app-host-known-failures.json",
+            "a workload entrypoint": "scripts/ci/workloads/macos-compile-admission.sh",
         }
         for name, path in repairs.items():
             with self.subTest(name=name):
@@ -633,24 +627,37 @@ class OwnedMarkerRunTests(unittest.TestCase):
 
     def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
         self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
-        # Attempt 2 may take the light tier, only while CI_OWNED_LIGHT_RETRY is on.
+        # Attempt 2 is placed like attempt 1, whoever started it (pr_runner_pool.LAST_OWNED_ATTEMPT).
         bot = {"login": "github-actions[bot]"}
-        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), [],
-                                                    light_retry=True))
-        self.assertFalse(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), []))
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), []))
         # A person's re-run follows a code failure and may pick the fleet again.
         self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=3), []))
         self.assertTrue(janitor.may_hold_owned_pool(
-            self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
+            self.run_of(event="workflow_dispatch", path=".github/workflows/iroh-release-gate.yml"), []))
         for why, run in {
             "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
-            "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
+            "a dispatch workflow as a pull request": self.run_of(path=".github/workflows/iroh-release-gate.yml"),
             "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
             "fork": self.run_of(head_repository={"id": 2}),
             "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
         }.items():
             with self.subTest(why=why):
-                self.assertFalse(janitor.may_hold_owned_pool(run, [], light_retry=True))
+                self.assertFalse(janitor.may_hold_owned_pool(run, []))
+
+    def test_a_first_attempt_still_in_the_queue_has_no_marker_to_list(self):
+        queued = [{"status": "queued", "name": "changes", "labels": [LINUX]},
+                  {"status": "waiting", "name": "deploy", "labels": [LINUX]}]
+        self.assertFalse(janitor.marker_may_exist(self.run_of(), queued))
+        self.assertFalse(janitor.marker_may_exist(self.run_of(), []))
+        started = [{"status": "in_progress", "name": "changes", "labels": [LINUX]}] + queued
+        self.assertTrue(janitor.marker_may_exist(self.run_of(), started))
+        done = [{"status": "completed", "name": "changes", "labels": [LINUX]}] + queued
+        self.assertTrue(janitor.marker_may_exist(self.run_of(), done))
+        # A re-run may hold the marker an earlier attempt uploaded.
+        self.assertTrue(janitor.marker_may_exist(self.run_of(run_attempt=2), queued))
+        # A listing cut at MAX_JOB_PAGES may hide the started job.
+        many = [{"status": "queued", "name": "x", "labels": [LINUX]}] * (janitor.MAX_JOB_PAGES * 100)
+        self.assertTrue(janitor.marker_may_exist(self.run_of(), many))
 
 
 class WorkflowShapeTests(unittest.TestCase):
@@ -665,9 +672,24 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
         steps = workflow["jobs"]["sweep"]["steps"]
         self.assertEqual(steps[0]["id"], "fresh")
-        self.assertEqual(steps[0]["if"], "github.event_name == 'workflow_run'")
         for step in steps[1:]:
             self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
+
+    def test_requested_runs_only_stand_in_for_a_late_cron(self):
+        # 2026-10-06: CI was requested hundreds of times an hour, a 240 s skip
+        # let those requests sweep about every 5 minutes on top of the cron, and
+        # the shared GITHUB_TOKEN budget ran out. A requested run now sweeps only
+        # once a cron interval has passed without a snapshot, and a cron skips
+        # when a requested run has just swept for it. A manual dispatch always
+        # sweeps.
+        workflow = yaml.safe_load(self.text)
+        fresh = workflow["jobs"]["sweep"]["steps"][0]
+        self.assertEqual(fresh["if"], "github.event_name != 'workflow_dispatch'")
+        self.assertEqual(fresh["env"]["FRESH_SECONDS"],
+                         "${{ github.event_name == 'workflow_run' && '600' || '300' }}")
+        # The cron skip must stay below one interval less a sweep, so an on-time
+        # cron always sweeps after the previous on-time cron.
+        self.assertIn('- cron: "*/10 * * * *"', self.text)
 
     def test_triggers_permissions_and_runner(self):
         text = self.text
@@ -675,7 +697,8 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("dry_run:", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
-        self.assertIn("permissions:\n  actions: write\n  pull-requests: read\n  contents: read\n", text)
+        self.assertIn("\npermissions: {}\n", text)
+        self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -806,8 +829,8 @@ class OrphanDetectionTests(unittest.TestCase):
         self.assertEqual(find([run], {run["id"]: [orphan_job(age=60 * 30)]}), [])
 
     def test_sweep_lists_queued_runs_regardless_of_age(self):
-        ghost = make_run(status="queued", age=60 * 24 * 11, name="CI status fallback",
-                         path=".github/workflows/ci-status-fallback.yml")
+        ghost = make_run(status="queued", age=60 * 24 * 11, name="Legacy workflow",
+                         path=".github/workflows/legacy-workflow.yml")
         fake = FakeGitHub({ghost["id"]: ghost})
         runs = fake.in_flight_runs()
         self.assertIn(ghost["id"], [r["id"] for r in runs])
@@ -972,6 +995,8 @@ class FakeGitHub(janitor.GitHub):
         run_id = int(parts[3])
         if method == "GET" and parts[-1] == "jobs":
             return {"jobs": self.job_map.get(run_id, [])}
+        if method == "GET" and parts[-1] == "artifacts":
+            return {"artifacts": []}
         if method == "GET":
             return dict(self.runs[run_id])
         if parts[-1] == "cancel":
@@ -1035,6 +1060,32 @@ class OrphanExecutionTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [])
 
 
+class PlannedCancellationTests(unittest.TestCase):
+    def candidate(self):
+        run = make_run(status="queued")
+        usage = janitor.macos_usage(mac_jobs(queued=1))
+        return janitor.Candidate(run, "stale-pr", "PR is merged", usage), run
+
+    def test_refused_cancel_is_force_cancelled_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("force-cancelled", results[run["id"]])
+        self.assertEqual(failures, 0)
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"], [str(run["id"]), "force-cancel"]])
+
+    def test_run_github_will_not_cancel_is_reported_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]], refuse_force=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("stuck", results[run["id"]])
+        self.assertEqual(failures, 0)
+
+
 class OrphanSweepTests(unittest.TestCase):
     def sweep(self, *args, **fake_kwargs):
         stuck = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")
@@ -1080,6 +1131,84 @@ class OrphanSweepTests(unittest.TestCase):
             code, fake, text, (stuck, ghost) = self.sweep()
         self.assertEqual(code, 0)
         self.assertEqual(fake.posts(), [[str(ghost["id"]), "cancel"]])
+
+
+class OwnedMarkerListingSweepTests(unittest.TestCase):
+    def test_only_runs_that_can_hold_a_marker_have_their_artifacts_listed(self):
+        waiting = make_run(status="queued", branch="waiting")
+        started = make_run(branch="started")
+        rerun = make_run(status="queued", branch="rerun", attempt=2)
+        runs = {r["id"]: dict(r) for r in (waiting, started, rerun)}
+        queued_only = [{"status": "queued", "name": "changes", "labels": [LINUX], "created_at": iso(5)}]
+        jobs = {waiting["id"]: queued_only, started["id"]: mac_jobs(queued=1), rerun["id"]: queued_only}
+        fake = FakeGitHub(runs, jobs)
+        with tempfile.TemporaryDirectory() as temp:
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(Path(temp) / "load.json"),
+                    "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t", "PR_POOL_OWNED": "1"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+        listed = {int(path.split("/")[-2]) for method, path in fake.log if path.split("?")[0].endswith("/artifacts")}
+        self.assertEqual(listed, {started["id"], rerun["id"]})
+
+
+class RateLimitTests(unittest.TestCase):
+    HEADERS = {"X-RateLimit-Limit": "15000", "X-RateLimit-Remaining": "4211", "X-RateLimit-Used": "10789",
+               "X-RateLimit-Reset": "1791323880", "X-RateLimit-Resource": "core"}
+
+    def test_headers_are_read_per_resource(self):
+        self.assertEqual(janitor.read_rate_limit(self.HEADERS), ("core", {
+            "limit": 15000, "remaining": 4211, "used": 10789, "reset": 1791323880}))
+        self.assertEqual(janitor.read_rate_limit({"X-RateLimit-Remaining": "7"}), ("core", {"remaining": 7}))
+        self.assertIsNone(janitor.read_rate_limit({}))
+        self.assertIsNone(janitor.read_rate_limit(None))
+        self.assertIsNone(janitor.read_rate_limit({"X-RateLimit-Remaining": "lots"}))
+
+    def test_budget_line(self):
+        line = janitor.render_rate_limits({"core": janitor.read_rate_limit(self.HEADERS)[1],
+                                           "graphql": {"remaining": 4990, "limit": 5000}})
+        self.assertIn("core 4211 of 15000 left, 10789 used, resets ", line)
+        self.assertIn("graphql 4990 of 5000 left", line)
+        self.assertIn("no rate limit headers", janitor.render_rate_limits({}))
+
+    def response(self, headers):
+        response = mock.MagicMock()
+        response.headers = headers
+        response.read.return_value = b"{}"
+        response.__enter__.return_value = response
+        return response
+
+    def test_requests_record_the_budget_even_when_they_fail(self):
+        import email.message
+        import urllib.error
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        with mock.patch.object(janitor.urllib.request, "urlopen", return_value=self.response(self.HEADERS)):
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+        self.assertEqual(github.rate_limits["core"]["remaining"], 4211)
+        headers = email.message.Message()
+        for key, value in dict(self.HEADERS, **{"X-RateLimit-Remaining": "0"}).items():
+            headers[key] = value
+        error = urllib.error.HTTPError("https://api.github.com/x", 403, "rate limited", headers, None)
+        with mock.patch.object(janitor.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(RuntimeError):
+                github.request("GET", "/repos/manaflow-ai/cmux/actions/runs")
+        self.assertEqual(github.rate_limits["core"]["remaining"], 0)
+
+    def test_sweep_summary_reports_the_budget(self):
+        fake = FakeGitHub({})
+        fake.rate_limits["core"] = {"remaining": 900, "limit": 15000, "used": 14100}
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            self.assertIn("core 900 of 15000 left, 14100 used", summary.read_text())
 
 
 if __name__ == "__main__":

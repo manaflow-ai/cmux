@@ -17,6 +17,8 @@ const signedInUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
+  // Admin of any team it selects; legacy `?scope=team` requires team admin.
+  hasPermission: mock(async () => true),
   update: mock(async () => undefined),
 };
 const anonymousUser = {
@@ -247,9 +249,10 @@ describe("billing portal route", () => {
     expect(response.headers.get("location")).toBe(
       "https://billing.stripe.com/session/test",
     );
+    // Legacy implicit team: the portal returns to that team's billing view.
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_team",
-      return_url: "https://cmux.test/dashboard/billing",
+      return_url: "https://cmux.test/dashboard/billing?team=team-pro",
     });
   });
 

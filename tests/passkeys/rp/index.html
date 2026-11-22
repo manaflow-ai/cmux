@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cmux passkey test RP</title>
+<meta name="viewport" content="width=device-width">
+<style>
+  body { font: 13px ui-monospace, monospace; margin: 16px; background: #1e1e1e; color: #ddd; }
+  button { font: inherit; margin: 2px; }
+  pre { white-space: pre-wrap; }
+  iframe { width: 320px; height: 60px; border: 1px solid #555; }
+</style>
+<!--
+  Local relying party for passkey regression checks (plans/cmux-next/passkeys.md
+  section 7). Each scenario resolves to {name, pass, detail}: pass true/false is
+  what a correct browser must do; null means record only (needs a person or a
+  real authenticator to judge). Runs in any engine; tests/passkeys/run.mjs drives
+  it with a DevTools virtual authenticator, and a person can click the buttons.
+-->
+<h1>cmux passkey test RP</h1>
+<div id="buttons"></div>
+<div id="frames"></div>
+<pre id="out"></pre>
+<script src="scenarios.js"></script>
+<script>
+  for (const name of Object.keys(window.PASSKEY_SCENARIOS)) {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.onclick = async () => {
+      const r = await window.runPasskeyScenario(name);
+      document.getElementById("out").textContent += JSON.stringify(r) + "\n";
+    };
+    document.getElementById("buttons").appendChild(b);
+  }
+</script>

@@ -1,0 +1,22 @@
+[package]
+name = "cmux-history"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "History read model for cmux: entry wire model, query, journal folds, hidden ranges and the per-profile page visit store"
+
+[dependencies]
+getrandom = { workspace = true }
+icu_normalizer = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

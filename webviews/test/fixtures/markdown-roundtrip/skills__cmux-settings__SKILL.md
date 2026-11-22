@@ -1,0 +1,130 @@
+---
+name: cmux-settings
+description: "View and edit cmux settings in ~/.config/cmux/cmux.json, including terminal, browser, Markdown, diff, notes, HTML, file preview, and sidebar-tool behavior. Use when the user wants to change cmux preferences, set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'customize viewer', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
+---
+
+# cmux-settings
+
+cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). A file watcher applies changes on save, no restart. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys absent from `cmux.json`.
+
+Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The helper uses the schema-generated path list in `references/all-keys.md` in both checkouts and installed skills. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, `markdown`, `fileEditor`, `fileExplorer`, `diffViewer`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
+
+For a viewer-specific route, read [the viewer matrix](../cmux-customization/references/viewer-types.md). It distinguishes settings-backed knobs from structural configuration and viewer types that do not have a shipped setting yet. Do not invent a `templates.<viewer>` path: the schema is authoritative, and the adjacent templates proposal is not a supported configuration surface until its keys appear in `web/data/cmux.schema.json`.
+
+## Helper script
+
+Use the bundled helper for reads, and for writes when a validator is available (see below). It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically unless the change adds a validation issue. Issues the file already had, such as a key from a newer cmux, don't block an unrelated change; run `validate` to see them.
+
+```bash
+skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux checkout
+~/.codex/skills/cmux-settings/scripts/cmux-settings <subcommand>   # installed Codex skill
+```
+
+The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkout, `export PATH="$PWD/skills/cmux-settings/scripts:$PATH"`.
+
+The helper's semantic validation shells out to `cmux --json config validate`, which the Rust `cmux` does not have. Until it does, `set`, `unset` and `validate` refuse with a validator failure unless `CMUX_CLI_BIN` names a CLI that still provides it. With the app running, use its settings verbs instead; they write the same `cmux.json`:
+
+```bash
+cmux settings get app.appearance
+cmux settings set app.appearance dark        # VALUE is parsed as JSON, else stored as a string
+cmux settings unset app.appearance
+cmux settings open-json                      # app action: open cmux.json
+```
+
+So without such a CLI, use the helper only for `path`, `dump`, `get`, `list-supported` and `open`, and make changes with `cmux settings`. Every helper command that writes or checks the file (`set`, `unset`, `undo`, `--preview`, `validate`) needs `CMUX_CLI_BIN`.
+
+| Command | What it does |
+|---|---|
+| `cmux-settings path` | Print the config path. |
+| `cmux-settings dump` | Print the raw file (preserves comments). |
+| `cmux-settings dump --no-comments` | Print the parsed JSON. |
+| `cmux-settings get <a.b.c>` | Print value at dotted JSON path. |
+| `cmux-settings set <a.b.c> <value>` | Set value. `<value>` is parsed as JSON (`true`, `42`, `"text"`, `[…]`, `{…}`); unquoted plain words are stored as strings. |
+| `cmux-settings unset <a.b.c>` | Delete key, reverting to the in-app default. |
+| `cmux-settings undo <receipt>` | Restore one path changed by `set`/`unset --receipt`, only if it still holds the value that change installed. |
+| `cmux-settings list-supported` | List every settings JSON path the app recognizes. |
+| `cmux-settings validate` | Run the same semantic validation as `cmux config validate` (unknown paths, types, enums, bounds, nested constraints, and config scope). |
+| `cmux-settings open` | Open `cmux.json` in `$EDITOR`, VS Code, Cursor, or TextEdit. |
+
+`--file <path>` overrides the target file. Scope is inferred from the real global paths and the project config discovered from the current directory; use `--scope global|project` to override that inference for an arbitrary file.
+
+The installed `cmux` CLI covers the common edits without the helper: `cmux config get|set|unset|toggle|cycle <path>` and `cmux config preset <name>` validate against the same schema, keep comments, and write `~/.config/cmux/cmux.json`. They share one write path with `"type": "setting"` and `"type": "settingPreset"` actions, which put the same edits on a tab bar button, shortcut, or Command Palette entry. Use the helper when you need `--preview`, receipts, `undo`, or a file other than the global config. Paths split on every `.`, so a key that itself contains `.` (for example a `workspaceGroups.byCwd` entry for `~/src/app.web`) is refused by these commands with an error saying so; edit that key in the file directly.
+
+## Workflow
+
+1. Look up the key when the user named a setting in plain English:
+   ```bash
+   cmux-settings list-supported | rg -i 'sidebar.*terminal|terminal.*sidebar'
+   ```
+2. Set it with the app's settings verb. JSON literals must be valid JSON.
+   ```bash
+   cmux settings set sidebarAppearance.matchTerminalBackground true
+   cmux settings set app.appearance dark
+   cmux settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
+   cmux settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
+   ```
+   With `CMUX_CLI_BIN` set to a CLI that has `config validate`, `cmux-settings set` takes the same arguments and validates first.
+3. Read back with `cmux settings get <key>` (or `cmux-settings get <key>`). Run `cmux-settings validate` only when `CMUX_CLI_BIN` is set.
+4. Tell the user it auto-reloaded, and that `cmux settings unset <key>` reverts it.
+
+## Viewer settings
+
+Use the matrix to identify the surface before editing. The shipped settings-backed viewer paths are:
+
+```bash
+cmux-settings list-supported | rg '^(browser|markdown|fileEditor|fileExplorer|diffViewer)\.'
+```
+
+Examples:
+
+```bash
+cmux settings set markdown.fontSize 16
+cmux settings set fileEditor.wordWrap true
+cmux settings set fileExplorer.doubleClickAction '"preferredEditor"'
+cmux settings set diffViewer.defaultLayout '"split"'
+```
+
+Browser profile import, per-page navigation, developer tools, and the current
+right-sidebar tab are runtime or UI state; use the browser/sidebar commands or
+the relevant Settings pane instead of adding guessed JSON keys. After any
+successful edit, run `cmux settings reload-configuration` and read back the exact path.
+
+The helper's `set` and `unset` (with `CMUX_CLI_BIN`) print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
+
+## Reversible changes
+
+Use these when a change may need to be taken back later, for example a preset the user can uninstall. They are helper-only and need `CMUX_CLI_BIN` (see above); `cmux settings` has no preview, revision check or receipt:
+
+```bash
+cmux-settings set computerUse.showInMenuBar false --preview        # prints the change and a revision; writes nothing
+cmux-settings set computerUse.showInMenuBar false \
+  --expect-revision <revision> --receipt ~/private/menu-bar-undo.json
+cmux-settings undo ~/private/menu-bar-undo.json
+```
+
+- `--expect-revision` refuses the write if the file changed since the preview.
+- `--receipt` creates a new mode-0600 file and never overwrites one; an existing file returns `receipt_exists`, and a path that can't be created returns `receipt_unwritable`, before anything is written. It holds config values, so keep it private.
+- `undo` restores the prior value, or the prior absence, only while the path on the same resolved file still holds the value the receipt installed. If the user or another tool changed it since, `undo` returns `undo_conflict` and leaves the newer choice alone.
+- Plain `unset` is an unconditional reset, not an undo.
+
+## Quick reference
+
+- Appearance: `app.appearance` (`"system" | "light" | "dark"`), `app.appIcon`, `app.menuBarOnly`, `app.minimalMode`.
+- Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `.tintColor`, `.tintOpacity` (0..1).
+- Sidebar details: `sidebar.hideAllDetails`, `.showBranchDirectory`, `.showPullRequests`, `.showPorts`, `.showLog`.
+- Notifications: `notifications.dockBadge`, `.sound` (enum including `"none"`, `"custom_file"`), `.customSoundFilePath`, `.hooks` (array).
+- Browser: `browser.defaultSearchEngine`, `.theme`, `.defaultZoomLevel`, `.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`.
+- Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `.portBase`, `.portRange`.
+- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
+
+Full list of settings, defaults, and descriptions: `cmux-settings list-supported` or [references/all-keys.md](references/all-keys.md).
+
+## Rules
+
+- Only edit `cmux.json`. Never `settings.json` unless the user explicitly asks; it is legacy and read only when a key is absent from `cmux.json`.
+- Never tell the user to restart cmux. The file watcher reloads on save.
+- Always `cmux-settings validate` after a bulk edit when `CMUX_CLI_BIN` is set; otherwise read each path back with `cmux settings get`. Validation errors include the exact config path and violated constraint.
+- Do not blindly overwrite `actions`, `ui`, `commands`, `vault`, or `rightSidebar`; they share the file and hold hand-tuned non-settings config.
+- Shortcut action ids must match the schema enum. Look them up before binding.
+- Colors are `#RRGGBB`; opacities are `0..1`.
+- Translate app-level phrasing ("Settings > Notifications > Dock badge") to the JSON path first; `web/app/[locale]/(landing)/docs/configuration/page.tsx` mirrors the schema 1:1.

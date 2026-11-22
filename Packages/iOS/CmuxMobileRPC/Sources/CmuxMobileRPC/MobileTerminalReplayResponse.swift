@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxTerminalSizing
 public import Foundation
 
 /// Typed decoder for the `mobile.terminal.replay` RPC result.
@@ -33,6 +34,11 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// slow host capture from a slow or stalled transport. Absent on hosts
     /// that predate the field.
     public let hostElapsedMilliseconds: UInt32?
+    /// The shared sizing state (`size_state`) for this terminal. Absent on
+    /// hosts that predate shared sizing; a malformed value is ignored.
+    public let sizeState: TerminalSizingState?
+    /// This phone's participant id (`self_participant_id`).
+    public let selfParticipantID: String?
 
     private enum CodingKeys: String, CodingKey {
         case surfaceID = "surface_id"
@@ -43,6 +49,8 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case columns
         case rows
         case hostElapsedMilliseconds = "host_elapsed_ms"
+        case sizeState = "size_state"
+        case selfParticipantID = "self_participant_id"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -66,6 +74,8 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
             UInt32.self,
             forKey: .hostElapsedMilliseconds
         )
+        sizeState = try? container.decodeIfPresent(TerminalSizingState.self, forKey: .sizeState)
+        selfParticipantID = try? container.decodeIfPresent(String.self, forKey: .selfParticipantID)
     }
 
     /// Decode a replay response from raw JSON data.

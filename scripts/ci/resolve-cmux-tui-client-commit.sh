@@ -36,7 +36,7 @@
 # The chosen 40-hex commit is the only stdout line; diagnostics go to stderr.
 set -euo pipefail
 
-PATHS=(cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)
+PATHS=(cmux-tui ghostty ghostty-next .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)
 BASE="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
 REMOTE="${CMUX_TUI_CLIENT_REMOTE:-origin}"
 MAX_FALLBACK=0

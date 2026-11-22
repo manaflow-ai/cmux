@@ -30,7 +30,7 @@ export type DiffSource = { "kind": "patch", path: string, } | { "kind": "unstage
 
 export type DiffTransportConfig = { kind: DiffTransportKind, endpoint: string, protocolVersion: number, };
 
-export type DiffTransportKind = "fetch" | "webSocket" | "webKit";
+export type DiffTransportKind = "fetch" | "webSocket" | "webKit" | "page";
 
 export type HandshakeResult = { protocolVersion: number, capabilities: Array<string>, };
 
@@ -38,6 +38,11 @@ export type NavigationResult = { url: string, };
 
 export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, };
 
-export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
+export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, 
+/**
+ * Changed paths the repository marks generated (`.gitattributes`
+ * `linguist-generated` or `-diff`); the viewer collapses them by default.
+ */
+generatedPaths: Array<string>, };
 
 export type SessionRequest = { sessionId: string, capabilityToken: string, };

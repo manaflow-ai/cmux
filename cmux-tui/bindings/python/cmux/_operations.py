@@ -173,6 +173,12 @@ class Operations:
         ("session", "workspace", "screen"),
         "screen",
     )
+    SCREEN_COLUMN_UPDATE = _op(
+        "column.update",
+        "mutation",
+        ("session", "workspace", "screen"),
+        "screen",
+    )
     SCREEN_FOCUS = _op(
         "screen.focus",
         "mutation",

@@ -11,13 +11,29 @@ FILES=(
 )
 
 fail=0
+# The cask installs the app, so its floor is the app target's deployment
+# target (the target that produces the .app), not the project default or the
+# CLI tool's.
 deployment_targets="$(
-  awk -F '= ' '
-    /MACOSX_DEPLOYMENT_TARGET = / {
-      gsub(/[;[:space:]]/, "", $2)
-      print $2
-    }
-  ' "$ROOT_DIR/cmux.xcodeproj/project.pbxproj" | sort -u
+  python3 - "$ROOT_DIR/cmux.xcodeproj/project.pbxproj" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+targets = set()
+for target in re.finditer(r"\n\t\t\w+ /\* [^*]+ \*/ = \{\n\t\t\tisa = PBXNativeTarget;(.*?)\n\t\t\};", text, re.S):
+    body = target.group(1)
+    if '"com.apple.product-type.application"' not in body and "com.apple.product-type.application;" not in body:
+        continue
+    config_list = re.search(r"buildConfigurationList = (\w+)", body).group(1)
+    listing = re.search(config_list + r" /\*[^*]*\*/ = \{(.*?)\n\t\t\};", text, re.S).group(1)
+    for config in re.findall(r"(\w+) /\* \w+ \*/,", listing):
+        block = re.search(r"\n\t\t" + config + r" /\*[^*]*\*/ = \{(.*?)\n\t\t\};", text, re.S).group(1)
+        match = re.search(r"MACOSX_DEPLOYMENT_TARGET = ([0-9.]+);", block)
+        if match:
+            targets.add(match.group(1))
+print("\n".join(sorted(targets)))
+PY
 )"
 deployment_target_count="$(printf '%s\n' "$deployment_targets" | sed '/^$/d' | wc -l | tr -d ' ')"
 required_symbol=""
@@ -28,6 +44,9 @@ else
   case "$deployment_targets" in
     14.*)
       required_symbol=":sonoma"
+      ;;
+    26.*)
+      required_symbol=":tahoe"
       ;;
     *)
       echo "FAIL: update Homebrew cask macOS symbol mapping for deployment target $deployment_targets" >&2

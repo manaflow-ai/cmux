@@ -1,0 +1,61 @@
+{
+  "permissionId": "perm_chief_1",
+  "session": "sess_mux",
+  "request": {
+    "sessionId": "sess_mux",
+    "toolCall": {
+      "toolCallId": "toolu_chief",
+      "title": "Question",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {},
+      "_meta": {
+        "acpmux": {
+          "interactive": true,
+          "question": {
+            "harness": "chief",
+            "agent": "Chief",
+            "items": [
+              {
+                "id": "q0",
+                "header": "Deploy",
+                "prompt": "Two agents finished. Merge both branches into feat-cmux-next now?",
+                "options": [
+                  {
+                    "id": "both",
+                    "label": "Merge both",
+                    "detail": "Runs the gates on the merged head first."
+                  },
+                  {
+                    "id": "first",
+                    "label": "Only the docs branch",
+                    "detail": "The app branch waits for dogfood."
+                  },
+                  {
+                    "id": "wait",
+                    "label": "Wait",
+                    "detail": "Ask again after the nightly."
+                  }
+                ],
+                "multiSelect": false,
+                "allowsOther": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

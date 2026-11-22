@@ -23,8 +23,8 @@ recorded time onto every byte-identical input. Changed and new inputs get the
 current time, so Xcode rebuilds exactly what differs. A seed from an older main
 costs compile time, never correctness.
 
-That time is mostly distance, not the diff under test: a CmuxFoundation change
-between the seed and the checkout recompiles every file of the `cmux` module.
+That time is mostly distance, not the diff under test: a change to a low-level
+package between the seed and the checkout recompiles every module above it.
 So `adopt` takes the seed of REVISION, the commit being built on, or else of
 its nearest ancestor that has one. It used to take the pull request event's
 base.sha, which is not always the merge commit's parent, and then the newest

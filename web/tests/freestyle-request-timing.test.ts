@@ -1,7 +1,50 @@
 import { describe, expect, test } from "bun:test";
+import { preconnectFreestyle } from "../services/vms/drivers/freestyle";
 import { freestyleRequestFetch, type FreestyleRequestTiming } from "../services/vms/drivers/freestyleRequestTiming";
 
 describe("Freestyle enrollment request timings", () => {
+  test("coalesces concurrent production connection warm-ups and keeps success sticky", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalNow = Date.now;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      await gate;
+      return new Response(null, { status: 204 });
+    }) as typeof globalThis.fetch;
+    Date.now = () => 0;
+    try {
+      const first = preconnectFreestyle();
+      const second = preconnectFreestyle();
+      expect(second).toBe(first);
+      expect(calls).toBe(1);
+
+      release();
+      await Promise.all([first, second]);
+      await preconnectFreestyle();
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      Date.now = originalNow;
+    }
+  });
+
+  test("re-probes after the idle-pool reuse window", async () => {
+    let now = 0;
+    let calls = 0;
+    const fetch = (async () => {
+      calls += 1;
+      return new Response(null, { status: 204 });
+    }) as typeof globalThis.fetch;
+    const options = { baseUrl: "https://provider-idle.example.test", fetch, now: () => now };
+    await preconnectFreestyle(options);
+    now = 3_001;
+    await preconnectFreestyle(options);
+    expect(calls).toBe(2);
+  });
+
   test.each(["workflow", "init", "request"])("forwards %s cancellation alongside the provider timeout", async (source) => {
     const controller = new AbortController();
     const reason = new DOMException("synthetic cancellation", "AbortError");

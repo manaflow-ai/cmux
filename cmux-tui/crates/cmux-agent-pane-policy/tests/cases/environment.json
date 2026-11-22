@@ -1,0 +1,185 @@
+{
+ "tag_slugs": [
+  [
+   "My Tag_1",
+   "my-tag-1"
+  ],
+  [
+   "--a--b--",
+   "a-b"
+  ],
+  [
+   "ÄBC",
+   "bc"
+  ],
+  [
+   "",
+   null
+  ],
+  [
+   "___",
+   null
+  ],
+  [
+   "Feature/X 2",
+   "feature-x-2"
+  ],
+  [
+   "abc",
+   "abc"
+  ],
+  [
+   "A1b2",
+   "a1b2"
+  ]
+ ],
+ "tokens": [
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  [
+   "  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  ",
+   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  ],
+  [
+   "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   null
+  ],
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ],
+  [
+   "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+   null
+  ],
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                                                                                                                                                                                        ",
+   null
+  ],
+  [
+   "",
+   null
+  ],
+  [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   null
+  ]
+ ],
+ "sockets": [
+  [
+   "/Users/me/.acpmux",
+   501,
+   "/Users/me/.acpmux/acpmux.sock"
+  ],
+  [
+   "/Users/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/.acpmux",
+   501,
+   "/tmp/acpmux-501/eaf4eea38918181c.sock"
+  ]
+ ],
+ "resolve": [
+  {
+   "name": "default home",
+   "tag": null,
+   "bundled": "/App/bin",
+   "env": {
+    "PATH": "/usr/bin:/bin"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/usr/bin/acpmux",
+    "/App/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/App/bin/acpmux",
+    "home": "/Users/me/.acpmux",
+    "socket": "/Users/me/.acpmux/acpmux.sock",
+    "args": []
+   }
+  },
+  {
+   "name": "tagged home",
+   "tag": "Feature X",
+   "bundled": null,
+   "env": {
+    "PATH": ""
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/Users/me/.cargo/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/Users/me/.cargo/bin/acpmux",
+    "home": "/Users/me/.acpmux/tags/feature-x",
+    "socket": "/Users/me/.acpmux/tags/feature-x/acpmux.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
+   "name": "ACPMUX_HOME and ACPMUX_SOCKET win",
+   "tag": "t",
+   "bundled": null,
+   "env": {
+    "ACPMUX_HOME": "/h",
+    "ACPMUX_SOCKET": "/s.sock",
+    "PATH": "/p"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/p/acpmux"
+   ],
+   "expect": {
+    "executable": "/p/acpmux",
+    "home": "/h",
+    "socket": "/s.sock",
+    "args": [
+     "--listen",
+     "127.0.0.1:0"
+    ]
+   }
+  },
+  {
+   "name": "empty overrides are ignored",
+   "tag": null,
+   "bundled": null,
+   "env": {
+    "ACPMUX_HOME": "",
+    "ACPMUX_SOCKET": "",
+    "PATH": "/p:/p"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/opt/homebrew/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/opt/homebrew/bin/acpmux",
+    "home": "/Users/me/.acpmux",
+    "socket": "/Users/me/.acpmux/acpmux.sock",
+    "args": []
+   }
+  },
+  {
+   "name": "no executable",
+   "tag": null,
+   "bundled": null,
+   "env": {},
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [],
+   "expect": null
+  }
+ ]
+}

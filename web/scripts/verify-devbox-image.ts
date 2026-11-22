@@ -46,6 +46,7 @@ import {
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
+  devboxIdleWakeupCheckCommand,
   devboxTerminfoCheckCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
@@ -116,6 +117,10 @@ const CHECKS: readonly string[] = [
   // Ghost-text smoke under a real PTY: type "cl" and expect ble.sh to render
   // the seeded claude command as the history suggestion.
   "tmux new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux send-keys -t ghost cl && sleep 2 && tmux capture-pane -pt ghost | grep -o 'claude --dangerously-skip-permissions' | head -1; rc=$?; tmux kill-session -t ghost 2>/dev/null; exit $rc",
+  // ble.sh ghost text runs programmable completion per keystroke; the stock
+  // python helper imported every package for a dotted word (~5 s per key on
+  // `python -m http.`). The baked override must answer fast and correctly.
+  "cd /tmp && bash -c 'source /usr/share/bash-completion/bash_completion; __load_completion python3; COMP_LINE=\"python3 -m http.\"; COMP_POINT=${#COMP_LINE}; COMP_WORDS=(python3 -m http.); COMP_CWORD=2; COMPREPLY=(); s=$(date +%s%N); _python python3 http. -m; e=$(date +%s%N); ms=$(( (e-s)/1000000 )); echo \"ms=$ms ${COMPREPLY[*]}\"; [ $ms -lt 1000 ] && [[ \" ${COMPREPLY[*]} \" == *\" http.server \"* ]]' && echo python-module-completion-fast",
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
@@ -361,8 +366,15 @@ async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number>
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
-  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id> [--expect-kind desktop|base]");
+  throw new Error("usage: bun scripts/verify-devbox-image.ts freestyle <snapshot-id> [--expect-kind desktop|base] [--strict-clone-identity]");
 }
+// Machine id and random state per clone: reported always, failing only with
+// --strict-clone-identity until the bind step regenerates the machine id
+// (plans/cmux-next/vm-image.md, "Production promotion").
+const strictCloneIdentity = process.argv.includes("--strict-clone-identity");
+// Prototype runs name their sandboxes (for example cmuxnp-dev-verify) so they
+// are told apart from production machines on a shared provider account.
+const verifyName = process.env.CMUX_DEVBOX_VERIFY_NAME?.trim() || "cmux-devbox-verify";
 // The caller's belief about the image (promote-devbox-image.ts derives it from
 // --no-desktop). The stamp baked into the image is the truth; a mismatch fails
 // the verification so a base image is never promoted as the desktop default.
@@ -400,7 +412,7 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify", firewall });
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -428,9 +440,17 @@ if (provider === "freestyle") {
         ? `cmux-tui pin: ${bakedCommit} (${bakedSha.slice(0, 12)}…), the current files.cmux.com pin`
         : `cmux-tui pin: baked ${bakedCommit} (${bakedSha.slice(0, 12)}…); files.cmux.com now pins ${live.commit} (${live.sha256.slice(0, 12)}…), a rebake picks it up`,
     );
+    // An idle machine must not wake: the terminal host's main thread (the warm
+    // template terminal) stays under a small bound of voluntary context
+    // switches over a quiet minute. Runs before the agent and desktop checks,
+    // which start processes of their own.
+    const idle = await exec(devboxIdleWakeupCheckCommand(), 180_000);
+    console.log(`  $ idle-wakeup check\n    exit=${idle.exitCode}\n    ${idle.output.trim().split("\n").join("\n    ")}`);
+    const idleOk = idle.exitCode === 0;
+    let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: "cmux-devbox-verify-2", firewall });
+    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
@@ -460,6 +480,20 @@ if (provider === "freestyle") {
         throw new Error(`two machines from ${image} share one SSH host key (${fingerprintA})`);
       }
       console.log(`SSH host keys differ across machines: ${fingerprintA.slice(7, 19)}… vs ${fingerprintB.slice(7, 19)}…`);
+      // machine-id (journald, D-Bus) must be per machine too. boot_id is
+      // reported for the record: memory-snapshot clones share it by design.
+      // The random state is not compared here: by now both kernels have used
+      // randomness, so their output differs even if the clones resumed with
+      // one state; the reseed is proven at clone time, not by this read.
+      const perMachine = "echo mid=$(cat /etc/machine-id 2>/dev/null); echo boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)";
+      const [idA, idB] = await Promise.all([exec(perMachine, 30_000), exec2(perMachine, 30_000)]);
+      const field = (output: string, key: string) => output.match(new RegExp(`^${key}=(\\S*)$`, "m"))?.[1] ?? "";
+      const machineA = field(idA.output, "mid");
+      const machineB = field(idB.output, "mid");
+      const machineIdShared = !/^[0-9a-f]{32}$/.test(machineA) || !/^[0-9a-f]{32}$/.test(machineB) || machineA === machineB;
+      const bootShared = field(idA.output, "boot") === field(idB.output, "boot");
+      console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
+      if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);
@@ -482,7 +516,9 @@ if (provider === "freestyle") {
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
-    ], exec);
+    ], exec) && idleOk && cloneIdentityOk;
+    if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
+    if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);

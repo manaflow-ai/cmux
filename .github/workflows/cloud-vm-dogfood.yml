@@ -112,6 +112,8 @@ jobs:
             echo "| installCmuxTui | ${CMUX_TUI_INSTALL_MS:-} |"
             jq -r '.timings | to_entries[] | "| \(.key | sub("Ms$"; "")) | \(.value) |"' "$result"
             echo
+            jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
+            jq -r 'if .statusAfterPauseLinkDown then "Pause status series (link down): " + ([.statusAfterPauseLinkDown[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
 

@@ -1,0 +1,43 @@
+#!/bin/bash
+# Optional namespace autofix hook. Installed only with
+# scripts/install-git-hooks.sh --namespace-fix.
+set -euo pipefail
+
+HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
+if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
+    || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
+    echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh --namespace-fix." >&2
+    exit 1
+fi
+SCANNER="$HOOK_DIR/lint_swift_namespaces.py"
+MASKER="$HOOK_DIR/swift_source_mask.py"
+if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
+    echo "pre-push: trusted namespace helpers are missing; rerun scripts/install-git-hooks.sh --namespace-fix." >&2
+    exit 1
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+before="$(git status --porcelain --untracked-files=normal)"
+enum_roots=()
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
+    [[ -d "$d" ]] && enum_roots+=("$d")
+done
+type_roots=()
+for d in Packages/*/*/Sources ios/cmux; do
+    [[ -d "$d" ]] && type_roots+=("$d")
+done
+"$PYTHON3_BIN" -I "$SCANNER" \
+    --baseline scripts/lint-namespace-types-baseline.txt \
+    --general-baseline scripts/lint-ios-package-conventions-baseline.txt \
+    --ratchet scripts/lint-namespace-types-ratchet.txt \
+    --fix \
+    --enum-roots "${enum_roots[@]}" \
+    --type-roots "${type_roots[@]}"
+after="$(git status --porcelain --untracked-files=normal)"
+if [[ "$before" != "$after" ]]; then
+    echo "pre-push: namespace lint fixed files in this checkout." >&2
+    echo "Review, stage, and commit those changes, then push again." >&2
+    exit 1
+fi

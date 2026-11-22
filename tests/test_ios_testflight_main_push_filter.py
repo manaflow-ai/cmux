@@ -629,7 +629,7 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
 
 
 def test_phone_push_dependency_change_schedules_ios_upload() -> None:
-    # Despite its macOS directory, ios/cmuxPackage directly imports this package.
+    # Despite its macOS directory, the iOS app (ios/CmuxiOS) imports this package.
     result = run_decision_scenario(
         event_name="schedule",
         schedule=IOS_SCHEDULES[0],

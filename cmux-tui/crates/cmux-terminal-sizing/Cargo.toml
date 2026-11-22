@@ -1,0 +1,17 @@
+[package]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared terminal sizing reducer (pure, synchronous); the Rust twin of Packages/Shared/CmuxTerminalSizing"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,174 @@
+import CmuxNextActions
+import Foundation
+
+/// Collects an action's required arguments inline, one page per argument,
+/// straight from its schema: text entry for strings and numbers, a list for
+/// booleans, enumerations, and targets. The last step runs the action with
+/// the full invocation.
+struct PaletteArgumentFlow {
+    let registry: ActionRegistry
+    let descriptor: ActionDescriptor
+    let targets: (any PaletteTargetSource)?
+    /// Captured when the palette opened (`PaletteSources.context`).
+    var captured: [ActionTargetRef] = []
+    /// Previews the highlighted option of an enumeration page.
+    var preview: PaletteArgumentPreview?
+    /// Colors for a suggested value's row (theme swatch strips, R98).
+    var swatches: PaletteArgumentSwatches?
+
+    func effect(collected: ActionInvocation) -> PaletteEffect {
+        let registry = registry
+        let id = descriptor.id
+        guard let argument = descriptor.arguments.first(where: { $0.isRequired && collected.arguments[$0.name] == nil }) else {
+            return .perform { registry.perform(id, invocation: collected) }
+        }
+        // An input step follows, and the action runs after the palette
+        // closes: pin its target to what was focused when it opened.
+        var collected = collected
+        if collected.target == nil, let target = capturedTarget {
+            collected.target = target
+        }
+        switch argument.kind {
+        case .string where argument.suggestions != nil:
+            return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
+        case .string, .int:
+            return .textInput(textSpec(for: argument, collected: collected))
+        case .bool:
+            return .push(listPage(for: argument, options: [
+                PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle"),
+                PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle"),
+            ], collected: collected))
+        case .enumeration(let cases):
+            let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
+            return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
+        case .target(let kind):
+            guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
+            return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
+        }
+    }
+
+    /// Live preview of the highlighted option (theme pickers).
+    private func withPreview(_ page: PalettePageSpec, _ argument: ActionArgument, _ collected: ActionInvocation) -> PalettePageSpec {
+        guard let preview else { return page }
+        var page = page
+        let id = descriptor.id
+        let name = argument.name
+        let target = collected.target
+        page.onHighlight = { item in preview(id, name, item.flatMap(Self.optionValue), target) }
+        page.onLeave = { preview(id, name, nil, target) }
+        return page
+    }
+
+    /// A free-text argument with known values: its pinned values, a row for
+    /// other text (a light/dark pair), then every known value; typing
+    /// searches them.
+    private func suggestionPage(for argument: ActionArgument, collected: ActionInvocation) -> PalettePageSpec {
+        guard let suggestions = argument.suggestions else { return listPage(for: argument, options: [], collected: collected) }
+        let pinned = Set(suggestions.pinned.map(\.value))
+        let known = (registry.argumentSuggestions?(suggestions.source) ?? []).filter { !pinned.contains($0.value) }
+        let options = (suggestions.pinned + known).map { suggestion in
+            PaletteTargetOption(id: suggestion.value, title: suggestion.title, symbol: descriptor.symbol,
+                                swatches: swatches?(suggestions.source, suggestion.value) ?? [])
+        }
+        var extra: [PaletteItem] = []
+        if let otherTitle = suggestions.otherTitle {
+            var spec = textSpec(for: argument, collected: collected)
+            let registry = registry
+            spec.isValid = { text in registry.argumentValidation?(suggestions.source, text) ?? !text.trimmingCharacters(in: .whitespaces).isEmpty }
+            extra.append(PaletteItem(
+                id: "other", title: otherTitle, symbol: "square.and.pencil",
+                section: PaletteSection(id: "argument", title: argument.title, order: 0),
+                primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return", effect: .textInput(spec))
+            ))
+        }
+        return listPage(for: argument, options: options, collected: collected, extra: extra, pinnedCount: suggestions.pinned.count)
+    }
+
+    /// The captured object of the first kind the action targets.
+    var capturedTarget: ActionTargetRef? {
+        for kind in descriptor.targets {
+            if let ref = captured.first(where: { $0.kind == kind }) { return ref }
+        }
+        return nil
+    }
+
+    private func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+        guard let value = argument.parse(text) else { return nil }
+        var next = collected
+        next.arguments[argument.name] = value
+        return next
+    }
+
+    private func textSpec(for argument: ActionArgument, collected: ActionInvocation) -> PaletteTextInputSpec {
+        let flow = self
+        return PaletteTextInputSpec(
+            id: "argument:\(descriptor.id.rawValue):\(argument.name)",
+            title: Self.stepTitle(descriptor, argument),
+            placeholder: argument.title,
+            symbol: descriptor.symbol,
+            initialText: argument.isTargetName ? currentName(of: collected.target) ?? "" : "",
+            skipsUnchangedText: argument.isTargetName,
+            submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
+            isValid: { text in
+                !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
+            },
+            next: { text in
+                guard let next = flow.adding(argument, text, to: collected) else { return .performKeepingOpen {} }
+                return flow.effect(collected: next)
+            }
+        )
+    }
+
+    /// The name `target` shows now (a rename starts from it).
+    private func currentName(of target: ActionTargetRef?) -> String? {
+        guard let target else { return nil }
+        return targets?.title(of: target)
+    }
+
+    private func listPage(for argument: ActionArgument, options: [PaletteTargetOption], collected: ActionInvocation,
+                          extra: [PaletteItem] = [], pinnedCount: Int? = nil) -> PalettePageSpec {
+        let section = PaletteSection(id: "argument", title: argument.title, order: 0)
+        var items = options.map { option in
+            let next = adding(argument, option.id, to: collected)
+            var item = PaletteItem(
+                id: "option:\(option.id)",
+                title: option.title,
+                subtitle: option.subtitle,
+                symbol: option.symbol ?? descriptor.symbol,
+                section: section,
+                isEnabled: next != nil,
+                primary: PaletteCommand(
+                    id: "choose",
+                    title: PaletteStrings.choose,
+                    symbol: "return",
+                    effect: next.map { effect(collected: $0) } ?? .performKeepingOpen {}
+                ),
+                frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
+            )
+            item.swatches = option.swatches
+            return item
+        }
+        items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
+        return PalettePageSpec(
+            id: "argument:\(descriptor.id.rawValue):\(argument.name)",
+            title: Self.stepTitle(descriptor, argument),
+            placeholder: PaletteStrings.chooseArgument(argument.title),
+            symbol: descriptor.symbol,
+            providers: [StaticPaletteProvider(id: "argument", items: items)],
+            showsRecent: true
+        )
+    }
+
+    /// The option value behind a list row (`option:<value>`).
+    static func optionValue(_ item: PaletteItem) -> String? {
+        item.id.hasPrefix("option:") ? String(item.id.dropFirst("option:".count)) : nil
+    }
+
+    /// "Set Tab Group Color: Color" reads badly; use the action title for
+    /// single-argument actions and "Title › Argument" otherwise.
+    static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
+        let base = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
+        let required = descriptor.arguments.filter(\.isRequired)
+        return required.count <= 1 ? base : "\(base) › \(argument.title)"
+    }
+}

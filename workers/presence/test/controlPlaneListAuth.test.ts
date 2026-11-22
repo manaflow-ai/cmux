@@ -551,6 +551,85 @@ describe("device revocation", () => {
     expect(back.types()).toEqual(["relay_passes"]);
   });
 
+  // The relay broker treats endpoint IDs case-insensitively (it
+  // canonicalizes to lowercase), so revocation must too: a revoked device
+  // asking with another spelling of its ID gets no relay credentials, and a
+  // revocation sent in another spelling closes the device's sockets.
+  it("revocation holds for every spelling of the endpoint id", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    harness.serveMint(() => ({ status: 200, json: mintResponse(ENDPOINT_A) }));
+    const mac = await snapshotted(harness, "mac", ENDPOINT_A);
+
+    await harness.core.handleRevocation({ endpointId: ENDPOINT_A.toUpperCase(), revoked: true });
+    expect(mac.closes).toEqual([{ code: 1008, reason: "revoked" }]);
+
+    const back = await harness.connect("mac2");
+    await harness.hello(back, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+    back.clearFrames();
+    await harness.send(back, { v: 1, type: "mint_request", payload: { endpointId: ENDPOINT_A.toUpperCase() } });
+    expect(back.frame("error")?.payload).toMatchObject({ code: "mint_revoked", retryable: false });
+  });
+
+  // confirm-on-hello and revocation both key the overlay on the canonical
+  // spelling, so a device confirmed under another spelling is one identity:
+  // the directory emits ONE canonical row and the kill switch lands on it.
+  it("advertises the kill switch for a device confirmed under another spelling", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const upper = ENDPOINT_B.toUpperCase();
+    const mac = await harness.connect("mac");
+    await harness.hello(mac, {
+      endpointId: upper,
+      haveRev: null,
+      wantPasses: false,
+      appVersion: "1.2.3",
+    });
+    const peer = await snapshotted(harness, "phone", ENDPOINT_A);
+
+    const result = await harness.core.handleRevocation({ endpointId: upper, revoked: true });
+    expect(result.changed).toBe(true);
+    const directory = peer.frame("directory") as {
+      payload: { bindings: Record<string, unknown>[] };
+    };
+    const rows = directory.payload.bindings.filter(
+      (binding) => String(binding.endpointId).toLowerCase() === ENDPOINT_B,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ endpointId: ENDPOINT_B, status: "active", revoked: true });
+  });
+
+  // A row an older deploy stored under a variant spelling is folded into the
+  // canonical row by the next revocation touching that endpoint, and the
+  // un-revoke is a real change: the emitted directory carries revoked: false
+  // only once the revision bumps and the broadcast goes out, so reporting
+  // changed: false would leave the device locked out of every peer until an
+  // unrelated event bumped the list.
+  it("un-revoking a row stored under another spelling migrates, bumps, and broadcasts", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+    const upper = ENDPOINT_B.toUpperCase();
+    harness.map.set(DEV_PREFIX + upper, {
+      status: "active",
+      revoked: true,
+      lastConfirmedAt: new Date(T0).toISOString(),
+    });
+    const peer = await snapshotted(harness, "phone", ENDPOINT_A);
+
+    const result = await harness.core.handleRevocation({ endpointId: upper, revoked: false });
+    expect(result.changed).toBe(true);
+    // The legacy variant row is gone; the canonical row carries its facts.
+    expect(harness.overlay(upper)).toBeUndefined();
+    expect(harness.overlay(ENDPOINT_B)).toMatchObject({ status: "active", revoked: false });
+    const directory = peer.frame("directory") as {
+      rev: number;
+      payload: { bindings: Record<string, unknown>[] };
+    };
+    expect(directory.rev).toBe(result.rev);
+    expect(directory.payload.bindings.find((binding) => binding.endpointId === ENDPOINT_B))
+      .toMatchObject({ revoked: false });
+  });
+
   it("revoking a never-seen endpoint materializes a seeded row so the flag sticks", async () => {
     const harness = new Harness();
     const result = await harness.core.handleRevocation({ endpointId: ENDPOINT_B, revoked: true });
@@ -567,6 +646,9 @@ describe("device revocation", () => {
     expect(parseRevocationRequest({ endpointId: ENDPOINT_A })).toBeNull();
     expect(parseRevocationRequest({ endpointId: ENDPOINT_A, revoked: "true" })).toBeNull();
     expect(parseRevocationRequest({ endpointId: "", revoked: true })).toBeNull();
+    // Canonicalization trims, so a whitespace-only id would otherwise reach
+    // storage as the DEV_PREFIX namespace root.
+    expect(parseRevocationRequest({ endpointId: "   ", revoked: true })).toBeNull();
     expect(parseRevocationRequest({ endpointId: "x".repeat(129), revoked: true })).toBeNull();
     expect(parseRevocationRequest({ endpointId: ENDPOINT_A, revoked: true, accountId: "evil" }))
       .toBeNull();

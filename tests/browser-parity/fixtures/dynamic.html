@@ -1,0 +1,11 @@
+<!doctype html><html><head><title>Dynamic Fixture</title></head><body>
+<h1>Dynamic</h1>
+<button id="later" onclick="setTimeout(()=>document.body.insertAdjacentHTML('beforeend','<p id=late>Late content</p>'),400)">Load later</button>
+<button id="push" onclick="history.pushState({}, '', '/dynamic.html?step=2');document.title='Dynamic step 2'">Push state</button>
+<a id="blank" href="/aria.html" target="_blank">Open new tab</a>
+<button id="popup" onclick="window.open('/aria.html','pop')">Open popup</button>
+<button id="nav" onclick="location.href='/slow?ms=600'">Slow navigate</button>
+<button id="fetch" onclick="fetch('/api/data?q=parity').then(r=>r.json()).then(j=>document.getElementById('net').textContent='fetched '+j.q)">Fetch</button><p id="net">idle</p>
+<button id="log" onclick="console.log('parity log', 42);console.warn('parity warn');console.error('parity error');Promise.reject(new Error('parity rejection'))">Log</button>
+<button id="storage" onclick="localStorage.setItem('k','v');sessionStorage.setItem('s','1');document.cookie='js=1; path=/';this.textContent='stored'">Store</button>
+</body></html>

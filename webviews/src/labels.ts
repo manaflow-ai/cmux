@@ -1,80 +1,44 @@
-const DEFAULT_DIFF_VIEWER_LABELS = {
-  additions: "Additions",
-  bars: "Bars",
-  binaryFile: "Binary file",
-  branchBase: "Branch base",
-  branchPickerCurrent: "current",
-  branchPickerBasePrefix: "Base:",
-  branchPickerComparing: "Comparing {head} against {base}",
-  branchPickerFilterPlaceholder: "Filter branches",
-  branchPickerGenerateFailed: "Could not generate the diff. Choose a branch to retry.",
-  branchPickerGenerating: "Generating diff against {ref}...",
-  branchPickerGroupBranches: "Branches",
-  branchPickerGroupRecent: "Recent",
-  branchPickerGroupRemotes: "Remotes",
-  branchPickerGroupSuggested: "Suggested",
-  branchPickerGroupWorktrees: "Worktrees",
-  branchPickerLoadFailed: "Could not load branches.",
-  branchPickerMore: "{count} more, type to filter",
-  branchPickerLoading: "Loading branches...",
-  branchPickerNoMatches: "No matching branches",
-  branchPickerOpen: "Change diff base",
-  branchPickerUseRaw: 'Use "{ref}" (raw)',
-  changedFiles: "Changed files",
-  classic: "Classic",
-  collapseAllDiffs: "Collapse all diffs",
-  collapseUnchangedContext: "Collapse unchanged context",
-  commit: "Commit",
-  copyFailedGitApplyCommand: "Could not copy git apply command.",
-  copiedGitApplyCommand: "Copied git apply command",
-  copyGitApplyCommand: "Copy git apply command",
-  deletions: "Deletions",
-  diffStats: "Diff stats",
-  diffTarget: "Diff target",
-  diffViewer: "Diff viewer",
-  disableWordDiffs: "Disable word diffs",
-  disableWordWrap: "Disable word wrap",
-  enableWordDiffs: "Enable word diffs",
-  enableWordWrap: "Enable word wrap",
-  expandAllDiffs: "Expand all diffs",
-  expandUnchangedContext: "Expand unchanged context",
-  files: "Files",
-  findClose: "Close find",
-  findInDiff: "Find in diff",
-  findNextMatch: "Next match",
-  findPreviousMatch: "Previous match",
-  hideBackgrounds: "Hide backgrounds",
-  hideFiles: "Hide files",
-  hideFileSearch: "Hide file search",
-  hideLineNumbers: "Hide line numbers",
-  indicatorStyle: "Indicator style",
-  jumpToFile: "Jump to file",
-  loadingDiff: "Loading diff...",
-  loadingRenderer: "Loading renderer...",
-  modeChange: "Mode {old} → {new}",
-  noFileDiffs: "No file diffs found in patch input.",
-  none: "None",
-  openSourceURL: "Open source URL",
-  options: "Options",
-  parsingDiff: "Parsing diff...",
-  refresh: "Refresh",
-  renderFailed: "Could not render this diff. Check the patch input and try again.",
-  renderingDiff: "Rendering diff...",
-  repoPath: "Repository path",
-  showBackgrounds: "Show backgrounds",
-  showFiles: "Show files",
-  showFileSearch: "Show file search",
-  showLineNumbers: "Show line numbers",
-  switchToSplitDiff: "Switch to split diff",
-  switchToUnifiedDiff: "Switch to unified diff",
-  untitled: "Untitled",
-} as const;
+// Strings come from pages/diff/Localizable.xcstrings through scripts/pages/gen-strings.mjs.
+import english from "./pages/diff/generated/locales/en.json";
+import { diffLocaleLoaders } from "./pages/diff/generated/localeLoaders";
+import { resolveLanguage } from "./pages/shared/i18n";
+import { DiffLabelCatalog } from "./diff/labelCatalog";
 
-export type DiffViewerLabelKey = keyof typeof DEFAULT_DIFF_VIEWER_LABELS;
+const catalog = new DiffLabelCatalog(diffLocaleLoaders);
+const availableLanguages = ["en", ...Object.keys(diffLocaleLoaders)];
+
+type CatalogKey = keyof typeof english;
+export type DiffViewerLabelKey = CatalogKey extends `diffViewer.${infer Key}` ? Key : never;
 export type DiffViewerLabelResolver = (key: DiffViewerLabelKey) => string;
+export type DiffViewerLanguage = string;
+
+/** The first supported app locale, using the same resolution as every page. */
+export function diffViewerLanguage(
+  languages: readonly string[] = globalThis.navigator?.languages ?? [],
+): DiffViewerLanguage {
+  return resolveLanguage(languages, availableLanguages);
+}
+
+/** Unprefixed labels for protocol callers that still supply an override table. */
+export function diffViewerLabelsFor(language: DiffViewerLanguage): Record<DiffViewerLabelKey, string> {
+  const strings = catalog.strings(language);
+  return Object.fromEntries(
+    Object.keys(english).map((key) => [key.slice("diffViewer.".length), strings.t(key)]),
+  ) as Record<DiffViewerLabelKey, string>;
+}
+
+export const DEFAULT_DIFF_VIEWER_LABELS = Object.fromEntries(
+  Object.entries(english).map(([key, value]) => [key.slice("diffViewer.".length), value]),
+) as Record<DiffViewerLabelKey, string>;
+/** Resolves before any diff UI is rendered; a failed locale fetch never paints English first. */
+export function loadDiffViewerLabels(language: DiffViewerLanguage = diffViewerLanguage()): Promise<void> {
+  return catalog.load(language);
+}
 
 type LabelResolverOptions = {
   assertMissing?: boolean;
+  /** Overrides the language read from navigator.languages (tests). */
+  language?: DiffViewerLanguage;
 };
 
 export function shouldAssertMissingLabels(): boolean {
@@ -83,20 +47,20 @@ export function shouldAssertMissingLabels(): boolean {
 
 export function createDiffViewerLabelResolver(
   labels: Record<string, string> | undefined,
-  options: LabelResolverOptions = {}
+  options: LabelResolverOptions = {},
 ): DiffViewerLabelResolver {
+  const strings = catalog.strings(options.language ?? diffViewerLanguage());
   const missingKeys = new Set<DiffViewerLabelKey>();
   return (key) => {
-    const localizedValue = labels?.[key];
-    if (typeof localizedValue === "string" && localizedValue.trim() !== "") {
-      return localizedValue;
-    }
-
-    if (options.assertMissing && !missingKeys.has(key)) {
+    // Classic hosts may customize labels; the page host does not need to send any.
+    const override = labels?.[key];
+    if (typeof override === "string" && override.trim()) return override;
+    const catalogKey = `diffViewer.${key}`;
+    const value = strings.t(catalogKey);
+    if (value === catalogKey && options.assertMissing && !missingKeys.has(key)) {
       missingKeys.add(key);
       throw new Error(`Missing cmux diff viewer label: ${key}`);
     }
-
-    return DEFAULT_DIFF_VIEWER_LABELS[key];
+    return value;
   };
 }

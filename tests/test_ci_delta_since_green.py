@@ -233,16 +233,6 @@ class DecideTests(Case):
         self.assertIn("(2 files) is larger than the pull request diff (1 files)",
                       self.skip_reason({h1: "success"}))
 
-    def test_main_editing_ui_tests_does_not_apply(self) -> None:
-        # No pull request job runs cmuxUITests/, so suite-coverage fails any
-        # routed diff that touches it. Main's edit there is not this pull
-        # request's, however small the delta.
-        h1 = self.origin.commit("pr", {"app/a.txt": "a-pr\n", "app/b.txt": "b-pr\n"}, "pull request work")
-        self.origin.commit("main", {"cmuxUITests/SidebarUITests.swift": "main edit\n"})
-        self.origin.merge_main_into_pr()
-        self.assertIn("touch files no pull request job runs: cmuxUITests/SidebarUITests.swift",
-                      self.skip_reason({h1: "success"}))
-
     def test_pull_request_that_changes_ci_policy_keeps_its_whole_diff(self) -> None:
         # At H1 the pull request edited the router. The delta would no longer
         # contain it, and the pull request's own router would judge the delta.
@@ -367,7 +357,7 @@ class VerdictTests(unittest.TestCase):
     def test_only_pull_request_runs_of_ci_yml_count_matched_by_file(self) -> None:
         self.assertEqual(delta.ci_status_runs([
             self.suite("SUCCESS", "2026-09-25T01:00:00Z", event="workflow_dispatch"),
-            self.suite("SUCCESS", "2026-09-25T01:00:00Z", path=".github/workflows/ci-status-fallback.yml"),
+            self.suite("SUCCESS", "2026-09-25T01:00:00Z", path=".github/workflows/ci-fast-guards.yml"),
             {"workflowRun": None, "checkRuns": {"nodes": [{"conclusion": "SUCCESS", "startedAt": "x"}]}},
         ]), {})
 

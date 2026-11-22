@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
     ],
@@ -24,6 +25,7 @@ let package = Package(
             name: "CmuxMobileRPC",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxTerminalSizing",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
             ],
@@ -39,6 +41,7 @@ let package = Package(
                 "CmuxMobileRPC",
                 "CMUXMobileCore",
                 "CmuxMobileShellModel",
+                "CmuxTerminalSizing",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

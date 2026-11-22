@@ -19,11 +19,7 @@ export interface ScrollbackReconciliation {
   invalidated: boolean;
 }
 
-export function createScrollbackWindow(
-  total: number,
-  pageSize = 128,
-  maxRows = 512,
-): ScrollbackWindow {
+export function createScrollbackWindow(total: number, pageSize = 128, maxRows = 512): ScrollbackWindow {
   return {
     total: Math.max(0, total),
     epoch: undefined,
@@ -54,10 +50,7 @@ export function nextScrollbackRequest(window: ScrollbackWindow): ScrollbackReque
   return { start, count: Math.min(window.pageSize, window.total - start) };
 }
 
-export function refreshScrollbackRequest(
-  window: ScrollbackWindow,
-  total: number,
-): ScrollbackRequest | null {
+export function refreshScrollbackRequest(window: ScrollbackWindow, total: number): ScrollbackRequest | null {
   const normalizedTotal = Math.max(0, total);
   if (normalizedTotal === 0) return null;
   const first = window.rows[0]?.row;
@@ -101,10 +94,7 @@ export function scrollbackAnchorDelta(
   return nextIndex < 0 ? 0 : nextIndex - previousIndex;
 }
 
-export function mergeScrollbackPage(
-  window: ScrollbackWindow,
-  page: ReadScrollbackResult,
-): ScrollbackWindow {
+export function mergeScrollbackPage(window: ScrollbackWindow, page: ReadScrollbackResult): ScrollbackWindow {
   const epoch = page.epoch;
   const existing = page.total < window.total || epoch !== window.epoch ? [] : window.rows;
   const byIndex = new Map<number, RenderRow>();
@@ -133,11 +123,18 @@ export function projectRenderGraphicsToRows(
   rowsEpoch: bigint | undefined,
 ): RenderGraphicsModel | undefined {
   const firstRow = rows[0]?.row;
-  if (graphics === undefined || graphics.images.length === 0
-    || graphicsEpoch === undefined || graphicsEpoch < 0n
-    || graphicsEpoch !== rowsEpoch || firstRow === undefined
-    || !Number.isSafeInteger(firstRow) || firstRow < 0
-    || rows.some((row, index) => row.row !== firstRow + index)) return undefined;
+  if (
+    graphics === undefined ||
+    graphics.images.length === 0 ||
+    graphicsEpoch === undefined ||
+    graphicsEpoch < 0n ||
+    graphicsEpoch !== rowsEpoch ||
+    firstRow === undefined ||
+    !Number.isSafeInteger(firstRow) ||
+    firstRow < 0 ||
+    rows.some((row, index) => row.row !== firstRow + index)
+  )
+    return undefined;
 
   const afterLastRow = firstRow + rows.length;
   const placements: RenderGraphicPlacement[] = [];
@@ -145,13 +142,19 @@ export function projectRenderGraphicsToRows(
     const anchorCol = placement.anchor_col;
     const anchorRow = placement.anchor_row;
     const rowSpan = placement.grid_rows;
-    if (anchorCol === undefined || anchorRow === undefined
-      || !Number.isSafeInteger(anchorCol) || anchorCol < 0
-      || !Number.isSafeInteger(anchorRow) || anchorRow < 0
-      || !Number.isSafeInteger(rowSpan) || rowSpan <= 0) continue;
+    if (
+      anchorCol === undefined ||
+      anchorRow === undefined ||
+      !Number.isSafeInteger(anchorCol) ||
+      anchorCol < 0 ||
+      !Number.isSafeInteger(anchorRow) ||
+      anchorRow < 0 ||
+      !Number.isSafeInteger(rowSpan) ||
+      rowSpan <= 0
+    )
+      continue;
     const placementEnd = anchorRow + rowSpan;
-    if (!Number.isSafeInteger(placementEnd)
-      || placementEnd <= firstRow || anchorRow >= afterLastRow) continue;
+    if (!Number.isSafeInteger(placementEnd) || placementEnd <= firstRow || anchorRow >= afterLastRow) continue;
     placements.push({
       ...placement,
       viewport_col: anchorCol,

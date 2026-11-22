@@ -1,0 +1,178 @@
+/* The inspector replaces the transcript while it is open, in the same stage as the diff panel. */
+.acpmux-inspecting {
+  position: relative;
+}
+
+.acpmux-inspecting > .acpmux-header,
+.acpmux-inspecting > .acpmux-scroll {
+  visibility: hidden;
+}
+
+.acpmux-inspector {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font: 12px/18px system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.acpmux-inspector-state {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--agent-border);
+}
+
+.acpmux-inspector-state dt {
+  color: var(--agent-muted);
+  font-size: 11px;
+}
+
+.acpmux-inspector-state dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-inspector-wide {
+  grid-column: 1 / -1;
+}
+
+.acpmux-inspector-wide dd {
+  color: var(--acpmux-del, #d0607e);
+  white-space: normal;
+}
+
+.acpmux-inspector-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--agent-border);
+}
+
+.acpmux-inspector-tools input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--agent-border);
+  border-radius: 7px;
+  padding: 4px 8px;
+  background: var(--agent-input-bg);
+  color: var(--agent-text);
+  font: inherit;
+}
+
+.acpmux-inspector-tools button {
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 10px;
+  background: var(--agent-control);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.acpmux-inspector-tools button:hover {
+  background: var(--agent-control-hover, rgba(255, 255, 255, 0.1));
+}
+
+.acpmux-inspector-count {
+  color: var(--agent-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-inspector-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.acpmux-inspector-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent);
+}
+
+.acpmux-inspector-row > button {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 16px;
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acpmux-inspector-row > button:hover {
+  background: var(--agent-control-hover, rgba(255, 255, 255, 0.05));
+}
+
+.acpmux-inspector-row time,
+.acpmux-inspector-num {
+  color: var(--agent-muted);
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.acpmux-inspector-dir {
+  width: 12px;
+  color: var(--agent-muted);
+}
+
+.acpmux-inspector-kind {
+  flex: none;
+  width: 78px;
+  color: var(--agent-soft);
+}
+
+.acpmux-inspector-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.acpmux-inspector-error .acpmux-inspector-kind,
+.acpmux-inspector-invalid .acpmux-inspector-kind {
+  color: var(--acpmux-del, #d0607e);
+}
+
+.acpmux-inspector-lifecycle .acpmux-inspector-name {
+  color: var(--agent-soft);
+  font-family: inherit;
+}
+
+.acpmux-inspector-row pre {
+  max-height: 320px;
+  margin: 0 16px 8px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 7px;
+  background: var(--agent-input-bg);
+  font: 11.5px/16px var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.acpmux-inspector-views .acpmux-diff-tool {
+  width: auto;
+  padding: 0 12px;
+  border-radius: 14px;
+  font: inherit;
+}

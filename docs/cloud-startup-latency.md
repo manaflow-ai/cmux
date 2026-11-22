@@ -1,5 +1,9 @@
 # Cloud machine startup latency: measured baseline, lower bound, and the path to it
 
+> **CLI note (2026-09-30):** `cmux vm new|shell|open` below were removed in the Rust CLI
+> cutover; the app's `cmux cloud new-machine` and `cmux cloud open-machine` actions now
+> reach the same app paths. Measurements are unchanged.
+
 Issue: https://github.com/manaflow-ai/cmux/issues/12905 (complements #12672 create
 failures, #12537 terminal startup, #12624 auth waits, #12625 refresh pressure,
 #11008 connection deadlines). Investigation date: 2026-09-17/18. Branch

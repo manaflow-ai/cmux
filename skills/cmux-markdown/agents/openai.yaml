@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Markdown Viewer"
-  short_description: "Open markdown files in a formatted panel with live reload alongside the terminal."
-  default_prompt: "Use this skill to display markdown plans, docs, or notes in a cmux panel: write to a .md file, run 'cmux markdown open <path>', and the panel auto-updates when the file changes."
+  short_description: "Markdown viewer status in cmux-next: not available yet."
+  default_prompt: "Use this skill to explain that cmux-next has no Markdown viewer or cmux markdown command yet, and to show a markdown file in a terminal tab next to the caller with cmux pane <pane> run -- <pager> <file> instead."

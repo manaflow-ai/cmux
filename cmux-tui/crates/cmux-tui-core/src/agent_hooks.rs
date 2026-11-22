@@ -84,6 +84,24 @@ pub fn agent_hook_journal_ingress(
     })
 }
 
+/// Stamp when the hook helper observed `ingress` (now, wall clock) as
+/// `normalized.observed_at_ms`. The hook session fence uses it to tell a late
+/// event of an ended incarnation from an event of a resumed session that
+/// reuses the same id. Call it once, where the agent invoked the hook.
+pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
+    if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        && let Ok(now_ms) = u64::try_from(now.as_millis())
+    {
+        stamp_agent_hook_observed_at(ingress, now_ms);
+    }
+}
+
+pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
+}
+
 /// Build the core-owned lifecycle event for an unexpectedly exited userland
 /// plugin. The reducer uses the plugin subject to retire all entries owned by
 /// that producer in one deterministic fold.

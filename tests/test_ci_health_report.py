@@ -640,7 +640,8 @@ class WorkflowStructureTests(unittest.TestCase):
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
-        self.assertIn("permissions:\n  actions: read\n  issues: write\n  contents: read\n", self.text)
+        self.assertIn("\npermissions: {}\n", self.text)
+        self.assertIn("  report:\n    permissions:\n      actions: read\n      issues: write\n      contents: read\n", self.text)
         self.assertNotIn("actions: write", self.text)
 
     def test_comment_refreshes_are_serialized(self):

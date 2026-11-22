@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@cmux/integrations-core": ["../../libs/integrations-core/src/index.ts"],
+      "@cmux/integrations-core/*": ["../../libs/integrations-core/src/*.ts"]
+    }
+  }
+}

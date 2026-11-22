@@ -1,0 +1,253 @@
+[
+ {
+  "name": "pending options",
+  "frames": [
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "_acpmux/permission_pending",
+     "params": {
+      "permissionId": "p",
+      "request": {
+       "options": [
+        {
+         "optionId": "no",
+         "kind": "reject_once"
+        },
+        {
+         "optionId": "yes",
+         "kind": "allow_once"
+        }
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "checks": [
+   [
+    "p",
+    "no",
+    true
+   ],
+   [
+    "p",
+    "yes",
+    false
+   ],
+   [
+    "p",
+    "other",
+    false
+   ],
+   [
+    "q",
+    "no",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "event options from mux only",
+  "frames": [
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "_acpmux/event",
+     "params": {
+      "kind": "permission_request",
+      "dir": "mux",
+      "msg": {
+       "permissionId": "p",
+       "request": {
+        "options": [
+         {
+          "optionId": "a",
+          "kind": "reject_always"
+         }
+        ]
+       }
+      }
+     }
+    }
+   },
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "_acpmux/event",
+     "params": {
+      "kind": "permission_request",
+      "dir": "agent",
+      "msg": {
+       "permissionId": "p",
+       "request": {
+        "options": [
+         {
+          "optionId": "b",
+          "kind": "reject_once"
+         }
+        ]
+       }
+      }
+     }
+    }
+   }
+  ],
+  "checks": [
+   [
+    "p",
+    "a",
+    true
+   ],
+   [
+    "p",
+    "b",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "history reply",
+  "frames": [
+   {
+    "reply_to": "_acpmux/attach",
+    "frame": {
+     "jsonrpc": "2.0",
+     "id": 1,
+     "result": {
+      "events": [
+       {
+        "kind": "permission_request",
+        "dir": "mux",
+        "msg": {
+         "permissionId": "p",
+         "request": {
+          "options": [
+           {
+            "optionId": "c",
+            "kind": "reject_once"
+           }
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   {
+    "reply_to": "_acpmux/status",
+    "frame": {
+     "jsonrpc": "2.0",
+     "id": 2,
+     "result": {
+      "events": [
+       {
+        "kind": "permission_request",
+        "dir": "mux",
+        "msg": {
+         "permissionId": "p",
+         "request": {
+          "options": [
+           {
+            "optionId": "d",
+            "kind": "reject_once"
+           }
+          ]
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  ],
+  "checks": [
+   [
+    "p",
+    "c",
+    true
+   ],
+   [
+    "p",
+    "d",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "two kinds count as allow",
+  "frames": [
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "_acpmux/permission_pending",
+     "params": {
+      "permissionId": "p",
+      "request": {
+       "options": [
+        {
+         "optionId": "x",
+         "kind": "reject_once"
+        }
+       ]
+      }
+     }
+    }
+   },
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "_acpmux/permission_pending",
+     "params": {
+      "permissionId": "p",
+      "request": {
+       "options": [
+        {
+         "optionId": "x",
+         "kind": "allow_once"
+        }
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "checks": [
+   [
+    "p",
+    "x",
+    false
+   ]
+  ]
+ },
+ {
+  "name": "model content never makes a deny",
+  "frames": [
+   {
+    "frame": {
+     "jsonrpc": "2.0",
+     "method": "session/update",
+     "params": {
+      "permissionId": "p",
+      "request": {
+       "options": [
+        {
+         "optionId": "z",
+         "kind": "reject_once"
+        }
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "checks": [
+   [
+    "p",
+    "z",
+    false
+   ]
+  ]
+ }
+]

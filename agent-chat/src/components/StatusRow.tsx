@@ -5,7 +5,7 @@ import type { OptionValue, Provider, SessionOption } from "../session";
 import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
-import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
+import { currentChoice, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
 
 function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
   return (
@@ -63,7 +63,7 @@ function InlineSelect({
   const choices = visible.length ? visible : (value ? [{ value, label: value }] : []);
   const current = choices.find((c) => c.value === value)?.label ?? (value || option.label);
   const trigger = (
-    <button type="button" className="row-control row-select select-trigger" aria-label={option.label} disabled={option.disabled || !choices.length}>
+    <button type="button" className="row-control row-select select-trigger" aria-label={option.label} aria-haspopup="dialog" disabled={option.disabled || !choices.length}>
       <span className="row-icon">{icon}</span>
       <span className="row-value">{label || current}</span>
     </button>
@@ -82,6 +82,7 @@ function InlineSelect({
               id: c.value,
               label: c.label,
               description: c.description,
+              disabled: c.disabled,
               icon: choiceIcon?.(c.value),
               selected: c.value === option.value,
               onSelect: () => onChange(option.id, String(c.value)),
@@ -586,7 +587,6 @@ export function StatusRow({
   const approval = resolvedOptions.find((o) => o.role === "approval" && o.kind === "toggle");
   const mode = resolvedOptions.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
   const overflow = resolvedOptions.filter((o) => !isInlineOption(o));
-  const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
   const providerInfo = providers?.find((p) => p.id === provider) ?? { id: provider, label: provider };
   return (
     <div className="status-row">
@@ -646,13 +646,15 @@ export function StatusRow({
           onOpenChange={(open) => setOpenOptionId(open ? context.id : null)}
         />
       ) : null}
-      {mode && modeLabel ? (
-        <HintTooltip label={optionTooltip(mode)} action="cycle-mode">
-          <button type="button" className="row-control" onClick={() => cycleSelect(mode, onChange)}>
-            <PlanIcon />
-            <span className="row-value">{modeLabel}</span>
-          </button>
-        </HintTooltip>
+      {mode ? (
+        <InlineSelect
+          option={mode}
+          icon={<PlanIcon />}
+          label={prettyValue(mode)}
+          onChange={onChange}
+          open={openOptionId === mode.id}
+          onOpenChange={(open) => setOpenOptionId(open ? mode.id : null)}
+        />
       ) : null}
       {onCwdChange && onCwdCommit ? <CwdPopover cwd={cwd} onChange={onCwdChange} onCommit={onCwdCommit} /> : <StaticCwd cwd={cwd} />}
       {approval ? (

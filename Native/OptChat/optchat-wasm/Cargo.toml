@@ -1,0 +1,22 @@
+[package]
+name = "optchat-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "optchat-core for the hosted placement: WebAssembly for the MemoryDO"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+optchat-core = { path = "../optchat-core" }
+wasm-bindgen = "=0.2.129"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true

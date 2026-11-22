@@ -287,7 +287,7 @@ public struct TransportIncidentPolicy: Sendable {
             return nil
         }
         outageFiredTNanos = event.tNanos
-        let duration = Int(elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded())
+        let duration = elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded().saturatedInteger(Int.self) ?? 0
         let title = titleFormatter.outageTitle(
             event: event,
             consecutiveFailures: streakCount,

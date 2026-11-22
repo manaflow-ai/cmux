@@ -1,8 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45. */
+/* cmux-tui mux protocol 12, IR baffdd379fca8b70386603cf6245b1f842ee60061859daecd52effc85eeed00c. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ActivityChangedEvent = { event: "activity-changed" } & {
+  "activity": T.ActivitySnapshot;
+};
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
@@ -18,6 +23,12 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type BookmarksChangedEvent = { event: "bookmarks-changed" } & {
+  "bookmarks_revision": bigint;
+  "browser_profile_id": string;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-browser. */
@@ -58,6 +69,69 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "account"?: string;
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "account"?: string;
+  "conversation": string;
+  "messages": (T.JsonValue) | null;
+  "rev": bigint;
+  "seq": bigint;
+  "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "account"?: string;
+  "entries": (T.JsonValue) | null;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "account"?: string;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
+  "account"?: string;
+  "pending": (T.JsonValue) | null;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
+  "account"?: string;
+  "seq": bigint;
+  "wakes": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "account"?: string;
+  "conversation"?: (string) | null;
+  "reason"?: (string) | null;
+  "scope": string;
+  "state": string;
+};
+
 /** Protocol v6; emission: emitted; streams: attach-byte. */
 export type ColorsChangedEvent = { event: "colors-changed" } & {
   "bg": (T.ColorHex) | null;
@@ -76,13 +150,32 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationChangedEvent = { event: "conversation-changed" } & {
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "transaction": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationTypingEvent = { event: "conversation-typing" } & {
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
+};
+
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
 export type DetachedEvent = { event: "detached" } & {
+  "by"?: T.SizeDetachActor;
+  "reason"?: T.DetachReason;
+  "scope"?: string;
   "surface": T.Id;
+  "view"?: string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -135,6 +228,7 @@ export type NotificationEvent = { event: "notification" } & {
   "body": string;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
 };
@@ -182,6 +276,11 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
   "pane": T.Id;
   "screen": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type PersonalChangedEvent = { event: "personal-changed" } & {
+  "personal_revision": bigint;
 };
 
 /** Protocol v7; emission: emitted; streams: attach-render. */
@@ -232,6 +331,14 @@ export type ScreenAddedEvent = { event: "screen-added" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type ScreenChangedEvent = { event: "screen-changed" } & {
+  "entity": T.Screen;
+  "index"?: (bigint) | null;
+  "screen": T.Id;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type ScreenClosedEvent = { event: "screen-closed" } & {
   "entity": T.Screen;
@@ -251,6 +358,13 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
 export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
+  "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
+export type SizeStateEvent = { event: "size-state" } & {
+  "self_participant"?: string;
+  "state": T.SizeState;
   "surface": T.Id;
 };
 
@@ -297,6 +411,17 @@ export type TabAddedEvent = { event: "tab-added" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type TabChangedEvent = { event: "tab-changed" } & {
+  "entity": T.Tab;
+  "index"?: (bigint) | null;
+  "pane": T.Id;
+  "screen": T.Id;
+  "surface": T.Id;
+  "transaction"?: (string) | null;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type TabClosedEvent = { event: "tab-closed" } & {
   "entity": T.Tab;
@@ -314,6 +439,26 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "screen": T.Id;
   "surface": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadEvent = { event: "terminal-clipboard-read" } & {
+  "host": T.TerminalClipboardHost;
+  "location": T.TerminalClipboardLocation;
+  "request_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-read-cancelled" } & {
+  "request_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type TerminalReapedEvent = { event: "terminal-reaped" } & {
+  "grace_ms": bigint;
+  "terminal": (string) | null;
+  "terminal_id": string;
 };
 
 /** Protocol v9; emission: emitted; streams: subscribe. */
@@ -369,6 +514,18 @@ export type WorkspaceAddedEvent = { event: "workspace-added" } & {
   "workspace_revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type WorkspaceChangedEvent = { event: "workspace-changed" } & {
+  "entity": T.Workspace;
+  "generation": string;
+  "index"?: (bigint) | null;
+  "mutation_id"?: string;
+  "origin"?: string;
+  "registry_id": string;
+  "workspace": T.Id;
+  "workspace_revision": bigint;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type WorkspaceClosedEvent = { event: "workspace-closed" } & {
   "entity": T.Workspace;
@@ -412,14 +569,26 @@ export interface UnknownEvent {
 
 /** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
+  | ActivityChangedEvent
   | AgentChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | BrowserStateEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
@@ -435,21 +604,28 @@ export type KnownCmuxEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | PersonalChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent
   | ResizedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
   | SurfaceResizeFailedEvent
   | SurfaceResizedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalClipboardReadEvent
+  | TerminalClipboardReadCancelledEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
@@ -457,6 +633,7 @@ export type KnownCmuxEvent =
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;
@@ -469,10 +646,21 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | BellEvent
+  | BookmarksChangedEvent
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
@@ -484,23 +672,29 @@ export type KnownSubscribeEvent =
   | PairingResolvedEvent
   | PaneAddedEvent
   | PaneClosedEvent
+  | PersonalChangedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
   | SurfaceResizeFailedEvent
   | SurfaceResizedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;
@@ -510,12 +704,15 @@ export type TreeDeltaEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | TabAddedEvent
+  | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
   | WorkspaceAddedEvent
+  | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
   | WorkspaceRenamedEvent;
@@ -533,6 +730,7 @@ export type KnownAttachEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known byte attach events. */
@@ -544,6 +742,7 @@ export type KnownByteAttachEvent =
   | OverflowEvent
   | ResizedEvent
   | ScrollChangedEvent
+  | SizeStateEvent
   | VtStateEvent;
 
 /** Known render attach events. */
@@ -552,7 +751,8 @@ export type KnownRenderAttachEvent =
   | OverflowEvent
   | RenderDeltaEvent
   | RenderStateEvent
-  | ScrollChangedEvent;
+  | ScrollChangedEvent
+  | SizeStateEvent;
 
 /** Known browser attach events. */
 export type KnownBrowserAttachEvent =

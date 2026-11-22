@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "test": "vitest run"
+    "dev": "vp dev",
+    "build": "vp check --no-fmt --no-lint && vp build",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
+    "test": "vp test run",
+    "typecheck": "vp check --no-fmt --no-lint"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -24,7 +29,10 @@
     "@vitejs/plugin-react": "^5.1.2",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
-    "vite": "^7.2.7",
-    "vitest": "^4.0.18"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
+    "vite-plus": "1.0.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
   }
 }

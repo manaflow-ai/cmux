@@ -1,0 +1,109 @@
+{
+  "description": "Session journal agent records in, history entries out. Ported from Swift AgentSessionFoldTests and AgentHistory.entries(). Each batch is one apply() call; entries are newest activity first.",
+  "cases": [
+    {
+      "name": "start, turn and end make one session",
+      "machine": "home", "local_machine": "home", "available": true,
+      "batches": [[
+        {"sequence": 1, "kind": "agent.session.started", "occurred_at_ms": 1000,
+         "subjects": [{"kind": "terminal", "id": "term_1"}, {"kind": "tab", "id": "tab_1"}, {"kind": "workspace", "id": "ws_1"}],
+         "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1", "cwd": "/repo"}}},
+        {"sequence": 2, "kind": "agent.turn.completed", "occurred_at_ms": 5000,
+         "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}},
+        {"sequence": 3, "kind": "agent.session.ended", "occurred_at_ms": 9000,
+         "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}}
+      ]],
+      "expected_cursor": 3,
+      "expected_entries": [
+        {"id": "agent:home/claude/s1", "kind": "agent", "at_ms": 9000, "title": "Claude Code in repo", "detail": "/repo",
+         "workspace": "ws_1", "available": true, "running": false, "cwd": "/repo", "session_id": "s1", "provider": "claude"}
+      ]
+    },
+    {
+      "name": "re-reading never double counts; a restart with the same id runs again",
+      "machine": "home", "local_machine": "home", "available": true,
+      "batches": [
+        [
+          {"sequence": 1, "kind": "agent.session.started", "occurred_at_ms": 1000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}},
+          {"sequence": 2, "kind": "agent.session.ended", "occurred_at_ms": 2000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}}
+        ],
+        [
+          {"sequence": 1, "kind": "agent.session.started", "occurred_at_ms": 1000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}},
+          {"sequence": 2, "kind": "agent.session.ended", "occurred_at_ms": 2000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}},
+          {"sequence": 3, "kind": "agent.session.started", "occurred_at_ms": 3000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}}
+        ]
+      ],
+      "expected_cursor": 3,
+      "expected_entries": [
+        {"id": "agent:home/claude/s1", "kind": "agent", "at_ms": 3000, "title": "Claude Code", "available": true, "running": true,
+         "session_id": "s1", "provider": "claude"}
+      ]
+    },
+    {
+      "name": "live daemon envelope with string numbers on a remote machine",
+      "machine": "box", "local_machine": "home", "available": false,
+      "batches": [[
+        {"sequence": "42", "kind": "agent.session.started", "occurred_at_ms": 1785715200000, "class": "state",
+         "subjects": [{"kind": "terminal", "id": "term_9"}, {"kind": "workspace", "id": "ws_2"}],
+         "payload": {"format": "x", "adapter": {"id": "codex", "version": 1}, "native_event": "SessionStart",
+           "normalized": {"agent_session_id": "abc", "cwd": "/tmp/p", "observed_at_ms": "1785715201000"}, "native": {}}}
+      ]],
+      "expected_cursor": 42,
+      "expected_entries": [
+        {"id": "agent:box/codex/abc", "kind": "agent", "at_ms": 1785715201000, "title": "Codex in p", "detail": "/tmp/p",
+         "machine": "box", "workspace": "ws_2", "available": false, "running": true, "cwd": "/tmp/p", "session_id": "abc", "provider": "codex"}
+      ]
+    },
+    {
+      "name": "string occurrence time and root session id",
+      "machine": "home", "local_machine": "home", "available": true,
+      "batches": [[
+        {"sequence": "30", "kind": "agent.turn.started", "occurred_at_ms": "1790810388279", "subjects": [{"kind": "session", "id": "session_x"}],
+         "payload": {"normalized": {"root_agent_session_id": "root-1"}}}
+      ]],
+      "expected_cursor": 30,
+      "expected_entries": [
+        {"id": "agent:home/agent/root-1", "kind": "agent", "at_ms": 1790810388279, "title": "agent", "available": true, "running": true,
+         "session_id": "root-1", "provider": "agent"}
+      ]
+    },
+    {
+      "name": "capacity keeps the most recently active",
+      "machine": "home", "local_machine": "home", "available": true, "capacity": 2,
+      "batches": [[
+        {"sequence": 1, "kind": "agent.session.started", "occurred_at_ms": 1000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s1"}}},
+        {"sequence": 2, "kind": "agent.session.started", "occurred_at_ms": 2000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s2"}}},
+        {"sequence": 3, "kind": "agent.session.started", "occurred_at_ms": 3000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s3"}}},
+        {"sequence": 4, "kind": "agent.session.started", "occurred_at_ms": 4000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "s4"}}}
+      ]],
+      "expected_cursor": 4,
+      "expected_entries": [
+        {"id": "agent:home/claude/s4", "kind": "agent", "at_ms": 4000, "title": "Claude Code", "available": true, "running": true, "session_id": "s4", "provider": "claude"},
+        {"id": "agent:home/claude/s3", "kind": "agent", "at_ms": 3000, "title": "Claude Code", "available": true, "running": true, "session_id": "s3", "provider": "claude"}
+      ]
+    },
+    {
+      "name": "records without a session id move the cursor only",
+      "machine": "home", "local_machine": "home", "available": true,
+      "batches": [[
+        {"sequence": 1, "kind": "agent.state.changed", "occurred_at_ms": 1, "payload": {"adapter": {"id": "claude"}, "normalized": {}}}
+      ]],
+      "expected_cursor": 1,
+      "expected_entries": []
+    },
+    {
+      "name": "hidden sessions and cleared ranges are left out",
+      "machine": "home", "local_machine": "home", "available": true,
+      "hidden": {"ranges": [{"from": -978307195, "until": -978307190, "kind": "agent"}], "entries": ["home/claude/gone"]},
+      "batches": [[
+        {"sequence": 1, "kind": "agent.session.started", "occurred_at_ms": 1000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "gone"}}},
+        {"sequence": 2, "kind": "agent.session.started", "occurred_at_ms": 7000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "cleared"}}},
+        {"sequence": 3, "kind": "agent.session.started", "occurred_at_ms": 20000, "payload": {"adapter": {"id": "claude"}, "normalized": {"agent_session_id": "kept"}}}
+      ]],
+      "expected_cursor": 3,
+      "expected_entries": [
+        {"id": "agent:home/claude/kept", "kind": "agent", "at_ms": 20000, "title": "Claude Code", "available": true, "running": true, "session_id": "kept", "provider": "claude"}
+      ]
+    }
+  ]
+}

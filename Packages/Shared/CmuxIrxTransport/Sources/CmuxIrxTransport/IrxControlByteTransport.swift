@@ -108,13 +108,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
         onClose: OnClose? = nil,
-        permitsIO: @escaping @Sendable () async -> Bool = { true },
+        permitsIO: (@Sendable () async -> Bool)? = nil,
         controlRepairDeadline: Duration = IrxProtocol().controlRepairDeadline
     ) {
         self.closeCode = closeCode
         self.establish = establish
         self.onClose = onClose
-        self.permitsIO = permitsIO
+        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
+        self.permitsIO = permitsIO ?? { true }
         self.controlRepairDeadline = controlRepairDeadline
     }
 
@@ -386,28 +387,27 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let buffered = inboundPartialFrame
         guard !buffered.isEmpty else { return nil }
         let headerByteCount = MobileSyncFrameCodec.headerByteCount
+        var reader = WireByteReader(buffered)
         var boundary = 0
-        while buffered.count - boundary >= headerByteCount {
-            let headerStart = buffered.startIndex + boundary
-            var length = 0
-            for byte in buffered[headerStart..<(headerStart + headerByteCount)] {
-                length = (length << 8) | Int(byte)
-            }
+        while true {
+            var frame = reader
+            guard let header = frame.bigEndian(UInt32.self) else { break }
+            let length = Int(clamping: header)
             guard length <= MobileSyncFrameCodec.defaultMaximumFrameByteCount else {
                 inboundPartialFrame = Data()
                 return buffered
             }
-            guard buffered.count - boundary - headerByteCount >= length else { break }
+            guard frame.skip(length) else { break }
             boundary += headerByteCount + length
+            reader = frame
         }
         guard boundary > 0 else { return nil }
-        if boundary == buffered.count {
+        if reader.remainingCount == 0 {
             inboundPartialFrame = Data()
             return buffered
         }
-        let split = buffered.startIndex + boundary
-        inboundPartialFrame = Data(buffered[split...])
-        return Data(buffered[buffered.startIndex..<split])
+        inboundPartialFrame = reader.remaining
+        return Data(buffered.prefix(boundary))
     }
 
     // MARK: - Establishment
@@ -438,11 +438,14 @@ public actor IrxControlByteTransport: CmxByteTransport {
         defer { connectInFlight = nil }
         let established = try await task.value
         guard !isClosed else {
+            // Closed while the dial was in flight, typically because a newer
+            // RPC client generation replaced this one. This owner never read
+            // or wrote the lane, so the admitted session is intact: hand the
+            // claim back and leave the session to the owner that replaced
+            // us. Retiring it here forced a second dial on every supersede.
+            // Revocation and scope changes close the engine directly.
             lastConnection = established.0
-            await closeEstablishedPair(
-                connection: established.0,
-                lane: established.1
-            )
+            await onClose?(established.0, closeCode, false)
             throw IrxConnectionError.closed(nil)
         }
         lastConnection = established.0

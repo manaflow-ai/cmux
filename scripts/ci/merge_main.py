@@ -9,10 +9,9 @@ scripts/merge-main.sh is the entry point; agents use it instead of a raw
 2. picks the newest main commit whose CI fast guards passed
    (last_green_base.py) and says which newer commits it skipped and why
    (failure or pending); `--tip` merges main's tip anyway,
-3. merges it through catch_up_pr.py, so the generated files (project.pbxproj,
-   the config schema Swift, string catalogs) resolve the same way the PR
-   catch-up workflow resolves them; any other conflict aborts the merge and
-   names the paths,
+3. merges it through merge_main_resolver.py, so generated files (project.pbxproj,
+   the config schema Swift, and string catalogs) resolve consistently; any
+   other conflict aborts the merge and names the paths,
 4. with `--guards` (off by default: pushing runs them in CI), runs the local
    guards (scripts/ci/guards-local.sh, the `ci` group, `--all-guards` for
    every group) and labels each failure: a step
@@ -46,7 +45,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import catch_up_pr  # noqa: E402
+import merge_main_resolver  # noqa: E402
 import last_green_base  # noqa: E402
 
 CMUX_REMOTE_RE = re.compile(r"github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
@@ -346,8 +345,9 @@ def merge_main(options: Options, source: last_green_base.VerdictSource | None = 
     skipped = len(selection.skipped) if base == selection.chosen else 0
     note = (f"Merged by scripts/merge-main.sh: {remote}/{BASE_BRANCH} at {base[:12]}"
             + (f", the newest commit with green CI fast guards ({skipped} newer skipped)." if skipped else "."))
-    result = catch_up_pr.catch_up(repo, base, catch_up_pr.DEFAULT_TOOLS_ROOT, note,
-                                  title=f"Merge {BASE_BRANCH} ({base[:12]}) into {branch}")
+    result = merge_main_resolver.merge_and_resolve(
+        repo, base, merge_main_resolver.DEFAULT_TOOLS_ROOT, note,
+        title=f"Merge {BASE_BRANCH} ({base[:12]}) into {branch}")
     if result.status == "blocked":
         output("merge-main: merge aborted; these paths conflict and need a person:")
         for item in result.blocking:
@@ -400,11 +400,11 @@ def main(argv: list[str]) -> int:
                           guards=(args.guards or args.all_guards or args.strict) and not args.no_guards, all_guards=args.all_guards, strict=args.strict,
                           limit=args.limit)
         return merge_main(options)
-    except (MergeMainError, catch_up_pr.CatchUpError) as error:
+    except (MergeMainError, merge_main_resolver.MergeResolverError) as error:
         print(f"merge-main: {error}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
-        # catch_up aborts an unfinished merge itself; a finished one stands.
+        # The resolver aborts an unfinished merge itself; a finished one stands.
         print("merge-main: interrupted", file=sys.stderr)
         return 130
 

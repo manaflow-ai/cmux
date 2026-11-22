@@ -36,6 +36,7 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 time.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true

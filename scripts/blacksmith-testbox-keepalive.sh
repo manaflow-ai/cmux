@@ -87,6 +87,22 @@ if [[ -s "$state/idle_timeout" ]]; then
   idle_timeout_minutes="$(cat "$state/idle_timeout")"
 fi
 [[ "$idle_timeout_minutes" =~ ^[0-9]+$ ]] || idle_timeout_minutes=10
+# The requester picks --idle-timeout, but every idle minute holds a 32 vCPU
+# runner. Clamp it so a crashed or forgetful agent leaks at most this long.
+# Activity (an open SSH session or a `testbox run`) still resets the timer, so
+# long builds and active sessions are unaffected.
+max_idle_timeout_minutes=15
+if (( idle_timeout_minutes > max_idle_timeout_minutes )); then
+  printf 'clamping requested idle timeout %s min to %s min\n' "$idle_timeout_minutes" "$max_idle_timeout_minutes"
+  idle_timeout_minutes="$max_idle_timeout_minutes"
+fi
+(( idle_timeout_minutes >= 1 )) || idle_timeout_minutes=1
+printf 'idle timeout: %s min\n' "$idle_timeout_minutes"
+busy_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/blacksmith-testbox-busy.sh"
+# Run through bash, so a lost exec bit cannot read as "not busy"; say so at
+# startup when the helper is missing (the keepalive then counts only SSH and
+# the activity marker).
+[[ -f "$busy_check" ]] || printf 'warning: %s is missing; commands in the checkout do not count as use\n' "$busy_check" >&2
 last_activity="$(date +%s)"
 idle_timeout_seconds=$((idle_timeout_minutes * 60))
 
@@ -95,6 +111,10 @@ while :; do
   now="$(date +%s)"
   if ss -tnp 2>/dev/null | grep -Eq ":${runner_ssh_port}([^0-9]|$)"; then
     last_activity="$now"
+  elif bash "$busy_check" "$working_directory" "$$"; then
+    # A command still runs in the checkout after its SSH session ended (a
+    # detached cargo test): run 37105812136 released such a box mid-test.
+    last_activity="$now"
   elif [[ -f "$HOME/.testbox-last-activity" ]]; then
     marker_mtime="$(stat -c %Y "$HOME/.testbox-last-activity" 2>/dev/null || stat -f %m "$HOME/.testbox-last-activity")"
     if [[ "$marker_mtime" -gt "$last_activity" ]]; then
@@ -102,6 +122,7 @@ while :; do
     fi
   fi
   if (( now - last_activity >= idle_timeout_seconds )); then
+    printf 'idle for %s s; releasing the Testbox runner\n' "$((now - last_activity))"
     phone_home_with_retry completed || echo "warning: could not report completed" >&2
     exit 0
   fi

@@ -1,0 +1,330 @@
+name: gallery PR diff
+
+# The per-PR gallery (webviews/src/gallery): for the entries a PR touches
+# (webviews/scripts/gallery/touched.ts), render entry x variant x theme at the PR's merge-base and
+# at its head, the head twice (a state that differs from itself is nondeterministic, never a PR
+# change), pixel-diff each pair (scripts/gallery-matrix/compare.ts) and post one sticky comment
+# with the changed states and their before/after thumbnails.
+#
+# `render` runs the PR's code with a read-only token and no secrets, on Linux (never a Mac mini).
+# `publish` holds the write token and runs only the base branch's scripts: it rebuilds the comment
+# from the render's outcomes.json, uploads the comment's thumbnails to the pr-media branch and
+# updates the comment. Same-repository PRs only.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened]
+    paths:
+      - "webviews/**"
+      - "scripts/gallery-matrix/**"
+      - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "bun.lock"
+      - ".github/workflows/gallery-pr.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gallery-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # The matrix: both default themes (dark and light), both engines, the pane at its normal width.
+  GALLERY_THEMES: pair
+  GALLERY_ENGINES: chromium,webkit
+
+jobs:
+  render:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Keep all three evidence stages, but give each its own runner and timeout. A broad gallery
+    # change can select hundreds of states; sequential stages otherwise consume the whole hour.
+    # Isolated jobs also avoid competing for renderer memory or CPU while measuring play steps.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        stage: [base, head, repeat]
+    outputs:
+      touched: ${{ steps.touched.outputs.count }}
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - name: Checkout the PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Find the merge-base and the changed files
+        id: base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          sha=$(git merge-base "origin/$BASE_REF" HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          git diff --name-only "$sha" HEAD > "$RUNNER_TEMP/changed.txt"
+          echo "merge-base $sha; $(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Test the diff
+        working-directory: scripts/gallery-matrix
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun test
+
+      - name: Find the touched entries
+        id: touched
+        working-directory: webviews
+        run: |
+          set -euo pipefail
+          bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+          ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq '.entries | length' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
+          jq -r '.reasons | to_entries[] | "\(.key): \(.value | join(", "))"' "$RUNNER_TEMP/touched.json"
+
+      - name: Write the head manifest and build the head gallery
+        if: ${{ steps.touched.outputs.count != '0' }}
+        working-directory: webviews
+        env:
+          IDS: ${{ steps.touched.outputs.ids }}
+        run: |
+          set -euo pipefail
+          bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/head.json"
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
+
+      # The merge-base renders with its own gallery code: a change to the gallery shows as a change.
+      # A base without the gallery (or without an entry) renders nothing for it: the head's states are new.
+      - name: Write the base manifest and build the base gallery
+        if: ${{ steps.touched.outputs.count != '0' }}
+        env:
+          IDS: ${{ steps.touched.outputs.ids }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          cd "$RUNNER_TEMP/base/webviews"
+          if [ ! -f vite.config.gallery.ts ] || [ ! -f scripts/gallery/manifest.ts ]; then
+            echo "[]" > "$RUNNER_TEMP/base.json"
+            echo "The merge-base has no gallery; every state is new."
+            exit 0
+          fi
+          bun install --frozen-lockfile
+          if ! { bun scripts/gallery/manifest.ts --entries "$IDS" --themes "$GALLERY_THEMES" --frame component --out "$RUNNER_TEMP/base.json" &&
+            CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build; }; then
+            echo "[]" > "$RUNNER_TEMP/base.json"
+            rm -rf "$RUNNER_TEMP/gallery-base"
+            echo "::warning::The merge-base gallery does not build; every state is compared as new."
+            echo "> The merge-base gallery does not build, so every state is compared as new." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Render the evidence stage
+        if: ${{ steps.touched.outputs.count != '0' }}
+        working-directory: scripts/gallery-matrix
+        env:
+          CMUX_GALLERY_IN_VM: "1"
+          STAGE: ${{ matrix.stage }}
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          # Every case either side has: a variant only the base has is a removed state.
+          jq -s '.[0] as $head | $head + [.[1][] | select(.id as $id | any($head[]; .id == $id) | not)]' \
+            "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/cases.json"
+          echo "$(jq length "$RUNNER_TEMP/cases.json") cases x $GALLERY_ENGINES"
+          gallery="$RUNNER_TEMP/gallery-head"
+          if [ "$STAGE" = base ]; then gallery="$RUNNER_TEMP/gallery-base"; fi
+          out="$RUNNER_TEMP/evidence/runs/$STAGE"
+          mkdir -p "$out"
+          if [ -d "$gallery" ]; then
+            # A stage that fails to mount makes the runner exit 1; compare.ts reports it. A
+            # missing results.json is an infrastructure failure, never a silently empty stage.
+            bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" --output-dir "$out" \
+              --engines "$GALLERY_ENGINES" || true
+            test -f "$out/results.json"
+          else
+            test "$STAGE" = base
+            echo '[]' > "$out/results.json"
+          fi
+          # Only one job supplies common inputs so artifact merging never overwrites a sibling.
+          if [ "$STAGE" = head ]; then
+            cp "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/touched.json" "$RUNNER_TEMP/evidence/"
+            cp -r "$RUNNER_TEMP/gallery-head" "$RUNNER_TEMP/evidence/gallery"
+          fi
+
+      - name: Upload the evidence stage
+        if: ${{ steps.touched.outputs.count != '0' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-stage-${{ matrix.stage }}
+          path: ${{ runner.temp }}/evidence
+          retention-days: 14
+
+  compare:
+    needs: render
+    if: ${{ needs.render.result == 'success' && needs.render.outputs.touched != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the PR diff scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/gallery-matrix
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Download the evidence stages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: gallery-stage-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/evidence
+
+      - name: Compare
+        working-directory: scripts/gallery-matrix
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.render.outputs.base_sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          evidence="$RUNNER_TEMP/evidence"
+          # Require every stage even when it contains no states (a base without the gallery).
+          for stage in base head repeat; do test -f "$evidence/runs/$stage/results.json"; done
+          bun pr.ts --base "$evidence/runs/base" --head "$evidence/runs/head" --repeat "$evidence/runs/repeat" \
+            --base-manifest "$evidence/base.json" --head-manifest "$evidence/head.json" \
+            --out "$RUNNER_TEMP/gallery-pr/diff" --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" \
+            --artifact-url "$ARTIFACT_URL" --branch "$BRANCH" --feed-url "${FEED_BASE_URL}?pr=${PR}&view=all"
+          cp "$evidence/touched.json" "$RUNNER_TEMP/gallery-pr/"
+          cp -r "$evidence/gallery" "$RUNNER_TEMP/gallery-pr/gallery"
+          cp -r "$evidence/runs/head" "$RUNNER_TEMP/gallery-pr/matrix"
+          cat "$RUNNER_TEMP/gallery-pr/diff/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the diff, the gallery and the matrix
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gallery-pr
+          path: ${{ runner.temp }}/gallery-pr
+          retention-days: 14
+
+  publish:
+    needs: [render, compare]
+    if: ${{ needs.compare.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted base-branch scripts with the contents and pull-request write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 10
+    # contents: write reaches the pr-media branch; the protected branches have their rulesets.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout the publisher from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/gallery-matrix
+            scripts/pr-media.py
+          sparse-checkout-cone-mode: false
+
+      - name: Check the base branch has the publisher
+        id: publisher
+        run: |
+          if [ -f scripts/gallery-matrix/pr.ts ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "The base branch has no gallery publisher yet; the comment is in the render job's summary."; fi
+
+      - name: Setup Bun
+        if: ${{ steps.publisher.outputs.ok == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Download the render
+        if: ${{ steps.publisher.outputs.ok == 'true' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: gallery-pr
+          path: ${{ runner.temp }}/render
+
+      - name: Upload the thumbnails and update the comment
+        if: ${{ steps.publisher.outputs.ok == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ needs.render.outputs.base_sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+          FEED_BASE_URL: https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/
+        run: |
+          set -euo pipefail
+          prefix="gallery-${HEAD_SHA:0:11}-"
+          thumb_base="https://raw.githubusercontent.com/$REPOSITORY/pr-media/$PR/$prefix"
+          report="$RUNNER_TEMP/report"
+          branch_args=()
+          if grep -Eq 'branch:[[:space:]]*\{[[:space:]]*type:[[:space:]]*"string"' scripts/gallery-matrix/pr.ts; then
+            branch_args=(--branch "$BRANCH")
+          else
+            echo "Base publisher has no --branch option; omitting the live-preview link."
+          fi
+          (cd scripts/gallery-matrix && bun install --frozen-lockfile --ignore-scripts && \
+            bun pr.ts --outcomes "$RUNNER_TEMP/render/diff/outcomes.json" --out "$report" --pr "$PR" \
+              --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA" --artifact-url "$ARTIFACT_URL" --thumb-base "$thumb_base" \
+              "${branch_args[@]}")
+          python3 - "$report/comment.md" "${FEED_BASE_URL}?pr=${PR}&view=all" <<'PY'
+          from pathlib import Path
+          import sys
+          path, link = Path(sys.argv[1]), sys.argv[2]
+          text = path.read_text()
+          marker = "### Gallery\n"
+          if marker in text and "[Review in feed]" not in text:
+              text = text.replace(marker, f"{marker}\n[Review in feed]({link})\n", 1)
+              path.write_text(text)
+          PY
+          upload="$RUNNER_TEMP/upload"
+          mkdir -p "$upload"
+          while IFS= read -r key; do
+            # thumbs.txt names plain file names (report.ts SAFE_KEY); take only PNGs from the render.
+            src="$RUNNER_TEMP/render/diff/thumbs/$key"
+            if [ -f "$src" ] && [ "$(head -c 8 "$src" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ]; then
+              cp "$src" "$upload/$prefix$key"
+            fi
+          done < "$report/thumbs.txt"
+          if compgen -G "$upload/*" > /dev/null; then
+            python3 scripts/pr-media.py --pr "$PR" --repo "$REPOSITORY" --no-gif --force "$upload"/* > /dev/null
+          fi
+          body="$report/comment.md"
+          marker='<!-- cmux-gallery-pr -->'
+          existing=$(gh api --paginate "repos/$REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPOSITORY/issues/comments/$existing" -F "body=@$body" > /dev/null
+          else
+            gh api -X POST "repos/$REPOSITORY/issues/$PR/comments" -F "body=@$body" > /dev/null
+          fi

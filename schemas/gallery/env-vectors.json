@@ -1,0 +1,317 @@
+{
+  "comment": "Gallery control vectors: webviews/src/gallery/env.ts readEnv and CmuxNextGallery GalleryEnvironment(query:) must both map each query to its env. Regenerate with the TS reader after an intended change; both tests replay this file.",
+  "vectors": [
+    {
+      "query": {},
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "locale": "ja",
+        "colorScheme": "light",
+        "theme": "Catppuccin Latte"
+      },
+      "env": {
+        "locale": "ja",
+        "theme": "Catppuccin Latte",
+        "colorScheme": "light",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "locale": "xx",
+        "colorScheme": "purple"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "locale": "ar-XB",
+        "width": "narrow",
+        "scale": "1.25"
+      },
+      "env": {
+        "locale": "ar-XB",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1.25,
+        "width": "narrow",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "width": "1000",
+        "height": "300",
+        "fontSize": "16",
+        "fontFamily": "Georgia, serif"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "Georgia, serif",
+        "fontSize": 16,
+        "density": "comfortable",
+        "scale": 1,
+        "width": 1000,
+        "height": 300,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "width": "10",
+        "scale": "9",
+        "fontSize": "-3",
+        "colorScheme": "auto"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 3,
+        "width": 240,
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "width": "huge",
+        "density": "compact",
+        "reducedMotion": "1",
+        "highContrast": "true"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "compact",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": true,
+        "highContrast": true,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "dynamicSize": "xlarge",
+        "windowKey": "inactive",
+        "theme": "Dracula",
+        "colorScheme": "dark"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Dracula",
+        "colorScheme": "dark",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "xlarge",
+        "windowKey": "inactive",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "dynamicSize": "tiny",
+        "windowKey": "maybe",
+        "reducedMotion": "yes"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "frame": "component",
+        "window": "pro14",
+        "zoom": "0.5",
+        "layout": "agent-right"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "component",
+        "window": "pro14",
+        "zoom": 0.5,
+        "layout": "agent-right"
+      }
+    },
+    {
+      "query": {
+        "frame": "nope",
+        "window": "1920x1200",
+        "zoom": "fit",
+        "layout": "three"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "1920x1200",
+        "zoom": "fit",
+        "layout": "one"
+      }
+    },
+    {
+      "query": {
+        "window": "99x99",
+        "zoom": "9"
+      },
+      "env": {
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "auto",
+        "fontFamily": "",
+        "fontSize": 0,
+        "density": "comfortable",
+        "scale": 1,
+        "width": "normal",
+        "height": 0,
+        "reducedMotion": false,
+        "highContrast": false,
+        "dynamicSize": "default",
+        "windowKey": "key",
+        "frame": "window",
+        "window": "16x9",
+        "zoom": 2,
+        "layout": "one"
+      }
+    }
+  ]
+}

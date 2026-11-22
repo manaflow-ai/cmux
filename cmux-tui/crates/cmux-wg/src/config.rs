@@ -97,6 +97,11 @@ pub struct WgConfig {
     pub endpoint: Option<Endpoint>,
     /// Seconds between keepalives that hold NAT mappings open.
     pub persistent_keepalive: Option<u16>,
+    /// The peer's own addresses inside the network (`PeerAddress =`, a
+    /// cmux extension in `[Peer]`; at most one per family). Path probes go
+    /// there. Empty when the config does not say, and probes then use the
+    /// base address of the peer's first allowed network.
+    pub peer_addresses: Vec<IpAddr>,
 }
 
 impl fmt::Debug for WgConfig {
@@ -113,6 +118,7 @@ impl fmt::Debug for WgConfig {
             .field("allowed_ips", &self.allowed_ips)
             .field("endpoint", &self.endpoint)
             .field("persistent_keepalive", &self.persistent_keepalive)
+            .field("peer_addresses", &self.peer_addresses)
             .finish_non_exhaustive()
     }
 }
@@ -181,6 +187,7 @@ impl WgConfig {
         let mut allowed_ips = Vec::new();
         let mut endpoint = None;
         let mut persistent_keepalive = None;
+        let mut peer_addresses: Vec<IpAddr> = Vec::new();
 
         for (index, raw) in text.lines().enumerate() {
             let line_number = index + 1;
@@ -235,6 +242,23 @@ impl WgConfig {
                         }
                     }
                     "endpoint" => endpoint = Some(parse_endpoint(value)?),
+                    "peeraddress" => {
+                        for entry in comma_separated(value) {
+                            let (address, _) = split_prefix(entry, "PeerAddress")?;
+                            if peer_addresses
+                                .iter()
+                                .any(|known| known.is_ipv4() == address.is_ipv4())
+                            {
+                                return Err(ConfigError::InvalidValue {
+                                    key: "PeerAddress",
+                                    detail: format!(
+                                        "more than one address in the family of {address}"
+                                    ),
+                                });
+                            }
+                            peer_addresses.push(address);
+                        }
+                    }
                     "persistentkeepalive" => {
                         let seconds =
                             value.parse::<u16>().map_err(|_| ConfigError::InvalidValue {
@@ -268,12 +292,19 @@ impl WgConfig {
             allowed_ips,
             endpoint,
             persistent_keepalive,
+            peer_addresses,
         })
     }
 
     /// Whether `address` is reachable through this tunnel.
     pub fn routes_contain(&self, address: IpAddr) -> bool {
         self.allowed_ips.iter().any(|network| network.contains(address))
+    }
+
+    /// The peer's own address in the same family as `local`, if the config
+    /// names one.
+    pub fn peer_address_for(&self, local: IpAddr) -> Option<IpAddr> {
+        self.peer_addresses.iter().copied().find(|address| address.is_ipv4() == local.is_ipv4())
     }
 
     /// This side's address in the same family as `remote`, if any.
@@ -503,5 +534,25 @@ mod tests {
             WgConfig::parse_wg_quick(&three_addresses).unwrap_err(),
             ConfigError::TooManyAddresses { maximum: 2 }
         );
+    }
+
+    #[test]
+    fn the_peer_address_is_read_from_the_peer_section() {
+        let text = freestyle_shaped()
+            .replace("[Peer]\n", "[Peer]\nPeerAddress = 10.100.0.10/32, fd12::10\n");
+        let config = WgConfig::parse_wg_quick(&text).unwrap();
+        let v4: IpAddr = "10.100.0.10".parse().unwrap();
+        let v6: IpAddr = "fd12::10".parse().unwrap();
+        assert_eq!(config.peer_addresses, vec![v4, v6]);
+        assert_eq!(config.peer_address_for("10.0.0.1".parse().unwrap()), Some(v4));
+        assert_eq!(config.peer_address_for("fd00::1".parse().unwrap()), Some(v6));
+        assert!(WgConfig::parse_wg_quick(&freestyle_shaped()).unwrap().peer_addresses.is_empty());
+
+        let twice =
+            freestyle_shaped().replace("[Peer]\n", "[Peer]\nPeerAddress = 10.0.0.1, 10.0.0.2\n");
+        assert!(matches!(
+            WgConfig::parse_wg_quick(&twice),
+            Err(ConfigError::InvalidValue { key: "PeerAddress", .. })
+        ));
     }
 }

@@ -34,6 +34,7 @@ from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, direct_path_owners, groups_for_path, guard_steps, step_owners,
 )
 JOBS = {
+    "submodule_forward_only": "workflow-guard-submodule-forward-only",
     "linux_guard_tests": "workflow-guard-tests",
     "linux_guard_history": "workflow-guard-history",
     "linux_guard_cli": "workflow-guard-cli-scripts",
@@ -41,7 +42,8 @@ JOBS = {
     "ghosttykit_release": "ghosttykit-release-check",
 }
 REUSABLE_GUARDS = {
-    route: job for route, job in JOBS.items() if route != "ghosttykit_release"
+    route: job for route, job in JOBS.items()
+    if route not in {"ghosttykit_release", "submodule_forward_only"}
 }
 
 
@@ -57,6 +59,9 @@ def route_decision(paths, event="pull_request", macos="false"):
         )
     outputs = dict(line.split("=", 1) for line in result.stdout.splitlines())
     groups = tuple(json.loads(outputs.pop("linux_guard_test_groups")))
+    # The submodule guard is an unconditional reusable-workflow job rather
+    # than a routed input. Include its synthetic result in this gate payload.
+    outputs["submodule_forward_only"] = "true" if outputs and all(value == "true" for value in outputs.values()) else "false"
     return outputs, groups
 
 
@@ -87,31 +92,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 keys.append(key.value)
             duplicates = sorted({key for key in keys if keys.count(key) > 1})
             self.assertEqual(duplicates, [], (name, duplicates))
-
-    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
-        workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
-        workflow = workflow_path.read_text(encoding="utf-8")
-        changes = workflow_job_block("changes", workflow_path)
-        lifecycle = workflow_job_block("lifecycle", workflow_path)
-
-        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
-        self.assertIn(
-            "ref: ${{ inputs.ref }}",
-            workflow_job_block("resolve-ref", workflow_path),
-        )
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
-        self.assertIn("Detect cloud-machine package changes", changes)
-        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
-        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
-        self.assertNotIn("actions/checkout", changes)
-        self.assertIn("pull-requests: read", workflow)
-        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
-        self.assertIn(
-            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
-            lifecycle,
-        )
-        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
-        self.assertNotIn("inputs.ref || github.ref", workflow)
 
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
@@ -177,6 +157,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "false",
             "ghosttykit_release": "false",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(
             groups,
@@ -324,7 +305,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ always() && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
@@ -364,6 +345,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(groups, GROUPS)
 
@@ -381,22 +363,17 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
             "ghosttykit_release": "false",
+            "submodule_forward_only": "false",
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
-    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
-        for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
-                     "cmuxCLITestSupport/ProbeSupport.swift"):
-            with self.subTest(path=path):
-                _, groups = route_decision([path], macos="true")
-                self.assertIn("quality-determinism", groups)
-
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
-        outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
+        outputs = route(["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
 
     def test_cloud_skill_and_its_known_test_keep_only_the_owning_guard(self):
@@ -405,7 +382,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "skills/cmux-cloud-vm/references/agent-workflows.md",
             "skills/cmux-cloud-vm/references/commands.md",
             "skills/cmux-cloud-vm/references/guest.md",
-            "tests/test_cloud_vm_skill_coverage.py",
         ]
         expected = {name: "true" if name == "linux_guard_tests" else "false"
                     for name in JOBS}
@@ -432,10 +408,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         "skills/cmux-cloud-vm/scripts/check.py"):
             with self.subTest(unknown=unknown):
                 self.assertEqual(route(paths + [unknown]), dict.fromkeys(JOBS, "true"))
-        self.assertEqual(route(paths + ["Sources/Settings.swift"], macos="true"), {
+        self.assertEqual(route(paths + ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift"], macos="true"), {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
             "ghosttykit_release": "true",
+            "submodule_forward_only": "false",
         })
 
     def test_owned_mac_control_plane_runs_only_its_own_guard_lane(self):
@@ -489,11 +466,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_manifest_and_guard_inputs_keep_their_coverage(self):
         for path, selected in (
-            ("Packages/macOS/CmuxSettings/Package.swift", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/Package.swift", "linux_guard_history"),
             ("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved", "linux_guard_history"),
             ("cmux.xcodeproj/project.pbxproj", "linux_guard_history"),
             ("ios/cmux.xcworkspace/contents.xcworkspacedata", "linux_guard_history"),
-            ("Packages/macOS/CmuxSettings/.gitignore", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/.gitignore", "linux_guard_history"),
             ("tests/test_check_package_resolved_policy.py", "linux_guard_history"),
             ("scripts/check-package-resolved-policy.py", "linux_guard_history"),
             ("Resources/bin/start-cmux-profiling", "linux_guard_cli"),
@@ -526,6 +503,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(route(["README.md"], macos=""), dict.fromkeys(JOBS, "true"))
 
     def test_gate_rejects_selected_guard_skip_failure_or_cancellation(self):
+        for outcome in ("skipped", "failure", "cancelled"):
+            with self.subTest(job=JOBS["submodule_forward_only"], outcome=outcome):
+                result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
                 with self.subTest(job=job, outcome=outcome):
@@ -617,7 +600,7 @@ class GuardLegBalanceTests(unittest.TestCase):
     def test_the_ci_leg_does_not_rerun_what_its_profile_runs(self):
         profile = self.profile_paths()
         for name, step in self.steps_by_name().items():
-            if step.get("if") != "${{ matrix.group == 'ci' }}":
+            if "matrix.group == 'ci'" not in step.get("if", ""):
                 continue
             if "cmux_workload_profile.py run cmux.ci.guard" in step.get("run", ""):
                 continue

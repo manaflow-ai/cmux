@@ -1,0 +1,28 @@
+{
+  "name": "cmux.status/1",
+  "version": 1,
+  "docs": "A status item in the titlebar, room bar, status strip or menu bar.",
+  "props": {
+    "title": "string?",
+    "placement": "titlebar|roomBar|statusStrip|menuBar"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "placement": {
+        "enum": [
+          "titlebar",
+          "roomBar",
+          "statusStrip",
+          "menuBar"
+        ]
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

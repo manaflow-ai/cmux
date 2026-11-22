@@ -60,3 +60,16 @@ export function vmImageSizeRank(name: VmImageSizeName): number {
 export function pickVmImageSizeForMemory(memoryMb: number): VmImageSize | null {
   return VM_IMAGE_SIZES.find((size) => size.memoryMb >= memoryMb) ?? null;
 }
+
+/**
+ * vCPUs per offered memory size, keyed by the size in MiB as a string (a JSON
+ * object key), for clients that label sizes ("4 vCPU · 8 GB RAM"). A size off
+ * the ladder (an operator's memory override) gets the row it boots on; a size
+ * above the ladder is omitted.
+ */
+export function vcpusByMemoryMb(memoryOptionsMb: readonly number[]): Record<string, number> {
+  return Object.fromEntries(memoryOptionsMb.flatMap((memoryMb) => {
+    const size = pickVmImageSizeForMemory(memoryMb);
+    return size ? [[String(memoryMb), size.cpu]] : [];
+  }));
+}

@@ -1272,6 +1272,8 @@ pub struct DirectWebSocketOptions {
 struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
+    /// Spacing for accept errors that persist (descriptor exhaustion).
+    accept_backoff: cmux_tui_core::backoff::Backoff,
 }
 
 struct AdmissionIo {
@@ -1300,6 +1302,7 @@ impl Listener for LimitedTcpListener {
                 .expect("direct WebSocket admission semaphore is never closed");
             match self.inner.accept().await {
                 Ok((inner, address)) => {
+                    self.accept_backoff.reset();
                     let _ = inner.set_nodelay(true);
                     return (
                         AdmissionIo {
@@ -1311,9 +1314,11 @@ impl Listener for LimitedTcpListener {
                         address,
                     );
                 }
-                Err(_) => {
+                Err(error) => {
                     drop(permit);
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                        tokio::time::sleep(self.accept_backoff.next_delay()).await;
+                    }
                 }
             }
         }
@@ -1435,6 +1440,10 @@ pub async fn serve_direct_websocket_with_options(
     let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
+        accept_backoff: cmux_tui_core::backoff::Backoff::new(
+            Duration::from_millis(10),
+            Duration::from_secs(1),
+        ),
         inner: listener,
         permits: Arc::new(Semaphore::new(MAX_DIRECT_HTTP_CONNECTIONS)),
     };

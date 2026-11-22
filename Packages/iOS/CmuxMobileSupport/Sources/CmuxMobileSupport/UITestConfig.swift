@@ -157,6 +157,30 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Suppresses the one-time What's New launch sheet for automated Debug
+    /// launches. The app composition root converts this input into an explicit
+    /// presentation policy; the catalog model does not read process state.
+    public static var suppressWhatsNewLaunch: Bool {
+        suppressWhatsNewLaunch(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves the What's New launch suppression flag from explicit process
+    /// inputs so the Debug composition policy remains testable.
+    public static func suppressWhatsNewLaunch(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_SUPPRESS_WHATS_NEW"] == "1"
+            || arguments.contains("CMUX_UITEST_SUPPRESS_WHATS_NEW=1")
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the full-app UI-test harness should treat the account-owned
     /// revoke step of Forget Computer as successful. The remaining operation,
     /// including durable paired-Mac deletion, store refresh, shell routing, and

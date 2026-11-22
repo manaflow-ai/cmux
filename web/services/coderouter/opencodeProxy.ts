@@ -1,6 +1,10 @@
 import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
+import { Readable, pipeline } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
@@ -45,7 +49,7 @@ type OpenCodeDependencies = {
   readonly credential: typeof freshCredential;
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly fetch?: typeof fetch;
-  readonly resolveProviderURL?: typeof resolveProviderURL;
+  readonly resolveProviderURL?: (value: string) => Promise<URL | null>;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -391,7 +395,7 @@ export async function proxyOpenCodeRequest(
     );
   }
   try {
-    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? fetch, target, {
+    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? pinnedFetchFor(target), target, {
       method: request.method,
       headers,
       body:
@@ -719,26 +723,179 @@ function safeProviderURL(value: string): boolean {
   }
 }
 
+type ProviderPin = { readonly address: string; readonly family: number };
+
+/** A provider URL with the address it was checked against. The request
+ * connects to that address only (TLS still verifies the hostname), so a DNS
+ * change after the check cannot redirect the credential (rebinding). */
+class PinnedProviderURL extends URL {
+  constructor(value: string, readonly pinnedAddress: string, readonly pinnedFamily: number) {
+    super(value);
+  }
+}
+
 async function resolveProviderURL(
   value: string,
   lookup: ProviderLookup = defaultProviderLookup,
-): Promise<URL | null> {
+): Promise<PinnedProviderURL | null> {
   // Resolve every hostname before proxying it so private answers cannot pass
-  // through the URL parser. The provider catalog is trusted, but this remains
-  // defense-in-depth; the fetch implementation may perform a later lookup.
+  // through the URL parser, and pin the checked address for the connection.
   if (!safeProviderURL(value)) return null;
-  const url = new URL(value);
-  const hostname = normalizeProviderHostname(url.hostname);
-  if (isIP(hostname) !== 0) return url;
+  const hostname = normalizeProviderHostname(new URL(value).hostname);
+  const literal = isIP(hostname);
+  if (literal !== 0) return new PinnedProviderURL(value, hostname, literal);
   try {
     const addresses = await lookup(hostname);
     if (addresses.length === 0 || addresses.some(({ address }) => unsafeProviderAddress(address))) {
       return null;
     }
-    return url;
+    return new PinnedProviderURL(value, addresses[0].address, addresses[0].family);
   } catch {
     return null;
   }
+}
+
+/** The fetch for `target`, pinned to the address it was checked against. */
+function pinnedFetchFor(target: URL): typeof fetch {
+  if (!(target instanceof PinnedProviderURL)) return fetch;
+  return pinnedFetch({ address: target.pinnedAddress, family: target.pinnedFamily });
+}
+
+/** A fetch that connects to `pin` whatever the URL's hostname resolves to.
+ * The hostname still names the request (Host header, TLS SNI and
+ * certificate verification). */
+function pinnedFetch(pin: ProviderPin): typeof fetch {
+  const lookupPinned: LookupFunction = (_hostname, options, callback) => {
+    if (options.all) {
+      (callback as unknown as (error: null, addresses: { address: string; family: number }[]) => void)(
+        null, [{ address: pin.address, family: pin.family }],
+      );
+    } else {
+      callback(null, pin.address, pin.family);
+    }
+  };
+  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const headers = new Headers(init.headers);
+    const body = init.body == null
+      ? null
+      : init.body instanceof ReadableStream
+        ? init.body
+        : new Response(init.body as BodyInit).body;
+    const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+    return await new Promise<Response>((resolve, reject) => {
+      const outgoing = send(url, {
+        method: init.method ?? "GET",
+        headers: Object.fromEntries(headers),
+        lookup: lookupPinned,
+        signal: init.signal ?? undefined,
+      }, (incoming: IncomingMessage) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          if (value === undefined) continue;
+          for (const item of Array.isArray(value) ? value : [value]) responseHeaders.append(name, item);
+        }
+        const status = incoming.statusCode ?? 502;
+        const nullBody = status === 204 || status === 304 || init.method === "HEAD";
+        // Decode the body as fetch does, so usage accounting and the client
+        // see plain bytes whatever encoding the provider chose.
+        const decoded = decodedBody(incoming, responseHeaders);
+        resolve(new Response(nullBody ? null : (Readable.toWeb(decoded) as ReadableStream<Uint8Array>), {
+          status,
+          statusText: incoming.statusMessage,
+          headers: responseHeaders,
+        }));
+      });
+      outgoing.on("error", reject);
+      if (body) {
+        // Read the Web stream directly. Bun 1.3's Readable.fromWeb adapter can
+        // surface a body error outside pipeline's callback, leaving the test
+        // process with an unhandled rejection and the upstream request open.
+        void writeWebRequestBody(body, outgoing, init.signal ?? undefined).catch(reject);
+      } else {
+        outgoing.end();
+      }
+    });
+  }) as typeof fetch;
+}
+
+async function writeWebRequestBody(
+  body: ReadableStream<Uint8Array>,
+  outgoing: ClientRequest,
+  signal?: AbortSignal,
+): Promise<void> {
+  const reader = body.getReader();
+  let closeError: Error | undefined;
+  const cancel = (reason: unknown) => {
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    closeError ??= error;
+    void reader.cancel(reason).catch(() => undefined);
+  };
+  const onAbort = () => {
+    const reason = signal?.reason ?? new DOMException("The request was aborted", "AbortError");
+    cancel(reason);
+    outgoing.destroy(closeError);
+  };
+  const onClose = () => {
+    if (!outgoing.writableEnded) cancel(new Error("Upstream request closed during upload"));
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+  outgoing.once("close", onClose);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        if (closeError) throw closeError;
+        outgoing.end();
+        return;
+      }
+      if (value?.byteLength && !outgoing.write(value)) {
+        await new Promise<void>((resolve, reject) => {
+          const onDrain = () => { cleanup(); resolve(); };
+          const onError = (error: Error) => { cleanup(); reject(error); };
+          const onClosed = () => { cleanup(); reject(closeError ?? new Error("Upstream request closed")); };
+          const cleanup = () => {
+            outgoing.off("drain", onDrain);
+            outgoing.off("error", onError);
+            outgoing.off("close", onClosed);
+          };
+          outgoing.once("drain", onDrain);
+          outgoing.once("error", onError);
+          outgoing.once("close", onClosed);
+        });
+      }
+    }
+  } catch (error) {
+    outgoing.destroy(error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    outgoing.off("close", onClose);
+    reader.releaseLock();
+  }
+}
+
+const BODY_DECODERS: Record<string, () => NodeJS.ReadWriteStream> = {
+  gzip: createGunzip,
+  "x-gzip": createGunzip,
+  deflate: createInflate,
+  br: createBrotliDecompress,
+};
+
+/** The response body with its content-encoding removed, as fetch returns it.
+ * An unknown encoding passes through with its header intact. */
+function decodedBody(incoming: IncomingMessage, headers: Headers): Readable {
+  const encodings = (headers.get("content-encoding") ?? "")
+    .split(",").map((item) => item.trim().toLowerCase()).filter((item) => item && item !== "identity");
+  if (encodings.length === 0 || encodings.some((item) => !(item in BODY_DECODERS))) return incoming;
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  let stream: Readable = incoming;
+  for (const encoding of encodings.reverse()) {
+    const decoder = BODY_DECODERS[encoding]();
+    stream = pipeline(stream, decoder, () => {}) as unknown as Readable;
+  }
+  return stream;
 }
 
 async function defaultProviderLookup(hostname: string): Promise<readonly ProviderLookupAddress[]> {
@@ -840,5 +997,6 @@ export const __test = {
   rewriteProviders,
   safeProviderURL,
   resolveProviderURL,
+  pinnedFetch,
   openCodeAccount,
 };

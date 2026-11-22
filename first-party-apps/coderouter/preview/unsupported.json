@@ -1,0 +1,7 @@
+{
+  "ops": {
+    "app.storage.get": null,
+    "app.storage.set": null,
+    "action.run": null
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "oracle": {},
+  "cmux": {
+    "popup-store-cookie": [
+      "brepl_store=session"
+    ],
+    "user-tab-notifications": "denied",
+    "user-tab-dialog-listener": "confirm true",
+    "user-tab-download-listener": "parity-download.txt",
+    "released-on-session-end": [
+      "keyup A true",
+      "keyup Shift true",
+      "mouseup 0 true"
+    ]
+  }
+}

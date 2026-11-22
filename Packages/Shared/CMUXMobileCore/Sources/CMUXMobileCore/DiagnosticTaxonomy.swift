@@ -137,22 +137,19 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
         }
 
         if error.domain == NSPOSIXErrorDomain {
-            switch error.code {
-            case Int(POSIXErrorCode.ECONNREFUSED.rawValue):
+            // A code outside Int32 or unknown to POSIXErrorCode is .unknown.
+            switch Int32(exactly: error.code).flatMap(POSIXErrorCode.init(rawValue:)) {
+            case .ECONNREFUSED:
                 return .connectionRefused
-            case Int(POSIXErrorCode.EHOSTUNREACH.rawValue),
-                 Int(POSIXErrorCode.ENETUNREACH.rawValue):
+            case .EHOSTUNREACH, .ENETUNREACH:
                 return .hostUnreachable
-            case Int(POSIXErrorCode.ETIMEDOUT.rawValue):
+            case .ETIMEDOUT:
                 return .timedOut
-            case Int(POSIXErrorCode.EACCES.rawValue),
-                 Int(POSIXErrorCode.EPERM.rawValue):
+            case .EACCES, .EPERM:
                 return .permissionDenied
-            case Int(POSIXErrorCode.ECONNRESET.rawValue),
-                 Int(POSIXErrorCode.EPIPE.rawValue),
-                 Int(POSIXErrorCode.ENOTCONN.rawValue):
+            case .ECONNRESET, .EPIPE, .ENOTCONN:
                 return .connectionClosed
-            case Int(POSIXErrorCode.ECANCELED.rawValue):
+            case .ECANCELED:
                 return .cancelled
             default:
                 return .unknown
@@ -880,6 +877,18 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// was still validating it. Pairs with ``authBootstrapCompleted`` to show
     /// how much of restore the dial overlapped.
     case storedMacReconnectStartedDuringAuthRestore = 667
+
+    // MARK: Appended agent Feed events
+    /// The Feed became visible. `c` is the visible item count.
+    case agentFeedOpened = 668
+    case agentFeedClosed = 669
+    /// `c` is 1 for the Needs Input filter and 0 for All.
+    case agentFeedFilterChanged = 670
+    /// A row opened its workspace or tab. `c` is 1 when a tab was targeted.
+    case agentFeedItemOpened = 671
+    case agentFeedReplySucceeded = 672
+    /// `c` is 0 when the reply was not sent and 1 when its delivery is unconfirmed.
+    case agentFeedReplyFailed = 673
 }
 
 /// The user's configured connection method, mirrored from the settings picker

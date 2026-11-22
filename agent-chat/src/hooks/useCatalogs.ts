@@ -1,3 +1,4 @@
+import { preferenceStorage } from "../browser-storage";
 import { useEffect } from "react";
 import type { CommandGroup, Provider, SessionOption } from "../session";
 
@@ -98,7 +99,7 @@ export function useCwdValidation(
     if (!checked || checked.ok || !defaultCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
-    localStorage.setItem("agentui.cwd", defaultCwd);
+    preferenceStorage.setItem("agentui.cwd", defaultCwd);
   }, [cwd, cwdChecks, defaultCwd, setCommittedCwd, setCwd]);
 }
 
@@ -112,6 +113,6 @@ export function useCwdErrorFallback(
     if (!message.includes("working directory does not exist") || !defaultCwd) return;
     setCwd(defaultCwd);
     setCommittedCwd(defaultCwd);
-    localStorage.setItem("agentui.cwd", defaultCwd);
+    preferenceStorage.setItem("agentui.cwd", defaultCwd);
   }, [defaultCwd, message, setCommittedCwd, setCwd]);
 }

@@ -70,31 +70,19 @@ function encodedGraphicsBudgetState(budget: object): EncodedGraphicsBudgetState 
   return state;
 }
 
-function deleteEncodedGraphicsBudgetIfEmpty(
-  budget: object,
-  state: EncodedGraphicsBudgetState,
-): void {
-  if (state.owners.size === 0
-    && state.listeners.size === 0
-    && state.scheduledOwners.size === 0) {
+function deleteEncodedGraphicsBudgetIfEmpty(budget: object, state: EncodedGraphicsBudgetState): void {
+  if (state.owners.size === 0 && state.listeners.size === 0 && state.scheduledOwners.size === 0) {
     encodedGraphicsBudgets.delete(budget);
   }
 }
 
-function schedulePendingGraphicsRecoveries(
-  budget: object,
-  state: EncodedGraphicsBudgetState,
-  except?: object,
-): void {
+function schedulePendingGraphicsRecoveries(budget: object, state: EncodedGraphicsBudgetState, except?: object): void {
   for (const owner of state.pendingOwners) {
-    if (owner === except
-      || state.scheduledOwners.has(owner)
-      || !state.listeners.has(owner)) continue;
+    if (owner === except || state.scheduledOwners.has(owner) || !state.listeners.has(owner)) continue;
     state.scheduledOwners.add(owner);
     queueMicrotask(() => {
       state.scheduledOwners.delete(owner);
-      if (encodedGraphicsBudgets.get(budget) !== state
-        || !state.pendingOwners.has(owner)) {
+      if (encodedGraphicsBudgets.get(budget) !== state || !state.pendingOwners.has(owner)) {
         deleteEncodedGraphicsBudgetIfEmpty(budget, state);
         return;
       }
@@ -137,11 +125,7 @@ function admitEncodedImages(
   return admitted.length === images.length ? images : admitted;
 }
 
-export function subscribeRenderModelGraphicsBudget(
-  budget: object,
-  owner: object,
-  listener: () => void,
-): () => void {
+export function subscribeRenderModelGraphicsBudget(budget: object, owner: object, listener: () => void): () => void {
   const state = encodedGraphicsBudgetState(budget);
   let listeners = state.listeners.get(owner);
   if (listeners === undefined) {
@@ -182,49 +166,53 @@ function normalizeRows(rows: readonly RenderRow[], height: number): readonly Ren
 }
 
 function samePlacement(left: RenderGraphicPlacement, right: RenderGraphicPlacement): boolean {
-  return left.image_id === right.image_id
-    && left.placement_id === right.placement_id
-    && left.ordinal === right.ordinal
-    && left.x_offset === right.x_offset
-    && left.y_offset === right.y_offset
-    && left.source_x === right.source_x
-    && left.source_y === right.source_y
-    && left.source_width === right.source_width
-    && left.source_height === right.source_height
-    && left.columns === right.columns
-    && left.rows === right.rows
-    && left.grid_cols === right.grid_cols
-    && left.grid_rows === right.grid_rows
-    && left.pixel_width === right.pixel_width
-    && left.pixel_height === right.pixel_height
-    && left.viewport_col === right.viewport_col
-    && left.viewport_row === right.viewport_row
-    && left.viewport_visible === right.viewport_visible
-    && left.anchor_col === right.anchor_col
-    && left.anchor_row === right.anchor_row
-    && left.z === right.z;
+  return (
+    left.image_id === right.image_id &&
+    left.placement_id === right.placement_id &&
+    left.ordinal === right.ordinal &&
+    left.x_offset === right.x_offset &&
+    left.y_offset === right.y_offset &&
+    left.source_x === right.source_x &&
+    left.source_y === right.source_y &&
+    left.source_width === right.source_width &&
+    left.source_height === right.source_height &&
+    left.columns === right.columns &&
+    left.rows === right.rows &&
+    left.grid_cols === right.grid_cols &&
+    left.grid_rows === right.grid_rows &&
+    left.pixel_width === right.pixel_width &&
+    left.pixel_height === right.pixel_height &&
+    left.viewport_col === right.viewport_col &&
+    left.viewport_row === right.viewport_row &&
+    left.viewport_visible === right.viewport_visible &&
+    left.anchor_col === right.anchor_col &&
+    left.anchor_row === right.anchor_row &&
+    left.z === right.z
+  );
 }
 
-function samePlacements(
-  left: readonly RenderGraphicPlacement[],
-  right: readonly RenderGraphicPlacement[],
-): boolean {
-  return left.length === right.length
-    && left.every((placement, index) => samePlacement(placement, right[index]!));
+function samePlacements(left: readonly RenderGraphicPlacement[], right: readonly RenderGraphicPlacement[]): boolean {
+  return left.length === right.length && left.every((placement, index) => samePlacement(placement, right[index]!));
 }
 
 function sameImage(left: RenderGraphicImage, right: RenderGraphicImage): boolean {
-  return left.id === right.id
-    && left.generation === right.generation
-    && left.width === right.width
-    && left.height === right.height
-    && left.format === right.format
-    && left.data === right.data;
+  return (
+    left.id === right.id &&
+    left.generation === right.generation &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.format === right.format &&
+    left.data === right.data
+  );
 }
 
 function decodedImageBytes(image: RenderGraphicImage): number {
-  if (!Number.isSafeInteger(image.width) || image.width <= 0
-    || !Number.isSafeInteger(image.height) || image.height <= 0) {
+  if (
+    !Number.isSafeInteger(image.width) ||
+    image.width <= 0 ||
+    !Number.isSafeInteger(image.height) ||
+    image.height <= 0
+  ) {
     throw new CmuxProtocolError(`render graphics image ${image.id} has invalid dimensions`);
   }
   const channels = image.format === "rgb" ? 3 : image.format === "rgba" ? 4 : 0;
@@ -232,24 +220,20 @@ function decodedImageBytes(image: RenderGraphicImage): number {
     throw new CmuxProtocolError(`render graphics image ${image.id} has an invalid format`);
   }
   const expectedBytes = image.width * image.height * channels;
-  if (!Number.isSafeInteger(expectedBytes)
-    || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
-    throw new CmuxProtocolError(
-      `render graphics image ${image.id} pixel data does not match its dimensions`,
-    );
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
+    throw new CmuxProtocolError(`render graphics image ${image.id} pixel data does not match its dimensions`);
   }
   const expectedEncodedLength = Math.ceil(expectedBytes / 3) * 4;
   if (typeof image.data !== "string" || image.data.length !== expectedEncodedLength) {
-    throw new CmuxProtocolError(
-      `render graphics image ${image.id} pixel data does not match its dimensions`,
-    );
+    throw new CmuxProtocolError(`render graphics image ${image.id} pixel data does not match its dimensions`);
   }
-  const expectedPadding = (3 - expectedBytes % 3) % 3;
-  const hasExpectedPadding = expectedPadding === 0
-    ? !image.data.endsWith("=")
-    : expectedPadding === 1
-      ? image.data.endsWith("=") && !image.data.endsWith("==")
-      : image.data.endsWith("==");
+  const expectedPadding = (3 - (expectedBytes % 3)) % 3;
+  const hasExpectedPadding =
+    expectedPadding === 0
+      ? !image.data.endsWith("=")
+      : expectedPadding === 1
+        ? image.data.endsWith("=") && !image.data.endsWith("==")
+        : image.data.endsWith("==");
   if (!hasExpectedPadding) {
     throw new CmuxProtocolError(`render graphics image ${image.id} data is not padded base64 text`);
   }
@@ -261,16 +245,12 @@ function validateAuthoritativeImages(
   previous?: readonly RenderGraphicImage[],
 ): void {
   if (images.length > RENDER_GRAPHIC_MAX_IMAGES) {
-    throw new CmuxProtocolError(
-      `render graphics state exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`,
-    );
+    throw new CmuxProtocolError(`render graphics state exceeds ${RENDER_GRAPHIC_MAX_IMAGES} images`);
   }
 
   let decodedBytes = 0;
   const ids = new Set<number>();
-  const previousMetadata = previous === undefined
-    ? undefined
-    : validatedImageMetadata.get(previous);
+  const previousMetadata = previous === undefined ? undefined : validatedImageMetadata.get(previous);
   const metadata = new Map<number, ValidatedImageMetadata>();
   for (const image of images) {
     if (ids.has(image.id)) {
@@ -278,9 +258,7 @@ function validateAuthoritativeImages(
     }
     ids.add(image.id);
     const retained = previousMetadata?.get(image.id);
-    const imageBytes = retained?.image === image
-      ? retained.decodedBytes
-      : decodedImageBytes(image);
+    const imageBytes = retained?.image === image ? retained.decodedBytes : decodedImageBytes(image);
     decodedBytes += imageBytes;
     if (decodedBytes > RENDER_GRAPHIC_MAX_DECODED_BYTES) {
       throw new CmuxProtocolError(
@@ -292,11 +270,7 @@ function validateAuthoritativeImages(
   validatedImageMetadata.set(images, metadata);
 }
 
-function snapshotGraphics(
-  graphics: RenderGraphics | undefined,
-  budget?: object,
-  owner?: object,
-): RenderGraphicsModel {
+function snapshotGraphics(graphics: RenderGraphics | undefined, budget?: object, owner?: object): RenderGraphicsModel {
   if (graphics === undefined) {
     admitEncodedImages([], budget, owner, true);
     return { generation: 0n, images: [], placements: [] };
@@ -304,9 +278,7 @@ function snapshotGraphics(
   const sourceImages = graphics.images ?? [];
   validateAuthoritativeImages(sourceImages);
   const admitted = admitEncodedImages(sourceImages, budget, owner, true);
-  const images = Object.freeze(
-    admitted.map((image) => Object.freeze({ ...image })),
-  );
+  const images = Object.freeze(admitted.map((image) => Object.freeze({ ...image })));
   validateAuthoritativeImages(images);
   const imageIds = new Set(images.map((image) => image.id));
   return {
@@ -360,35 +332,25 @@ function applyGraphicsDelta(
   owner?: object,
 ): RenderGraphicsModel {
   if (graphics === undefined) return previous;
-  const mergedImages = mergeImages(
-    previous.images,
-    graphics.images ?? [],
-    graphics.removed_image_ids ?? [],
-  );
+  const mergedImages = mergeImages(previous.images, graphics.images ?? [], graphics.removed_image_ids ?? []);
   if (mergedImages !== previous.images || !validatedImageMetadata.has(mergedImages)) {
     validateAuthoritativeImages(mergedImages, previous.images);
   }
   const admitted = admitEncodedImages(mergedImages, budget, owner, false);
-  const images = admitted === mergedImages
-    ? mergedImages
-    : Object.freeze([...admitted]);
+  const images = admitted === mergedImages ? mergedImages : Object.freeze([...admitted]);
   if (!validatedImageMetadata.has(images)) {
     validateAuthoritativeImages(images, mergedImages);
   }
-  const candidatePlacements = graphics.placements === undefined
-    || samePlacements(previous.placements, graphics.placements)
-    ? previous.placements
-    : graphics.placements.map((placement) => ({ ...placement }));
+  const candidatePlacements =
+    graphics.placements === undefined || samePlacements(previous.placements, graphics.placements)
+      ? previous.placements
+      : graphics.placements.map((placement) => ({ ...placement }));
   const imageIds = new Set(images.map((image) => image.id));
-  const filteredPlacements = candidatePlacements.filter(
-    (placement) => imageIds.has(placement.image_id),
-  );
-  const placements = filteredPlacements.length === candidatePlacements.length
-    ? candidatePlacements
-    : filteredPlacements;
-  if (graphics.generation === previous.generation
-    && images === previous.images
-    && placements === previous.placements) return previous;
+  const filteredPlacements = candidatePlacements.filter((placement) => imageIds.has(placement.image_id));
+  const placements =
+    filteredPlacements.length === candidatePlacements.length ? candidatePlacements : filteredPlacements;
+  if (graphics.generation === previous.generation && images === previous.images && placements === previous.placements)
+    return previous;
   return { generation: graphics.generation, images, placements };
 }
 
@@ -443,11 +405,6 @@ export function applyDelta(
     scrollbackRows: delta.scrollback_rows ?? model.scrollbackRows,
     historyEpoch: delta.history_epoch ?? model.historyEpoch,
     rows,
-    graphics: applyGraphicsDelta(
-      model.graphics,
-      delta.graphics,
-      graphicsBudget,
-      graphicsBudgetOwner,
-    ),
+    graphics: applyGraphicsDelta(model.graphics, delta.graphics, graphicsBudget, graphicsBudgetOwner),
   };
 }

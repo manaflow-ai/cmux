@@ -1,0 +1,15 @@
+{
+ "_comment": "Process environment writes allowed in Packages/macOS/CmuxNext/Sources (crash_ratchet.py env_write). Each entry: path -> call -> count, with the reason. Only writes in main before any thread starts and before ghostty_init qualify: libghostty keeps a slice of environ from ghostty_init, and a later setenv/unsetenv crashed it (cx-9dh7). Every allowed write runs inside ProcessEnvironmentGuard.write (CmuxNextProcessEnvironment), which skips it, logs a fault once, and stops a debug build when it comes after ProcessEnvironmentGuard.freeze(). Pass values to a child in its spawn environment instead.",
+ "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift": {
+  "unsetenv": 1,
+  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift": {
+  "unsetenv": 1,
+  "reason": "dropInheritedDescriptor, inside ProcessEnvironmentGuard.write: the third step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops the bench's descriptor number so children do not inherit it."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift": {
+  "setenv": 1,
+  "reason": "prepareProcessEnvironment, inside ProcessEnvironmentGuard.write: the second step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread and the guard's freeze; GhosttyRuntime.init calls it again only when nothing froze the environment (tests), then freezes before ghostty_init."
+ }
+}

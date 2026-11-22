@@ -1,0 +1,17 @@
+{
+  "name": "cmux-fleet-artifacts",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-03",
+  "workers_dev": true,
+  "preview_urls": false,
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "cmux-fleet-artifacts"
+    }
+  ],
+  "observability": {
+    "enabled": false
+  },
+  "routes": []
+}

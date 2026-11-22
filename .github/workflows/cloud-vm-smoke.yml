@@ -66,7 +66,8 @@ jobs:
       - name: Guard smoke settings
         run: |
           set -euo pipefail
-          for key in NEXT_PUBLIC_STACK_PROJECT_ID NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY STACK_SECRET_SERVER_KEY; do
+          # The publishable key is optional: the production project requires none.
+          for key in NEXT_PUBLIC_STACK_PROJECT_ID STACK_SECRET_SERVER_KEY; do
             if [ -z "${!key:-}" ]; then
               echo "::error::Missing cloud-vm-${{ inputs.target }} env $key"
               exit 1

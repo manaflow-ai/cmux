@@ -1,0 +1,35 @@
+[package]
+name = "cmux-encode"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop and remote browser video encoders behind one trait: I420 pictures, OpenH264 from source (tests and the bench only) or Cisco's prebuilt library loaded at runtime after a pinned SHA-256 check; VideoToolbox on macOS"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# OpenH264 compiled from source: tests and the bench decoder only, never a
+# shipped binary (plans/cmux-next/remote-desktop-c7.md section 4).
+openh264-source = ["dep:openh264-sys2", "openh264-sys2/source"]
+# Cisco's prebuilt OpenH264, downloaded from Cisco at first use and loaded
+# with a pinned SHA-256 check (Cisco's patent license covers only that binary).
+openh264-runtime = ["dep:openh264-sys2", "openh264-sys2/libloading", "dep:sha2"]
+# The host installer's step (`cmux-rd openh264-install`): downloads Cisco's
+# library from Cisco's server into a per-user directory, after its pinned
+# SHA-256 matches (module `cisco`). Never bundles the library.
+openh264-download = ["openh264-runtime", "dep:rustls", "dep:webpki-roots", "dep:bzip2"]
+
+[dependencies]
+openh264-sys2 = { version = "=0.9.8", default-features = false, optional = true }
+sha2 = { version = "0.10", optional = true }
+# HTTPS GET of Cisco's file on the TLS stack the cmux-tui lockfile already
+# carries: the workspace rustls (ring provider, no aws-lc-rs) and the webpki
+# roots, certificate verification on (coordinator, 2026-10-07).
+rustls = { workspace = true, optional = true }
+webpki-roots = { version = "1", optional = true }
+# Cisco serves bzip2 files; the default backend is the pure-Rust libbz2-rs-sys.
+bzip2 = { version = "0.6", optional = true }

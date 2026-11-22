@@ -1,0 +1,41 @@
+import AppKit
+// Row view reuse through `rowPool`: views exist only for rows near the
+// viewport, and leaving rows return to the pool.
+extension SidebarListView {
+    func dequeue(_ key: SidebarRowKey) -> SidebarRowView {
+        let view = rowPool.take(for: key)
+        wire(view, key: key)
+        return view
+    }
+    func recycle(_ view: SidebarRowView) {
+        view.removeFromSuperview()
+        rowPool.put(view)
+    }
+    /// Per-key callbacks, set on every dequeue so recycled views never keep
+    /// a previous row's target.
+    func wire(_ view: SidebarRowView, key: SidebarRowKey) {
+        switch (key, view) {
+        case let (.workspace(id), view as WorkspaceRowView):
+            view.onClose = { [weak self] in self?.model.send(.close([id])) }
+            view.onSelect = { [weak self] in self?.model.click(id) }
+            view.onToggleTabs = { [weak self] in self?.model.toggleWorkspaceTabs(id); self?.reload(animated: true) }
+        case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
+            view.onSelect = { [weak self] in
+                self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
+            }
+        case let (.group(id), view as GroupHeaderRowView):
+            view.onMore = { [weak self] in self?.groupEditing.open(id) }
+            view.isEditing = groupEditor.shownGroup == id
+        case let (.section(sectionID), view as SectionHeaderRowView):
+            if case let .machine(machine) = sectionID {
+                view.allowsAdd = true
+                view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+            } else {
+                view.allowsAdd = false
+                view.onAdd = nil
+            }
+        default:
+            break
+        }
+    }
+}

@@ -96,7 +96,10 @@ struct IrxNatBarrierTests {
             seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
         let client = try await IrxLiveTestSupport.bindLoopback(
             seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
-        let serverTask = Task { () -> IrxAdmittedPeerInfo? in
+        // The server connection is returned, not dropped: releasing it closes
+        // the QUIC connection, which can discard the admit before the client
+        // reads it.
+        let serverTask = Task { () -> (IrxAdmittedPeerInfo?, IrxConnection)? in
             guard let incoming = await server.acceptNext() else { return nil }
             let accepting = try await incoming.accept()
             let connection = try await accepting.connect()
@@ -107,7 +110,7 @@ struct IrxNatBarrierTests {
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
             )
-            return result?.0
+            return (result?.0, irx)
         }
 
         let connection = try await client.connect(
@@ -118,9 +121,10 @@ struct IrxNatBarrierTests {
         let admit = try await control.reader.readControlFrame(BarrierAdmit.self)
         // A legacy hello must be admitted with no barrier ack and no ready wait.
         #expect(admit?.natBarrier == nil)
-        let peer = try await serverTask.value
-        #expect(peer?.deviceID == "d-test")
+        let admitted = try await serverTask.value
+        #expect(admitted?.0?.deviceID == "d-test")
         await irx.close(code: .userRequested, origin: .local)
+        await admitted?.1.close(code: .userRequested, origin: .local)
     }
 
     @Test("client offering the barrier authorizes first, then signals ready")

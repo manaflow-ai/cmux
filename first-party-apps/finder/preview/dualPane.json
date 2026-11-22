@@ -1,0 +1,320 @@
+{
+  "scopes": {
+    "host.list": {
+      "scope": "host:read",
+      "class": "read"
+    },
+    "host.connect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "host.disconnect": {
+      "scope": "host:control",
+      "class": "mutation"
+    },
+    "fs.roots.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.root.pick": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "fs.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.read": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.thumbnail": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.mkdir": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.rename": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.copy": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.move": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.trash": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.list": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "fs.job.cancel": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.job.resolve": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "fs.undo": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "document.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "fs:read",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "host.list": {
+      "conns": [
+        {
+          "conn": "conn_local01",
+          "host": "host_mac01",
+          "kind": "local",
+          "label": "This Mac",
+          "state": "connected",
+          "path": null
+        },
+        {
+          "conn": "conn_srv01",
+          "host": "host_studio01",
+          "kind": "server",
+          "label": "studio",
+          "state": "connected",
+          "path": "direct · 3 ms"
+        },
+        {
+          "conn": "conn_team01",
+          "host": "host_teamvm01",
+          "kind": "team_vm",
+          "label": "acme team VM",
+          "state": "connected",
+          "path": "tunnel · 9 ms"
+        },
+        {
+          "conn": "conn_ssh01",
+          "host": null,
+          "kind": "ssh",
+          "label": "build-box",
+          "state": "disconnected",
+          "path": null
+        }
+      ]
+    },
+    "fs.roots.list": {
+      "roots": [
+        {
+          "root": "root_home01",
+          "conn": "conn_local01",
+          "label": "Home",
+          "kind": "home",
+          "display": "~",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_proj01",
+          "conn": "conn_local01",
+          "label": "orbit",
+          "kind": "workspace",
+          "display": "~/src/orbit",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_dl01",
+          "conn": "conn_local01",
+          "label": "Downloads",
+          "kind": "folder",
+          "display": "~/Downloads",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_team01",
+          "conn": "conn_team01",
+          "label": "acme",
+          "kind": "remote",
+          "display": "acme:/home/dev",
+          "rights": "read_write"
+        },
+        {
+          "root": "root_srv01",
+          "conn": "conn_srv01",
+          "label": "studio",
+          "kind": "remote",
+          "display": "studio:~",
+          "rights": "read"
+        }
+      ]
+    },
+    "fs.job.list": {
+      "jobs": []
+    },
+    "app.storage.get": [
+      {
+        "conn": "conn_local01",
+        "root": "root_proj01",
+        "path": "Sources",
+        "label": "Sources"
+      },
+      {
+        "conn": "conn_team01",
+        "root": "root_team01",
+        "path": "logs",
+        "label": "logs"
+      }
+    ],
+    "fs.list": {
+      "$sequence": [
+        {
+          "listing": "lst_home01",
+          "entries": [
+            {
+              "name": "Desktop",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790875800000
+            },
+            {
+              "name": "Documents",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790703000000
+            },
+            {
+              "name": "Downloads",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790953560000
+            },
+            {
+              "name": "src",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790960472000
+            },
+            {
+              "name": ".config",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790184600000,
+              "hidden": true
+            },
+            {
+              "name": "notes.md",
+              "kind": "file",
+              "size": 2140,
+              "mtime": 1790957880000
+            },
+            {
+              "name": "deploy-checklist.md",
+              "kind": "file",
+              "size": 5300,
+              "mtime": 1790789400000
+            },
+            {
+              "name": "screenshot-2026-09-30.png",
+              "kind": "file",
+              "size": 1840000,
+              "mtime": 1790789400000
+            },
+            {
+              "name": "design-review.pdf",
+              "kind": "file",
+              "size": 4120000,
+              "mtime": 1790443800000
+            },
+            {
+              "name": "build.log",
+              "kind": "file",
+              "size": 182000,
+              "mtime": 1790936280000
+            },
+            {
+              "name": "backup-2026-09.tar.gz",
+              "kind": "file",
+              "size": 1240000000,
+              "mtime": 1789925400000
+            },
+            {
+              "name": "todo.txt",
+              "kind": "file",
+              "size": 640,
+              "mtime": 1790875800000
+            }
+          ],
+          "cursor": null,
+          "total": 11,
+          "revision": "1042"
+        },
+        {
+          "listing": "lst_team01",
+          "entries": [
+            {
+              "name": "deploy",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790875800000
+            },
+            {
+              "name": "datasets",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790357400000
+            },
+            {
+              "name": "logs",
+              "kind": "dir",
+              "size": null,
+              "mtime": 1790961336000
+            },
+            {
+              "name": "compose.yaml",
+              "kind": "file",
+              "size": 2900,
+              "mtime": 1790616600000
+            },
+            {
+              "name": "Makefile",
+              "kind": "file",
+              "size": 1400,
+              "mtime": 1790184600000
+            },
+            {
+              "name": "seed.sql",
+              "kind": "file",
+              "size": 88000000,
+              "mtime": 1789666200000
+            }
+          ],
+          "cursor": null,
+          "total": 6,
+          "revision": "1042"
+        }
+      ]
+    },
+    "fs.read": {
+      "text": "# Release notes draft\n\nShipping the file browser prototype this week.\n\n## Done\n- Column view and dual pane\n- Copy between hosts with progress\n- Previews for text, images and PDF\n\n## Next\n- Keyboard selection in lists\n- Drag onto terminals and agents\n",
+      "truncated": false,
+      "size": 2140,
+      "encoding": "utf8"
+    },
+    "fs.thumbnail": {
+      "image": "img_shot01",
+      "width": 2880,
+      "height": 1800
+    }
+  },
+  "events": []
+}

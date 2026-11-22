@@ -4,10 +4,8 @@
 The runner reads every line of a step's output that starts with `::` as a
 workflow command, so a fixture that makes a script under test print
 `::error::...` becomes a red annotation on the pull request's run page even
-though the test passed. PR 15160's run 36420353579 showed "No ci-ui-tests.yml
-run titled 'UI tests for CI run 100 attempt 1' appeared" and "https://x/900
-ended success without running the UI tests" from test_ci_ui_tests_dispatch.py,
-which read as real CI failures.
+though the test passed. PR 15160's run 36420353579 showed such annotations
+from a UI test dispatch test, which read as real CI failures.
 
 Each module below exercises code that annotates on purpose. It runs here the
 way the guard job runs it, with GITHUB_ACTIONS set, and its output must hold
@@ -32,11 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ANNOTATING_MODULES = (
     "tests/test_ci_helper_prebuild_lifecycle.py",
     "tests/test_ci_late_placement.py",
-    "tests/test_ci_main_regression_bisect.py",
     "tests/test_ci_parallel_artifact_transport.py",
-    "tests/test_ci_pr_media.py",
     "tests/test_ci_prune_pr_media.py",
-    "tests/test_ci_ui_tests_dispatch.py",
     "tests/test_ios_upload_batching.py",
 )
 

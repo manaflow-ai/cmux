@@ -80,8 +80,53 @@ class Decide(unittest.TestCase):
 
     def test_main_writes_empty_outputs_without_a_token(self):
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out:
-            self.assertEqual(placement.main(dict(ENV, GITHUB_OUTPUT=out.name)), 0)
-            self.assertEqual(Path(out.name).read_text(), "runner=\nplacement=\n")
+            self.assertEqual(placement.main(dict(ENV, GITHUB_OUTPUT=out.name, GITHUB_RUN_ATTEMPT="1")), 0)
+            self.assertEqual(Path(out.name).read_text(), "runner=\nplacement=\nattempt=1\n")
+
+    def test_a_re_run_skips_the_minis_that_failed_a_job_in_the_attempt_before(self):
+        jobs = [{"conclusion": "failure", "runner_name": "mini-b-glaeda-1"},
+                # Lost communication: a failed job that keeps its runner's name.
+                {"conclusion": "failure", "runner_name": "mini-c-glaeda"},
+                {"conclusion": "success", "runner_name": "mini-a-glaeda"},
+                {"conclusion": "cancelled", "runner_name": None},
+                {"conclusion": "failure", "runner_name": "blacksmith-6vcpu-macos-26-Runner-1"}]
+        self.assertEqual(placement.failed_members(jobs), {"mini-b", "mini-c"})
+        runners = [runner("mini-a", 0, busy=True), runner("mini-a", 1), runner("mini-b", 0), runner("mini-b", 1)]
+        self.assertIn("mini-b", placement.decide(ENV, runners)[0])
+        # Only mini-a is left, and it runs a root job: the root label, never mini-b's runners.
+        self.assertEqual(placement.decide(ENV, runners, {"mini-b"})[:2], (json.dumps([ROOT_STD]), "root"))
+        warm = dict(ENV, ADMISSION_WARM='["mini-b-glaeda-1"]')
+        self.assertEqual(placement.decide(warm, runners, {"mini-b"})[1], "root")
+
+    def test_main_reads_the_attempt_before_once_on_a_re_run(self):
+        from unittest import mock
+        paths = []
+
+        class API:
+            def __init__(self, token, repo):
+                pass
+
+            def runners(self):
+                return [runner("mini-a", 0), runner("mini-b", 0)]
+
+            def get(self, path):
+                paths.append(path)
+                return {"jobs": [{"conclusion": "failure", "runner_name": "mini-a-glaeda"}]}
+        with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
+                mock.patch.object(placement.pool, "GitHub", API), mock.patch("sys.stdout"):
+            env = dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ATTEMPT="2")
+            self.assertEqual(placement.main(env), 0)
+            text = Path(out.name).read_text()
+        self.assertEqual(paths, ["/actions/runs/123/attempts/1/jobs?per_page=100"])
+        self.assertIn("glaeda-runner-mini-b-glaeda", text)
+        self.assertTrue(text.endswith("attempt=2\n"), text)
+        # Attempt 1 reads no jobs.
+        paths.clear()
+        with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
+                mock.patch.object(placement.pool, "GitHub", API), mock.patch("sys.stdout"):
+            placement.main(dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r",
+                                GITHUB_RUN_ATTEMPT="1"))
+        self.assertEqual(paths, [])
 
 
 class Workflow(unittest.TestCase):
@@ -91,14 +136,20 @@ class Workflow(unittest.TestCase):
 
     def test_the_pin_is_picked_in_the_job_admission_waits_for(self):
         spec = self.jobs["admission-placement"]
-        # Opt in, attempt 1 of a same-repository run, admission on a root label only.
-        for clause in ("github.run_attempt == 1", "vars.CI_OWNED_SPREAD == '1'",
+        # Opt in, a same-repository run, admission on a root label only, on any attempt that runs it.
+        self.assertNotIn("run_attempt", spec["if"])
+        for clause in ("vars.CI_OWNED_SPREAD == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "startsWith(inputs.pr_root_runner, 'glaeda-root-')",
                        "contains(inputs.pr_owned_jobs, ' admission ')"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
         self.assertEqual(spec["outputs"]["runner"], "${{ steps.place.outputs.runner }}")
+        self.assertEqual(spec["outputs"]["attempt"], "${{ steps.place.outputs.attempt }}")
+        # The previous attempt's jobs, to skip the minis that failed one.
+        for mint in ("route-token", "route-token-repo"):
+            mint_step = next(step for step in spec["steps"] if step.get("id") == mint)
+            self.assertEqual(mint_step["with"]["permission-actions"], "read", mint)
         place = next(step for step in spec["steps"] if step.get("id") == "place")
         self.assertEqual(place["run"], "python3 scripts/ci/admission_placement.py")
         self.assertEqual(place["env"]["ROOT_RUNNER"], "${{ inputs.pr_root_runner }}")
@@ -107,9 +158,10 @@ class Workflow(unittest.TestCase):
         admission = self.jobs["macos-compile-admission"]
         self.assertEqual(admission["needs"], ["admission-placement"])
         self.assertTrue(admission["if"].startswith("${{ !cancelled() && "), admission["if"])
-        # Attempt 1 only: attempt 2 never reads the pin.
-        pinned = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
-        self.assertIn(f"github.run_attempt == 1 && {pinned} && fromJSON{pinned}", admission["runs-on"])
+        # Only the pin made in this attempt: a re-run of failed jobs keeps the earlier attempt's outputs.
+        self.assertIn("needs.admission-placement.outputs.attempt == github.run_attempt && "
+                      "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner)",
+                      admission["runs-on"])
 
     def test_the_picker_hands_the_warm_names_through(self):
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]

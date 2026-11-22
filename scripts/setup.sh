@@ -6,6 +6,21 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Check full Xcode before anything else. On a Command Line Tools-only machine,
+# or before the Xcode license is accepted, `xcodebuild -version` fails, and the
+# later steps would fail with less direct errors.
+echo "==> Checking for Xcode..."
+if ! xcodebuild -version >/dev/null 2>&1; then
+    echo "Error: full Xcode is required, but xcodebuild could not run."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "Install Xcode from the App Store and select it:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+    echo "If Xcode is already selected, open it once to finish setup, or accept the license:"
+    echo "    sudo xcodebuild -license accept"
+    echo "Run 'xcodebuild -version' for details."
+    exit 1
+fi
+
 # Xcode 26 ships the Metal compiler as a separately downloaded component rather
 # than inside Xcode.app. Without it the app target fails partway through the
 # build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
@@ -59,19 +74,6 @@ if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
     echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
     echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
     exit 1
-fi
-
-# The Cloud tunnel system extension embeds wireguard-go, built by
-# scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
-# without it gets a stub engine (the extension cannot load in a Debug build
-# anyway), so this is advisory rather than fatal.
-echo "==> Checking for Go (Cloud tunnel extension)..."
-export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH}"
-if command -v go &> /dev/null; then
-    go version
-else
-    echo "Note: go is not installed; Debug builds will use a stub WireGuard engine."
-    echo "Install via: brew install go (required for Release builds)"
 fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"

@@ -19,6 +19,7 @@ actor V2TestSocket: V2ControlSocket {
     var acknowledgementObserved: CheckedContinuation<Void, Never>?
     var acknowledgements: [V2AcknowledgementRequest] = []
     var relayOrdinal = 0
+    var replacementTicket: V2Ticket?
     var failNextMetadataReply = false
     var lastMetadataRequestID: String?
     var directoryConflictStep: Int?
@@ -63,7 +64,7 @@ actor V2TestSocket: V2ControlSocket {
             }
             try push(V2RegisteredResponse(device: record, requestID: header.requestId, schemaID: .deviceRegisteredV1))
         case "ticket.request.v1":
-            try push(V2TicketResponse(requestID: header.requestId, schemaID: .ticketResultV1, ticket: V2Ticket(expiresAt: now + 3600, refreshAfter: now + 3300, token: "replacement-ticket")))
+            try push(V2TicketResponse(requestID: header.requestId, schemaID: .ticketResultV1, ticket: replacementTicket ?? V2Ticket(expiresAt: now + 3600, refreshAfter: now + 3300, token: "replacement-ticket")))
         case "relay.request.v1":
             let request = try JSONDecoder().decode(V2RelayRequest.self, from: data)
             if suspendRelay {
@@ -143,6 +144,7 @@ actor V2TestSocket: V2ControlSocket {
     func setDirectoryRevision(_ revision: Int) { directoryRevision = revision }
 
     func rejectRelay(_ code: V2ErrorCode?) { rejectedRelay = code }
+    func setReplacementTicket(_ ticket: V2Ticket?) { replacementTicket = ticket }
     func dropNextMetadataReply() { failNextMetadataReply = true }
     func holdRelayReplies() { suspendRelay = true }
     func holdRegistration() { suspendRegistration = true }

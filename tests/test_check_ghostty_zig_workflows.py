@@ -95,6 +95,47 @@ def test_initialized_consumer_passes() -> None:
 
 
 
+def test_ghostty_next_init_satisfies_the_guard() -> None:
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            env:
+              GHOSTTY_ZIG_SOURCE: ghostty-next
+            steps:
+              - uses: actions/checkout@v6
+              - name: Init ghostty-next submodule
+                run: git submodule update --init --depth 1 ghostty-next
+              - name: Install Zig
+                run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert failures == [], failures
+
+
+def test_an_unrelated_submodule_does_not_satisfy_the_guard() -> None:
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+              - uses: actions/checkout@v6
+              - run: git submodule update --init --depth 1 ghostty-web
+              - name: Install Zig
+                run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert any("before Ghostty submodule init" in failure for failure in failures), failures
+
+
 def test_release_architecture_selection_remains_analyzed() -> None:
     workflow = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
@@ -365,4 +406,6 @@ if __name__ == "__main__":
     test_non_tui_setup_zig_is_not_ghostty_specific()
     test_setup_zig_resolver_must_propagate_multiline_helper_failure()
     test_consumer_diagnostic_uses_run_content_line()
+    test_ghostty_next_init_satisfies_the_guard()
+    test_an_unrelated_submodule_does_not_satisfy_the_guard()
     print("all Ghostty Zig workflow guard tests passed")

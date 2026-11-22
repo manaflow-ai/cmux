@@ -1,0 +1,9 @@
+<!doctype html><html><head><title>Shadow Fixture</title></head><body>
+<h1>Shadow DOM</h1><x-card></x-card><p id="out">none</p>
+<script>
+customElements.define("x-card", class extends HTMLElement { connectedCallback() {
+  const r = this.attachShadow({ mode: "open" });
+  r.innerHTML = `<section aria-label="Card"><h2>Card title</h2><input aria-label="Shadow input"><button>Shadow button</button></section>`;
+  r.querySelector("button").onclick = (e) => { document.getElementById("out").textContent = "shadow clicked trusted=" + e.isTrusted + " value=" + r.querySelector("input").value; };
+}});
+</script></body></html>

@@ -1,0 +1,8 @@
+<!doctype html><html><head><title>Frames Fixture</title><script src="/log.js"></script></head><body>
+<h1>Frames</h1>
+<iframe id="same" title="Same origin" src="/frame-inner.html" width="300" height="120"></iframe>
+<iframe id="cross" title="Cross origin" width="300" height="120"></iframe>
+<script>
+const peer = new URLSearchParams(location.search).get("peer");
+if (peer) document.getElementById("cross").src = peer + "/frame-inner.html";
+</script></body></html>

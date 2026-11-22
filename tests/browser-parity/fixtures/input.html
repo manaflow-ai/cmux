@@ -1,0 +1,23 @@
+<!doctype html><html><head><title>Input Fixture</title><script src="/log.js"></script>
+<style>#menu .items{display:none}#menu:hover .items{display:block}
+#drop{width:120px;height:60px;border:1px solid}#drag{width:60px;height:30px;background:#ccc}
+#scroller{height:80px;overflow:auto;border:1px solid}#scroller div{height:30px}
+#canvas{border:1px solid}</style></head><body>
+<h1>Input</h1>
+<input id="keys" aria-label="Keys"><div id="menu"><button>Hover me</button><div class="items"><a href="#item">Hidden item</a></div></div>
+<button id="dbl" ondblclick="this.textContent='Double clicked'">Double</button>
+<button id="ctx" oncontextmenu="event.preventDefault();this.textContent='Context opened'">Right click</button>
+<div id="drag" draggable="true">Drag</div><div id="drop">Drop zone</div>
+<div id="scroller" aria-label="Scroller" tabindex="0"></div>
+<canvas id="canvas" width="200" height="100" aria-label="Canvas"></canvas><p id="canvas-hit">none</p>
+<div id="editor" contenteditable="true" aria-label="Rich editor">start</div>
+<input id="clip" aria-label="Clipboard target">
+<script>
+const drop = document.getElementById("drop");
+document.getElementById("drag").addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", "payload"));
+drop.addEventListener("dragover", (e) => e.preventDefault());
+drop.addEventListener("drop", (e) => { e.preventDefault(); drop.textContent = "Dropped " + e.dataTransfer.getData("text/plain"); });
+const sc = document.getElementById("scroller");
+for (let i = 0; i < 30; i++) sc.insertAdjacentHTML("beforeend", `<div>Row ${i}</div>`);
+document.getElementById("canvas").addEventListener("click", (e) => { document.getElementById("canvas-hit").textContent = `hit ${e.offsetX > 100 ? "right" : "left"} trusted=${e.isTrusted}`; });
+</script></body></html>

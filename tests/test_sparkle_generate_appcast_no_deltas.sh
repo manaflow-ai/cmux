@@ -136,6 +136,7 @@ run_script() {
   CMUX_TEST_BINARY_DELTA_MARKER="$TMP_DIR/binary-delta-called" \
   SPARKLE_PRIVATE_KEY="Zml4dHVyZS1rZXk" \
   SPARKLE_VERSION="0.0.0-test" \
+  SPARKLE_MINIMUM_SYSTEM_VERSION="${CMUX_TEST_MINIMUM_SYSTEM_VERSION-26.0}" \
   "$@" \
   "$bash_bin" "$SCRIPT" "$TMP_DIR/cmux-macos.dmg" "v0.0.0-test" "$out"
 }
@@ -163,6 +164,13 @@ for bash_bin in "${candidates[@]}"; do
   grep -q 'sparkle:edSignature' "$out_dir/appcast.xml" || fail "bash $version: appcast lacks sparkle:edSignature"
   grep -q 'cmux-macos.dmg' "$out_dir/appcast.xml" || fail "bash $version: appcast does not reference the DMG"
   grep -q "unbound variable" "$out_dir/run.log" && fail "bash $version: script still reports an unbound variable"
+  # The macOS floor reaches the new item even though the generator omitted it.
+  grep -q '<sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>' "$out_dir/appcast.xml" \
+    || fail "bash $version: appcast item lacks sparkle:minimumSystemVersion 26.0"
+  if CMUX_TEST_MINIMUM_SYSTEM_VERSION= run_script "$bash_bin" "$out_dir/appcast-no-floor.xml" env -u SPARKLE_PREVIOUS_ARCHIVES_DIR >"$out_dir/run-no-floor.log" 2>&1; then
+    fail "bash $version: generation succeeded without SPARKLE_MINIMUM_SYSTEM_VERSION"
+  fi
+  [ ! -e "$out_dir/appcast-no-floor.xml" ] || fail "bash $version: an appcast was written without a macOS floor"
   grep -qx -- "--maximum-deltas" "$TMP_DIR/argv.log" && fail "bash $version: delta arguments passed although there were no previous archives"
   grep -qx "" "$TMP_DIR/argv.log" && fail "bash $version: generate_appcast received an empty argument"
 

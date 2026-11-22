@@ -1,12 +1,7 @@
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { fileName, type DiffItem } from "../diff-stream";
 import { anchorComment } from "./anchor";
-import type {
-  AnchorResult,
-  CommentAnnotationMetadata,
-  CommentDraft,
-  DiffCommentRecord,
-} from "./types";
+import type { AnchorResult, CommentAnnotationMetadata, CommentDraft, DiffCommentRecord } from "./types";
 
 export type CommentAnnotation = DiffLineAnnotation<CommentAnnotationMetadata>;
 
@@ -67,8 +62,7 @@ function sameCommentAnnotation(previous: CommentAnnotation, next: CommentAnnotat
   if (previousMetadata.kind === "draft" || nextMetadata.kind === "draft") {
     return previousMetadata.kind === nextMetadata.kind;
   }
-  return previousMetadata.comment === nextMetadata.comment &&
-    sameAnchor(previousMetadata.anchor, nextMetadata.anchor);
+  return previousMetadata.comment === nextMetadata.comment && sameAnchor(previousMetadata.anchor, nextMetadata.anchor);
 }
 
 export function sameCommentAnnotations(

@@ -57,7 +57,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
                 s["name"]
                 for s in job["steps"]
                 if "run" in s
-                and s["name"] not in run_ci_guards.DEPENDENCY_STEPS
+                and s["name"] not in (run_ci_guards.DEPENDENCY_STEPS | run_ci_guards.EVENT_CONDITION_STEPS)
                 and (not s.get("if") or f"'{unit.group}'" in s["if"])
             ]
             self.assertEqual([s.name for s in unit.steps], expected, unit.label)
@@ -78,6 +78,13 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertLessEqual(set(run_ci_guards.PORTABLE_SUBSTITUTES), names)
         self.assertLessEqual(run_ci_guards.EVENT_CONDITION_STEPS, names)
 
+    def test_a_local_run_is_not_a_manual_dispatch(self) -> None:
+        history = [u for u in self.units if u.job == "workflow-guard-history"]
+        self.assertTrue(history)
+        names = {step.name for unit in history for step in unit.steps}
+        self.assertNotIn("Fetch main history for a manual dispatch", names)
+        self.assertIn("Validate SwiftPM lockfile policy", names)
+
     def test_expressions_are_resolved(self) -> None:
         for unit in self.units:
             for step in unit.steps:
@@ -85,6 +92,19 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         ios = next(u for u in self.units if u.group == "release-ios")
         env = next(s.env for s in ios.steps if "BASE_SHA" in s.env)
         self.assertEqual(env["BASE_SHA"], "base")
+        preflight = next(u for u in self.units if u.group == "preflight")
+        registry = next(
+            s for s in preflight.steps if s.name == "Validate Python test execution registry"
+        )
+        self.assertEqual(registry.env["CMUX_TEST_REGISTRY_BASE_REF"], "base")
+
+    def test_registry_comparison_is_empty_without_a_local_base(self) -> None:
+        units = run_ci_guards.plan(self.workflow, "", "head")
+        preflight = next(u for u in units if u.group == "preflight")
+        registry = next(
+            s for s in preflight.steps if s.name == "Validate Python test execution registry"
+        )
+        self.assertEqual(registry.env["CMUX_TEST_REGISTRY_BASE_REF"], "")
 
     def test_groups_that_pass_state_between_steps_run_in_order(self) -> None:
         by_group = {unit.group or unit.job: unit for unit in self.units}

@@ -26,9 +26,21 @@ public struct UpdateFeedResolver: Sendable {
         case nightly
         /// The release-candidate feed; its path contains `/rc/`.
         case rc
+        /// The cmux-next nightly feed; its path contains `/nightly-next/`. Same
+        /// bundle id as cmux NIGHTLY, but its own feed, release and Sparkle key.
+        case nightlyNext
+
+        /// The `sparkle:channel` every cmux-next appcast item carries. Sparkle
+        /// offers an item with a channel only to an updater that allows it, so
+        /// an app that reads main's NIGHTLY feed ignores these items even if it
+        /// fetched them.
+        public static let nightlyNextSparkleChannel = "cmux-next"
 
         /// Classifies `feedURL` by the channel path segment it contains.
         static func classify(feedURL: String) -> Channel {
+            if feedURL.contains("/nightly-next/") {
+                return .nightlyNext
+            }
             if feedURL.contains("/nightly/") {
                 return .nightly
             }
@@ -42,7 +54,16 @@ public struct UpdateFeedResolver: Sendable {
         var usesPerArchitectureFeeds: Bool {
             switch self {
             case .stable: false
-            case .nightly, .rc: true
+            case .nightly, .rc, .nightlyNext: true
+            }
+        }
+
+        /// The `sparkle:channel` values this channel's updater accepts besides
+        /// the default (untagged) items.
+        public var allowedSparkleChannels: Set<String> {
+            switch self {
+            case .nightlyNext: [Self.nightlyNextSparkleChannel]
+            case .stable, .nightly, .rc: []
             }
         }
     }
@@ -57,8 +78,9 @@ public struct UpdateFeedResolver: Sendable {
         /// `Info.plist` feed URL was missing or empty.
         public let usedFallback: Bool
 
-        /// Whether `url` points at the nightly channel (its path contains `/nightly/`).
-        public var isNightly: Bool { channel == .nightly }
+        /// Whether `url` points at a nightly channel (main's `/nightly/` or cmux-next's
+        /// `/nightly-next/`).
+        public var isNightly: Bool { channel == .nightly || channel == .nightlyNext }
 
         /// Creates a resolution result.
         public init(url: String, channel: Channel, usedFallback: Bool) {

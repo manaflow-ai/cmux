@@ -90,11 +90,12 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
 
     static func epoch(for date: Date) throws -> Int64 {
         let value = date.timeIntervalSince1970
-        guard value.isFinite, value >= 0,
-              value <= TimeInterval(Int64.max) * rotationInterval else {
+        // Int64(exactly:) is nil for NaN, infinity and 2^63 (the old bound let
+        // TimeInterval(Int64.max) * rotationInterval through to a trap).
+        guard value >= 0, let epoch = Int64(exactly: (value / rotationInterval).rounded(.down)) else {
             throw CmxIrohLANRendezvousAliasError.invalidTimestamp
         }
-        return Int64((value / rotationInterval).rounded(.down))
+        return epoch
     }
 
     static func isCanonicalAlias(_ value: String) -> Bool {

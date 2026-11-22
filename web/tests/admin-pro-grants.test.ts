@@ -162,7 +162,7 @@ function directMutation(app: AdminStackApp) {
   };
 }
 
-const admin = { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" };
+const admin = { id: "admin-1", primaryEmail: "admin@manaflow.ai" };
 
 describe("isAdminGrantablePlanId", () => {
   test("accepts pro and founders only", () => {
@@ -198,7 +198,7 @@ describe("adminUserRow", () => {
       fakeUser({
         id: "u1",
         serverMetadata: {
-          cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "lawrence@manaflow.ai", at: "2026-09-02T00:00:00.000Z" },
+          cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "admin@manaflow.ai", at: "2026-09-02T00:00:00.000Z" },
         },
       }),
       noStripe,
@@ -206,7 +206,7 @@ describe("adminUserRow", () => {
     expect(row.lastGrant).toEqual({
       plan: "pro",
       byUserId: "admin-1",
-      byEmail: "lawrence@manaflow.ai",
+      byEmail: "admin@manaflow.ai",
       at: "2026-09-02T00:00:00.000Z",
       pendingGrantId: null,
     });
@@ -261,7 +261,7 @@ describe("setManualPlanGrant", () => {
         cmuxAdminPlanGrant: {
           plan: "pro",
           byUserId: "admin-1",
-          byEmail: "lawrence@manaflow.ai",
+          byEmail: "admin@manaflow.ai",
           at: "2026-09-02T10:00:00.000Z",
           pendingGrantId: null,
         },
@@ -422,7 +422,7 @@ describe("teams", () => {
         cmuxAdminPlanGrant: {
           plan: "team",
           byUserId: "admin-1",
-          byEmail: "lawrence@manaflow.ai",
+          byEmail: "admin@manaflow.ai",
           at: "2026-09-02T10:00:00.000Z",
         },
       },
@@ -650,7 +650,7 @@ describe("pending email grants", () => {
     const created = await createPendingEmailGrant({ email: "  New.Person@Example.com ", plan: "pro", admin, db });
     expect(created.email).toBe("new.person@example.com");
     expect(created.plan).toBe("pro");
-    expect(created.grantedByEmail).toBe("lawrence@manaflow.ai");
+    expect(created.grantedByEmail).toBe("admin@manaflow.ai");
     await expect(createPendingEmailGrant({ email: "nope", plan: "pro", admin, db })).rejects.toBeInstanceOf(
       AdminInvalidEmailError,
     );
@@ -692,7 +692,7 @@ describe("pending email grants", () => {
       {
         targetUserId: "u9",
         plan: "founders",
-        admin: { id: "admin-1", primaryEmail: "lawrence@manaflow.ai" },
+        admin: { id: "admin-1", primaryEmail: "admin@manaflow.ai" },
         unlessAuditNewerThan: rows.find((row) => row.plan === "founders")!.createdAt,
         supersedePending: false,
         pendingGrantId: "g2",

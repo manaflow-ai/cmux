@@ -19,10 +19,32 @@ and is deleted on sign-out. Account deletion is enforced on read instead: the
 snapshot path checks the deletion tombstone directly on every request, so a
 tombstone takes effect immediately rather than after the TTL.
 
-The TTL is the security parameter here. A user removed from a team keeps that
-team's device-registry access until their snapshot refreshes, because Stack
-sends no webhook we could use to invalidate it. Ten minutes bounds that at one
-Stack call per active user per ten minutes, under 7 a second fleet-wide.
+The TTL is the security parameter here. When a user is removed from a team,
+Stack's `team_membership.deleted` webhook (`app/api/webhooks/stack`, secret
+`STACK_WEBHOOK_SECRET`) deletes their snapshot and detaches their tunnels from
+the team's network. The TTL bounds exposure only when that delivery is missed
+or still retrying. Ten minutes costs one Stack call per active user per ten
+minutes, under 7 a second fleet-wide.
+
+## Hexclave mirror
+
+The same webhook receives every Hexclave event type and keeps the `hexclave_*`
+tables (users, teams, memberships, direct team and project permissions) equal
+to Hexclave. Code is in `hexclave/`. Each verified body is validated against
+the Hexclave package's own yup schema for its type (`webhookEvents.ts`): a
+schema failure answers 400 and is never processed, and an unknown type answers
+200 and is logged. A valid event is only a signal: the named user or team is
+re-read from the Hexclave server API under a per-entity advisory lock and the
+mirror is rewritten from that read, so Svix's unordered and repeated delivery
+cannot write stale state. Deleted users and teams leave a tombstone that stops
+a reconcile that read before the deletion from writing them back. Removals
+still call `revokeTeamMemberAccess` / `revokeTeamAccess`, and every user change
+deletes that user's identity snapshot. `hexclave_webhook_events` records svix
+ids; a processed id is acknowledged without work.
+
+Fill or repair the mirror with `bun run hexclave:backfill-mirror -- --dry-run`,
+then without `--dry-run`, with `DATABASE_URL`, `NEXT_PUBLIC_STACK_PROJECT_ID`
+and `STACK_SECRET_SERVER_KEY` set (see `scripts/hexclave/backfill-mirror.ts`).
 
 ## Measuring it
 

@@ -1,0 +1,51 @@
+[package]
+name = "cmux-remote-browser-host"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "cmux remote browser host: drives the CEF fork's remote presentation (cmux_rp_*) through a C++ shim and serves a remote tab over cmux.rd/1 (plans/cmux-next/remote-tab-r2.md)"
+build = "build.rs"
+
+# Own workspace (remote-tab-r2.md B4, approved 2026-10-06): the shim links the
+# CEF fork on macOS, so neither CEF nor this crate's build dependencies enter
+# the cmux-tui workspace's Cargo.lock. The pure host core (src/tab.rs) builds
+# and tests on Linux too; the shim and the binary are macOS only.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "cmux-remote-browser-host"
+path = "src/main.rs"
+
+[dependencies]
+cmux-remote-browser = { path = "../cmux-remote-browser" }
+# The shared rd media engine and wire types (remote-tab-r2.md B3): the pump
+# and the serve loop are this crate's, packetize, FEC and congestion control
+# are the engine's.
+cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Constant-time comparison of the per-launch session token (launch.rs).
+subtle = "2"
+# The viewer core the Mac client links: the loopback probe (--probe) and the
+# pump tests read frames and send input exactly as the app does.
+cmux-rd-ffi = { path = "../cmux-rd-ffi" }
+
+# The smoke mode writes PNG frames (MIT/Apache, D-RT-RD2).
+[target.'cfg(target_os = "macos")'.dependencies]
+png = "0.17"
+# VideoToolbox IOSurface encode (remote-tab-r2.md B2); no OpenH264 feature.
+cmux-encode = { path = "../cmux-encode" }
+
+[build-dependencies]
+cc = "1"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"

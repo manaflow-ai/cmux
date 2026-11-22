@@ -1,0 +1,30 @@
+{
+  "oracle": {
+    "current-is-opened": true,
+    "list-keys": [
+      "active",
+      "current",
+      "id",
+      "state",
+      "title",
+      "url"
+    ],
+    "list-count": 1,
+    "popup-title": "ARIA Fixture",
+    "popup-listener": true,
+    "popup-opener": true,
+    "popup-not-current": true,
+    "window-open-url": "PRIMARY/aria.html",
+    "background-keeps-current": true,
+    "get-by-id": true,
+    "one-active": 1,
+    "use-switches": true,
+    "use-title": "ARIA Fixture",
+    "use-by-id": true,
+    "closed": true,
+    "after-close": 3
+  },
+  "cmux": {
+    "snapshot-other-tab": "title: ARIA Fixture"
+  }
+}

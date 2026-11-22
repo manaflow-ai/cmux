@@ -112,3 +112,61 @@ func TestCloudCLIBridgeSkipsWrongWorkspaceResponses(t *testing.T) {
 		t.Fatalf("response = %q, want accepted response", string(response))
 	}
 }
+
+func TestCloudCLIBridgeRejectsResponseFromUnaddressedServer(t *testing.T) {
+	bridge := newCloudCLIBridge()
+	addressed := &rpcServer{cliBridge: bridge}
+	other := &rpcServer{cliBridge: bridge}
+	addressedIDs := make(chan string, 1)
+	otherIDs := make(chan string, 1)
+	addressed.frameWriter = testCLIBridgeFrameWriter{onEvent: func(event rpcEvent) error {
+		addressedIDs <- event.RequestID
+		return nil
+	}}
+	other.frameWriter = testCLIBridgeFrameWriter{onEvent: func(event rpcEvent) error {
+		otherIDs <- event.RequestID
+		return nil
+	}}
+	unregisterAddressed := bridge.register(addressed)
+	defer unregisterAddressed()
+	unregisterOther := bridge.register(other)
+	defer unregisterOther()
+
+	type forwardResult struct {
+		data []byte
+		err  error
+	}
+	results := make(chan forwardResult, 1)
+	go func() {
+		data, err := bridge.forward([]byte("ping\n"))
+		results <- forwardResult{data: data, err: err}
+	}()
+	addressedID := <-addressedIDs
+	<-otherIDs
+
+	respond := func(server *rpcServer, requestID string, payload string) rpcResponse {
+		return server.handleCLIResponse(rpcRequest{
+			ID:     "response",
+			Method: "cli.response",
+			Params: map[string]any{
+				"request_id":  requestID,
+				"ok":          true,
+				"data_base64": base64.StdEncoding.EncodeToString([]byte(payload)),
+			},
+		})
+	}
+
+	if resp := respond(other, addressedID, "spoofed\n"); resp.OK {
+		t.Fatalf("cli.response for a request addressed to another client was accepted: %+v", resp)
+	}
+	if resp := respond(addressed, addressedID, "pong\n"); !resp.OK {
+		t.Fatalf("addressed client's cli.response failed: %+v", resp)
+	}
+	result := <-results
+	if result.err != nil {
+		t.Fatalf("forward failed: %v", result.err)
+	}
+	if string(result.data) != "pong\n" {
+		t.Fatalf("response = %q, want addressed client's pong", string(result.data))
+	}
+}

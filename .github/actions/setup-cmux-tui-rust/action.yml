@@ -76,6 +76,23 @@ runs:
         ).stdout.strip()
         with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
             print(pathlib.Path(cargo).parent, file=path_file)
+
+        rustdoc = subprocess.run(
+            ["rustup", "which", "rustdoc"],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if not rustdoc or not pathlib.Path(rustdoc).is_file():
+            raise SystemExit(
+                "pinned rustdoc is unavailable; see cmuxterm-hq REPAIR.md "
+                "for the rustup toolchain repair"
+            )
+        subprocess.run([rustdoc, "--version"], check=True)
+        with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
+            print(pathlib.Path(rustdoc).parent, file=path_file)
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+            print(f"CMUX_TUI_RUSTDOC={rustdoc}", file=env_file)
         PY
         cargo --version
         rustc --version

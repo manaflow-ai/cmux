@@ -78,4 +78,14 @@ struct MobileTaskModelAvailabilityTests {
                 )
         )
     }
+
+    @Test func decodingDropsDefaultEffortThatIsNotInTheModelEfforts() throws {
+        let model = try JSONDecoder().decode(
+            MobileTaskAgentModel.self,
+            from: Data(#"{"id":"gpt","displayName":"GPT","efforts":[{"id":"high","displayName":"High"}],"defaultEffortID":"missing"}"#.utf8)
+        )
+
+        #expect(model.defaultEffortID == nil)
+        #expect(model.efforts.map(\.id) == ["high"])
+    }
 }

@@ -15,7 +15,7 @@ struct TerminalWorkDiagnosticPresentation {
         if let count = work.context.workspaceCount { fields.append(.init(key: "workspace_count", value: String(count))) }
         if let count = work.context.surfaceCount { fields.append(.init(key: "surface_count", value: String(count))) }
         if let raw = event.ms {
-            let ms = Int(raw)
+            let ms = Int(clamping: raw)
             fields.append(.init(key: "duration", value: localization.string("diagnostics.duration.milliseconds", defaultValue: "\(ms) ms")))
         }
         let name = event.code == .terminalWorkStarted

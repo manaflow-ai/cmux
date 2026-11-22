@@ -17,7 +17,7 @@ import Testing
         let peer = ScriptedCmuxTUIPeer()
         let control = try await peer.open(requestedSession: nil, reportedSession: long)
         #expect(await control.session == long)
-        #expect(await control.server.session == long)
+        #expect(await control.server?.session == long)
         await control.close()
     }
 

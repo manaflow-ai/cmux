@@ -1,0 +1,2 @@
+ALTER TABLE "memberships" DROP CONSTRAINT "memberships_role_check";--> statement-breakpoint
+ALTER TABLE "memberships" ADD CONSTRAINT "memberships_role_check" CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'member'::text, 'billing'::text, 'guest'::text]));

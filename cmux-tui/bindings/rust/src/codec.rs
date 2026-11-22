@@ -2,15 +2,26 @@ use crate::Result;
 use crate::client::CmuxError;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::mem::{offset_of, size_of, zeroed};
 use std::net::Shutdown;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
-#[cfg(test)]
+/// The connected session socket: a Unix socket, or on Windows the AF_UNIX
+/// stream of the shared `local_socket` transport (the daemon's).
+#[cfg(unix)]
+pub(crate) type UnixStream = std::os::unix::net::UnixStream;
+#[cfg(windows)]
+pub(crate) type UnixStream = crate::local_socket::Stream;
+
+#[cfg(all(test, unix))]
 thread_local! {
     static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -20,10 +31,10 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) struct ForcedPendingConnectProbe;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl ForcedPendingConnectProbe {
     pub(crate) fn install() -> Self {
         FORCE_PENDING_CONNECT.with(|forced| {
@@ -60,7 +71,7 @@ impl ForcedPendingConnectProbe {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Drop for ForcedPendingConnectProbe {
     fn drop(&mut self) {
         FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
@@ -273,10 +284,12 @@ impl JsonLineConnection {
     }
 }
 
+#[cfg(unix)]
 fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
     connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
 }
 
+#[cfg(unix)]
 fn connect_unix_with_poll_checks(
     socket_path: &Path,
     timeout: Duration,
@@ -422,15 +435,22 @@ fn connect_unix_with_poll_checks(
     {
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
-    Ok(UnixStream::from(descriptor))
+    let stream = UnixStream::from(descriptor);
+    // The server must run as this user before anything is written (the
+    // daemon applies the same rule to the sockets it connects to).
+    // SAFETY: geteuid has no preconditions.
+    require_peer_uid(&stream, unsafe { libc::geteuid() }, socket_path)?;
+    Ok(stream)
 }
 
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SocketCreationPlan {
     socket_type: libc::c_int,
     needs_cloexec_fcntl: bool,
 }
 
+#[cfg(unix)]
 fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreationPlan {
     match atomic_cloexec_flag {
         Some(flag) => {
@@ -440,6 +460,7 @@ fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreat
     }
 }
 
+#[cfg(unix)]
 #[cfg(any(
     target_os = "android",
     target_os = "cygwin",
@@ -455,6 +476,7 @@ fn socket_creation_plan(atomic_cloexec_flag: Option<libc::c_int>) -> SocketCreat
 ))]
 const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = Some(libc::SOCK_CLOEXEC);
 
+#[cfg(unix)]
 #[cfg(not(any(
     target_os = "android",
     target_os = "cygwin",
@@ -470,10 +492,12 @@ const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = Some(libc::SOCK_CLOEXE
 )))]
 const PLATFORM_ATOMIC_CLOEXEC_FLAG: Option<libc::c_int> = None;
 
+#[cfg(unix)]
 fn platform_socket_creation_plan() -> SocketCreationPlan {
     socket_creation_plan(PLATFORM_ATOMIC_CLOEXEC_FLAG)
 }
 
+#[cfg(unix)]
 #[cfg(any(
     target_vendor = "apple",
     target_os = "dragonfly",
@@ -497,11 +521,12 @@ fn set_no_sigpipe(descriptor: libc::c_int) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn wait_for_connect(descriptor: libc::c_int, timeout: Duration, socket_path: &Path) -> Result<()> {
     wait_for_connect_with_poll_checks(descriptor, timeout, socket_path, timeout, &mut || Ok(()))
 }
 
+#[cfg(unix)]
 fn wait_for_connect_with_poll_checks(
     descriptor: libc::c_int,
     timeout: Duration,
@@ -571,6 +596,102 @@ fn wait_for_connect_with_poll_checks(
     }
 }
 
+/// Refuses a connected session socket whose server runs as another user
+/// than this process (`expected_uid`, normally the effective uid): the same
+/// rule the daemon applies to its own client connections (cmux-tui-core
+/// `platform::require_unix_peer_uid`). Called before anything is written.
+#[cfg(unix)]
+pub(crate) fn require_peer_uid(
+    stream: &UnixStream,
+    expected_uid: u32,
+    socket_path: &Path,
+) -> Result<()> {
+    let peer = peer_uid(stream.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
+    if peer == expected_uid {
+        return Ok(());
+    }
+    Err(CmuxError::ConnectionIo {
+        message: format!(
+            "refused session socket {}: its server runs as another user (uid {peer}, expected uid {expected_uid})",
+            socket_path.display()
+        ),
+        kind: std::io::ErrorKind::PermissionDenied,
+    })
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            descriptor,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &mut length,
+        )
+    };
+    if result != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(credentials.uid)
+}
+
+/// The uid of the process at the other end of a connected Unix socket.
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn peer_uid(descriptor: libc::c_int) -> std::io::Result<u32> {
+    let (mut uid, mut gid) = (0 as libc::uid_t, 0 as libc::gid_t);
+    // SAFETY: both out-pointers are valid for writes.
+    if unsafe { libc::getpeereid(descriptor, &mut uid, &mut gid) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+/// Windows: the shared transport's deadline connect, which also refuses a
+/// socket file owned by another user (`local_socket`).
+#[cfg(windows)]
+fn connect_unix_with_timeout(socket_path: &Path, timeout: Duration) -> Result<UnixStream> {
+    connect_unix_with_poll_checks(socket_path, timeout, timeout, || Ok(()))
+}
+
+#[cfg(windows)]
+fn connect_unix_with_poll_checks(
+    socket_path: &Path,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut check: impl FnMut() -> Result<()>,
+) -> Result<UnixStream> {
+    if timeout.is_zero() {
+        return Err(connect_timeout_error(socket_path));
+    }
+    if poll_interval.is_zero() {
+        return Err(CmuxError::InvalidArgument(
+            "session socket connect poll interval must be greater than zero".to_string(),
+        ));
+    }
+    let mut failed_check = None;
+    let result =
+        crate::local_socket::connect_with_deadline(socket_path, timeout, poll_interval, || {
+            check().map_err(|error| {
+                failed_check = Some(error);
+                std::io::Error::other("connect check failed")
+            })
+        });
+    match result {
+        Ok(stream) => Ok(stream),
+        Err(_) if failed_check.is_some() => Err(failed_check.take().expect("checked")),
+        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
+            Err(connect_timeout_error(socket_path))
+        }
+        Err(error) => Err(connect_error(socket_path, error)),
+    }
+}
+
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
     let kind = error.kind();
     CmuxError::ConnectionIo {
@@ -590,7 +711,7 @@ fn socket_timeout(timeout: Duration) -> Duration {
     timeout.max(Duration::from_micros(1))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -615,6 +736,39 @@ mod tests {
         );
         let listener = UnixListener::bind(&path.0).unwrap();
         (path, listener)
+    }
+
+    /// A server of this process's own user passes; a server whose uid is
+    /// not the expected one is refused before anything is written.
+    #[test]
+    fn a_server_of_another_user_is_refused() {
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        let (client, _server) = UnixStream::pair().unwrap();
+        let path = Path::new("/tmp/cmux-peer-uid-test.sock");
+        assert!(require_peer_uid(&client, me, path).is_ok());
+        let other = me.wrapping_add(1);
+        match require_peer_uid(&client, other, path) {
+            Err(CmuxError::ConnectionIo { message, kind }) => {
+                assert_eq!(kind, std::io::ErrorKind::PermissionDenied);
+                assert!(message.contains("another user") && message.contains(&other.to_string()));
+            }
+            result => panic!("another user's server must be refused: {result:?}"),
+        }
+    }
+
+    /// The deadline connect checks the server's user: a listener of this
+    /// process's user is accepted.
+    #[test]
+    fn connect_checks_the_servers_user() {
+        let id = NEXT_SOCKET_ID.fetch_add(1, Ordering::Relaxed);
+        let path = SocketPath(std::path::PathBuf::from(format!(
+            "/tmp/cmux-sdk-peer-uid-{}-{id}.sock",
+            std::process::id()
+        )));
+        let _ = std::fs::remove_file(&path.0);
+        let _listener = UnixListener::bind(&path.0).unwrap();
+        assert!(connect_unix_with_timeout(&path.0, Duration::from_secs(1)).is_ok());
     }
 
     fn pair(limit: usize) -> (JsonLineConnection, UnixStream) {

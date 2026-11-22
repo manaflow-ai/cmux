@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { ContextMenu } from "../src/components/ContextMenu";
 
 describe("nested ContextMenu", () => {
@@ -10,10 +10,12 @@ describe("nested ContextMenu", () => {
       <ContextMenu
         point={{ x: 20, y: 20 }}
         onClose={onClose}
-        items={[{
-          label: "Clients",
-          children: [{ label: "Use all client sizes", onSelect }],
-        }]}
+        items={[
+          {
+            label: "Clients",
+            children: [{ label: "Use all client sizes", onSelect }],
+          },
+        ]}
       />,
     );
 
@@ -34,7 +36,9 @@ describe("nested ContextMenu", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
     let entryTop = 570;
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
       if (this.classList.contains("context-menu-submenu")) {
         return DOMRect.fromRect({ x: 778, y: 570, width: 190, height: 120 });
       }
@@ -96,7 +100,9 @@ describe("nested ContextMenu", () => {
   });
 
   it("reanchors third-level menus after an ancestor menu moves", () => {
-    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
       if (this.classList.contains("context-menu-entry")) {
         const owner = this.closest<HTMLElement>(".context-menu")!;
         return DOMRect.fromRect({
@@ -113,13 +119,17 @@ describe("nested ContextMenu", () => {
       <ContextMenu
         point={{ x: 20, y: 20 }}
         onClose={vi.fn()}
-        items={[{
-          label: "Clients",
-          children: [{
-            label: "Client 1",
-            children: [{ label: "Disconnect" }],
-          }],
-        }]}
+        items={[
+          {
+            label: "Clients",
+            children: [
+              {
+                label: "Client 1",
+                children: [{ label: "Disconnect" }],
+              },
+            ],
+          },
+        ]}
       />,
     );
     const initialMenus = screen.getAllByRole("menu", { hidden: true });
@@ -130,13 +140,17 @@ describe("nested ContextMenu", () => {
       <ContextMenu
         point={{ x: 300, y: 200 }}
         onClose={vi.fn()}
-        items={[{
-          label: "Clients",
-          children: [{
-            label: "Client 1",
-            children: [{ label: "Disconnect" }],
-          }],
-        }]}
+        items={[
+          {
+            label: "Clients",
+            children: [
+              {
+                label: "Client 1",
+                children: [{ label: "Disconnect" }],
+              },
+            ],
+          },
+        ]}
       />,
     );
     const movedMenus = screen.getAllByRole("menu", { hidden: true });

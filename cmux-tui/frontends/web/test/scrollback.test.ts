@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { ReadScrollbackResult, RenderRow } from "cmux/raw";
 import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import {
@@ -29,37 +29,41 @@ function page(start: number, total: number, count: number, epoch = 1n): ReadScro
 function historyGraphics(anchorRow: number): RenderGraphicsModel {
   return {
     generation: 1n,
-    images: [{
-      id: 9,
-      generation: 1n,
-      width: 1,
-      height: 1,
-      format: "rgb",
-      data: "/wAA",
-    }],
-    placements: [{
-      image_id: 9,
-      placement_id: 3,
-      ordinal: 0,
-      x_offset: 0,
-      y_offset: 0,
-      source_x: 0,
-      source_y: 0,
-      source_width: 1,
-      source_height: 1,
-      columns: 1,
-      rows: 2,
-      grid_cols: 1,
-      grid_rows: 2,
-      pixel_width: 8,
-      pixel_height: 32,
-      viewport_col: 0,
-      viewport_row: 0,
-      viewport_visible: false,
-      anchor_col: 2,
-      anchor_row: anchorRow,
-      z: -1,
-    }],
+    images: [
+      {
+        id: 9,
+        generation: 1n,
+        width: 1,
+        height: 1,
+        format: "rgb",
+        data: "/wAA",
+      },
+    ],
+    placements: [
+      {
+        image_id: 9,
+        placement_id: 3,
+        ordinal: 0,
+        x_offset: 0,
+        y_offset: 0,
+        source_x: 0,
+        source_y: 0,
+        source_width: 1,
+        source_height: 1,
+        columns: 1,
+        rows: 2,
+        grid_cols: 1,
+        grid_rows: 2,
+        pixel_width: 8,
+        pixel_height: 32,
+        viewport_col: 0,
+        viewport_row: 0,
+        viewport_visible: false,
+        anchor_col: 2,
+        anchor_row: anchorRow,
+        z: -1,
+      },
+    ],
   };
 }
 

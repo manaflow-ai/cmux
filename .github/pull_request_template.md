@@ -25,11 +25,9 @@ Example: Fixed: Closing the last workspace no longer unfolds a collapsed sidebar
 Left empty or deleted, /release falls back to the PR title and flags the PR for a human to check. Don't edit CHANGELOG.md in this PR.
 -->
 
-## Demo Video
+## Proof
 
-For UI or behavior changes, include a short demo video or screenshots (GitHub upload, Loom, or other direct link).
-
-- Video URL or attachment:
+<!-- Before/after screenshots or a short clip for anything user-visible; otherwise one line on why not (e.g. CI only). -->
 
 ## Checklist
 

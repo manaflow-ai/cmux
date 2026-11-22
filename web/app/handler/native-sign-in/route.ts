@@ -5,6 +5,7 @@ import {
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
 import { requestOrigin } from "../../lib/request-origin";
+import { SELECT_ACCOUNT_PROMPT } from "../sign-in-entry";
 
 
 function canSetAutoHandoff(request: NextRequest): boolean {
@@ -41,6 +42,11 @@ export function GET(request: NextRequest) {
 
   const stackSignInURL = new URL("/handler/sign-in", requestOrigin(request));
   stackSignInURL.searchParams.set("after_auth_return_to", afterSignInURL.toString());
+  // The app's Switch Account asks the page to confirm the account even when
+  // this browser is already signed in. Only that one value is passed on.
+  if (request.nextUrl.searchParams.get("prompt") === SELECT_ACCOUNT_PROMPT) {
+    stackSignInURL.searchParams.set("prompt", SELECT_ACCOUNT_PROMPT);
+  }
   const response = NextResponse.redirect(stackSignInURL);
   if (nonce) {
     issueNativeHandoffCookie(response, request, nonce);

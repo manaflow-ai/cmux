@@ -1,0 +1,29 @@
+name: cmux-next web
+
+# ci.yml runs on pull requests only, so feat-cmux-next itself never ran ci-web's
+# checks: a base web red went unseen (react-apps-check, 2026-10-07), and
+# gh-merge-green's base-aware excusal had no base verdict to compare a PR's web
+# red with. Every push runs them here as the `web` job, under the same
+# `web / ...` names as on a pull request. ci-web routes its subareas from the
+# push's first-parent diff, so a push that touches no web path runs only its
+# scope job and the Agent Session web tests. Linux only.
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+
+# One run per pushed commit: a later push must not cancel the verdict that
+# base-aware excusal reads.
+concurrency:
+  group: cmux-next-web-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    uses: ./.github/workflows/ci-web.yml
+    with:
+      web: ${{ 'true' }}
+      macos: ${{ 'false' }}
+      agent_session_web: ${{ 'true' }}

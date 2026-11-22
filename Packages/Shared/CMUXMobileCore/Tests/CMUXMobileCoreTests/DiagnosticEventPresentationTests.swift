@@ -280,6 +280,7 @@ import Testing
             .reachabilityChanged: "Network reachability changed",
             .transportCloseAttribution: "Transport close attributed",
             .transportPathEvent: "Transport path changed",
+            .transportPathInventory: "Network path inventory changed",
             .browserStreamLifecycle: "Browser stream lifecycle",
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
@@ -310,6 +311,18 @@ import Testing
                 ).name == expected[code]
             )
         }
+    }
+
+    @Test func pathInventoryUsesLocalizedFieldLabels() {
+        let summary = englishPresentation.summary(DiagnosticEvent(
+            code: .transportPathInventory,
+            tNanos: 1,
+            a: 2,
+            b: 3
+        ))
+
+        #expect(summary.contains("Relay paths: 2"))
+        #expect(summary.contains("Non-relay paths: 3"))
     }
 
     @Test func decodesEveryStructuredPayloadIntoSemanticFields() {

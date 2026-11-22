@@ -12,6 +12,7 @@ import java.util.Objects;
 
 /** Immutable close-workspace request. Protocol v5; authority: control. */
 public final class CloseWorkspaceRequest implements WireValue {
+    private final Field<Boolean> endTerminals;
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
     private final Field<String> key;
@@ -20,6 +21,7 @@ public final class CloseWorkspaceRequest implements WireValue {
     private final Field<UInt64> workspace;
 
     private CloseWorkspaceRequest(Builder builder) {
+        this.endTerminals = builder.endTerminals;
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
         this.key = builder.key;
@@ -30,6 +32,7 @@ public final class CloseWorkspaceRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Boolean> endTerminals() { return endTerminals; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> key() { return key; }
@@ -40,6 +43,10 @@ public final class CloseWorkspaceRequest implements WireValue {
     public static CloseWorkspaceRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CloseWorkspaceRequest");
         Builder builder = builder();
+        Object rawEndTerminals = Wire.optional(object, "end_terminals");
+        if (!Wire.isMissing(rawEndTerminals)) {
+            builder.endTerminals(Wire.bool(rawEndTerminals, "CloseWorkspaceRequest.end_terminals"));
+        }
         Object rawExpectedGeneration = Wire.optional(object, "expected_generation");
         if (!Wire.isMissing(rawExpectedGeneration)) {
             builder.expectedGeneration(rawExpectedGeneration == null ? null : Wire.string(rawExpectedGeneration, "CloseWorkspaceRequest.expected_generation"));
@@ -70,6 +77,7 @@ public final class CloseWorkspaceRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "end_terminals", endTerminals);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "key", key);
@@ -82,16 +90,17 @@ public final class CloseWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloseWorkspaceRequest that)) return false;
-        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, key, mutationId, origin, workspace); }
+    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, key, mutationId, origin, workspace); }
 
     @Override
     public String toString() { return "CloseWorkspaceRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<Boolean> endTerminals = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> key = Field.omitted();
@@ -99,6 +108,10 @@ public final class CloseWorkspaceRequest implements WireValue {
         private Field<String> origin = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
+        public Builder endTerminals(Boolean value) {
+            this.endTerminals = Field.of(value);
+            return this;
+        }
         public Builder expectedGeneration(String value) {
             this.expectedGeneration = Field.ofNullable(value);
             return this;

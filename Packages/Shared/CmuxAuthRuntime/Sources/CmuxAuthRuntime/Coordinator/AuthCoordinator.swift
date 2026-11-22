@@ -151,6 +151,13 @@ public final class AuthCoordinator {
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
     @ObservationIgnored var teamMutationGeneration: UInt64 = 0
+    /// Whether a team switch is still waiting on its server request.
+    public internal(set) var isSelectingTeam = false
+    /// Whether a team create is still waiting on its server request.
+    public internal(set) var isCreatingTeam = false
+    /// Every switch remains here until its request returns, even if a later
+    /// switch replaces its pending UI projection.
+    @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
     /// Begin a sign-in flow: register it as the newest attempt and capture
@@ -695,7 +702,7 @@ public final class AuthCoordinator {
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
-    private func refreshTeams(generation: UInt64) async {
+    func refreshTeams(generation: UInt64) async {
         activeTeamRefreshCount += 1
         let result: Result<([CMUXAuthTeam], String?), any Error>
         do {

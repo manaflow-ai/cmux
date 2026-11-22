@@ -81,6 +81,7 @@ pub const Operation = enum {
     screen_close,
     screen_layout_export,
     screen_layout_undo,
+    screen_column_update,
     pane_list,
     pane_get,
     pane_create,
@@ -201,6 +202,7 @@ pub const Operation = enum {
             .screen_close => "screen.close",
             .screen_layout_export => "screen.layout.export",
             .screen_layout_undo => "screen.layout.undo",
+            .screen_column_update => "column.update",
             .pane_list => "pane.list",
             .pane_get => "pane.get",
             .pane_create => "pane.create",
@@ -412,6 +414,7 @@ pub const Operation = enum {
             .screen_close => .{ .owner = .screen, .method = "close" },
             .screen_layout_export => .{ .owner = .screen, .method = "exportLayout" },
             .screen_layout_undo => .{ .owner = .screen, .method = "undoLayout" },
+            .screen_column_update => .{ .owner = .screen, .method = "updateColumn" },
             .pane_list => .{ .owner = .screen, .method = "listPanes" },
             .pane_get => .{ .owner = .pane, .method = "refresh" },
             .pane_create => .{ .owner = .screen, .method = "createPane" },
@@ -1544,6 +1547,85 @@ pub const ValidationInvalidDetails = struct {
     reason: []const u8,
 };
 
+pub const HomeNotClosableDetails = struct {
+    workspace_id: WorkspaceId,
+};
+
+pub const HomePinnedFirstDetails = struct {
+    workspace_id: WorkspaceId,
+};
+
+pub const UnsupportedAction = union(enum) {
+    restart_session,
+    unknown: []const u8,
+
+    pub fn wireName(self: UnsupportedAction) []const u8 {
+        return switch (self) {
+            .restart_session => "restart_session",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const OperationUnsupportedDetails = struct {
+    capability: []const u8,
+    action: UnsupportedAction,
+    session: ?[]const u8,
+};
+
+pub const RequestOrigin = union(enum) {
+    page,
+    agent,
+    app,
+    user,
+    unknown: []const u8,
+
+    pub fn wireName(self: RequestOrigin) []const u8 {
+        return switch (self) {
+            .page => "page",
+            .agent => "agent",
+            .app => "app",
+            .user => "user",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const OriginForbiddenDetails = struct {
+    /// The request's origin: derived from its connection, then narrowed by its claim.
+    derived: RequestOrigin,
+    /// The origin the operation needs.
+    required: ?RequestOrigin,
+    /// The refused origin claim.
+    claim: ?RequestOrigin,
+    reason: ?[]const u8,
+};
+
+pub const TerminalClosedDetails = struct {
+    terminal_id: TerminalId,
+};
+
+pub const TerminalHostUnavailableReason = union(enum) {
+    /// The terminal host did not answer within the daemon's control deadline.
+    timeout,
+    /// The daemon's connection to the host ended before the answer.
+    disconnected,
+    unknown: []const u8,
+
+    pub fn wireName(self: TerminalHostUnavailableReason) []const u8 {
+        return switch (self) {
+            .timeout => "timeout",
+            .disconnected => "disconnected",
+            .unknown => |value| value,
+        };
+    }
+};
+
+pub const TerminalHostUnavailableDetails = struct {
+    terminal_id: TerminalId,
+    reason: TerminalHostUnavailableReason,
+};
+
 pub const UnrecognizedResourceErrorDetails = struct {
     raw: raw.wire.Value,
 };
@@ -1559,16 +1641,22 @@ pub const ResourceErrorDetails = union(enum) {
     creation_conflict: CreationConflictDetails,
     cursor_gap: CursorGapDetails,
     cursor_invalid: CursorInvalidDetails,
+    home_not_closable: HomeNotClosableDetails,
+    home_pinned_first: HomePinnedFirstDetails,
     idempotency_conflict: IdempotencyConflictDetails,
     local_io: LocalIoDetails,
     mutation_indeterminate: MutationIndeterminateDetails,
     operation_failed: OperationFailedDetails,
+    operation_unsupported: OperationUnsupportedDetails,
+    origin_forbidden: OriginForbiddenDetails,
     resource_not_found: ResourceNotFoundDetails,
     revision_conflict: RevisionConflictDetails,
     selector_ambiguous: SelectorAmbiguousDetails,
     selector_invalid: SelectorInvalidDetails,
     selector_not_found: SelectorNotFoundDetails,
     selector_wrong_parent: SelectorWrongParentDetails,
+    terminal_closed: TerminalClosedDetails,
+    terminal_host_unavailable: TerminalHostUnavailableDetails,
     transport_closed: TransportClosedDetails,
     validation_invalid: ValidationInvalidDetails,
     unknown: UnrecognizedResourceErrorDetails,
@@ -2121,23 +2209,67 @@ fn parseMutationRecovery(value: []const u8) MutationRecovery {
     return .{ .unknown = value };
 }
 
+/// The error codes this SDK types (`spec/resource-operations-v2.json` `errors`;
+/// a test compares the two sets). Any other code decodes as `.unknown`.
+const catalog_error_codes = [_][]const u8{
+    "confirmation.required",
+    "creation.conflict",
+    "cursor.gap",
+    "cursor.invalid",
+    "home.not_closable",
+    "home.pinned_first",
+    "idempotency.conflict",
+    "local.io",
+    "mutation.indeterminate",
+    "operation.failed",
+    "operation.unsupported",
+    "origin.forbidden",
+    "resource.not_found",
+    "revision.conflict",
+    "selector.ambiguous",
+    "selector.invalid",
+    "selector.not_found",
+    "selector.wrong_parent",
+    "terminal.closed",
+    "terminal_host.unavailable",
+    "transport.closed",
+    "validation.invalid",
+};
+
 fn isCatalogErrorCode(code: []const u8) bool {
-    return std.mem.eql(u8, code, "confirmation.required") or
-        std.mem.eql(u8, code, "creation.conflict") or
-        std.mem.eql(u8, code, "cursor.gap") or
-        std.mem.eql(u8, code, "cursor.invalid") or
-        std.mem.eql(u8, code, "idempotency.conflict") or
-        std.mem.eql(u8, code, "local.io") or
-        std.mem.eql(u8, code, "mutation.indeterminate") or
-        std.mem.eql(u8, code, "operation.failed") or
-        std.mem.eql(u8, code, "resource.not_found") or
-        std.mem.eql(u8, code, "revision.conflict") or
-        std.mem.eql(u8, code, "selector.ambiguous") or
-        std.mem.eql(u8, code, "selector.invalid") or
-        std.mem.eql(u8, code, "selector.not_found") or
-        std.mem.eql(u8, code, "selector.wrong_parent") or
-        std.mem.eql(u8, code, "transport.closed") or
-        std.mem.eql(u8, code, "validation.invalid");
+    for (catalog_error_codes) |known| {
+        if (std.mem.eql(u8, code, known)) return true;
+    }
+    return false;
+}
+
+fn parseUnsupportedAction(value: []const u8) UnsupportedAction {
+    if (std.mem.eql(u8, value, "restart_session")) return .restart_session;
+    return .{ .unknown = value };
+}
+
+fn parseRequestOrigin(value: []const u8) RequestOrigin {
+    if (std.mem.eql(u8, value, "page")) return .page;
+    if (std.mem.eql(u8, value, "agent")) return .agent;
+    if (std.mem.eql(u8, value, "app")) return .app;
+    if (std.mem.eql(u8, value, "user")) return .user;
+    return .{ .unknown = value };
+}
+
+fn parseOptionalRequestOrigin(
+    object: raw.wire.Object,
+    name: []const u8,
+) !?RequestOrigin {
+    const value = try optionalObjectString(object, name) orelse return null;
+    return parseRequestOrigin(value);
+}
+
+fn parseTerminalHostUnavailableReason(
+    value: []const u8,
+) TerminalHostUnavailableReason {
+    if (std.mem.eql(u8, value, "timeout")) return .timeout;
+    if (std.mem.eql(u8, value, "disconnected")) return .disconnected;
+    return .{ .unknown = value };
 }
 
 fn parseCatalogErrorDetails(
@@ -2253,6 +2385,24 @@ fn parseCatalogErrorDetails(
             .reason = try objectString(object, "reason"),
         } };
     }
+    if (std.mem.eql(u8, code, "home.not_closable")) {
+        return .{ .home_not_closable = .{
+            .workspace_id = try parseRequiredId(
+                WorkspaceId,
+                object,
+                "workspace_id",
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "home.pinned_first")) {
+        return .{ .home_pinned_first = .{
+            .workspace_id = try parseRequiredId(
+                WorkspaceId,
+                object,
+                "workspace_id",
+            ),
+        } };
+    }
     if (std.mem.eql(u8, code, "idempotency.conflict")) {
         return .{ .idempotency_conflict = .{
             .idempotency_key = try objectString(
@@ -2296,6 +2446,27 @@ fn parseCatalogErrorDetails(
             .operation = try objectString(object, "operation"),
             .reason = try objectString(object, "reason"),
             .extra = extra,
+        } };
+    }
+    if (std.mem.eql(u8, code, "operation.unsupported")) {
+        const capability = try objectString(object, "capability");
+        if (capability.len == 0) return error.ExpectedNonEmptyString;
+        return .{ .operation_unsupported = .{
+            .capability = capability,
+            .action = parseUnsupportedAction(
+                try objectString(object, "action"),
+            ),
+            .session = try optionalObjectString(object, "session"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "origin.forbidden")) {
+        return .{ .origin_forbidden = .{
+            .derived = parseRequestOrigin(
+                try objectString(object, "derived"),
+            ),
+            .required = try parseOptionalRequestOrigin(object, "required"),
+            .claim = try parseOptionalRequestOrigin(object, "claim"),
+            .reason = try optionalObjectString(object, "reason"),
         } };
     }
     if (std.mem.eql(u8, code, "resource.not_found")) {
@@ -2373,6 +2544,27 @@ fn parseCatalogErrorDetails(
                 "expected_parent",
             ),
             .actual_parent = try objectString(object, "actual_parent"),
+        } };
+    }
+    if (std.mem.eql(u8, code, "terminal.closed")) {
+        return .{ .terminal_closed = .{
+            .terminal_id = try parseRequiredId(
+                TerminalId,
+                object,
+                "terminal_id",
+            ),
+        } };
+    }
+    if (std.mem.eql(u8, code, "terminal_host.unavailable")) {
+        return .{ .terminal_host_unavailable = .{
+            .terminal_id = try parseRequiredId(
+                TerminalId,
+                object,
+                "terminal_id",
+            ),
+            .reason = parseTerminalHostUnavailableReason(
+                try objectString(object, "reason"),
+            ),
         } };
     }
     if (std.mem.eql(u8, code, "transport.closed")) {
@@ -5947,6 +6139,16 @@ pub const UndoLayoutOptions = struct {
     confirmation_token: ?[]const u8 = null,
 };
 
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `dock` is true.
+pub const ColumnUpdateOptions = struct {
+    dock: ?bool = null,
+    edge: ?[]const u8 = null,
+    mode: ?[]const u8 = null,
+    width: ?f64 = null,
+};
+
 pub const CreatePaneOptions = struct {
     cwd: ?[]const u8 = null,
     cols: ?u16 = null,
@@ -6760,6 +6962,12 @@ fn encodeLayoutNode(
                     "root",
                     try encodeLayoutNode(allocator, column.root),
                 );
+                if (column.dock) |dock| {
+                    var flag = raw.wire.Object.init(allocator);
+                    try flag.put("edge", .{ .string = @tagName(dock.edge) });
+                    try flag.put("mode", .{ .string = @tagName(dock.mode) });
+                    try encoded.put("dock", .{ .object = flag });
+                }
                 try columns.append(.{ .object = encoded });
             }
             try object.put("columns", .{ .array = columns });
@@ -7260,10 +7468,21 @@ pub const LayoutStack = struct {
     expanded_pane_id: PaneId,
 };
 
+pub const LayoutColumnEdge = enum { left, right, top, bottom };
+pub const LayoutColumnMode = enum { docked, overlay };
+
+/// A pinned column's edge and presentation (catalog `LayoutColumnDock`).
+pub const LayoutColumnDock = struct {
+    edge: LayoutColumnEdge,
+    mode: LayoutColumnMode,
+};
+
 pub const LayoutColumn = struct {
     column_id: SplitId,
     width: f64,
     root: *const LayoutNode,
+    /// The column's dock flag (`dock-columns-v1`); null while it scrolls.
+    dock: ?LayoutColumnDock = null,
 };
 
 pub const LayoutViewport = struct {
@@ -8416,7 +8635,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root" },
+                &.{ "column_id", "width", "root", "dock", "sticky" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8436,6 +8655,9 @@ fn decodeLayoutNode(
                     column.get("root") orelse
                         return error.MissingField,
                 ),
+                // `sticky` is the pre-R87 name of `dock`: a replayed or
+                // older result still decodes; `dock` wins.
+                .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
             };
         }
         node.* = .{ .viewport = .{
@@ -8449,6 +8671,24 @@ fn decodeLayoutNode(
         .raw_object = value,
     } };
     return node;
+}
+
+/// An omitted or null flag is null (the column scrolls).
+fn decodeLayoutColumnDock(value: ?raw.wire.Value) !?LayoutColumnDock {
+    const present = value orelse return null;
+    if (present == .null) return null;
+    const object = try detailObject(present);
+    try ensureOnlyFields(object, &.{ "edge", "mode" });
+    return .{
+        .edge = std.meta.stringToEnum(
+            LayoutColumnEdge,
+            try objectString(object, "edge"),
+        ) orelse return error.InvalidEnum,
+        .mode = std.meta.stringToEnum(
+            LayoutColumnMode,
+            try objectString(object, "mode"),
+        ) orelse return error.InvalidEnum,
+    };
 }
 
 fn decodeLayoutDocument(
@@ -11511,6 +11751,50 @@ fn HandleImpl(
             );
         }
 
+        pub fn updateColumn(
+            self: Self,
+            column: SplitId,
+            options: ColumnUpdateOptions,
+            mutation: MutationOptions,
+        ) !ScreenMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "screen")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.dock == null and options.width == null) {
+                return error.InvalidColumnUpdate;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try params.putString("column", column.slice());
+            if (options.dock) |dock| {
+                try params.putValue("dock", .{ .bool = dock });
+            }
+            if (options.edge) |edge| {
+                try params.putString("edge", edge);
+            }
+            if (options.mode) |mode| {
+                try params.putString("mode", mode);
+            }
+            if (options.width) |width| {
+                if (!std.math.isFinite(width)) return error.InvalidColumnUpdate;
+                try params.putValue("width", .{ .float = width });
+            }
+            return decodeTypedAllocatedMutation(
+                ScreenSnapshot,
+                self.client.allocator,
+                try self.client.mutate(
+                    .screen_column_update,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
         pub fn createPane(
             self: Self,
             create: CreatePaneOptions,
@@ -13774,6 +14058,15 @@ pub const Screen = struct {
         mutation: MutationOptions,
     ) !ScreenMutationResult {
         return self.impl().undoLayout(options, mutation);
+    }
+
+    pub fn updateColumn(
+        self: Self,
+        column: SplitId,
+        options: ColumnUpdateOptions,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().updateColumn(column, options, mutation);
     }
 
     pub fn createPane(
@@ -16578,6 +16871,51 @@ test "operation inventory includes capability corrections" {
     );
 }
 
+test "viewport columns decode their dock flag and refuse an unknown edge" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const prefix =
+        "{\"version\":1," ++
+        "\"screen_id\":\"screen_55555555555555555555555555555555\"," ++
+        "\"active_pane_id\":\"pane_66666666666666666666666666666666\"," ++
+        "\"zoomed_pane_id\":null,\"root\":{\"kind\":\"viewport\"," ++
+        "\"base_width\":0.5,\"columns\":[" ++
+        "{\"column_id\":\"split_88888888888888888888888888888888\"," ++
+        "\"width\":0.5,\"root\":{\"kind\":\"leaf\"," ++
+        "\"pane_id\":\"pane_66666666666666666666666666666666\"," ++
+        "\"tab_ids\":[]}";
+    const suffix =
+        "},{\"column_id\":\"split_99999999999999999999999999999999\"," ++
+        "\"width\":0.5,\"root\":{\"kind\":\"leaf\"," ++
+        "\"pane_id\":\"pane_77777777777777777777777777777777\"," ++
+        "\"tab_ids\":[]}}]}}";
+    const pinned = try raw.wire.parse(
+        allocator,
+        prefix ++ ",\"dock\":{\"edge\":\"top\",\"mode\":\"docked\"}" ++ suffix,
+        .{},
+    );
+    const document = try decodeLayoutDocument(allocator, pinned.value);
+    const columns = switch (document.root.*) {
+        .viewport => |viewport| viewport.columns,
+        else => return error.ExpectedViewport,
+    };
+    try std.testing.expectEqual(
+        @as(?LayoutColumnDock, .{ .edge = .top, .mode = .docked }),
+        columns[0].dock,
+    );
+    try std.testing.expectEqual(@as(?LayoutColumnDock, null), columns[1].dock);
+    const unknown = try raw.wire.parse(
+        allocator,
+        prefix ++ ",\"dock\":{\"edge\":\"diagonal\",\"mode\":\"docked\"}" ++ suffix,
+        .{},
+    );
+    try std.testing.expectError(
+        error.InvalidEnum,
+        decodeLayoutDocument(allocator, unknown.value),
+    );
+}
+
 test "layout undo requires and forwards confirmation capability" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -16649,7 +16987,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 117), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 118), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -16742,6 +17080,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "focusScreen",
         "exportLayout",
         "undoLayout",
+        "updateColumn",
         "createPane",
     });
     try expectHandleCapabilities(Pane, &.{
@@ -18952,121 +19291,183 @@ test "indeterminate mutations retain fields and never retry" {
     );
 }
 
+const CatalogErrorDetailTag = std.meta.Tag(ResourceErrorDetails);
+const CatalogErrorFixture = struct {
+    code: []const u8,
+    details: []const u8,
+    tag: CatalogErrorDetailTag,
+};
+const catalog_error_fixtures = [_]CatalogErrorFixture{
+    .{
+        .code = "confirmation.required",
+        .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
+            "\"pane_11111111111111111111111111111111\"]," ++
+            "\"confirmation_token\":\"confirm-3\"}",
+        .tag = .confirmation_required,
+    },
+    .{
+        .code = "creation.conflict",
+        .details = "{\"correlation_key\":\"create-1\"," ++
+            "\"existing_operation\":\"workspace.create\"," ++
+            "\"requested_operation\":\"terminal.create\"," ++
+            "\"existing_fingerprint\":\"sha256:old\"," ++
+            "\"requested_fingerprint\":\"sha256:new\"}",
+        .tag = .creation_conflict,
+    },
+    .{
+        .code = "cursor.gap",
+        .details = "{\"requested\":{\"generation\":\"g\"," ++
+            "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
+            "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
+        .tag = .cursor_gap,
+    },
+    .{
+        .code = "cursor.invalid",
+        .details = "{\"requested\":{\"generation\":\"old\"," ++
+            "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
+            "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
+        .tag = .cursor_invalid,
+    },
+    .{
+        .code = "home.not_closable",
+        .details = "{\"workspace_id\":\"ws_11111111111111111111111111111111\"}",
+        .tag = .home_not_closable,
+    },
+    .{
+        .code = "home.pinned_first",
+        .details = "{\"workspace_id\":\"ws_11111111111111111111111111111111\"}",
+        .tag = .home_pinned_first,
+    },
+    .{
+        .code = "idempotency.conflict",
+        .details = "{\"idempotency_key\":\"key\"," ++
+            "\"committed_operation\":\"workspace.rename\"}",
+        .tag = .idempotency_conflict,
+    },
+    .{
+        .code = "local.io",
+        .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
+        .tag = .local_io,
+    },
+    .{
+        .code = "mutation.indeterminate",
+        .details = "{\"idempotency_key\":\"key\"," ++
+            "\"operation\":\"workspace.rename\",\"recovery\":" ++
+            "\"inspect_state_then_retry_with_new_key\"}",
+        .tag = .mutation_indeterminate,
+    },
+    .{
+        .code = "operation.failed",
+        .details = "{\"operation\":\"workspace.run\"," ++
+            "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
+        .tag = .operation_failed,
+    },
+    .{
+        .code = "operation.unsupported",
+        .details = "{\"capability\":\"session.restart\"," ++
+            "\"action\":\"restart_session\",\"session\":\"main\"}",
+        .tag = .operation_unsupported,
+    },
+    .{
+        .code = "origin.forbidden",
+        .details = "{\"derived\":\"page\",\"required\":\"user\"," ++
+            "\"claim\":\"app\",\"reason\":\"page origin\"}",
+        .tag = .origin_forbidden,
+    },
+    .{
+        .code = "resource.not_found",
+        .details = "{\"scope\":\"workspace\",\"id\":" ++
+            "\"ws_11111111111111111111111111111111\"}",
+        .tag = .resource_not_found,
+    },
+    .{
+        .code = "revision.conflict",
+        .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
+        .tag = .revision_conflict,
+    },
+    .{
+        .code = "selector.ambiguous",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"name:duplicate\",\"candidates\":[" ++
+            "\"ws_11111111111111111111111111111111\"," ++
+            "\"ws_22222222222222222222222222222222\"]}",
+        .tag = .selector_ambiguous,
+    },
+    .{
+        .code = "selector.invalid",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
+        .tag = .selector_invalid,
+    },
+    .{
+        .code = "selector.not_found",
+        .details = "{\"scope\":\"workspace\"," ++
+            "\"selector\":\"name:missing\"}",
+        .tag = .selector_not_found,
+    },
+    .{
+        .code = "selector.wrong_parent",
+        .details = "{\"scope\":\"pane\",\"selector\":" ++
+            "\"pane_11111111111111111111111111111111\"," ++
+            "\"parent_scope\":\"screen\",\"expected_parent\":" ++
+            "\"screen_11111111111111111111111111111111\"," ++
+            "\"actual_parent\":" ++
+            "\"screen_22222222222222222222222222222222\"}",
+        .tag = .selector_wrong_parent,
+    },
+    .{
+        .code = "terminal.closed",
+        .details = "{\"terminal_id\":\"term_11111111111111111111111111111111\"}",
+        .tag = .terminal_closed,
+    },
+    .{
+        .code = "terminal_host.unavailable",
+        .details = "{\"terminal_id\":\"term_11111111111111111111111111111111\"," ++
+            "\"reason\":\"disconnected\"}",
+        .tag = .terminal_host_unavailable,
+    },
+    .{
+        .code = "transport.closed",
+        .details = "{\"reason\":\"peer closed\"}",
+        .tag = .transport_closed,
+    },
+    .{
+        .code = "validation.invalid",
+        .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
+        .tag = .validation_invalid,
+    },
+};
+
+test "catalog error codes are exactly the codes this SDK types" {
+    const catalog = @import("resource_catalog");
+    // Only a checkout of the cmux repository has the catalog beside the package.
+    if (!catalog.present) return error.SkipZigTest;
+    for (catalog.error_codes) |code| {
+        if (!isCatalogErrorCode(code)) {
+            std.debug.print("catalog error code {s} is not typed by the Zig SDK\n", .{code});
+            return error.CatalogErrorCodeNotTyped;
+        }
+    }
+    for (catalog_error_codes) |known| {
+        for (catalog.error_codes) |code| {
+            if (std.mem.eql(u8, code, known)) break;
+        } else {
+            std.debug.print("Zig SDK error code {s} is not in the catalog\n", .{known});
+            return error.ErrorCodeNotInCatalog;
+        }
+    }
+    for (catalog_error_codes) |known| {
+        for (catalog_error_fixtures) |fixture| {
+            if (std.mem.eql(u8, fixture.code, known)) break;
+        } else {
+            std.debug.print("Zig SDK error code {s} has no decode fixture\n", .{known});
+            return error.ErrorCodeWithoutFixture;
+        }
+    }
+}
+
 test "catalog error details decode every declared shape" {
-    const DetailTag = std.meta.Tag(ResourceErrorDetails);
-    const Fixture = struct {
-        code: []const u8,
-        details: []const u8,
-        tag: DetailTag,
-    };
-    const fixtures = [_]Fixture{
-        .{
-            .code = "confirmation.required",
-            .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
-                "\"pane_11111111111111111111111111111111\"]," ++
-                "\"confirmation_token\":\"confirm-3\"}",
-            .tag = .confirmation_required,
-        },
-        .{
-            .code = "creation.conflict",
-            .details = "{\"correlation_key\":\"create-1\"," ++
-                "\"existing_operation\":\"workspace.create\"," ++
-                "\"requested_operation\":\"terminal.create\"," ++
-                "\"existing_fingerprint\":\"sha256:old\"," ++
-                "\"requested_fingerprint\":\"sha256:new\"}",
-            .tag = .creation_conflict,
-        },
-        .{
-            .code = "cursor.gap",
-            .details = "{\"requested\":{\"generation\":\"g\"," ++
-                "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
-                "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
-            .tag = .cursor_gap,
-        },
-        .{
-            .code = "cursor.invalid",
-            .details = "{\"requested\":{\"generation\":\"old\"," ++
-                "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
-                "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
-            .tag = .cursor_invalid,
-        },
-        .{
-            .code = "idempotency.conflict",
-            .details = "{\"idempotency_key\":\"key\"," ++
-                "\"committed_operation\":\"workspace.rename\"}",
-            .tag = .idempotency_conflict,
-        },
-        .{
-            .code = "local.io",
-            .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
-            .tag = .local_io,
-        },
-        .{
-            .code = "mutation.indeterminate",
-            .details = "{\"idempotency_key\":\"key\"," ++
-                "\"operation\":\"workspace.rename\",\"recovery\":" ++
-                "\"inspect_state_then_retry_with_new_key\"}",
-            .tag = .mutation_indeterminate,
-        },
-        .{
-            .code = "operation.failed",
-            .details = "{\"operation\":\"workspace.run\"," ++
-                "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
-            .tag = .operation_failed,
-        },
-        .{
-            .code = "resource.not_found",
-            .details = "{\"scope\":\"workspace\",\"id\":" ++
-                "\"ws_11111111111111111111111111111111\"}",
-            .tag = .resource_not_found,
-        },
-        .{
-            .code = "revision.conflict",
-            .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
-            .tag = .revision_conflict,
-        },
-        .{
-            .code = "selector.ambiguous",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"name:duplicate\",\"candidates\":[" ++
-                "\"ws_11111111111111111111111111111111\"," ++
-                "\"ws_22222222222222222222222222222222\"]}",
-            .tag = .selector_ambiguous,
-        },
-        .{
-            .code = "selector.invalid",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
-            .tag = .selector_invalid,
-        },
-        .{
-            .code = "selector.not_found",
-            .details = "{\"scope\":\"workspace\"," ++
-                "\"selector\":\"name:missing\"}",
-            .tag = .selector_not_found,
-        },
-        .{
-            .code = "selector.wrong_parent",
-            .details = "{\"scope\":\"pane\",\"selector\":" ++
-                "\"pane_11111111111111111111111111111111\"," ++
-                "\"parent_scope\":\"screen\",\"expected_parent\":" ++
-                "\"screen_11111111111111111111111111111111\"," ++
-                "\"actual_parent\":" ++
-                "\"screen_22222222222222222222222222222222\"}",
-            .tag = .selector_wrong_parent,
-        },
-        .{
-            .code = "transport.closed",
-            .details = "{\"reason\":\"peer closed\"}",
-            .tag = .transport_closed,
-        },
-        .{
-            .code = "validation.invalid",
-            .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
-            .tag = .validation_invalid,
-        },
-    };
-    try std.testing.expectEqual(@as(usize, 16), fixtures.len);
+    try std.testing.expectEqual(catalog_error_codes.len, catalog_error_fixtures.len);
 
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -19077,7 +19478,7 @@ test "catalog error details decode every declared shape" {
     var client = Client.init(std.testing.allocator, connection, .{});
     defer client.deinit();
 
-    for (fixtures) |fixture| {
+    for (catalog_error_fixtures) |fixture| {
         const encoded = try std.fmt.allocPrint(
             std.testing.allocator,
             "{{\"code\":\"{s}\",\"message\":\"fixture\"," ++
@@ -19109,6 +19510,29 @@ test "catalog error details decode every declared shape" {
                 details.confirmation_token,
             );
             try std.testing.expectEqual(@as(u64, 3), details.revision);
+        }
+        if (std.mem.eql(u8, fixture.code, "terminal_host.unavailable")) {
+            const details = switch (owned.value.details) {
+                .terminal_host_unavailable => |value| value,
+                else => unreachable,
+            };
+            try std.testing.expectEqualStrings(
+                "term_11111111111111111111111111111111",
+                details.terminal_id.slice(),
+            );
+            try std.testing.expectEqualStrings(
+                "disconnected",
+                details.reason.wireName(),
+            );
+        }
+        if (std.mem.eql(u8, fixture.code, "origin.forbidden")) {
+            const details = switch (owned.value.details) {
+                .origin_forbidden => |value| value,
+                else => unreachable,
+            };
+            try std.testing.expectEqualStrings("page", details.derived.wireName());
+            try std.testing.expectEqualStrings("user", details.required.?.wireName());
+            try std.testing.expectEqualStrings("app", details.claim.?.wireName());
         }
     }
 }

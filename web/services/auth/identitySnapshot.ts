@@ -148,19 +148,24 @@ export async function writeIdentitySnapshot(
 }
 
 /**
- * Forget the stored identity for a user. Called when a session is revoked or
- * the account is deleted, so no instance can keep answering from a snapshot
- * the user just invalidated.
+ * Forget the stored identity for a user. Called when a session is revoked, the
+ * account is deleted, or the user leaves a team, so no instance can keep
+ * answering from a snapshot the user just invalidated.
+ *
+ * Best effort by default. `throwOnError` is for revocation callers that must
+ * report failure so the event is retried (the Stack membership webhook).
  */
 export async function deleteIdentitySnapshot(
   userId: string,
   db?: SnapshotDb,
+  options: { readonly throwOnError?: boolean } = {},
 ): Promise<void> {
   try {
     await (db ?? cloudDb())
       .delete(stackIdentitySnapshots)
       .where(eq(stackIdentitySnapshots.userId, userId));
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     // Best effort: the snapshot expires on its own within the TTL.
   }
 }

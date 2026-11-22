@@ -1,0 +1,31 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/running-agents",
+  "name": { "en": "Running Agents", "ja": "実行中のエージェント" },
+  "version": "1.0.0",
+  "description": "Every coding agent in your terminals, grouped by what it is doing. Click one to jump to its terminal.",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["sidebar", "agents", "samples"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderAgents",
+      "title": { "en": "Agents", "ja": "エージェント" },
+      "symbol": "sparkles",
+      "options": { "defaultRegion": "middle", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "agent:read": "List the agents running in your terminals.",
+    "terminal:read": "Find the tab of an agent's terminal.",
+    "workspace:write": "Show an agent's tab when you click it."
+  },
+  "settings": { "type": "object", "properties": { "showIdle": { "type": "boolean", "default": true, "title": "Show idle agents" } } },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/", "assets/"]
+}

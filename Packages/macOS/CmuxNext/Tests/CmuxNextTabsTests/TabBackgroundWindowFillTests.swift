@@ -1,0 +1,38 @@
+import AppKit
+import Testing
+@testable import CmuxNextTabs
+
+/// Dogfood 2026-10-08 (08): the selected tab kept its fill in a window that was
+/// not in front. Only the main window's strip fills its selected tab; in a
+/// background window the selected tab keeps its primary title and no fill.
+@MainActor @Suite struct TabBackgroundWindowFillTests {
+    @Test func aBackgroundWindowsSelectedTabHasNoFill() {
+        let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
+        let selected = h.strip.cells[TabID("t0")]!
+        h.strip.windowMain.changed(isMain: true)
+        #expect(selected.fillsSelection)
+        h.strip.windowMain.changed(isMain: false)
+        #expect(!selected.fillsSelection)
+        h.strip.windowMain.changed(isMain: true)
+        #expect(selected.fillsSelection)
+    }
+
+    @Test func theStripFollowsItsWindowBecomingAndLeavingMain() {
+        let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
+        let selected = h.strip.cells[TabID("t0")]!
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
+        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: h.window)
+        #expect(selected.fillsSelection)
+        // global-notice-allow: on main, an AppKit notice AppKit itself posts here; the observer under test takes no center yet
+        NotificationCenter.default.post(name: NSWindow.didResignMainNotification, object: h.window)
+        #expect(!selected.fillsSelection)
+    }
+
+    @Test func aLiftedTabKeepsItsFillInABackgroundWindow() {
+        let h = TabHoverChromeTests.Harness(titles: ["One", "Two"])
+        let selected = h.strip.cells[TabID("t0")]!
+        h.strip.windowMain.changed(isMain: false)
+        selected.isLifted = true
+        #expect(selected.fillsSelection)
+    }
+}

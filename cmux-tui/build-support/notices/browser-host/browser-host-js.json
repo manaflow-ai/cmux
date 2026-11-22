@@ -1,0 +1,41 @@
+{
+  "comment": "Owned by the license review. Third-party JavaScript that cmux-browser-host embeds (build.rs include_str! of every file that cmux-tui/crates/cmux-browser-host/js/manifest.json lists). One row per file of js/vendor; marker is a regex the file must match (it pins the reviewed upstream version). texts: keys of `texts`, stored verbatim from the upstream npm tarball. browser_host_js_notices.py fails a vendor file without a row, a stale row, a row the manifest does not embed, a marker or sha256 mismatch, a non-vendor runtime file that names third-party origin, and a hand-written.md section that lacks a path or a text.",
+  "crate": "cmux-tui/crates/cmux-browser-host",
+  "texts": {
+    "acorn-8.16.0": {
+      "file": "texts/acorn-8.16.0/LICENSE",
+      "sha256": "76a876cf886ff9be2a8b5e2e86514fed06223c8c9f0c1e9ee9606e93841e00b7",
+      "source": "package/LICENSE in https://registry.npmjs.org/acorn/-/acorn-8.16.0.tgz (npm integrity sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==)"
+    },
+    "playwright-core-1.57.0-LICENSE": {
+      "file": "texts/playwright-core-1.57.0/LICENSE",
+      "sha256": "45873d00a0dd243596deb4aa23b2493b3d1f0671921bf2538ea431d7380220eb",
+      "source": "package/LICENSE in https://registry.npmjs.org/playwright-core/-/playwright-core-1.57.0.tgz (npm integrity sha512-agTcKlMw/mjBWOnD6kFZttAAGHgi/Nw0CZ2o6JqWSbMlI219lAFLZZCyqByTsvVAJq5XA5H8cA6PrvBRpBWEuQ==); CRLF line endings kept"
+    },
+    "playwright-core-1.57.0-NOTICE": {
+      "file": "texts/playwright-core-1.57.0/NOTICE",
+      "sha256": "6d602191187b35b9b01d2cffa01c8469c2c8d9de8a96f1bf868e0f264f51c81d",
+      "source": "package/NOTICE in the same playwright-core 1.57.0 tarball; Apache-2.0 section 4(d) requires it with the derivative work"
+    }
+  },
+  "files": {
+    "vendor/acorn.js": {
+      "owner": "acorn 8.16.0 (https://github.com/acornjs/acorn), dist/acorn.js unmodified",
+      "license": "MIT",
+      "texts": ["acorn-8.16.0"],
+      "marker": "^// Vendored from acorn 8\\.16\\.0 \\(dist/acorn\\.js, unmodified\\)"
+    },
+    "vendor/playwright-injected.js": {
+      "owner": "Playwright (playwright-core 1.57.0, https://github.com/microsoft/playwright), lib/generated/injectedScriptSource.js: the evaluated source string, unmodified",
+      "license": "Apache-2.0",
+      "texts": ["playwright-core-1.57.0-LICENSE", "playwright-core-1.57.0-NOTICE"],
+      "marker": "^// Vendored from playwright-core 1\\.57\\.0, lib/generated/injectedScriptSource\\.js"
+    },
+    "vendor/playwright-locator-utils.js": {
+      "owner": "Playwright (playwright-core 1.57.0, https://github.com/microsoft/playwright), lib/utils/isomorphic/locatorUtils.js and the escape helpers of stringUtils.js; functions unchanged, module wrapper changed (stated in the file header)",
+      "license": "Apache-2.0",
+      "texts": ["playwright-core-1.57.0-LICENSE", "playwright-core-1.57.0-NOTICE"],
+      "marker": "^// Adapted from playwright-core 1\\.57\\.0: lib/utils/isomorphic/locatorUtils\\.js"
+    }
+  }
+}

@@ -1,0 +1,894 @@
+{
+  "events": [
+    {
+      "data": {
+        "$ref": "#/types/GitStatus"
+      },
+      "name": "cmux.git.status.changed",
+      "scope": "git:read"
+    },
+    {
+      "data": {
+        "$ref": "#/types/HelloResult"
+      },
+      "name": "com.example.hello.greet.ticks",
+      "scope": "hello:read"
+    }
+  ],
+  "interfaces": [
+    {
+      "docs": "Produce diff resources (git, agents, automations).",
+      "events": [
+        "diffs.changed"
+      ],
+      "methods": {
+        "list": "(context) -> DiffSummary[]",
+        "open": "(id) -> diff_ handle"
+      },
+      "name": "cmux.diff.source/1",
+      "props": {},
+      "status": "draft: shapes are refined with the first implementing app before the interface is public",
+      "version": 1
+    }
+  ],
+  "namespaces": [
+    {
+      "name": "cmux",
+      "owner": "first-party"
+    },
+    {
+      "name": "com.example.hello",
+      "owner": "app:com.example.hello"
+    }
+  ],
+  "ops": [
+    {
+      "cli": {
+        "path": "git status",
+        "visible": true
+      },
+      "errors": [
+        "cmux.git.not_a_repo"
+      ],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "default",
+        "group": "git"
+      },
+      "name": "cmux.git.status",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/GitStatusParams"
+      },
+      "paths": [
+        "cwd"
+      ],
+      "result": {
+        "$ref": "#/types/GitStatus"
+      },
+      "risk": "read",
+      "scope": "git:read",
+      "scope_class": "standard",
+      "secret_output": false
+    },
+    {
+      "cli": {
+        "path": "git diff",
+        "positional": [
+          "base"
+        ],
+        "visible": true
+      },
+      "errors": [
+        "cmux.git.not_a_repo",
+        "cmux.git.bad_ref"
+      ],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "default",
+        "group": "git"
+      },
+      "name": "cmux.git.diff",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/GitDiffParams"
+      },
+      "paths": [
+        "cwd"
+      ],
+      "result": {
+        "$ref": "#/types/GitDiff"
+      },
+      "risk": "read",
+      "scope": "git:read",
+      "scope_class": "standard",
+      "secret_output": false
+    },
+    {
+      "errors": [
+        "cmux.router.refused"
+      ],
+      "gesture": false,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.hello",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/ProviderHello"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/ProviderWelcome"
+      },
+      "risk": "mutate-shared",
+      "scope": "router:control",
+      "scope_class": "sensitive",
+      "secret_output": false
+    },
+    {
+      "errors": [
+        "cmux.router.no_provider"
+      ],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.resolve",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/ResolveParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/ResolveResult"
+      },
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
+      "secret_output": false
+    },
+    {
+      "errors": [],
+      "gesture": false,
+      "kind": "mutation",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.token.refresh",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/TokenRefreshParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/TokenRefreshResult"
+      },
+      "risk": "mutate-own",
+      "scope": "router:write",
+      "scope_class": "sensitive",
+      "secret_output": false
+    },
+    {
+      "errors": [],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.interfaces.list",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/InterfacesListParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/InterfacesListResult"
+      },
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
+      "secret_output": false
+    },
+    {
+      "errors": [],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "cmux.router.pages.list",
+      "owner": "first-party",
+      "params": {
+        "$ref": "#/types/PagesListParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/PagesListResult"
+      },
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
+      "secret_output": false
+    },
+    {
+      "errors": [],
+      "gesture": false,
+      "kind": "read",
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "com.example.hello.greet.say",
+      "owner": "app:com.example.hello",
+      "params": {
+        "$ref": "#/types/HelloParams"
+      },
+      "paths": [],
+      "result": {
+        "$ref": "#/types/HelloResult"
+      },
+      "risk": "read",
+      "scope": "hello:read",
+      "scope_class": "standard",
+      "secret_output": false
+    }
+  ],
+  "types": {
+    "Endpoint": {
+      "additionalProperties": false,
+      "description": "How a page or peer reaches a provider directly.",
+      "properties": {
+        "kind": {
+          "$ref": "#/types/EndpointKind"
+        },
+        "path": {
+          "description": "The socket path, for `unix`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The WebSocket URL, for `ws`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "EndpointKind": {
+      "oneOf": [
+        {
+          "const": "ws",
+          "description": "`url` is `ws://<loopback>:<port>/<path>`.",
+          "type": "string"
+        },
+        {
+          "const": "unix",
+          "description": "`path` is an absolute unix socket path.",
+          "type": "string"
+        }
+      ]
+    },
+    "GitDiff": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/types/GitDiffFile"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "files"
+      ],
+      "type": "object"
+    },
+    "GitDiffFile": {
+      "additionalProperties": false,
+      "description": "One changed file. A binary file has 0 additions and 0 deletions.",
+      "properties": {
+        "additions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deletions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patch": {
+          "default": null,
+          "description": "The unified patch, when requested and within the size limit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "additions",
+        "deletions"
+      ],
+      "type": "object"
+    },
+    "GitDiffParams": {
+      "additionalProperties": false,
+      "description": "Params of `cmux.git.diff`.",
+      "properties": {
+        "base": {
+          "default": null,
+          "description": "Compare the working tree with this commit; null or absent means HEAD\n(the empty tree before the first commit). Untracked files are not\npart of the diff.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "Absolute path inside the working tree.",
+          "type": "string"
+        },
+        "include_patch": {
+          "default": false,
+          "description": "Include each file's unified patch.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cwd"
+      ],
+      "type": "object"
+    },
+    "GitFileStatus": {
+      "additionalProperties": false,
+      "description": "One changed path. `index` and `worktree` are git's porcelain v1 status\nletters for the staged and unstaged side: ` ` unmodified, `M`, `A`,\n`D`, `R`, `C`, `U`, and `?` for untracked.",
+      "properties": {
+        "index": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "index",
+        "worktree"
+      ],
+      "type": "object"
+    },
+    "GitStatus": {
+      "additionalProperties": false,
+      "description": "Working tree status.",
+      "properties": {
+        "branch": {
+          "description": "The checked-out branch; null when HEAD is detached.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "items": {
+            "$ref": "#/types/GitFileStatus"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "branch",
+        "files"
+      ],
+      "type": "object"
+    },
+    "GitStatusParams": {
+      "additionalProperties": false,
+      "description": "Params of `cmux.git.status`.",
+      "properties": {
+        "cwd": {
+          "description": "Absolute path inside the working tree.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cwd"
+      ],
+      "type": "object"
+    },
+    "HelloEventRef": {
+      "additionalProperties": false,
+      "description": "One event stream a provider serves.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "HelloIr": {
+      "additionalProperties": false,
+      "description": "The IR (or IR fragment) a provider was generated from.",
+      "properties": {
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the IR file.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "HelloOpRef": {
+      "additionalProperties": false,
+      "description": "One op a provider serves.",
+      "properties": {
+        "kind": {
+          "description": "`read`, `mutation` or `stream`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "HelloParams": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "HelloResult": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "InterfaceListing": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "providers": {
+          "description": "Live providers implementing it.",
+          "items": {
+            "$ref": "#/types/ProviderInfo"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "providers"
+      ],
+      "type": "object"
+    },
+    "InterfacesListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": null,
+          "description": "Only this interface (`cmux.diff.source/1`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InterfacesListResult": {
+      "additionalProperties": false,
+      "properties": {
+        "interfaces": {
+          "items": {
+            "$ref": "#/types/InterfaceListing"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "interfaces"
+      ],
+      "type": "object"
+    },
+    "PageEngine": {
+      "enum": [
+        "webkit",
+        "cef",
+        "browser"
+      ],
+      "type": "string"
+    },
+    "PageManifest": {
+      "additionalProperties": false,
+      "description": "A page registration (manifest entry).",
+      "properties": {
+        "consumes": {
+          "default": [],
+          "description": "Interfaces (`name/major`) and ops the page may call.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "engines": {
+          "default": [],
+          "items": {
+            "$ref": "#/types/PageEngine"
+          },
+          "type": "array"
+        },
+        "entry": {
+          "description": "The page's HTML entry, relative to the app.",
+          "type": "string"
+        },
+        "id": {
+          "description": "`cmux.settings`; third party `<publisher>.<name>[.<page>]`.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "The ops the page's backend serves.",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/types/PageProvider"
+        },
+        "route": {
+          "description": "`/settings`.",
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "route",
+        "entry",
+        "namespace",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "PageProvider": {
+      "description": "Who serves a page's namespace.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Rust, inside the cmux-tui daemon.",
+          "properties": {
+            "kind": {
+              "const": "daemon-module",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Spawned by the router with a socketpair fd.",
+          "properties": {
+            "args": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "process",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "command"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Self-started; connects to the router socket with an app credential.",
+          "properties": {
+            "kind": {
+              "const": "external",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PagesListParams": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PagesListResult": {
+      "additionalProperties": false,
+      "properties": {
+        "pages": {
+          "items": {
+            "$ref": "#/types/PageManifest"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pages"
+      ],
+      "type": "object"
+    },
+    "ProviderHello": {
+      "additionalProperties": false,
+      "description": "A provider's admission request, its first call on the router connection.",
+      "properties": {
+        "app": {
+          "description": "The app id: `cmux` or `cmux.<name>` first party, `<publisher>.<name>`\nthird party.",
+          "type": "string"
+        },
+        "credential": {
+          "description": "The app credential; required on the router's socket, unused on an\ninherited socketpair.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "endpoints": {
+          "default": [],
+          "description": "Where pages connect to it (data plane).",
+          "items": {
+            "$ref": "#/types/Endpoint"
+          },
+          "type": "array"
+        },
+        "events": {
+          "default": [],
+          "items": {
+            "$ref": "#/types/HelloEventRef"
+          },
+          "type": "array"
+        },
+        "interfaces": {
+          "default": [],
+          "description": "Interfaces (`cmux.diff.source/1`) it implements for its first namespace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ir": {
+          "$ref": "#/types/HelloIr"
+        },
+        "namespaces": {
+          "description": "Namespaces the provider serves; each is its app id or below it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ops": {
+          "description": "Every op the provider serves; each must sit inside `namespaces`.",
+          "items": {
+            "$ref": "#/types/HelloOpRef"
+          },
+          "type": "array"
+        },
+        "proto": {
+          "description": "[`PROTO`].",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proto",
+        "app",
+        "namespaces",
+        "ops",
+        "ir"
+      ],
+      "type": "object"
+    },
+    "ProviderInfo": {
+      "additionalProperties": false,
+      "description": "A live provider of a namespace.",
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "$ref": "#/types/Endpoint"
+          },
+          "type": "array"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "app_id",
+        "namespace",
+        "endpoints"
+      ],
+      "type": "object"
+    },
+    "ProviderWelcome": {
+      "additionalProperties": false,
+      "description": "The router's admission reply.",
+      "properties": {
+        "provider": {
+          "description": "The provider's id, which is the `aud` of tokens for it (its app id).",
+          "type": "string"
+        },
+        "router_key": {
+          "description": "Unpadded base64url Ed25519 public key that signs capability tokens.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "router_key",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "ResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "description": "A namespace (or an op name inside one).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace"
+      ],
+      "type": "object"
+    },
+    "ResolveResult": {
+      "additionalProperties": false,
+      "description": "Where to reach the namespace's provider, and a data-plane token for it.",
+      "properties": {
+        "app_id": {
+          "type": "string"
+        },
+        "endpoint": {
+          "$ref": "#/types/Endpoint"
+        },
+        "exp": {
+          "description": "The token's expiry, unix seconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ir": {
+          "description": "Hex SHA-256 of the IR (fragment) the provider serves, from its hello;\na client fetches that schema once to validate the namespace.",
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "token": {
+          "description": "A token with `aud` = `app_id`, for a page connection; null for a\nnative peer on the router socket, which mints through its host.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "app_id",
+        "endpoint",
+        "exp",
+        "ir",
+        "namespace",
+        "token"
+      ],
+      "type": "object"
+    },
+    "TokenRefreshParams": {
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "description": "A page token or a data-plane token the router minted, not yet expired.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "type": "object"
+    },
+    "TokenRefreshResult": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "exp"
+      ],
+      "type": "object"
+    }
+  },
+  "version": "0.1.0"
+}

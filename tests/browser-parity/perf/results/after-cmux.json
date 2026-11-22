@@ -1,0 +1,2897 @@
+{
+ "backend": "cmux",
+ "label": "after",
+ "runs": 5,
+ "date": "2026-09-30T08:51:20.646Z",
+ "host": "mac.lan",
+ "pages": {
+  "cards-50k": {
+   "name": "cards-50k",
+   "runs": [
+    {
+     "snapMs": 527,
+     "printMs": 170,
+     "timing": {
+      "frames": 1,
+      "agentMs": 363,
+      "callMs": 388,
+      "captureMs": 515,
+      "diffMs": 12,
+      "totalMs": 527
+     },
+     "treeChars": 1480540,
+     "printedChars": 19967
+    },
+    {
+     "snapMs": 427,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 275,
+      "callMs": 288,
+      "captureMs": 413,
+      "diffMs": 14,
+      "totalMs": 427
+     },
+     "treeChars": 1480540,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 415,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 271,
+      "callMs": 283,
+      "captureMs": 396,
+      "diffMs": 19,
+      "totalMs": 415
+     },
+     "treeChars": 1480540,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 417,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 285,
+      "callMs": 298,
+      "captureMs": 402,
+      "diffMs": 15,
+      "totalMs": 417
+     },
+     "treeChars": 1480540,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 445,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 285,
+      "callMs": 300,
+      "captureMs": 431,
+      "diffMs": 14,
+      "totalMs": 445
+     },
+     "treeChars": 1480540,
+     "printedChars": 132
+    }
+   ],
+   "gotoMs": 288,
+   "printed": "title: Stress cards 50000\nurl: http://localhost:51464/stress/stress.html?kind=cards&n=50000\n- heading \"Stress page\" [level=1]\n- main:\n  - heading \"Card 0\" [level=3]\n  - text: \"Text alpha 0 with\"\n  - link \"link 0\" [ref=e1]\n  - text: \"and more.\"\n  - button \"Action 0\" [ref=e2]\n  - text: \"delta\"\n  - heading \"Card 1\" [level=3]\n  - text: \"Text bravo 1 with\"\n  - link \"link 1\" [ref=e3]\n  - text: \"and more.\"\n  - button \"Action 1\" [ref=e4]\n  - text: \"echo\"\n  - heading \"Card 2\" [level=3]\n  - text: \"Text charlie 2 with\"\n  - link \"link 2\" [ref=e5]\n  - text: \"and more.\"\n  - button \"Action 2\" [ref=e6]\n  - text: \"foxtrot\"\n  - heading \"Card 3\" [level=3]\n  - text: \"Text delta 3 with\"\n  - link \"link 3\" [ref=e7]\n  - text: \"and more.\"\n  - button \"Action 3\" [ref=e8]\n  - text: \"golf\"\n  - heading \"Card 4\" [level=3]\n  - text: \"Text echo 4 with\"\n  - link \"link 4\" [ref=e9]\n  - text: \"and more.\"\n  - button \"Action 4\" [ref=e10]\n  - text: \"hotel\"\n  - heading \"Card 5\" [level=3]\n  - text: \"Text foxtrot 5 with\"\n  - link \"link 5\" [ref=e11]\n  - text: \"and more.\"\n  - button \"Action 5\" [ref=e12]\n  - text: \"alpha\"\n  - heading \"Card 6\" [level=3]\n  - text: \"Text golf 6 with\"\n  - link \"link 6\" [ref=e13]\n  - text: \"and more.\"\n  - button \"Action 6\" [ref=e14]\n  - text: \"bravo\"\n  - heading \"Card 7\" [level=3]\n  - text: \"Text hotel 7 with\"\n  - link \"link 7\" [ref=e15]\n  - text: \"and more.\"\n  - button \"Action 7\" [ref=e16]\n  - text: \"charlie\"\n  - heading \"Card 8\" [level=3]\n  - text: \"Text alpha 8 with\"\n  - link \"link 8\" [ref=e17]\n  - text: \"and more.\"\n  - button \"Action 8\" [ref=e18]\n  - text: \"delta\"\n  - heading \"Card 9\" [level=3]\n  - text: \"Text bravo 9 with\"\n  - link \"link 9\" [ref=e19]\n  - text: \"and more.\"\n  - button \"Action 9\" [ref=e20]\n  - text: \"echo\"\n  - heading \"Card 10\" [level=3]\n  - text: \"Text charlie 10 with\"\n  - link \"link 10\" [ref=e21]\n  - text: \"and more.\"\n  - button \"Action 10\" [ref=e22]\n  - text: \"foxtrot\"\n  - heading \"Card 11\" [level=3]\n  - text: \"Text delta 11 with\"\n  - link \"link 11\" [ref=e23]\n ",
+   "diff": {
+    "snapMs": 477,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 272,
+     "callMs": 289,
+     "captureMs": 420,
+     "diffMs": 57,
+     "totalMs": 477
+    },
+    "diffChars": 244,
+    "printedChars": 244,
+    "usesDiff": true,
+    "printed": "title: Stress cards 50000\nurl: http://localhost:51464/stress/stress.html?kind=cards&n=50000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 16668,
+   "locatorMs": 5,
+   "agentStats": {
+    "refs": 16668,
+    "handles": 1
+   },
+   "p50": 427,
+   "p95": 527,
+   "firstMs": 527,
+   "treeBytes": 1480540,
+   "printedBytes": 19969,
+   "printedChars": 19967,
+   "treeChars": 1480540,
+   "printedTokens": 7864,
+   "treeTokens": 595094,
+   "breakdown": {
+    "agentMs": 279,
+    "transportMs": 13.25,
+    "hostMs": 133.75,
+    "diffMs": 15.5,
+    "frames": 1
+   }
+  },
+  "cards-200k": {
+   "name": "cards-200k",
+   "runs": [
+    {
+     "snapMs": 2240,
+     "printMs": 558,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1662,
+      "callMs": 1807,
+      "captureMs": 2230,
+      "diffMs": 8,
+      "totalMs": 2238
+     },
+     "treeChars": 6061378,
+     "printedChars": 19970
+    },
+    {
+     "snapMs": 2439,
+     "printMs": 4,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1790,
+      "callMs": 1916,
+      "captureMs": 2344,
+      "diffMs": 95,
+      "totalMs": 2439
+     },
+     "treeChars": 6061378,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 2099,
+     "printMs": 3,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1433,
+      "callMs": 1516,
+      "captureMs": 2023,
+      "diffMs": 76,
+      "totalMs": 2099
+     },
+     "treeChars": 6061378,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 1980,
+     "printMs": 5,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1369,
+      "callMs": 1492,
+      "captureMs": 1928,
+      "diffMs": 52,
+      "totalMs": 1980
+     },
+     "treeChars": 6061378,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 1826,
+     "printMs": 2,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1290,
+      "callMs": 1373,
+      "captureMs": 1772,
+      "diffMs": 54,
+      "totalMs": 1826
+     },
+     "treeChars": 6061378,
+     "printedChars": 134
+    }
+   ],
+   "gotoMs": 960,
+   "printed": "title: Stress cards 200000\nurl: http://localhost:51464/stress/stress.html?kind=cards&n=200000\n- heading \"Stress page\" [level=1]\n- main:\n  - heading \"Card 0\" [level=3]\n  - text: \"Text alpha 0 with\"\n  - link \"link 0\" [ref=e1]\n  - text: \"and more.\"\n  - button \"Action 0\" [ref=e2]\n  - text: \"delta\"\n  - heading \"Card 1\" [level=3]\n  - text: \"Text bravo 1 with\"\n  - link \"link 1\" [ref=e3]\n  - text: \"and more.\"\n  - button \"Action 1\" [ref=e4]\n  - text: \"echo\"\n  - heading \"Card 2\" [level=3]\n  - text: \"Text charlie 2 with\"\n  - link \"link 2\" [ref=e5]\n  - text: \"and more.\"\n  - button \"Action 2\" [ref=e6]\n  - text: \"foxtrot\"\n  - heading \"Card 3\" [level=3]\n  - text: \"Text delta 3 with\"\n  - link \"link 3\" [ref=e7]\n  - text: \"and more.\"\n  - button \"Action 3\" [ref=e8]\n  - text: \"golf\"\n  - heading \"Card 4\" [level=3]\n  - text: \"Text echo 4 with\"\n  - link \"link 4\" [ref=e9]\n  - text: \"and more.\"\n  - button \"Action 4\" [ref=e10]\n  - text: \"hotel\"\n  - heading \"Card 5\" [level=3]\n  - text: \"Text foxtrot 5 with\"\n  - link \"link 5\" [ref=e11]\n  - text: \"and more.\"\n  - button \"Action 5\" [ref=e12]\n  - text: \"alpha\"\n  - heading \"Card 6\" [level=3]\n  - text: \"Text golf 6 with\"\n  - link \"link 6\" [ref=e13]\n  - text: \"and more.\"\n  - button \"Action 6\" [ref=e14]\n  - text: \"bravo\"\n  - heading \"Card 7\" [level=3]\n  - text: \"Text hotel 7 with\"\n  - link \"link 7\" [ref=e15]\n  - text: \"and more.\"\n  - button \"Action 7\" [ref=e16]\n  - text: \"charlie\"\n  - heading \"Card 8\" [level=3]\n  - text: \"Text alpha 8 with\"\n  - link \"link 8\" [ref=e17]\n  - text: \"and more.\"\n  - button \"Action 8\" [ref=e18]\n  - text: \"delta\"\n  - heading \"Card 9\" [level=3]\n  - text: \"Text bravo 9 with\"\n  - link \"link 9\" [ref=e19]\n  - text: \"and more.\"\n  - button \"Action 9\" [ref=e20]\n  - text: \"echo\"\n  - heading \"Card 10\" [level=3]\n  - text: \"Text charlie 10 with\"\n  - link \"link 10\" [ref=e21]\n  - text: \"and more.\"\n  - button \"Action 10\" [ref=e22]\n  - text: \"foxtrot\"\n  - heading \"Card 11\" [level=3]\n  - text: \"Text delta 11 with\"\n  - link \"link 11\" [ref=e23]",
+   "diff": {
+    "snapMs": 2102,
+    "printMs": 3,
+    "timing": {
+     "frames": 1,
+     "agentMs": 1372,
+     "callMs": 1444,
+     "captureMs": 1896,
+     "diffMs": 206,
+     "totalMs": 2102
+    },
+    "diffChars": 246,
+    "printedChars": 246,
+    "usesDiff": true,
+    "printed": "title: Stress cards 200000\nurl: http://localhost:51464/stress/stress.html?kind=cards&n=200000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 66668,
+   "locatorMs": 11,
+   "agentStats": {
+    "refs": 66668,
+    "handles": 1
+   },
+   "p50": 2099,
+   "p95": 2439,
+   "firstMs": 2240,
+   "treeBytes": 6061378,
+   "printedBytes": 19972,
+   "printedChars": 19970,
+   "treeChars": 6061378,
+   "printedTokens": 7864,
+   "treeTokens": 2395094,
+   "breakdown": {
+    "agentMs": 1470.5,
+    "transportMs": 103.75,
+    "hostMs": 511.75,
+    "diffMs": 69.25,
+    "frames": 1
+   }
+  },
+  "table-10k": {
+   "name": "table-10k",
+   "runs": [
+    {
+     "snapMs": 508,
+     "printMs": 52,
+     "timing": {
+      "frames": 1,
+      "agentMs": 318,
+      "callMs": 371,
+      "captureMs": 507,
+      "diffMs": 1,
+      "totalMs": 508
+     },
+     "treeChars": 533767,
+     "printedChars": 19864
+    },
+    {
+     "snapMs": 385,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 226,
+      "callMs": 254,
+      "captureMs": 379,
+      "diffMs": 4,
+      "totalMs": 383
+     },
+     "treeChars": 533767,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 368,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 225,
+      "callMs": 246,
+      "captureMs": 363,
+      "diffMs": 4,
+      "totalMs": 367
+     },
+     "treeChars": 533767,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 372,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 231,
+      "callMs": 252,
+      "captureMs": 368,
+      "diffMs": 4,
+      "totalMs": 372
+     },
+     "treeChars": 533767,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 355,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 216,
+      "callMs": 240,
+      "captureMs": 351,
+      "diffMs": 4,
+      "totalMs": 355
+     },
+     "treeChars": 533767,
+     "printedChars": 132
+    }
+   ],
+   "gotoMs": 249,
+   "printed": "title: Stress table 10000\nurl: http://localhost:51464/stress/stress.html?kind=table&n=10000\n- heading \"Stress page\" [level=1]\n- main:\n  - table \"Rows\":\n    - row [header]: \"Id | Name | City | Score | Link\"\n    - row:\n      - cell: \"0\"\n      - cell: \"alpha 0\"\n      - cell: \"charlie\"\n      - cell: \"0\"\n      - link \"open 0\" [ref=e1]\n    - row: \"1 | bravo 1 | delta | 37\"\n    - row: \"2 | charlie 2 | echo | 74\"\n    - row: \"3 | delta 3 | foxtrot | 11\"\n    - row: \"4 | echo 4 | golf | 48\"\n    - \u2026 5 more row\n    - row:\n      - cell: \"10\"\n      - cell: \"charlie 10\"\n      - cell: \"echo\"\n      - cell: \"70\"\n      - link \"open 10\" [ref=e2]\n    - row: \"11 | delta 11 | foxtrot | 7\"\n    - row: \"12 | echo 12 | golf | 44\"\n    - row: \"13 | foxtrot 13 | hotel | 81\"\n    - \u2026 6 more row\n    - row:\n      - cell: \"20\"\n      - cell: \"echo 20\"\n      - cell: \"golf\"\n      - cell: \"40\"\n      - link \"open 20\" [ref=e3]\n    - row: \"21 | foxtrot 21 | hotel | 77\"\n    - row: \"22 | golf 22 | alpha | 14\"\n    - row: \"23 | hotel 23 | bravo | 51\"\n    - \u2026 6 more row\n    - row:\n      - cell: \"30\"\n      - cell: \"golf 30\"\n      - cell: \"alpha\"\n      - cell: \"10\"\n      - link \"open 30\" [ref=e4]\n    - row: \"31 | hotel 31 | bravo | 47\"\n    - row: \"32 | alpha 32 | charlie | 84\"\n    - row: \"33 | bravo 33 | delta | 21\"\n    - \u2026 6 more row\n    - row:\n      - cell: \"40\"\n      - cell: \"alpha 40\"\n      - cell: \"charlie\"\n      - cell: \"80\"\n      - link \"open 40\" [ref=e5]\n    - row: \"41 | bravo 41 | delta | 17\"\n    - row: \"42 | charlie 42 | echo | 54\"\n    - row: \"43 | delta 43 | foxtrot | 91\"\n    - \u2026 6 more row\n    - row:\n      - cell: \"50\"\n      - cell: \"charlie 50\"\n      - cell: \"echo\"\n      - cell: \"50\"\n      - link \"open 50\" [ref=e6]\n    - row: \"51 | delta 51 | foxtrot | 87\"\n    - row: \"52 | echo 52 | golf | 24\"\n    - row: \"53 | foxtrot 53 | hotel | 61\"\n    - \u2026 6 more row\n    - row:\n      - cell: \"60\"\n      - cell: \"echo 60\"\n      - cell: \"golf\"\n      - cell: \"20\"\n      - link \"open 60\" [ref=e7]\n    - row: \"61 | foxtrot ",
+   "diff": {
+    "snapMs": 390,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 224,
+     "callMs": 243,
+     "captureMs": 375,
+     "diffMs": 15,
+     "totalMs": 390
+    },
+    "diffChars": 244,
+    "printedChars": 244,
+    "usesDiff": true,
+    "printed": "title: Stress table 10000\nurl: http://localhost:51464/stress/stress.html?kind=table&n=10000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 1000,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 1000,
+    "handles": 1
+   },
+   "p50": 372,
+   "p95": 508,
+   "firstMs": 508,
+   "treeBytes": 533767,
+   "printedBytes": 20004,
+   "printedChars": 19864,
+   "treeChars": 533767,
+   "printedTokens": 7599,
+   "treeTokens": 217969,
+   "breakdown": {
+    "agentMs": 224.5,
+    "transportMs": 23.5,
+    "hostMs": 121.25,
+    "diffMs": 4,
+    "frames": 1
+   }
+  },
+  "list-5k": {
+   "name": "list-5k",
+   "runs": [
+    {
+     "snapMs": 130,
+     "printMs": 38,
+     "timing": {
+      "frames": 1,
+      "agentMs": 85,
+      "callMs": 99,
+      "captureMs": 129,
+      "diffMs": 1,
+      "totalMs": 130
+     },
+     "treeChars": 404210,
+     "printedChars": 19959
+    },
+    {
+     "snapMs": 101,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 63,
+      "callMs": 69,
+      "captureMs": 99,
+      "diffMs": 2,
+      "totalMs": 101
+     },
+     "treeChars": 404210,
+     "printedChars": 128
+    },
+    {
+     "snapMs": 100,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 58,
+      "callMs": 66,
+      "captureMs": 98,
+      "diffMs": 2,
+      "totalMs": 100
+     },
+     "treeChars": 404210,
+     "printedChars": 128
+    },
+    {
+     "snapMs": 102,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 62,
+      "callMs": 70,
+      "captureMs": 100,
+      "diffMs": 2,
+      "totalMs": 102
+     },
+     "treeChars": 404210,
+     "printedChars": 128
+    },
+    {
+     "snapMs": 104,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 62,
+      "callMs": 71,
+      "captureMs": 100,
+      "diffMs": 3,
+      "totalMs": 103
+     },
+     "treeChars": 404210,
+     "printedChars": 128
+    }
+   ],
+   "gotoMs": 149,
+   "printed": "title: Stress list 5000\nurl: http://localhost:51464/stress/stress.html?kind=list&n=5000\n- heading \"Stress page\" [level=1]\n- main:\n  - navigation \"Items\" [ref=e1]:\n    - list:\n      - listitem:\n        - link \"Item 0\" [ref=e2]\n        - text: \"alpha\"\n      - listitem:\n        - link \"Item 1\" [ref=e3]\n        - text: \"bravo\"\n      - listitem:\n        - link \"Item 2\" [ref=e4]\n        - text: \"charlie\"\n      - listitem:\n        - link \"Item 3\" [ref=e5]\n        - text: \"delta\"\n      - listitem:\n        - link \"Item 4\" [ref=e6]\n        - text: \"echo\"\n      - listitem:\n        - link \"Item 5\" [ref=e7]\n        - text: \"foxtrot\"\n      - listitem:\n        - link \"Item 6\" [ref=e8]\n        - text: \"golf\"\n      - listitem:\n        - link \"Item 7\" [ref=e9]\n        - text: \"hotel\"\n      - listitem:\n        - link \"Item 8\" [ref=e10]\n        - text: \"alpha\"\n      - listitem:\n        - link \"Item 9\" [ref=e11]\n        - text: \"bravo\"\n      - listitem:\n        - link \"Item 10\" [ref=e12]\n        - text: \"charlie\"\n      - listitem:\n        - link \"Item 11\" [ref=e13]\n        - text: \"delta\"\n      - listitem:\n        - link \"Item 12\" [ref=e14]\n        - text: \"echo\"\n      - listitem:\n        - link \"Item 13\" [ref=e15]\n        - text: \"foxtrot\"\n      - listitem:\n        - link \"Item 14\" [ref=e16]\n        - text: \"golf\"\n      - listitem:\n        - link \"Item 15\" [ref=e17]\n        - text: \"hotel\"\n      - listitem:\n        - link \"Item 16\" [ref=e18]\n        - text: \"alpha\"\n      - listitem:\n        - link \"Item 17\" [ref=e19]\n        - text: \"bravo\"\n      - listitem:\n        - link \"Item 18\" [ref=e20]\n        - text: \"charlie\"\n      - listitem:\n        - link \"Item 19\" [ref=e21]\n        - text: \"delta\"\n      - listitem:\n        - link \"Item 20\" [ref=e22]\n        - text: \"echo\"\n      - listitem:\n        - link \"Item 21\" [ref=e23]\n        - text: \"foxtrot\"\n      - listitem:\n        - link \"Item 22\" [ref=e24]\n        - text: \"golf\"\n      - listitem:\n        - link \"Item 23\" [ref=e25]\n        - tex",
+   "diff": {
+    "snapMs": 117,
+    "printMs": 1,
+    "timing": {
+     "frames": 1,
+     "agentMs": 59,
+     "callMs": 65,
+     "captureMs": 103,
+     "diffMs": 14,
+     "totalMs": 117
+    },
+    "diffChars": 240,
+    "printedChars": 240,
+    "usesDiff": true,
+    "printed": "title: Stress list 5000\nurl: http://localhost:51464/stress/stress.html?kind=list&n=5000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 5001,
+   "locatorMs": 9,
+   "agentStats": {
+    "refs": 5001,
+    "handles": 1
+   },
+   "p50": 102,
+   "p95": 130,
+   "firstMs": 130,
+   "treeBytes": 404210,
+   "printedBytes": 19961,
+   "printedChars": 19959,
+   "treeChars": 404210,
+   "printedTokens": 6515,
+   "treeTokens": 136186,
+   "breakdown": {
+    "agentMs": 61.25,
+    "transportMs": 7.75,
+    "hostMs": 32.5,
+    "diffMs": 2.25,
+    "frames": 1
+   }
+  },
+  "deep-500": {
+   "name": "deep-500",
+   "runs": [
+    {
+     "snapMs": 19,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 8,
+      "callMs": 15,
+      "captureMs": 18,
+      "diffMs": 0,
+      "totalMs": 18
+     },
+     "treeChars": 538,
+     "printedChars": 538
+    },
+    {
+     "snapMs": 8,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 7,
+      "captureMs": 8,
+      "diffMs": 0,
+      "totalMs": 8
+     },
+     "treeChars": 538,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 6,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 538,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 6,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 5,
+      "captureMs": 6,
+      "diffMs": 0,
+      "totalMs": 6
+     },
+     "treeChars": 538,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 6,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 538,
+     "printedChars": 126
+    }
+   ],
+   "gotoMs": 97,
+   "printed": "title: Stress deep 500\nurl: http://localhost:51464/stress/stress.html?kind=deep&n=500\n- heading \"Stress page\" [level=1]\n- main:\n  - group \"level 0\":\n    - group \"level 50\":\n      - group \"level 100\":\n        - group \"level 150\":\n          - group \"level 200\":\n            - group \"level 250\":\n              - group \"level 300\":\n                - group \"level 350\":\n                  - group \"level 400\":\n                    - group \"level 450\":\n                      - button \"Deepest\" [ref=e1]\n                      - text: \"bottom text\"",
+   "diff": {
+    "snapMs": 9,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 4,
+     "callMs": 5,
+     "captureMs": 8,
+     "diffMs": 1,
+     "totalMs": 9
+    },
+    "diffChars": 238,
+    "printedChars": 238,
+    "usesDiff": true,
+    "printed": "title: Stress deep 500\nurl: http://localhost:51464/stress/stress.html?kind=deep&n=500\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 1,
+   "locatorMs": 3,
+   "agentStats": {
+    "refs": 1,
+    "handles": 1
+   },
+   "p50": 7,
+   "p95": 19,
+   "firstMs": 19,
+   "treeBytes": 538,
+   "printedBytes": 538,
+   "printedChars": 538,
+   "treeChars": 538,
+   "printedTokens": 143,
+   "treeTokens": 143,
+   "breakdown": {
+    "agentMs": 5,
+    "transportMs": 1,
+    "hostMs": 1,
+    "diffMs": 0,
+    "frames": 1
+   }
+  },
+  "deep-1k": {
+   "name": "deep-1k",
+   "runs": [
+    {
+     "snapMs": 24,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 2,
+      "callMs": 10,
+      "captureMs": 24,
+      "diffMs": 0,
+      "totalMs": 24
+     },
+     "treeChars": 121,
+     "printedChars": 121
+    },
+    {
+     "snapMs": 5,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 1,
+      "captureMs": 5,
+      "diffMs": 0,
+      "totalMs": 5
+     },
+     "treeChars": 121,
+     "printedChars": 121
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 121,
+     "printedChars": 121
+    },
+    {
+     "snapMs": 1,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 0,
+      "captureMs": 1,
+      "diffMs": 0,
+      "totalMs": 1
+     },
+     "treeChars": 121,
+     "printedChars": 121
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 121,
+     "printedChars": 121
+    }
+   ],
+   "gotoMs": 98,
+   "printed": "title: Stress deep 1000\nurl: http://localhost:51464/stress/stress.html?kind=deep&n=1000\n- heading \"Stress page\" [level=1]",
+   "diff": {
+    "snapMs": 2,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 0,
+     "callMs": 0,
+     "captureMs": 1,
+     "diffMs": 1,
+     "totalMs": 2
+    },
+    "diffChars": 240,
+    "printedChars": 131,
+    "usesDiff": false,
+    "printed": "title: Stress deep 1000\nurl: http://localhost:51464/stress/stress.html?kind=deep&n=1000\n- heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 0,
+   "agentStats": {
+    "refs": 0,
+    "handles": 0
+   },
+   "p50": 2,
+   "p95": 24,
+   "firstMs": 24,
+   "treeBytes": 121,
+   "printedBytes": 121,
+   "printedChars": 121,
+   "treeChars": 121,
+   "printedTokens": 42,
+   "treeTokens": 42,
+   "breakdown": {
+    "agentMs": 0,
+    "transportMs": 0.75,
+    "hostMs": 1.75,
+    "diffMs": 0,
+    "frames": 1
+   }
+  },
+  "iframes-300": {
+   "name": "iframes-300",
+   "runs": [
+    {
+     "snapMs": 6210,
+     "printMs": 2,
+     "timing": {
+      "frames": 401,
+      "agentMs": 159,
+      "callMs": 76828,
+      "captureMs": 6210,
+      "diffMs": 0,
+      "totalMs": 6210
+     },
+     "treeChars": 29834,
+     "printedChars": 19876
+    },
+    {
+     "snapMs": 5774,
+     "printMs": 0,
+     "timing": {
+      "frames": 401,
+      "agentMs": 90,
+      "callMs": 64897,
+      "captureMs": 5773,
+      "diffMs": 0,
+      "totalMs": 5773
+     },
+     "treeChars": 29834,
+     "printedChars": 168
+    },
+    {
+     "snapMs": 6139,
+     "printMs": 0,
+     "timing": {
+      "frames": 401,
+      "agentMs": 40,
+      "callMs": 66696,
+      "captureMs": 6139,
+      "diffMs": 0,
+      "totalMs": 6139
+     },
+     "treeChars": 29834,
+     "printedChars": 168
+    },
+    {
+     "snapMs": 6430,
+     "printMs": 0,
+     "timing": {
+      "frames": 401,
+      "agentMs": 120,
+      "callMs": 73641,
+      "captureMs": 6429,
+      "diffMs": 1,
+      "totalMs": 6430
+     },
+     "treeChars": 29834,
+     "printedChars": 168
+    },
+    {
+     "snapMs": 6377,
+     "printMs": 0,
+     "timing": {
+      "frames": 401,
+      "agentMs": 74,
+      "callMs": 74563,
+      "captureMs": 6377,
+      "diffMs": 0,
+      "totalMs": 6377
+     },
+     "treeChars": 29834,
+     "printedChars": 168
+    }
+   ],
+   "gotoMs": 2221,
+   "printed": "title: Stress iframes 300\nurl: http://localhost:51464/stress/stress.html?kind=iframes&n=300&peer=http%3A%2F%2F127.0.0.1%3A51465\n- heading \"Stress page\" [level=1]\n- main:\n  - iframe \"srcdoc 0\" [ref=e1]:\n    - button \"Inner 0\" [ref=f1e1]\n  - iframe \"cross 1\" [ref=e2]:\n    - button \"Frame 1\" [ref=f2e1]\n  - iframe \"nested 2\" [ref=e3]:\n    - button \"Frame 2\" [ref=f3e1]\n    - iframe \"inner 2\" [ref=f3e2]:\n      - button \"Frame 2.1\" [ref=f4e1]\n  - iframe \"srcdoc 3\" [ref=e4]:\n    - button \"Inner 3\" [ref=f5e1]\n  - iframe \"cross 4\" [ref=e5]:\n    - button \"Frame 4\" [ref=f6e1]\n  - iframe \"nested 5\" [ref=e6]:\n    - button \"Frame 5\" [ref=f7e1]\n    - iframe \"inner 5\" [ref=f7e2]:\n      - button \"Frame 5.1\" [ref=f8e1]\n  - iframe \"srcdoc 6\" [ref=e7]:\n    - button \"Inner 6\" [ref=f9e1]\n  - iframe \"cross 7\" [ref=e8]:\n    - button \"Frame 7\" [ref=f10e1]\n  - iframe \"nested 8\" [ref=e9]:\n    - button \"Frame 8\" [ref=f11e1]\n    - iframe \"inner 8\" [ref=f11e2]:\n      - button \"Frame 8.1\" [ref=f12e1]\n  - iframe \"srcdoc 9\" [ref=e10]:\n    - button \"Inner 9\" [ref=f13e1]\n  - iframe \"cross 10\" [ref=e11]:\n    - button \"Frame 10\" [ref=f14e1]\n  - iframe \"nested 11\" [ref=e12]:\n    - button \"Frame 11\" [ref=f15e1]\n    - iframe \"inner 11\" [ref=f15e2]:\n      - button \"Frame 11.1\" [ref=f16e1]\n  - iframe \"srcdoc 12\" [ref=e13]:\n    - button \"Inner 12\" [ref=f17e1]\n  - iframe \"cross 13\" [ref=e14]:\n    - button \"Frame 13\" [ref=f18e1]\n  - iframe \"nested 14\" [ref=e15]:\n    - button \"Frame 14\" [ref=f19e1]\n    - iframe \"inner 14\" [ref=f19e2]:\n      - button \"Frame 14.1\" [ref=f20e1]\n  - iframe \"srcdoc 15\" [ref=e16]:\n    - button \"Inner 15\" [ref=f21e1]\n  - iframe \"cross 16\" [ref=e17]:\n    - button \"Frame 16\" [ref=f22e1]\n  - iframe \"nested 17\" [ref=e18]:\n    - button \"Frame 17\" [ref=f23e1]\n    - iframe \"inner 17\" [ref=f23e2]:\n      - button \"Frame 17.1\" [ref=f24e1]\n  - iframe \"srcdoc 18\" [ref=e19]:\n    - button \"Inner 18\" [ref=f25e1]\n  - iframe \"cross 19\" [ref=e20]:\n    - button \"Frame 19\" [ref=f26e1]\n  - iframe \"nested 20",
+   "diff": {
+    "snapMs": 6152,
+    "printMs": 0,
+    "timing": {
+     "frames": 401,
+     "agentMs": 38,
+     "callMs": 69208,
+     "captureMs": 6151,
+     "diffMs": 1,
+     "totalMs": 6152
+    },
+    "diffChars": 280,
+    "printedChars": 280,
+    "usesDiff": true,
+    "printed": "title: Stress iframes 300\nurl: http://localhost:51464/stress/stress.html?kind=iframes&n=300&peer=http%3A%2F%2F127.0.0.1%3A51465\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 800,
+   "locatorMs": 34,
+   "agentStats": {
+    "refs": 300,
+    "handles": 300
+   },
+   "p50": 6210,
+   "p95": 6430,
+   "firstMs": 6210,
+   "treeBytes": 29834,
+   "printedBytes": 19878,
+   "printedChars": 19876,
+   "treeChars": 29834,
+   "printedTokens": 7883,
+   "treeTokens": 11770,
+   "breakdown": {
+    "agentMs": 81,
+    "transportMs": 69868.25,
+    "hostMs": -63769.5,
+    "diffMs": 0.25,
+    "frames": 401
+   }
+  },
+  "shadow-2k": {
+   "name": "shadow-2k",
+   "runs": [
+    {
+     "snapMs": 83,
+     "printMs": 1187,
+     "timing": {
+      "frames": 1,
+      "agentMs": 59,
+      "callMs": 70,
+      "captureMs": 81,
+      "diffMs": 1,
+      "totalMs": 82
+     },
+     "treeChars": 116806,
+     "printedChars": 19943
+    },
+    {
+     "snapMs": 53,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 37,
+      "callMs": 44,
+      "captureMs": 53,
+      "diffMs": 0,
+      "totalMs": 53
+     },
+     "treeChars": 116806,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 51,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 39,
+      "callMs": 41,
+      "captureMs": 49,
+      "diffMs": 1,
+      "totalMs": 50
+     },
+     "treeChars": 116806,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 53,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 42,
+      "callMs": 45,
+      "captureMs": 52,
+      "diffMs": 1,
+      "totalMs": 53
+     },
+     "treeChars": 116806,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 57,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 45,
+      "callMs": 47,
+      "captureMs": 56,
+      "diffMs": 1,
+      "totalMs": 57
+     },
+     "treeChars": 116806,
+     "printedChars": 132
+    }
+   ],
+   "gotoMs": 144,
+   "printed": "title: Stress shadow 2000\nurl: http://localhost:51464/stress/stress.html?kind=shadow&n=2000\n- heading \"Stress page\" [level=1]\n- main:\n  - button \"Shadow 0\" [ref=e1]\n  - text: \"light 0\"\n  - button \"Shadow 1\" [ref=e2]\n  - text: \"light 1\"\n  - button \"Shadow 2\" [ref=e3]\n  - text: \"light 2\"\n  - button \"Shadow 3\" [ref=e4]\n  - text: \"light 3\"\n  - button \"Shadow 4\" [ref=e5]\n  - text: \"light 4\"\n  - button \"Shadow 5\" [ref=e6]\n  - text: \"light 5\"\n  - button \"Shadow 6\" [ref=e7]\n  - text: \"light 6\"\n  - button \"Shadow 7\" [ref=e8]\n  - text: \"light 7\"\n  - button \"Shadow 8\" [ref=e9]\n  - text: \"light 8\"\n  - button \"Shadow 9\" [ref=e10]\n  - text: \"light 9\"\n  - button \"Shadow 10\" [ref=e11]\n  - text: \"light 10\"\n  - button \"Shadow 11\" [ref=e12]\n  - text: \"light 11\"\n  - button \"Shadow 12\" [ref=e13]\n  - text: \"light 12\"\n  - button \"Shadow 13\" [ref=e14]\n  - text: \"light 13\"\n  - button \"Shadow 14\" [ref=e15]\n  - text: \"light 14\"\n  - button \"Shadow 15\" [ref=e16]\n  - text: \"light 15\"\n  - button \"Shadow 16\" [ref=e17]\n  - text: \"light 16\"\n  - button \"Shadow 17\" [ref=e18]\n  - text: \"light 17\"\n  - button \"Shadow 18\" [ref=e19]\n  - text: \"light 18\"\n  - button \"Shadow 19\" [ref=e20]\n  - text: \"light 19\"\n  - button \"Shadow 20\" [ref=e21]\n  - text: \"light 20\"\n  - button \"Shadow 21\" [ref=e22]\n  - text: \"light 21\"\n  - button \"Shadow 22\" [ref=e23]\n  - text: \"light 22\"\n  - button \"Shadow 23\" [ref=e24]\n  - text: \"light 23\"\n  - button \"Shadow 24\" [ref=e25]\n  - text: \"light 24\"\n  - button \"Shadow 25\" [ref=e26]\n  - text: \"light 25\"\n  - button \"Shadow 26\" [ref=e27]\n  - text: \"light 26\"\n  - button \"Shadow 27\" [ref=e28]\n  - text: \"light 27\"\n  - button \"Shadow 28\" [ref=e29]\n  - text: \"light 28\"\n  - button \"Shadow 29\" [ref=e30]\n  - text: \"light 29\"\n  - button \"Shadow 30\" [ref=e31]\n  - text: \"light 30\"\n  - button \"Shadow 31\" [ref=e32]\n  - text: \"light 31\"\n  - button \"Shadow 32\" [ref=e33]\n  - text: \"light 32\"\n  - button \"Shadow 33\" [ref=e34]\n  - text: \"light 33\"\n  - button \"Shadow 34\" [ref=e35]\n  - text: \"light 34\"\n  - b",
+   "diff": {
+    "snapMs": 59,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 40,
+     "callMs": 42,
+     "captureMs": 54,
+     "diffMs": 5,
+     "totalMs": 59
+    },
+    "diffChars": 244,
+    "printedChars": 244,
+    "usesDiff": true,
+    "printed": "title: Stress shadow 2000\nurl: http://localhost:51464/stress/stress.html?kind=shadow&n=2000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 2000,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 2000,
+    "handles": 1
+   },
+   "p50": 53,
+   "p95": 83,
+   "firstMs": 83,
+   "treeBytes": 116806,
+   "printedBytes": 19945,
+   "printedChars": 19943,
+   "treeChars": 116806,
+   "printedTokens": 7793,
+   "treeTokens": 47046,
+   "breakdown": {
+    "agentMs": 40.75,
+    "transportMs": 3.5,
+    "hostMs": 9,
+    "diffMs": 0.75,
+    "frames": 1
+   }
+  },
+  "text-2m": {
+   "name": "text-2m",
+   "runs": [
+    {
+     "snapMs": 53,
+     "printMs": 3,
+     "timing": {
+      "frames": 1,
+      "agentMs": 12,
+      "callMs": 21,
+      "captureMs": 53,
+      "diffMs": 0,
+      "totalMs": 53
+     },
+     "treeChars": 2000181,
+     "printedChars": 5321
+    },
+    {
+     "snapMs": 37,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 11,
+      "callMs": 13,
+      "captureMs": 32,
+      "diffMs": 5,
+      "totalMs": 37
+     },
+     "treeChars": 2000181,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 52,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 11,
+      "callMs": 15,
+      "captureMs": 52,
+      "diffMs": 0,
+      "totalMs": 52
+     },
+     "treeChars": 2000181,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 45,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 10,
+      "callMs": 15,
+      "captureMs": 45,
+      "diffMs": 0,
+      "totalMs": 45
+     },
+     "treeChars": 2000181,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 31,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 11,
+      "callMs": 12,
+      "captureMs": 31,
+      "diffMs": 0,
+      "totalMs": 31
+     },
+     "treeChars": 2000181,
+     "printedChars": 134
+    }
+   ],
+   "gotoMs": 121,
+   "printed": "title: Stress text 2000000\nurl: http://localhost:51464/stress/stress.html?kind=text&n=2000000\n- heading \"Stress page\" [level=1]\n- main:\n  - text: \"lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor sit amet lorem ipsum dolor",
+   "diff": {
+    "snapMs": 38,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 10,
+     "callMs": 12,
+     "captureMs": 37,
+     "diffMs": 1,
+     "totalMs": 38
+    },
+    "diffChars": 246,
+    "printedChars": 246,
+    "usesDiff": true,
+    "printed": "title: Stress text 2000000\nurl: http://localhost:51464/stress/stress.html?kind=text&n=2000000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 1,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 1,
+    "handles": 1
+   },
+   "p50": 45,
+   "p95": 53,
+   "firstMs": 53,
+   "treeBytes": 2000181,
+   "printedBytes": 5323,
+   "printedChars": 5321,
+   "treeChars": 2000181,
+   "printedTokens": 1037,
+   "treeTokens": 370436,
+   "breakdown": {
+    "agentMs": 10.75,
+    "transportMs": 3,
+    "hostMs": 27.5,
+    "diffMs": 1.25,
+    "frames": 1
+   }
+  },
+  "select-5k": {
+   "name": "select-5k",
+   "runs": [
+    {
+     "snapMs": 24,
+     "printMs": 19,
+     "timing": {
+      "frames": 1,
+      "agentMs": 4,
+      "callMs": 15,
+      "captureMs": 24,
+      "diffMs": 0,
+      "totalMs": 24
+     },
+     "treeChars": 134215,
+     "printedChars": 19932
+    },
+    {
+     "snapMs": 14,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 2,
+      "callMs": 3,
+      "captureMs": 13,
+      "diffMs": 1,
+      "totalMs": 14
+     },
+     "treeChars": 134215,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 10,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 2,
+      "callMs": 3,
+      "captureMs": 10,
+      "diffMs": 0,
+      "totalMs": 10
+     },
+     "treeChars": 134215,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 10,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 2,
+      "callMs": 3,
+      "captureMs": 10,
+      "diffMs": 0,
+      "totalMs": 10
+     },
+     "treeChars": 134215,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 22,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 2,
+      "captureMs": 21,
+      "diffMs": 1,
+      "totalMs": 22
+     },
+     "treeChars": 134215,
+     "printedChars": 132
+    }
+   ],
+   "gotoMs": 134,
+   "printed": "title: Stress select 5000\nurl: http://localhost:51464/stress/stress.html?kind=select&n=5000\n- heading \"Stress page\" [level=1]\n- main:\n  - combobox \"Pick\" [ref=e1] [options: Option 0, Option 1, Option 2, Option 3, Option 4, Option 5, Option 6, Option 7, Option 8, Option 9, +4990 more]: \"Option 0\"\n  - listbox \"Many\" [ref=e2]:\n    - option \"Choice 0\"\n    - option \"Choice 1\"\n    - option \"Choice 2\"\n    - option \"Choice 3\"\n    - option \"Choice 4\"\n    - option \"Choice 5\"\n    - option \"Choice 6\"\n    - option \"Choice 7\"\n    - option \"Choice 8\"\n    - option \"Choice 9\"\n    - option \"Choice 10\"\n    - option \"Choice 11\"\n    - option \"Choice 12\"\n    - option \"Choice 13\"\n    - option \"Choice 14\"\n    - option \"Choice 15\"\n    - option \"Choice 16\"\n    - option \"Choice 17\"\n    - option \"Choice 18\"\n    - option \"Choice 19\"\n    - option \"Choice 20\"\n    - option \"Choice 21\"\n    - option \"Choice 22\"\n    - option \"Choice 23\"\n    - option \"Choice 24\"\n    - option \"Choice 25\"\n    - option \"Choice 26\"\n    - option \"Choice 27\"\n    - option \"Choice 28\"\n    - option \"Choice 29\"\n    - option \"Choice 30\"\n    - option \"Choice 31\"\n    - option \"Choice 32\"\n    - option \"Choice 33\"\n    - option \"Choice 34\"\n    - option \"Choice 35\"\n    - option \"Choice 36\"\n    - option \"Choice 37\"\n    - option \"Choice 38\"\n    - option \"Choice 39\"\n    - option \"Choice 40\"\n    - option \"Choice 41\"\n    - option \"Choice 42\"\n    - option \"Choice 43\"\n    - option \"Choice 44\"\n    - option \"Choice 45\"\n    - option \"Choice 46\"\n    - option \"Choice 47\"\n    - option \"Choice 48\"\n    - option \"Choice 49\"\n    - option \"Choice 50\"\n    - option \"Choice 51\"\n    - option \"Choice 52\"\n    - option \"Choice 53\"\n    - option \"Choice 54\"\n    - option \"Choice 55\"\n    - option \"Choice 56\"\n    - option \"Choice 57\"\n    - option \"Choice 58\"\n    - option \"Choice 59\"\n    - option \"Choice 60\"\n    - option \"Choice 61\"\n    - option \"Choice 62\"\n    - option \"Choice 63\"\n    - option \"Choice 64\"\n    - option \"Choice 65\"\n    - option \"Choice 66\"\n    - opt",
+   "diff": {
+    "snapMs": 32,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 1,
+     "callMs": 3,
+     "captureMs": 26,
+     "diffMs": 6,
+     "totalMs": 32
+    },
+    "diffChars": 244,
+    "printedChars": 244,
+    "usesDiff": true,
+    "printed": "title: Stress select 5000\nurl: http://localhost:51464/stress/stress.html?kind=select&n=5000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 2,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 2,
+    "handles": 1
+   },
+   "p50": 14,
+   "p95": 24,
+   "firstMs": 24,
+   "treeBytes": 134215,
+   "printedBytes": 19934,
+   "printedChars": 19932,
+   "treeChars": 134215,
+   "printedTokens": 6180,
+   "treeTokens": 44122,
+   "breakdown": {
+    "agentMs": 1.75,
+    "transportMs": 1,
+    "hostMs": 11.25,
+    "diffMs": 0.5,
+    "frames": 1
+   }
+  },
+  "virtual-100k": {
+   "name": "virtual-100k",
+   "runs": [
+    {
+     "snapMs": 15,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 3,
+      "callMs": 10,
+      "captureMs": 15,
+      "diffMs": 0,
+      "totalMs": 15
+     },
+     "treeChars": 1715,
+     "printedChars": 1715
+    },
+    {
+     "snapMs": 9,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 7,
+      "captureMs": 8,
+      "diffMs": 1,
+      "totalMs": 9
+     },
+     "treeChars": 1715,
+     "printedChars": 138
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 1715,
+     "printedChars": 138
+    },
+    {
+     "snapMs": 3,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 2,
+      "captureMs": 3,
+      "diffMs": 0,
+      "totalMs": 3
+     },
+     "treeChars": 1715,
+     "printedChars": 138
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 1715,
+     "printedChars": 138
+    }
+   ],
+   "gotoMs": 84,
+   "printed": "title: Stress virtual 100000\nurl: http://localhost:51464/stress/stress.html?kind=virtual&n=100000\n- heading \"Stress page\" [level=1]\n- main:\n  - list \"Virtual rows\" [ref=e1] [scrollable]:\n    - listitem:\n      - link \"Row 0\" [ref=e2]\n      - text: \"alpha\"\n    - listitem:\n      - link \"Row 1\" [ref=e3]\n      - text: \"bravo\"\n    - listitem:\n      - link \"Row 2\" [ref=e4]\n      - text: \"charlie\"\n    - listitem:\n      - link \"Row 3\" [ref=e5]\n      - text: \"delta\"\n    - listitem:\n      - link \"Row 4\" [ref=e6]\n      - text: \"echo\"\n    - listitem:\n      - link \"Row 5\" [ref=e7]\n      - text: \"foxtrot\"\n    - listitem:\n      - link \"Row 6\" [ref=e8]\n      - text: \"golf\"\n    - listitem:\n      - link \"Row 7\" [ref=e9]\n      - text: \"hotel\"\n    - listitem:\n      - link \"Row 8\" [ref=e10]\n      - text: \"alpha\"\n    - listitem:\n      - link \"Row 9\" [ref=e11]\n      - text: \"bravo\"\n    - listitem:\n      - link \"Row 10\" [ref=e12]\n      - text: \"charlie\"\n    - listitem:\n      - link \"Row 11\" [ref=e13]\n      - text: \"delta\"\n    - listitem:\n      - link \"Row 12\" [ref=e14]\n      - text: \"echo\"\n    - listitem:\n      - link \"Row 13\" [ref=e15]\n      - text: \"foxtrot\"\n    - listitem:\n      - link \"Row 14\" [ref=e16]\n      - text: \"golf\"\n    - listitem:\n      - link \"Row 15\" [ref=e17]\n      - text: \"hotel\"\n    - listitem:\n      - link \"Row 16\" [ref=e18]\n      - text: \"alpha\"\n    - listitem:\n      - link \"Row 17\" [ref=e19]\n      - text: \"bravo\"\n    - listitem:\n      - link \"Row 18\" [ref=e20]\n      - text: \"charlie\"\n    - listitem:\n      - link \"Row 19\" [ref=e21]\n      - text: \"delta\"\n    - listitem:\n      - link \"Row 20\" [ref=e22]\n      - text: \"echo\"\n    - listitem:\n      - link \"Row 21\" [ref=e23]\n      - text: \"foxtrot\"",
+   "diff": {
+    "snapMs": 2,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 0,
+     "callMs": 1,
+     "captureMs": 2,
+     "diffMs": 0,
+     "totalMs": 2
+    },
+    "diffChars": 250,
+    "printedChars": 250,
+    "usesDiff": true,
+    "printed": "title: Stress virtual 100000\nurl: http://localhost:51464/stress/stress.html?kind=virtual&n=100000\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"Stress page\" [level=1]\n+ - heading \"Stress page (changed)\" [level=1]"
+   },
+   "refCount": 23,
+   "locatorMs": 2,
+   "agentStats": {
+    "refs": 23,
+    "handles": 1
+   },
+   "p50": 3,
+   "p95": 15,
+   "firstMs": 15,
+   "treeBytes": 1715,
+   "printedBytes": 1715,
+   "printedChars": 1715,
+   "treeChars": 1715,
+   "printedTokens": 625,
+   "treeTokens": 625,
+   "breakdown": {
+    "agentMs": 0.5,
+    "transportMs": 2.25,
+    "hostMs": 1.25,
+    "diffMs": 0.25,
+    "frames": 1
+   }
+  },
+  "wikipedia": {
+   "name": "wikipedia",
+   "runs": [
+    {
+     "snapMs": 61,
+     "printMs": 5,
+     "timing": {
+      "frames": 1,
+      "agentMs": 40,
+      "callMs": 54,
+      "captureMs": 61,
+      "diffMs": 0,
+      "totalMs": 61
+     },
+     "treeChars": 62898,
+     "printedChars": 19855
+    },
+    {
+     "snapMs": 27,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 18,
+      "callMs": 20,
+      "captureMs": 26,
+      "diffMs": 1,
+      "totalMs": 27
+     },
+     "treeChars": 62898,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 26,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 19,
+      "callMs": 21,
+      "captureMs": 26,
+      "diffMs": 0,
+      "totalMs": 26
+     },
+     "treeChars": 62898,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 30,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 18,
+      "callMs": 24,
+      "captureMs": 29,
+      "diffMs": 1,
+      "totalMs": 30
+     },
+     "treeChars": 62898,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 33,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 18,
+      "callMs": 21,
+      "captureMs": 32,
+      "diffMs": 1,
+      "totalMs": 33
+     },
+     "treeChars": 62898,
+     "printedChars": 116
+    }
+   ],
+   "gotoMs": 118,
+   "printed": "title: WebKit - Wikipedia\nurl: http://localhost:51464/corpus/wikipedia.html\n- link \"Jump to content\" [ref=e1]\n- banner:\n  - navigation \"Site\" [ref=e2]:\n    - button \"Main menu\" [ref=e3]\n  - link \"Wikipedia The Free Encyclopedia\" [ref=e4] [url=/wiki/Main_Page]\n  - search:\n    - searchbox \"Search Wikipedia\" [ref=e5]\n    - button \"Search\" [ref=e6]\n  - navigation \"Personal tools\" [ref=e7]:\n    - list:\n      - link \"Donate\" [ref=e8] [url=donate.wikimedia.org/\u2026]\n      - link \"Create account\" [ref=e9]\n      - link \"Log in\" [ref=e10]\n- navigation \"Contents\" [ref=e11]:\n  - heading \"Contents\" [level=2]\n  - button \"Hide Contents\" [ref=e12]\n  - list:\n    - link \"(Top)\" [ref=e13]\n    - listitem:\n      - link \"Origins\" [ref=e14]\n      - button \"Toggle Origins subsection\" [ref=e15] [expanded]\n      - list:\n        - link \"Split development\" [ref=e16]\n        - link \"Open-sourcing\" [ref=e17]\n        - link \"Further development\" [ref=e18]\n        - link \"WebKit2\" [ref=e19]\n    - listitem:\n      - link \"Use\" [ref=e20]\n      - button \"Toggle Use subsection\" [ref=e21] [expanded]\n      - list:\n        - link \"Installed base\" [ref=e22]\n        - listitem:\n          - link \"Ports\" [ref=e23]\n          - list:\n            - link \"Web Platform for Embedded\" [ref=e24]\n        - link \"Forking by Google\" [ref=e25]\n    - listitem:\n      - link \"Components\" [ref=e26]\n      - button \"Toggle Components subsection\" [ref=e27] [expanded]\n      - list:\n        - link \"WebCore\" [ref=e28]\n        - link \"JavaScriptCore\" [ref=e29]\n    - link \"See also\" [ref=e30]\n    - link \"References\" [ref=e31]\n    - link \"External links\" [ref=e32]\n- main:\n  - heading \"WebKit\" [level=1]\n  - button \"37 languages\" [ref=e33]\n  - navigation \"Namespaces\" [ref=e34]:\n    - list:\n      - link \"Article\" [ref=e35]\n      - link \"Talk\" [ref=e36]\n  - navigation \"Views\" [ref=e37]:\n    - list:\n      - link \"Read\" [ref=e38]\n      - link \"Edit\" [ref=e39]\n      - link \"View history\" [ref=e40]\n  - navigation \"Page tools\" [ref=e41]:\n    - b",
+   "diff": {
+    "snapMs": 25,
+    "printMs": 1,
+    "timing": {
+     "frames": 1,
+     "agentMs": 17,
+     "callMs": 19,
+     "captureMs": 25,
+     "diffMs": 0,
+     "totalMs": 25
+    },
+    "diffChars": 116,
+    "printedChars": 116,
+    "usesDiff": true,
+    "printed": "title: WebKit - Wikipedia\nurl: http://localhost:51464/corpus/wikipedia.html\n# no changes since the previous snapshot"
+   },
+   "refCount": 626,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 626,
+    "handles": 1
+   },
+   "p50": 30,
+   "p95": 61,
+   "firstMs": 61,
+   "treeBytes": 63316,
+   "printedBytes": 19900,
+   "printedChars": 19855,
+   "treeChars": 62898,
+   "printedTokens": 5893,
+   "treeTokens": 18883,
+   "breakdown": {
+    "agentMs": 18.25,
+    "transportMs": 3.25,
+    "hostMs": 7.5,
+    "diffMs": 0.75,
+    "frames": 1
+   }
+  },
+  "hackernews": {
+   "name": "hackernews",
+   "runs": [
+    {
+     "snapMs": 24,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 13,
+      "callMs": 21,
+      "captureMs": 24,
+      "diffMs": 0,
+      "totalMs": 24
+     },
+     "treeChars": 9991,
+     "printedChars": 9991
+    },
+    {
+     "snapMs": 17,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 6,
+      "callMs": 14,
+      "captureMs": 17,
+      "diffMs": 0,
+      "totalMs": 17
+     },
+     "treeChars": 9991,
+     "printedChars": 110
+    },
+    {
+     "snapMs": 9,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 6,
+      "callMs": 6,
+      "captureMs": 9,
+      "diffMs": 0,
+      "totalMs": 9
+     },
+     "treeChars": 9991,
+     "printedChars": 110
+    },
+    {
+     "snapMs": 9,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 6,
+      "captureMs": 8,
+      "diffMs": 1,
+      "totalMs": 9
+     },
+     "treeChars": 9991,
+     "printedChars": 110
+    },
+    {
+     "snapMs": 9,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 7,
+      "captureMs": 9,
+      "diffMs": 0,
+      "totalMs": 9
+     },
+     "treeChars": 9991,
+     "printedChars": 110
+    }
+   ],
+   "gotoMs": 143,
+   "printed": "title: Hacker News\nurl: http://localhost:51464/corpus/hackernews.html\n- link [ref=e1] [url=/]\n- link \"Hacker News\" [ref=e2]\n- link \"new\" [ref=e3]\n- link \"past\" [ref=e4]\n- link \"comments\" [ref=e5]\n- link \"ask\" [ref=e6]\n- link \"show\" [ref=e7]\n- link \"jobs\" [ref=e8]\n- link \"submit\" [ref=e9]\n- link \"login\" [ref=e10]\n- text: \"1.\"\n- link \"upvote\" [ref=e11]\n- link \"Livenerf: Has Opus 5.5 been nerfed yet?\" [ref=e12] [url=github.com/ninjahawk/\u2026]\n- link \"github.com/ninjahawk\" [ref=e13]\n- text: \"334 points by\"\n- link \"bryan0\" [ref=e14]\n- link \"5 hours ago\" [ref=e15]\n- link \"hide\" [ref=e16]\n- link \"143 comments\" [ref=e17]\n- text: \"2.\"\n- link \"upvote\" [ref=e18]\n- link \"U.S. postal inspectors shut down website selling counterfeit postage labels\" [ref=e19] [url=postalemployeenetwork.com/news/\u2026]\n- link \"postalemployeenetwork.com\" [ref=e20]\n- text: \"188 points by\"\n- link \"ilamont\" [ref=e21]\n- link \"8 hours ago\" [ref=e22]\n- link \"hide\" [ref=e23]\n- link \"113 comments\" [ref=e24]\n- text: \"3.\"\n- link \"upvote\" [ref=e25]\n- link \"America.gov\" [ref=e26] [url=america.gov]\n- link \"america.gov\" [ref=e27]\n- text: \"423 points by\"\n- link \"plesiv\" [ref=e28]\n- link \"13 hours ago\" [ref=e29]\n- link \"hide\" [ref=e30]\n- link \"347 comments\" [ref=e31]\n- text: \"4.\"\n- link \"upvote\" [ref=e32]\n- link \"Show HN: Real-time Solar System with 526k asteroids and all tracked satellites\" [ref=e33] [url=space.bl2.net]\n- link \"bl2.net\" [ref=e34]\n- text: \"152 points by\"\n- link \"wanick\" [ref=e35]\n- link \"8 hours ago\" [ref=e36]\n- link \"hide\" [ref=e37]\n- link \"35 comments\" [ref=e38]\n- text: \"5.\"\n- link \"upvote\" [ref=e39]\n- link \"Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)\" [ref=e40] [url=mightygodking.com/2008/\u2026]\n- link \"mightygodking.com\" [ref=e41]\n- text: \"11 points by\"\n- link \"peter_d_sherman\" [ref=e42]\n- link \"2 hours ago\" [ref=e43]\n- link \"hide\" [ref=e44]\n- link \"3 comments\" [ref=e45]\n- text: \"6.\"\n- link \"upvote\" [ref=e46]\n- link \"PSSA: A non-transformer language model written from scratch in Rust\" [",
+   "diff": {
+    "snapMs": 9,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 5,
+     "callMs": 6,
+     "captureMs": 8,
+     "diffMs": 0,
+     "totalMs": 8
+    },
+    "diffChars": 164,
+    "printedChars": 164,
+    "usesDiff": true,
+    "printed": "title: Hacker News\nurl: http://localhost:51464/corpus/hackernews.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n+ - text: \"perf change\""
+   },
+   "refCount": 229,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 229,
+    "handles": 1
+   },
+   "p50": 9,
+   "p95": 24,
+   "firstMs": 24,
+   "treeBytes": 10045,
+   "printedBytes": 10045,
+   "printedChars": 9991,
+   "treeChars": 9991,
+   "printedTokens": 3674,
+   "treeTokens": 3674,
+   "breakdown": {
+    "agentMs": 5.5,
+    "transportMs": 2.75,
+    "hostMs": 2.75,
+    "diffMs": 0.25,
+    "frames": 1
+   }
+  },
+  "github": {
+   "name": "github",
+   "runs": [
+    {
+     "snapMs": 57,
+     "printMs": 7,
+     "timing": {
+      "frames": 1,
+      "agentMs": 33,
+      "callMs": 48,
+      "captureMs": 57,
+      "diffMs": 0,
+      "totalMs": 57
+     },
+     "treeChars": 60764,
+     "printedChars": 19830
+    },
+    {
+     "snapMs": 38,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 22,
+      "callMs": 24,
+      "captureMs": 38,
+      "diffMs": 0,
+      "totalMs": 38
+     },
+     "treeChars": 60764,
+     "printedChars": 289
+    },
+    {
+     "snapMs": 32,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 23,
+      "callMs": 25,
+      "captureMs": 32,
+      "diffMs": 0,
+      "totalMs": 32
+     },
+     "treeChars": 60764,
+     "printedChars": 289
+    },
+    {
+     "snapMs": 32,
+     "printMs": 3,
+     "timing": {
+      "frames": 1,
+      "agentMs": 22,
+      "callMs": 24,
+      "captureMs": 32,
+      "diffMs": 0,
+      "totalMs": 32
+     },
+     "treeChars": 60764,
+     "printedChars": 289
+    },
+    {
+     "snapMs": 32,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 23,
+      "callMs": 25,
+      "captureMs": 32,
+      "diffMs": 0,
+      "totalMs": 32
+     },
+     "treeChars": 60764,
+     "printedChars": 289
+    }
+   ],
+   "gotoMs": 196,
+   "printed": "title: GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. \u00b7 GitHub\nurl: http://localhost:51464/corpus/github.html\n- link \"Skip to content\" [ref=e1]\n- banner:\n  - heading \"Navigation Menu\" [level=2]\n  - link \"Homepage\" [ref=e2]\n  - navigation \"Global\" [ref=e3]:\n    - list:\n      - button \"Platform\" [ref=e4] [expanded=false]\n      - button \"Solutions\" [ref=e5] [expanded=false]\n      - button \"Resources\" [ref=e6] [expanded=false]\n      - button \"Open Source\" [ref=e7] [expanded=false]\n      - button \"Enterprise\" [ref=e8] [expanded=false]\n      - link \"Pricing\" [ref=e9]\n  - button \"Search or jump to, type / to search\" [ref=e10] [expanded=false]\n  - link \"Sign in\" [ref=e11]\n  - link \"Sign up\" [ref=e12]\n  - button \"Appearance settings\" [ref=e13]\n- main:\n  - link \"manaflow-ai\" [ref=e14]\n  - link \"cmux\" [ref=e15]\n  - text: \"Public\"\n  - list:\n    - button \"Sponsor manaflow-ai/cmux\" [ref=e16]\n    - link \"You must be signed in to change notification settings\" [ref=e17]\n    - link \"Fork 2.4k\" [ref=e18]\n    - link \"You must be signed in to star a repository\" [ref=e19]: \"Star 27.5k\"\n  - navigation \"Repository\" [ref=e20]:\n    - list:\n      - link \"Code\" [ref=e21]\n      - link \"Issues 1.8k\" [ref=e22]\n      - link \"Pull requests 1.6k\" [ref=e23]\n      - link \"Discussions\" [ref=e24]\n      - link \"Actions\" [ref=e25]\n      - link \"Projects\" [ref=e26]\n      - link \"Security and quality\" [ref=e27]\n      - link \"Insights\" [ref=e28]\n  - generic [ref=e29]:\n    - button \"main branch\" [ref=e30] [expanded=false]\n    - link \"9074 Branches\" [ref=e31]\n    - link \"191 Tags\" [ref=e32]\n    - combobox \"Go to file\" [ref=e33] [expanded=false]\n    - button \"Code\" [ref=e34] [expanded=false]\n    - heading \"Latest commit\" [level=2]\n    - generic [ref=e35]:\n      - img \"lawrencecchen\"\n      - img \"claude\"\n    - link \"commits by lawrencecchen\" [ref=e36]\n    - text: \"and\"\n    - ",
+   "diff": {
+    "snapMs": 31,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 21,
+     "callMs": 23,
+     "captureMs": 30,
+     "diffMs": 1,
+     "totalMs": 31
+    },
+    "diffChars": 425,
+    "printedChars": 425,
+    "usesDiff": true,
+    "printed": "title: GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. \u00b7 GitHub\nurl: http://localhost:51464/corpus/github.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - banner:\n-   - heading \"Navigation Menu\" [level=2]\n+   - heading \"Navigation Menu (changed)\" [level=2]"
+   },
+   "refCount": 539,
+   "locatorMs": 5,
+   "agentStats": {
+    "refs": 539,
+    "handles": 1
+   },
+   "p50": 32,
+   "p95": 57,
+   "firstMs": 57,
+   "treeBytes": 61153,
+   "printedBytes": 20058,
+   "printedChars": 19830,
+   "treeChars": 60764,
+   "printedTokens": 5775,
+   "treeTokens": 17295,
+   "breakdown": {
+    "agentMs": 22.5,
+    "transportMs": 2,
+    "hostMs": 9,
+    "diffMs": 0,
+    "frames": 1
+   }
+  },
+  "mdn": {
+   "name": "mdn",
+   "runs": [
+    {
+     "snapMs": 39,
+     "printMs": 2,
+     "timing": {
+      "frames": 1,
+      "agentMs": 16,
+      "callMs": 34,
+      "captureMs": 38,
+      "diffMs": 0,
+      "totalMs": 38
+     },
+     "treeChars": 20439,
+     "printedChars": 19799
+    },
+    {
+     "snapMs": 12,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 8,
+      "callMs": 9,
+      "captureMs": 12,
+      "diffMs": 0,
+      "totalMs": 12
+     },
+     "treeChars": 20439,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 14,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 8,
+      "callMs": 9,
+      "captureMs": 14,
+      "diffMs": 0,
+      "totalMs": 14
+     },
+     "treeChars": 20439,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 12,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 7,
+      "callMs": 8,
+      "captureMs": 12,
+      "diffMs": 0,
+      "totalMs": 12
+     },
+     "treeChars": 20439,
+     "printedChars": 132
+    },
+    {
+     "snapMs": 10,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 7,
+      "callMs": 8,
+      "captureMs": 10,
+      "diffMs": 0,
+      "totalMs": 10
+     },
+     "treeChars": 20439,
+     "printedChars": 132
+    }
+   ],
+   "gotoMs": 145,
+   "printed": "title: Array.prototype.map() - JavaScript | MDN\nurl: http://localhost:51464/corpus/mdn.html\n- list:\n  - link \"Skip to main content\" [ref=e1]\n  - link \"Skip to search\" [ref=e2]\n- banner:\n  - navigation:\n    - link \"MDN\" [ref=e3] [url=/en-US/]\n    - navigation:\n      - button \"HTML\" [ref=e4] [expanded=false]\n      - link \"HTML: Markup language\" [ref=e5]\n      - term: \"HTML reference\"\n      - definition:\n        - list:\n          - link \"Elements\" [ref=e6]\n          - link \"Global attributes\" [ref=e7]\n          - link \"Attributes\" [ref=e8]\n          - link \"See all HTML references\" [ref=e9]: \"See all\u2026\"\n      - term: \"HTML guides\"\n      - definition:\n        - list:\n          - link \"Responsive images\" [ref=e10]\n          - link \"HTML cheatsheet\" [ref=e11]\n          - link \"Date & time formats\" [ref=e12]\n          - link \"See all HTML guides\" [ref=e13]: \"See all\u2026\"\n      - term: \"Markup languages\"\n      - definition:\n        - list:\n          - link \"SVG\" [ref=e14]\n          - link \"MathML\" [ref=e15]\n          - link \"XML\" [ref=e16]\n      - button \"CSS\" [ref=e17] [expanded=false]\n      - link \"CSS: Styling language\" [ref=e18]\n      - term: \"CSS reference\"\n      - definition:\n        - list:\n          - link \"Properties\" [ref=e19]\n          - link \"Selectors\" [ref=e20]\n          - link \"At-rules\" [ref=e21]\n          - link \"Values\" [ref=e22]\n          - link \"See all CSS references\" [ref=e23]: \"See all\u2026\"\n      - term: \"CSS guides\"\n      - definition:\n        - list:\n          - link \"Box model\" [ref=e24]\n          - link \"Animations\" [ref=e25]\n          - link \"Flexbox\" [ref=e26]\n          - link \"Colors\" [ref=e27]\n          - link \"See all CSS guides\" [ref=e28]: \"See all\u2026\"\n      - term: \"Layout cookbook\"\n      - definition:\n        - list:\n          - link \"Column layouts\" [ref=e29]\n          - link \"Centering an element\" [ref=e30]\n          - link \"Card component\" [ref=e31]\n          - link \"See all\u2026\" [ref=e32]\n      - button \"JavaScript\" [ref=e33] [expanded=false]\n    ",
+   "diff": {
+    "snapMs": 11,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 7,
+     "callMs": 8,
+     "captureMs": 10,
+     "diffMs": 0,
+     "totalMs": 10
+    },
+    "diffChars": 132,
+    "printedChars": 132,
+    "usesDiff": true,
+    "printed": "title: Array.prototype.map() - JavaScript | MDN\nurl: http://localhost:51464/corpus/mdn.html\n# no changes since the previous snapshot"
+   },
+   "refCount": 269,
+   "locatorMs": 3,
+   "agentStats": {
+    "refs": 269,
+    "handles": 1
+   },
+   "p50": 12,
+   "p95": 39,
+   "firstMs": 39,
+   "treeBytes": 20491,
+   "printedBytes": 19842,
+   "printedChars": 19799,
+   "treeChars": 20439,
+   "printedTokens": 5453,
+   "treeTokens": 5646,
+   "breakdown": {
+    "agentMs": 7.5,
+    "transportMs": 1,
+    "hostMs": 3.5,
+    "diffMs": 0,
+    "frames": 1
+   }
+  },
+  "mdn-iframe": {
+   "name": "mdn-iframe",
+   "runs": [
+    {
+     "snapMs": 39,
+     "printMs": 7,
+     "timing": {
+      "frames": 1,
+      "agentMs": 23,
+      "callMs": 33,
+      "captureMs": 38,
+      "diffMs": 0,
+      "totalMs": 38
+     },
+     "treeChars": 43765,
+     "printedChars": 19869
+    },
+    {
+     "snapMs": 25,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 12,
+      "callMs": 14,
+      "captureMs": 25,
+      "diffMs": 0,
+      "totalMs": 25
+     },
+     "treeChars": 43765,
+     "printedChars": 146
+    },
+    {
+     "snapMs": 19,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 13,
+      "callMs": 14,
+      "captureMs": 18,
+      "diffMs": 1,
+      "totalMs": 19
+     },
+     "treeChars": 43765,
+     "printedChars": 146
+    },
+    {
+     "snapMs": 18,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 11,
+      "callMs": 13,
+      "captureMs": 18,
+      "diffMs": 0,
+      "totalMs": 18
+     },
+     "treeChars": 43765,
+     "printedChars": 146
+    },
+    {
+     "snapMs": 19,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 12,
+      "callMs": 15,
+      "captureMs": 19,
+      "diffMs": 0,
+      "totalMs": 19
+     },
+     "treeChars": 43765,
+     "printedChars": 146
+    }
+   ],
+   "gotoMs": 159,
+   "printed": "title: <iframe> HTML inline frame element - HTML | MDN\nurl: http://localhost:51464/corpus/mdn-iframe.html\n- list:\n  - link \"Skip to main content\" [ref=e1]\n  - link \"Skip to search\" [ref=e2]\n- banner:\n  - navigation:\n    - link \"MDN\" [ref=e3] [url=/en-US/]\n    - navigation:\n      - button \"HTML\" [ref=e4] [expanded=false]\n      - link \"HTML: Markup language\" [ref=e5]\n      - term: \"HTML reference\"\n      - definition:\n        - list:\n          - link \"Elements\" [ref=e6]\n          - link \"Global attributes\" [ref=e7]\n          - link \"Attributes\" [ref=e8]\n          - link \"See all HTML references\" [ref=e9]: \"See all\u2026\"\n      - term: \"HTML guides\"\n      - definition:\n        - list:\n          - link \"Responsive images\" [ref=e10]\n          - link \"HTML cheatsheet\" [ref=e11]\n          - link \"Date & time formats\" [ref=e12]\n          - link \"See all HTML guides\" [ref=e13]: \"See all\u2026\"\n      - term: \"Markup languages\"\n      - definition:\n        - list:\n          - link \"SVG\" [ref=e14]\n          - link \"MathML\" [ref=e15]\n          - link \"XML\" [ref=e16]\n      - button \"CSS\" [ref=e17] [expanded=false]\n      - link \"CSS: Styling language\" [ref=e18]\n      - term: \"CSS reference\"\n      - definition:\n        - list:\n          - link \"Properties\" [ref=e19]\n          - link \"Selectors\" [ref=e20]\n          - link \"At-rules\" [ref=e21]\n          - link \"Values\" [ref=e22]\n          - link \"See all CSS references\" [ref=e23]: \"See all\u2026\"\n      - term: \"CSS guides\"\n      - definition:\n        - list:\n          - link \"Box model\" [ref=e24]\n          - link \"Animations\" [ref=e25]\n          - link \"Flexbox\" [ref=e26]\n          - link \"Colors\" [ref=e27]\n          - link \"See all CSS guides\" [ref=e28]: \"See all\u2026\"\n      - term: \"Layout cookbook\"\n      - definition:\n        - list:\n          - link \"Column layouts\" [ref=e29]\n          - link \"Centering an element\" [ref=e30]\n          - link \"Card component\" [ref=e31]\n          - link \"See all\u2026\" [ref=e32]\n      - button \"JavaScript\" [ref=e33] [expand",
+   "diff": {
+    "snapMs": 19,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 12,
+     "callMs": 14,
+     "captureMs": 19,
+     "diffMs": 0,
+     "totalMs": 19
+    },
+    "diffChars": 146,
+    "printedChars": 146,
+    "usesDiff": true,
+    "printed": "title: <iframe> HTML inline frame element - HTML | MDN\nurl: http://localhost:51464/corpus/mdn-iframe.html\n# no changes since the previous snapshot"
+   },
+   "refCount": 477,
+   "locatorMs": 3,
+   "agentStats": {
+    "refs": 477,
+    "handles": 1
+   },
+   "p50": 19,
+   "p95": 39,
+   "firstMs": 39,
+   "treeBytes": 43830,
+   "printedBytes": 19971,
+   "printedChars": 19869,
+   "treeChars": 43765,
+   "printedTokens": 5445,
+   "treeTokens": 11489,
+   "breakdown": {
+    "agentMs": 12,
+    "transportMs": 2,
+    "hostMs": 6.25,
+    "diffMs": 0.25,
+    "frames": 1
+   }
+  },
+  "npr": {
+   "name": "npr",
+   "runs": [
+    {
+     "snapMs": 15,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 4,
+      "callMs": 12,
+      "captureMs": 15,
+      "diffMs": 0,
+      "totalMs": 15
+     },
+     "treeChars": 2499,
+     "printedChars": 2499
+    },
+    {
+     "snapMs": 12,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 2,
+      "captureMs": 11,
+      "diffMs": 1,
+      "totalMs": 12
+     },
+     "treeChars": 2499,
+     "printedChars": 119
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 2499,
+     "printedChars": 119
+    },
+    {
+     "snapMs": 3,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 1,
+      "callMs": 2,
+      "captureMs": 3,
+      "diffMs": 0,
+      "totalMs": 3
+     },
+     "treeChars": 2499,
+     "printedChars": 119
+    },
+    {
+     "snapMs": 2,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 0,
+      "callMs": 1,
+      "captureMs": 2,
+      "diffMs": 0,
+      "totalMs": 2
+     },
+     "treeChars": 2499,
+     "printedChars": 119
+    }
+   ],
+   "gotoMs": 104,
+   "printed": "title: NPR : National Public Radio\nurl: http://localhost:51464/corpus/npr.html\n- banner:\n  - text: \"Text-Only Version\"\n  - link \"Go To Full Site\" [ref=e1] [url=npr.org]\n- main:\n  - heading \"NPR : National Public Radio\" [level=1]\n  - text: \"Tuesday, September 29, 2026\"\n  - list:\n    - link \"Cornell fraternity rape case is reopened, as Hochul calls for review of school response\" [ref=e2]\n    - link \"U.S. Supreme Court sides with Trump administration in third-country deportations\" [ref=e3]\n    - link \"What to know about the $810 million in spending canceled by President Trump\" [ref=e4]\n    - link \"Potential Taiwan tension sparked 'last minute' change in Trump-Xi National Archives visit\" [ref=e5]\n    - link \"Tennessee is set to execute a woman for the first time in 200 years\" [ref=e6]\n    - link \"How to hide your spending habits from retailers (so you don't get ripped off)\" [ref=e7]\n    - link \"Mahmoud Khalil on his detention by ICE: 'It is a stain on the U.S. consciousness'\" [ref=e8]\n    - link \"The Senate passes the Protect College Sports Act, but the bill's future is unclear\" [ref=e9]\n    - link \"This startup wants to prove gene-editing embryos is safe for making healthy babies\" [ref=e10]\n    - link \"5 men arrested near a U.S.-run base bailed as UK police probe if there's an Iran link\" [ref=e11]\n    - link \"Meet the 20 scholars and artists who've just won MacArthur Fellowships\" [ref=e12]\n    - link \"This year's MacArthur Fellows include researchers who fuse science and justice\" [ref=e13]\n    - link \"As the U.S. signals a smaller Middle East footprint, Turkey is ready to step in\" [ref=e14]\n    - link \"News organizations ask court to bar White House enforcement of access ban\" [ref=e15]\n    - link \"Melissa Aldana with Gonzalo Rubalcaba: Tiny Desk Concert\" [ref=e16]\n    - link \"How to speak in public with confidence\" [ref=e17]\n    - link \"Simple ways to keep your car running smoothly\" [ref=e18]\n    - link \"How to ask about guns before a playdate\" [ref=e19]\n    - link \"De",
+   "diff": {
+    "snapMs": 17,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 1,
+     "callMs": 1,
+     "captureMs": 17,
+     "diffMs": 0,
+     "totalMs": 17
+    },
+    "diffChars": 277,
+    "printedChars": 277,
+    "usesDiff": true,
+    "printed": "title: NPR : National Public Radio\nurl: http://localhost:51464/corpus/npr.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - main:\n-   - heading \"NPR : National Public Radio\" [level=1]\n+   - heading \"NPR : National Public Radio (changed)\" [level=1]"
+   },
+   "refCount": 28,
+   "locatorMs": 3,
+   "agentStats": {
+    "refs": 28,
+    "handles": 1
+   },
+   "p50": 3,
+   "p95": 15,
+   "firstMs": 15,
+   "treeBytes": 2500,
+   "printedBytes": 2500,
+   "printedChars": 2499,
+   "treeChars": 2499,
+   "printedTokens": 692,
+   "treeTokens": 692,
+   "breakdown": {
+    "agentMs": 0.75,
+    "transportMs": 0.75,
+    "hostMs": 3.25,
+    "diffMs": 0.25,
+    "frames": 1
+   }
+  },
+  "bbc": {
+   "name": "bbc",
+   "runs": [
+    {
+     "snapMs": 41,
+     "printMs": 0,
+     "timing": {
+      "frames": 2,
+      "agentMs": 20,
+      "callMs": 35,
+      "captureMs": 41,
+      "diffMs": 0,
+      "totalMs": 41
+     },
+     "treeChars": 16586,
+     "printedChars": 16586
+    },
+    {
+     "snapMs": 18,
+     "printMs": 0,
+     "timing": {
+      "frames": 2,
+      "agentMs": 11,
+      "callMs": 13,
+      "captureMs": 17,
+      "diffMs": 1,
+      "totalMs": 18
+     },
+     "treeChars": 16586,
+     "printedChars": 185
+    },
+    {
+     "snapMs": 14,
+     "printMs": 0,
+     "timing": {
+      "frames": 2,
+      "agentMs": 8,
+      "callMs": 10,
+      "captureMs": 13,
+      "diffMs": 1,
+      "totalMs": 14
+     },
+     "treeChars": 16586,
+     "printedChars": 185
+    },
+    {
+     "snapMs": 14,
+     "printMs": 0,
+     "timing": {
+      "frames": 2,
+      "agentMs": 8,
+      "callMs": 10,
+      "captureMs": 14,
+      "diffMs": 0,
+      "totalMs": 14
+     },
+     "treeChars": 16586,
+     "printedChars": 185
+    },
+    {
+     "snapMs": 19,
+     "printMs": 0,
+     "timing": {
+      "frames": 2,
+      "agentMs": 7,
+      "callMs": 11,
+      "captureMs": 19,
+      "diffMs": 0,
+      "totalMs": 19
+     },
+     "treeChars": 16586,
+     "printedChars": 185
+    }
+   ],
+   "gotoMs": 152,
+   "printed": "title: BBC News - Breaking news, video and the latest top stories from the U.S. and around the world\nurl: http://localhost:51464/corpus/bbc.html\n- link \"Skip to content\" [ref=e1]\n- banner:\n  - button \"Open menu\" [ref=e2] [expanded=false]\n  - link \"Watch Live\" [ref=e3]\n  - link \"British Broadcasting Corporation\" [ref=e4] [url=/]\n  - button \"Subscribe\" [ref=e5]\n  - link \"Sign In\" [ref=e6] [url=session.bbc.com/session/\u2026]:\n    - button \"Sign In\" [ref=e7]\n- navigation:\n  - navigation:\n    - list:\n      - link \"Home\" [ref=e8]\n      - link \"News\" [ref=e9]\n      - link \"Sport\" [ref=e10]\n      - link \"Business\" [ref=e11]\n      - link \"Technology\" [ref=e12]\n      - link \"Health\" [ref=e13]\n      - link \"Culture\" [ref=e14]\n      - link \"Arts\" [ref=e15]\n      - link \"Travel\" [ref=e16]\n      - link \"Earth\" [ref=e17]\n      - link \"Audio\" [ref=e18]\n      - link \"Video\" [ref=e19]\n      - link \"Live\" [ref=e20]\n      - link \"Documentaries\" [ref=e21]\n  - navigation:\n    - list:\n      - link \"US & Canada\" [ref=e22]\n      - link \"UK\" [ref=e23]\n      - link \"Africa\" [ref=e24]\n      - link \"Asia\" [ref=e25]\n      - link \"Australia\" [ref=e26]\n      - link \"Europe\" [ref=e27]\n      - link \"Latin America\" [ref=e28]\n      - link \"Middle East\" [ref=e29]\n      - link \"In Pictures\" [ref=e30]\n      - link \"BBC InDepth\" [ref=e31]\n      - link \"BBC Verify\" [ref=e32]\n- main:\n  - article:\n    - heading \"News\" [level=1]\n    - link \"Aerial footage shows white vans in Whelford, near RAF Fairford.\" [ref=e33] [url=/news/articles/cqn8m342rgk9o]\n    - link \"One of the five men arrested near RAF Fairford called 999 himself He made the call almost an hour before a farmer also called police after seeing men in balaclavas. 4 hrs ago UK\" [ref=e34]\n    - link [ref=e35]:\n      - img \"Moonshot AI logo on a smartphone\"\n      - heading \"Chinese AI tool told researchers how to make bioweapons\" [level=2]\n      - text: \"Mindgard said it discovered in July that Kimi models K2.6 and K3 Swarm could evade developer's safety li",
+   "diff": {
+    "snapMs": 23,
+    "printMs": 0,
+    "timing": {
+     "frames": 2,
+     "agentMs": 8,
+     "callMs": 18,
+     "captureMs": 22,
+     "diffMs": 1,
+     "totalMs": 23
+    },
+    "diffChars": 291,
+    "printedChars": 291,
+    "usesDiff": true,
+    "printed": "title: BBC News - Breaking news, video and the latest top stories from the U.S. and around the world\nurl: http://localhost:51464/corpus/bbc.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - banner:\n~   - button \"Open menu\" [ref=e2] [expanded=false]: \"(changed)\""
+   },
+   "refCount": 131,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 125,
+    "handles": 1
+   },
+   "p50": 18,
+   "p95": 41,
+   "firstMs": 41,
+   "treeBytes": 16616,
+   "printedBytes": 16616,
+   "printedChars": 16586,
+   "treeChars": 16586,
+   "printedTokens": 4430,
+   "treeTokens": 4430,
+   "breakdown": {
+    "agentMs": 8.5,
+    "transportMs": 2.5,
+    "hostMs": 5.25,
+    "diffMs": 0.5,
+    "frames": 2
+   }
+  },
+  "books": {
+   "name": "books",
+   "runs": [
+    {
+     "snapMs": 21,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 9,
+      "callMs": 18,
+      "captureMs": 21,
+      "diffMs": 0,
+      "totalMs": 21
+     },
+     "treeChars": 8869,
+     "printedChars": 8869
+    },
+    {
+     "snapMs": 10,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 6,
+      "callMs": 8,
+      "captureMs": 9,
+      "diffMs": 1,
+      "totalMs": 10
+     },
+     "treeChars": 8869,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 6,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 4,
+      "callMs": 5,
+      "captureMs": 6,
+      "diffMs": 0,
+      "totalMs": 6
+     },
+     "treeChars": 8869,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 4,
+      "callMs": 5,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 8869,
+     "printedChars": 134
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 3,
+      "callMs": 4,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 8869,
+     "printedChars": 134
+    }
+   ],
+   "gotoMs": 111,
+   "printed": "title: All products | Books to Scrape - Sandbox\nurl: http://localhost:51464/corpus/books.html\n- banner:\n  - link \"Books to Scrape\" [ref=e1]\n  - text: \"We love being scraped!\"\n- list:\n  - link \"Home\" [ref=e2]\n  - listitem: \"/ All products\"\n- complementary:\n  - list:\n    - listitem:\n      - link \"Books\" [ref=e3]\n      - list:\n        - link \"Travel\" [ref=e4]\n        - link \"Mystery\" [ref=e5]\n        - link \"Historical Fiction\" [ref=e6]\n        - link \"Sequential Art\" [ref=e7]\n        - link \"Classics\" [ref=e8]\n        - link \"Philosophy\" [ref=e9]\n        - link \"Romance\" [ref=e10]\n        - link \"Womens Fiction\" [ref=e11]\n        - link \"Fiction\" [ref=e12]\n        - link \"Childrens\" [ref=e13]\n        - link \"Religion\" [ref=e14]\n        - link \"Nonfiction\" [ref=e15]\n        - link \"Music\" [ref=e16]\n        - link \"Default\" [ref=e17]\n        - link \"Science Fiction\" [ref=e18]\n        - link \"Sports and Games\" [ref=e19]\n        - link \"Add a comment\" [ref=e20]\n        - link \"Fantasy\" [ref=e21]\n        - link \"New Adult\" [ref=e22]\n        - link \"Young Adult\" [ref=e23]\n        - link \"Science\" [ref=e24]\n        - link \"Poetry\" [ref=e25]\n        - link \"Paranormal\" [ref=e26]\n        - link \"Art\" [ref=e27]\n        - link \"Psychology\" [ref=e28]\n        - link \"Autobiography\" [ref=e29]\n        - link \"Parenting\" [ref=e30]\n        - link \"Adult Fiction\" [ref=e31]\n        - link \"Humor\" [ref=e32]\n        - link \"Horror\" [ref=e33]\n        - link \"History\" [ref=e34]\n        - link \"Food and Drink\" [ref=e35]\n        - link \"Christian Fiction\" [ref=e36]\n        - link \"Business\" [ref=e37]\n        - link \"Biography\" [ref=e38]\n        - link \"Thriller\" [ref=e39]\n        - link \"Contemporary\" [ref=e40]\n        - link \"Spirituality\" [ref=e41]\n        - link \"Academic\" [ref=e42]\n        - link \"Self Help\" [ref=e43]\n        - link \"Historical\" [ref=e44]\n        - link \"Christian\" [ref=e45]\n        - link \"Suspense\" [ref=e46]\n        - link \"Short Stories\" [ref=e47]\n        - link \"Novel",
+   "diff": {
+    "snapMs": 7,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 4,
+     "callMs": 5,
+     "captureMs": 7,
+     "diffMs": 0,
+     "totalMs": 7
+    },
+    "diffChars": 248,
+    "printedChars": 248,
+    "usesDiff": true,
+    "printed": "title: All products | Books to Scrape - Sandbox\nurl: http://localhost:51464/corpus/books.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n- - heading \"All products\" [level=1]\n+ - heading \"All products (changed)\" [level=1]"
+   },
+   "refCount": 114,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 114,
+    "handles": 1
+   },
+   "p50": 7,
+   "p95": 21,
+   "firstMs": 21,
+   "treeBytes": 9135,
+   "printedBytes": 9135,
+   "printedChars": 8869,
+   "treeChars": 8869,
+   "printedTokens": 3150,
+   "treeTokens": 3150,
+   "breakdown": {
+    "agentMs": 4.25,
+    "transportMs": 1.25,
+    "hostMs": 2,
+    "diffMs": 0.25,
+    "frames": 1
+   }
+  },
+  "vercel": {
+   "name": "vercel",
+   "runs": [
+    {
+     "snapMs": 38,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 17,
+      "callMs": 35,
+      "captureMs": 38,
+      "diffMs": 0,
+      "totalMs": 38
+     },
+     "treeChars": 6696,
+     "printedChars": 6696
+    },
+    {
+     "snapMs": 8,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 6,
+      "captureMs": 8,
+      "diffMs": 0,
+      "totalMs": 8
+     },
+     "treeChars": 6696,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 17,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 5,
+      "captureMs": 17,
+      "diffMs": 0,
+      "totalMs": 17
+     },
+     "treeChars": 6696,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 5,
+      "callMs": 6,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 6696,
+     "printedChars": 126
+    },
+    {
+     "snapMs": 7,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 4,
+      "callMs": 6,
+      "captureMs": 7,
+      "diffMs": 0,
+      "totalMs": 7
+     },
+     "treeChars": 6696,
+     "printedChars": 126
+    }
+   ],
+   "gotoMs": 120,
+   "printed": "title: Agentic Infrastructure - Vercel\nurl: http://localhost:51464/corpus/vercel.html\n- link \"Skip to content\" [ref=e1]\n- banner:\n  - link \"Vercel\" [ref=e2] [expanded=false]\n  - navigation \"Main navigation\" [ref=e3]:\n    - button \"Products\" [ref=e4] [expanded=false]\n    - button \"Resources\" [ref=e5] [expanded=false]\n    - link \"Enterprise\" [ref=e6]\n    - link \"Pricing\" [ref=e7]\n  - link \"Get a Demo\" [ref=e8]\n  - link \"Log In\" [ref=e9]\n  - link \"Sign Up\" [ref=e10]\n- main:\n  - text: \"Ship 26 is coming to SF\"\n  - link \"Get your ticket\" [ref=e11]\n  - heading \"Agentic Infrastructure\" [level=1]\n  - text: \"For coding agents to ship apps and agents automated by agents.\"\n  - link \"Deploy now\" [ref=e12]\n  - link \"Talk to sales\" [ref=e13]\n  - img \"Meta\"\n  - img \"Charles Schwab\"\n  - img \"DoorDash\"\n  - img \"OpenAI\"\n  - img \"SpaceXAI\"\n  - img \"The Weather Company\"\n  - img \"Polymarket\"\n  - heading \"Build agents on infrastructure that thinks like them\" [level=2]\n  - img \"Build agents on infrastructure that thinks like them\"\n  - text: \"Notion powers millions of agent conversations daily on Vercel.\"\n  - list:\n    - listitem: \"Features\"\n    - listitem: \"Durable Orchestration\"\n    - listitem: \"Sandboxed Environments\"\n    - listitem: \"AI Model Gateway\"\n    - listitem: \"Fluid Compute\"\n  - heading \"Ship apps that scale from zero to millions instantly\" [level=2]\n  - img \"Ship apps that scale from zero to millions instantly\"\n  - text: \"Zapier serves over 100 million monthly website visits on Vercel.\"\n  - list:\n    - listitem: \"Features\"\n    - listitem: \"Global Delivery\"\n    - listitem: \"Deployment Environments\"\n    - listitem: \"Serverless Functions\"\n    - listitem: \"Web Application Firewall\"\n  - heading \"Host platforms that serve every customer\" [level=2]\n  - img \"Host platforms that serve every customer\"\n  - text: \"Mintlify powers documentation for over 20,000 companies on Vercel.\"\n  - list:\n    - listitem: \"Features\"\n    - listitem: \"Tenant Isolation\"\n    - listitem: \"Domain Management\"\n ",
+   "diff": {
+    "snapMs": 7,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 4,
+     "callMs": 5,
+     "captureMs": 7,
+     "diffMs": 0,
+     "totalMs": 7
+    },
+    "diffChars": 126,
+    "printedChars": 126,
+    "usesDiff": true,
+    "printed": "title: Agentic Infrastructure - Vercel\nurl: http://localhost:51464/corpus/vercel.html\n# no changes since the previous snapshot"
+   },
+   "refCount": 108,
+   "locatorMs": 8,
+   "agentStats": {
+    "refs": 108,
+    "handles": 1
+   },
+   "p50": 8,
+   "p95": 38,
+   "firstMs": 38,
+   "treeBytes": 6698,
+   "printedBytes": 6698,
+   "printedChars": 6696,
+   "treeChars": 6696,
+   "printedTokens": 2122,
+   "treeTokens": 2122,
+   "breakdown": {
+    "agentMs": 4.75,
+    "transportMs": 1,
+    "hostMs": 4,
+    "diffMs": 0,
+    "frames": 1
+   }
+  },
+  "live-wikipedia-cities": {
+   "name": "live-wikipedia-cities",
+   "runs": [
+    {
+     "snapMs": 120,
+     "printMs": 13,
+     "timing": {
+      "frames": 1,
+      "agentMs": 92,
+      "callMs": 107,
+      "captureMs": 120,
+      "diffMs": 0,
+      "totalMs": 120
+     },
+     "treeChars": 113598,
+     "printedChars": 19423
+    },
+    {
+     "snapMs": 47,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 33,
+      "callMs": 35,
+      "captureMs": 46,
+      "diffMs": 1,
+      "totalMs": 47
+     },
+     "treeChars": 113598,
+     "printedChars": 140
+    },
+    {
+     "snapMs": 51,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 33,
+      "callMs": 36,
+      "captureMs": 51,
+      "diffMs": 0,
+      "totalMs": 51
+     },
+     "treeChars": 113598,
+     "printedChars": 140
+    },
+    {
+     "snapMs": 53,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 33,
+      "callMs": 36,
+      "captureMs": 52,
+      "diffMs": 1,
+      "totalMs": 53
+     },
+     "treeChars": 113598,
+     "printedChars": 140
+    },
+    {
+     "snapMs": 48,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 32,
+      "callMs": 37,
+      "captureMs": 47,
+      "diffMs": 1,
+      "totalMs": 48
+     },
+     "treeChars": 113598,
+     "printedChars": 140
+    }
+   ],
+   "gotoMs": 343,
+   "printed": "title: List of largest cities - Wikipedia\nurl: https://en.wikipedia.org/wiki/List_of_largest_cities\n- link \"Jump to content\" [ref=e1]\n- banner:\n  - navigation \"Site\" [ref=e2]:\n    - button \"Main menu\" [ref=e3]\n  - link \"Wikipedia The Free Encyclopedia\" [ref=e4] [url=/wiki/Main_Page]\n  - search:\n    - searchbox \"Search Wikipedia\" [ref=e5]\n    - button \"Search\" [ref=e6]\n  - navigation \"Personal tools\" [ref=e7]:\n    - list:\n      - link \"Donate\" [ref=e8] [url=donate.wikimedia.org/\u2026]\n      - link \"Create account\" [ref=e9]\n      - link \"Log in\" [ref=e10]\n- navigation \"Contents\" [ref=e11]:\n  - heading \"Contents\" [level=2]\n  - button \"Hide Contents\" [ref=e12]\n  - list:\n    - link \"(Top)\" [ref=e13]\n    - listitem:\n      - link \"Definitions\" [ref=e14]\n      - button \"Toggle Definitions subsection\" [ref=e15] [expanded]\n      - list:\n        - link \"City proper (administrative unit)\" [ref=e16]\n        - link \"Metropolitan area\" [ref=e17]\n        - link \"Urban area\" [ref=e18]\n    - link \"List\" [ref=e19]\n    - link \"See also\" [ref=e20]\n    - link \"Notes\" [ref=e21]\n    - link \"References\" [ref=e22]\n    - link \"External links\" [ref=e23]\n- main:\n  - heading \"List of largest cities\" [level=1]\n  - button \"29 languages\" [ref=e24]\n  - navigation \"Namespaces\" [ref=e25]:\n    - list:\n      - link \"Article\" [ref=e26]\n      - link \"Talk\" [ref=e27]\n  - navigation \"Views\" [ref=e28]:\n    - list:\n      - link \"Read\" [ref=e29]\n      - link \"View source\" [ref=e30]\n      - link \"View history\" [ref=e31]\n  - navigation \"Page tools\" [ref=e32]:\n    - button \"Tools\" [ref=e33]\n  - navigation \"Appearance\" [ref=e34]:\n    - button \"Hide Appearance\" [ref=e35]\n    - text: \"Text\"\n    - list:\n      - listitem:\n        - radio \"Small\" [ref=e36]\n        - radio \"Standard\" [ref=e37] [checked]\n        - radio \"Large\" [ref=e38]\n    - text: \"Width\"\n    - list:\n      - listitem:\n        - radio \"Standard\" [ref=e39] [checked]\n        - radio \"Wide\" [ref=e40]\n    - text: \"Color\"\n    - list:\n      - listitem:\n        - ",
+   "diff": {
+    "snapMs": 62,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 31,
+     "callMs": 35,
+     "captureMs": 62,
+     "diffMs": 0,
+     "totalMs": 62
+    },
+    "diffChars": 140,
+    "printedChars": 140,
+    "usesDiff": true,
+    "printed": "title: List of largest cities - Wikipedia\nurl: https://en.wikipedia.org/wiki/List_of_largest_cities\n# no changes since the previous snapshot"
+   },
+   "refCount": 1063,
+   "locatorMs": 5,
+   "agentStats": {
+    "refs": 1063,
+    "handles": 1
+   },
+   "p50": 51,
+   "p95": 120,
+   "firstMs": 120,
+   "treeBytes": 114163,
+   "printedBytes": 19456,
+   "printedChars": 19423,
+   "treeChars": 113598,
+   "printedTokens": 5548,
+   "treeTokens": 34952,
+   "breakdown": {
+    "agentMs": 32.75,
+    "transportMs": 3.25,
+    "hostMs": 13.75,
+    "diffMs": 0.75,
+    "frames": 1
+   }
+  },
+  "live-github-pr-files": {
+   "name": "live-github-pr-files",
+   "runs": [
+    {
+     "snapMs": 237,
+     "printMs": 34,
+     "timing": {
+      "frames": 1,
+      "agentMs": 194,
+      "callMs": 210,
+      "captureMs": 236,
+      "diffMs": 0,
+      "totalMs": 237
+     },
+     "treeChars": 397705,
+     "printedChars": 19594
+    },
+    {
+     "snapMs": 205,
+     "printMs": 2,
+     "timing": {
+      "frames": 1,
+      "agentMs": 166,
+      "callMs": 178,
+      "captureMs": 203,
+      "diffMs": 2,
+      "totalMs": 205
+     },
+     "treeChars": 397705,
+     "printedChars": 234
+    },
+    {
+     "snapMs": 189,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 150,
+      "callMs": 157,
+      "captureMs": 186,
+      "diffMs": 3,
+      "totalMs": 189
+     },
+     "treeChars": 397705,
+     "printedChars": 234
+    },
+    {
+     "snapMs": 594,
+     "printMs": 59,
+     "timing": {
+      "frames": 1,
+      "agentMs": 283,
+      "callMs": 295,
+      "captureMs": 576,
+      "diffMs": 18,
+      "totalMs": 594
+     },
+     "treeChars": 668790,
+     "printedChars": 19683
+    },
+    {
+     "snapMs": 334,
+     "printMs": 1,
+     "timing": {
+      "frames": 1,
+      "agentMs": 270,
+      "callMs": 281,
+      "captureMs": 328,
+      "diffMs": 6,
+      "totalMs": 334
+     },
+     "treeChars": 668790,
+     "printedChars": 234
+    }
+   ],
+   "gotoMs": 2067,
+   "printed": "title: Add cmux browser repl: one Playwright-based agent browser API by lawrencecchen \u00b7 Pull Request #15570 \u00b7 manaflow-ai/cmux \u00b7 GitHub\nurl: https://github.com/manaflow-ai/cmux/pull/15570/files\n- link \"Skip to content\" [ref=e1]\n- banner:\n  - heading \"Navigation Menu\" [level=2]\n  - link \"Homepage\" [ref=e2]\n  - navigation \"Global\" [ref=e3]:\n    - list:\n      - button \"Platform\" [ref=e4] [expanded=false]\n      - button \"Solutions\" [ref=e5] [expanded=false]\n      - button \"Resources\" [ref=e6] [expanded=false]\n      - button \"Open Source\" [ref=e7] [expanded=false]\n      - button \"Enterprise\" [ref=e8] [expanded=false]\n      - link \"Pricing\" [ref=e9]\n  - button \"Search or jump to, type / to search\" [ref=e10] [expanded=false]\n  - link \"Sign in\" [ref=e11]\n  - link \"Sign up\" [ref=e12]\n  - button \"Appearance settings\" [ref=e13]\n- main:\n  - link \"manaflow-ai\" [ref=e14]\n  - link \"cmux\" [ref=e15]\n  - text: \"Public\"\n  - list:\n    - button \"Sponsor manaflow-ai/cmux\" [ref=e16]\n    - link \"You must be signed in to change notification settings\" [ref=e17]\n    - link \"Fork 2.4k\" [ref=e18]\n    - link \"You must be signed in to star a repository\" [ref=e19]: \"Star 27.5k\"\n  - navigation \"Repository\" [ref=e20]:\n    - list:\n      - link \"Code\" [ref=e21]\n      - link \"Issues 1.8k\" [ref=e22]\n      - link \"Pull requests 1.6k\" [ref=e23]\n      - link \"Discussions\" [ref=e24]\n      - link \"Actions\" [ref=e25]\n      - link \"Projects\" [ref=e26]\n      - link \"Security and quality\" [ref=e27]\n      - link \"Insights\" [ref=e28]\n  - heading \"Add cmux browser repl: one Playwright-based agent browser API #15570\" [level=1]\n  - button \"New issue\" [ref=e29] [expanded=false]\n  - text: \"Draft\"\n  - link \"lawrencecchen\" [ref=e30]\n  - text: \"wants to merge 64 commits into\"\n  - link \"main\" [ref=e31]\n  - text: \"from\"\n  - link \"feat-browser-repl-parity\" [ref=e32]\n  - button \"Copy\" [ref=e33]\n  - text: \"+110,943 \u221213\"\n  - navigation \"Pull request tabs\" [ref=e34]:\n    - link \"Conversation 4\" [ref=e35]\n    - link \"Commits 64\" ",
+   "diff": {
+    "snapMs": 359,
+    "printMs": 1,
+    "timing": {
+     "frames": 1,
+     "agentMs": 251,
+     "callMs": 263,
+     "captureMs": 334,
+     "diffMs": 25,
+     "totalMs": 359
+    },
+    "diffChars": 370,
+    "printedChars": 370,
+    "usesDiff": true,
+    "printed": "title: Add cmux browser repl: one Playwright-based agent browser API by lawrencecchen \u00b7 Pull Request #15570 \u00b7 manaflow-ai/cmux \u00b7 GitHub\nurl: https://github.com/manaflow-ai/cmux/pull/15570/files\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - banner:\n-   - heading \"Navigation Menu\" [level=2]\n+   - heading \"Navigation Menu (changed)\" [level=2]"
+   },
+   "refCount": 6476,
+   "locatorMs": 4,
+   "agentStats": {
+    "refs": 10770,
+    "handles": 1
+   },
+   "p50": 237,
+   "p95": 594,
+   "firstMs": 237,
+   "treeBytes": 397713,
+   "printedBytes": 19659,
+   "printedChars": 19594,
+   "treeChars": 397705,
+   "printedTokens": 5801,
+   "treeTokens": 127056,
+   "breakdown": {
+    "agentMs": 217.25,
+    "transportMs": 10.5,
+    "hostMs": 102.75,
+    "diffMs": 7.25,
+    "frames": 1
+   }
+  },
+  "live-amazon-search": {
+   "name": "live-amazon-search",
+   "runs": [
+    {
+     "snapMs": 191,
+     "printMs": 4,
+     "timing": {
+      "frames": 4,
+      "agentMs": 156,
+      "callMs": 203,
+      "captureMs": 191,
+      "diffMs": 0,
+      "totalMs": 191
+     },
+     "treeChars": 61277,
+     "printedChars": 19636
+    },
+    {
+     "snapMs": 51,
+     "printMs": 0,
+     "timing": {
+      "frames": 4,
+      "agentMs": 36,
+      "callMs": 48,
+      "captureMs": 51,
+      "diffMs": 0,
+      "totalMs": 51
+     },
+     "treeChars": 61277,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 69,
+     "printMs": 0,
+     "timing": {
+      "frames": 4,
+      "agentMs": 32,
+      "callMs": 43,
+      "captureMs": 69,
+      "diffMs": 0,
+      "totalMs": 69
+     },
+     "treeChars": 61277,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 49,
+     "printMs": 0,
+     "timing": {
+      "frames": 4,
+      "agentMs": 33,
+      "callMs": 43,
+      "captureMs": 49,
+      "diffMs": 0,
+      "totalMs": 49
+     },
+     "treeChars": 61277,
+     "printedChars": 116
+    },
+    {
+     "snapMs": 60,
+     "printMs": 0,
+     "timing": {
+      "frames": 4,
+      "agentMs": 38,
+      "callMs": 47,
+      "captureMs": 59,
+      "diffMs": 0,
+      "totalMs": 60
+     },
+     "treeChars": 61277,
+     "printedChars": 116
+    }
+   ],
+   "gotoMs": 1755,
+   "printed": "title: Amazon.com : usb c cable\nurl: https://www.amazon.com/s?k=usb+c+cable\n- navigation \"Shortcuts menu\" [ref=e1]:\n  - heading \"Skip to\" [level=2]\n  - list \"Skip to\" [ref=e2]:\n    - link \"main content\" [ref=e3]\n    - link \"Results\" [ref=e4]\n    - link \"Filters\" [ref=e5]\n  - heading \"Keyboard shortcuts\" [level=2]\n  - list \"Keyboard shortcuts\" [ref=e6]:\n    - link \"Search, option, forward slash\" [ref=e7]\n    - link \"Cart, shift, option, c\" [ref=e8]\n    - link \"Home, shift, option, h\" [ref=e9]\n    - link \"Your orders, shift, option, o\" [ref=e10]\n    - button \"Show/hide shortcuts, shift, option, z\" [ref=e11]\n  - text: \"To move between items, use your keyboard's up or down arrows.\"\n- banner:\n  - navigation \"Primary\" [ref=e12]:\n    - link \"Amazon\" [ref=e13]\n    - button \"Delivering to San Franc... 94105 Update location\" [ref=e14]\n    - search:\n      - text: \"All\"\n      - combobox \"Select the department you want to search in\" [ref=e15] [options: All Departments, Alexa Skills, Amazon Autos, Amazon Devices, Amazon Fresh, Amazon Global Store, Amazon Haul, Amazon One Medical, Amazon Pharmacy, Amazon Resale, +53 more]: \"All Departments\"\n      - searchbox \"Search Amazon\" [ref=e16] [expanded=false]: \"usb c cable\"\n      - generic [ref=e17]:\n        - button \"Go\" [ref=e18]\n    - link \"Choose a language for shopping in Amazon United States. The current selection is English (EN).\" [ref=e19]:\n      - img \"United States\"\n      - text: \"EN\"\n    - button \"Expand to Change Language or Country\" [ref=e20]\n    - link \"Hello, sign in Account & Lists\" [ref=e21]\n    - button \"Expand Account and Lists\" [ref=e22]\n    - link \"Returns & Orders\" [ref=e23]\n    - link \"0 items in cart\" [ref=e24]\n    - link \"Sign in\" [ref=e25]\n    - text: \"New customer?\"\n    - link \"New to Amazon? Start here to create an account\" [ref=e26]: \"Start here.\"\n    - button \"Open All Categories Menu\" [ref=e27] [expanded=false]\n    - list:\n      - link \"Early Prime Deals\" [ref=e28]\n      - link \"Groceries\" [ref=e29]\n      - l",
+   "diff": {
+    "snapMs": 52,
+    "printMs": 0,
+    "timing": {
+     "frames": 4,
+     "agentMs": 35,
+     "callMs": 46,
+     "captureMs": 50,
+     "diffMs": 2,
+     "totalMs": 52
+    },
+    "diffChars": 307,
+    "printedChars": 307,
+    "usesDiff": true,
+    "printed": "title: Amazon.com : usb c cable\nurl: https://www.amazon.com/s?k=usb+c+cable\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - navigation \"Shortcuts menu\" [ref=e1]:\n-   - heading \"Skip to\" [level=2]\n+   - heading \"Skip to (changed)\" [level=2]\n~   - list \"Skip to (changed)\" [ref=e2]:"
+   },
+   "refCount": 664,
+   "locatorMs": 7,
+   "agentStats": {
+    "refs": 656,
+    "handles": 4
+   },
+   "p50": 60,
+   "p95": 191,
+   "firstMs": 191,
+   "treeBytes": 61334,
+   "printedBytes": 19762,
+   "printedChars": 19636,
+   "treeChars": 61277,
+   "printedTokens": 6215,
+   "treeTokens": 18826,
+   "breakdown": {
+    "agentMs": 34.75,
+    "transportMs": 10.5,
+    "hostMs": 12,
+    "diffMs": 0,
+    "frames": 4
+   }
+  },
+  "live-hn-thread": {
+   "name": "live-hn-thread",
+   "runs": [
+    {
+     "snapMs": 270,
+     "printMs": 30,
+     "timing": {
+      "frames": 1,
+      "agentMs": 225,
+      "callMs": 247,
+      "captureMs": 270,
+      "diffMs": 0,
+      "totalMs": 270
+     },
+     "treeChars": 326175,
+     "printedChars": 19900
+    },
+    {
+     "snapMs": 167,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 142,
+      "callMs": 147,
+      "captureMs": 165,
+      "diffMs": 2,
+      "totalMs": 167
+     },
+     "treeChars": 326175,
+     "printedChars": 174
+    },
+    {
+     "snapMs": 172,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 134,
+      "callMs": 148,
+      "captureMs": 163,
+      "diffMs": 9,
+      "totalMs": 172
+     },
+     "treeChars": 326175,
+     "printedChars": 174
+    },
+    {
+     "snapMs": 170,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 135,
+      "callMs": 152,
+      "captureMs": 169,
+      "diffMs": 1,
+      "totalMs": 170
+     },
+     "treeChars": 326175,
+     "printedChars": 174
+    },
+    {
+     "snapMs": 180,
+     "printMs": 0,
+     "timing": {
+      "frames": 1,
+      "agentMs": 130,
+      "callMs": 149,
+      "captureMs": 167,
+      "diffMs": 4,
+      "totalMs": 171
+     },
+     "treeChars": 326175,
+     "printedChars": 174
+    }
+   ],
+   "gotoMs": 316,
+   "printed": "title: GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price | Hacker News\nurl: https://news.ycombinator.com/item?id=49896586\n- link [ref=e1] [url=/]\n- link \"Hacker News\" [ref=e2]\n- link \"new\" [ref=e3]\n- link \"past\" [ref=e4]\n- link \"comments\" [ref=e5]\n- link \"ask\" [ref=e6]\n- link \"show\" [ref=e7]\n- link \"jobs\" [ref=e8]\n- link \"submit\" [ref=e9]\n- link \"login\" [ref=e10]\n- link \"upvote\" [ref=e11]\n- link \"GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price\" [ref=e12] [url=openai.com/index/\u2026]\n- link \"openai.com\" [ref=e13]\n- text: \"923 points by\"\n- link \"crorella\" [ref=e14]\n- link \"15 hours ago\" [ref=e15]\n- link \"hide\" [ref=e16]\n- link \"past\" [ref=e17] [url=hn.algolia.com/\u2026]\n- link \"favorite\" [ref=e18]\n- link \"819 comments\" [ref=e19]\n- textbox [ref=e20]\n- link \"help\" [ref=e21]\n- button \"add comment\" [ref=e22]\n- link \"upvote\" [ref=e23]\n- link \"minimaxir\" [ref=e24]\n- link \"15 hours ago\" [ref=e25]\n- link \"[\u2013]\" [ref=e26]\n- text: \"> Cached input costs just $0.10 per million tokens\u201495% less than standard input pricing and 50% less than GPT\u20116 Sol\u2019s cached input pricing\"\n- text: \"This is the actual big announcement. 50% cheaper cache than GPT-6 Sol will get you far more mileage on Codex.\"\n- link \"reply\" [ref=e27]\n- link \"upvote\" [ref=e28]\n- link \"joshstrange\" [ref=e29]\n- link \"15 hours ago\" [ref=e30]\n- link \"[\u2013]\" [ref=e31]\n- text: \"> 50% cheaper cache than GPT-6 Sol will get you far more mileage on Codex.\"\n- text: \"Cache doesn't help you much when you are compacting every 5 minutes...\"\n- text: \"I was shocked at how quickly I ran out my $100/mo subscription with a single agent (sol medium).\"\n- link \"reply\" [ref=e32]\n- link \"upvote\" [ref=e33]\n- link \"redox99\" [ref=e34]\n- link \"14 hours ago\" [ref=e35]\n- link \"[\u2013]\" [ref=e36]\n- text: \"If you run out of sol medium with $100 you're doing something wrong. Astra destroys your usage, I get 1 day of usage with Astra, but 6 sol is almost unlimited and I only use xhigh.\"\n- link \"reply\" [ref=e37]\n- link \"upvote\" [ref=e38]\n- li",
+   "diff": {
+    "snapMs": 196,
+    "printMs": 0,
+    "timing": {
+     "frames": 1,
+     "agentMs": 139,
+     "callMs": 144,
+     "captureMs": 182,
+     "diffMs": 14,
+     "totalMs": 196
+    },
+    "diffChars": 228,
+    "printedChars": 228,
+    "usesDiff": true,
+    "printed": "title: GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price | Hacker News\nurl: https://news.ycombinator.com/item?id=49896586\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n+ - text: \"perf change\""
+   },
+   "refCount": 4145,
+   "locatorMs": 5,
+   "agentStats": {
+    "refs": 4145,
+    "handles": 1
+   },
+   "p50": 172,
+   "p95": 270,
+   "firstMs": 270,
+   "treeBytes": 328246,
+   "printedBytes": 20034,
+   "printedChars": 19900,
+   "treeChars": 326175,
+   "printedTokens": 5946,
+   "treeTokens": 98361,
+   "breakdown": {
+    "agentMs": 135.25,
+    "transportMs": 13.75,
+    "hostMs": 21,
+    "diffMs": 4,
+    "frames": 1
+   }
+  }
+ },
+ "overhead": [
+  {
+   "wall": 110,
+   "inApp": 0
+  },
+  {
+   "wall": 49,
+   "inApp": 0
+  },
+  {
+   "wall": 57,
+   "inApp": 0
+  },
+  {
+   "wall": 77,
+   "inApp": 0
+  },
+  {
+   "wall": 83,
+   "inApp": 0
+  },
+  {
+   "wall": 55,
+   "inApp": 0
+  },
+  {
+   "wall": 57,
+   "inApp": 0
+  },
+  {
+   "wall": 58,
+   "inApp": 0
+  },
+  {
+   "wall": 233,
+   "inApp": 0
+  },
+  {
+   "wall": 88,
+   "inApp": 0
+  },
+  {
+   "wall": 78,
+   "inApp": 0
+  },
+  {
+   "wall": 40,
+   "inApp": 0
+  },
+  {
+   "wall": 64,
+   "inApp": 0
+  },
+  {
+   "wall": 128,
+   "inApp": 0
+  },
+  {
+   "wall": 53,
+   "inApp": 0
+  },
+  {
+   "wall": 101,
+   "inApp": 0
+  },
+  {
+   "wall": 65,
+   "inApp": 0
+  },
+  {
+   "wall": 62,
+   "inApp": 0
+  },
+  {
+   "wall": 35,
+   "inApp": 0
+  },
+  {
+   "wall": 40,
+   "inApp": 0
+  }
+ ],
+ "leak": {
+  "name": "leak",
+  "sizes": [
+   {
+    "refs": 1600,
+    "handles": 8
+   },
+   {
+    "refs": 1600,
+    "handles": 8
+   },
+   {
+    "refs": 3600,
+    "handles": 18
+   },
+   {
+    "refs": 2000,
+    "handles": 10
+   },
+   {
+    "refs": 1600,
+    "handles": 8
+   },
+   {
+    "refs": 400,
+    "handles": 2
+   },
+   {
+    "refs": 200,
+    "handles": 1
+   },
+   {
+    "refs": 800,
+    "handles": 4
+   },
+   {
+    "refs": 2800,
+    "handles": 14
+   },
+   {
+    "refs": 1800,
+    "handles": 9
+   }
+  ],
+  "heap": null
+ },
+ "note": "live-wikipedia-cities rerun: the first run caught the page busy (p50 390 ms, agent 374 ms); rerun p50 51 ms"
+}

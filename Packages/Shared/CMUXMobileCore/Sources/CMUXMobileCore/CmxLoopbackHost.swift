@@ -97,10 +97,7 @@ private extension CmxLoopbackHost {
     /// it is not an IPv6 literal. A zone index suffix (`%lo0`) is stripped
     /// first: the zone scopes which interface dials, not which address.
     func ipv6Bytes(_ host: String) -> [UInt8]? {
-        var literal = host
-        if let zoneSeparator = literal.firstIndex(of: "%") {
-            literal = String(literal[..<zoneSeparator])
-        }
+        let literal = String(host.prefix { $0 != "%" })
         var address = in6_addr()
         guard inet_pton(AF_INET6, literal, &address) == 1 else {
             return nil
@@ -116,12 +113,12 @@ private extension CmxLoopbackHost {
         }
         // `::1` (loopback) and `::` (unspecified; connects locally like
         // 0.0.0.0): first 15 bytes zero, last byte 0 or 1.
-        if bytes[0..<15].allSatisfy({ $0 == 0 }), bytes[15] <= 1 {
+        if bytes.prefix(15).allSatisfy({ $0 == 0 }), bytes[15] <= 1 {
             return true
         }
         // IPv4-mapped (`::ffff:a.b.c.d`) and the deprecated IPv4-compatible
         // (`::a.b.c.d`) forms: classify by the embedded IPv4 first octet.
-        let prefixIsZero = bytes[0..<10].allSatisfy { $0 == 0 }
+        let prefixIsZero = bytes.prefix(10).allSatisfy { $0 == 0 }
         let isMapped = prefixIsZero && bytes[10] == 0xFF && bytes[11] == 0xFF
         let isCompatible = prefixIsZero && bytes[10] == 0 && bytes[11] == 0
         if isMapped || isCompatible {

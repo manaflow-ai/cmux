@@ -1,0 +1,34 @@
+name: cmux-next guards
+
+# ci.yml skips its guards for feat-cmux-next (cmux-next.yml is that branch's
+# CI) and never runs on push, so nothing ran the release and nightly guard
+# tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
+# unseen. nightly-next ships from feat-cmux-next, so run the release-notary
+# group (nightly, notarization, nightly-next guard and publication tests) for
+# its pull requests and pushes. It takes under a minute; there is no path
+# filter so a base red shows on the push that caused it.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+  push:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  nightly-guards:
+    permissions:
+      contents: read
+      checks: read
+    uses: ./.github/workflows/ci-guards.yml
+    with:
+      linux_guard_tests: ${{ 'true' }}
+      linux_guard_test_groups: '["release-notary"]'
+      linux_guard_history: ${{ 'false' }}
+      linux_guard_cli: ${{ 'false' }}
+      linux_guard_source: ${{ 'false' }}

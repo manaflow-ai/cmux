@@ -24,6 +24,7 @@
 #   scripts/dev-setup.sh --tag grid --surface ios   # iOS only (needs Mac listener up)
 #   scripts/dev-setup.sh --tag grid --no-pair       # build both, skip auto-pair
 #   scripts/dev-setup.sh --tag grid --agent         # sign in as the agent account
+#   scripts/dev-setup.sh --tag grid --device        # physical iPhone, hosted DEV backend
 #
 # Flags:
 #   --tag <t>           required; tags the macOS + iOS dev builds.
@@ -131,6 +132,20 @@ if [[ -z "$AUTH_ACCOUNT" ]]; then
   exit 2
 fi
 echo "==> dev auth contract: $AUTH_PROFILE ($AUTH_ACCOUNT)"
+
+# A physical phone cannot reach the Mac's localhost API. Select the hosted DEV
+# backend for both tagged apps before either build starts, so a new teammate's
+# first device run does not depend on remembering two origin overrides. Keep
+# explicit caller values intact for controlled local or staging experiments.
+if [[ "$IOS_TARGET" == "device" && ( "$SURFACE" == "ios" || "$SURFACE" == "both" ) ]]; then
+  if [[ -z "${CMUX_DEV_API_BASE_URL:-}" ]]; then
+    export CMUX_DEV_API_BASE_URL="https://cmux-staging.vercel.app"
+  fi
+  if [[ -z "${CMUX_IROH_BROKER_BASE_URL:-}" ]]; then
+    export CMUX_IROH_BROKER_BASE_URL="https://cmux-staging.vercel.app"
+  fi
+  echo "==> physical-device dev backend: $CMUX_DEV_API_BASE_URL"
+fi
 
 # --- tag identity (delegated to scripts/lib/mobile-attach.sh) ----------------
 # slug -> socket path + DerivedData; tag-id -> bundle id. The shared lib owns the

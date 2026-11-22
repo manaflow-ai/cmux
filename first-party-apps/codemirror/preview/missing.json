@@ -1,0 +1,11 @@
+{
+  "init": {
+    "settings": {
+      "variant": "statusLine"
+    },
+    "props": {
+      "doc": "doc_routes"
+    }
+  },
+  "ops": {}
+}

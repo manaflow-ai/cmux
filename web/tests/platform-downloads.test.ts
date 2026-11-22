@@ -13,7 +13,7 @@ import {
   WAITLIST_PLATFORMS,
   platformMenuSectionsForAvailability,
 } from "../app/lib/download";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import { locales } from "../i18n/routing";
 import en from "../messages/en.json";
 

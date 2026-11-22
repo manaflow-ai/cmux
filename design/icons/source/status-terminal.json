@@ -1,0 +1,500 @@
+{
+ "batch": "status-terminal",
+ "icons": [
+  {
+   "name": "browserprofile.badge",
+   "meaning": "Browser profile badge (initial/emoji)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='9.25'/></svg>",
+   "alts": [
+    {
+     "label": "person in circle (no initial set)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='10' r='3'/><path d='M6.75 18.25a6 6 0 0 1 10.5 0'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-browserprofile-badge-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='10' r='3' fill='#000'/><path d='M6.75 18.75a6 6 0 0 1 10.5 0' fill='#000'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-browserprofile-badge-alt1)'><circle cx='12' cy='12' r='8.5'/></g></svg>"
+    }
+   ],
+   "note": "Container only: the app draws the initial/emoji centered (knocked out of Solid, ink on Line). Person alt when the profile has no initial.",
+   "replaces": [
+    "circle layer"
+   ]
+  },
+  {
+   "name": "browserprofile.dot",
+   "meaning": "Browser profile color dot on a tab",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.5' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8'/></svg>",
+   "alts": [],
+   "note": "Plain dot tinted with the profile color. When a layer draws the dot at its own diameter instead of in an icon slot, scale to r 9.25 (full box).",
+   "replaces": [
+    "circle layer"
+   ]
+  },
+  {
+   "name": "color.clear",
+   "meaning": "No color / none",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M6 6l12 12'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-color-clear' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M5 5l14 14'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-color-clear)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "Same drawing as state.off (slashed ring); sits next to color.swatch discs, so the hollow ring reads as 'no fill'.",
+   "replaces": [
+    "circle.slash"
+   ]
+  },
+  {
+   "name": "color.swatch",
+   "meaning": "Color swatch for a named color",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='7.48'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='5.376' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8.181'/></svg>",
+   "alts": [],
+   "note": "Filled disc tinted with the color. Solid (current/selected color) = smaller disc inside a ring, like the macOS color well.",
+   "replaces": [
+    "circle.fill",
+    "CAShapeLayer ellipse",
+    "circle layer"
+   ]
+  },
+  {
+   "name": "data.storage",
+   "meaning": "Cookies and site data / database",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6.5c0-1.52 3.36-2.75 7.5-2.75s7.5 1.23 7.5 2.75v11c0 1.52-3.36 2.75-7.5 2.75S4.5 19.02 4.5 17.5Z'/><path d='M4.5 6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/><path d='M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-data-storage' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/><path d='M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-data-storage)'><path d='M4.5 6.5c0-1.52 3.36-2.75 7.5-2.75s7.5 1.23 7.5 2.75v11c0 1.52-3.36 2.75-7.5 2.75S4.5 19.02 4.5 17.5Z'/></g></svg>",
+   "alts": [],
+   "note": "Same cylinder as database (same source, same meaning: stored data).",
+   "replaces": [
+    "cylinder.split.1x2"
+   ]
+  },
+  {
+   "name": "database",
+   "meaning": "Database",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6.5c0-1.52 3.36-2.75 7.5-2.75s7.5 1.23 7.5 2.75v11c0 1.52-3.36 2.75-7.5 2.75S4.5 19.02 4.5 17.5Z'/><path d='M4.5 6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/><path d='M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-database' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 6.5c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/><path d='M4.5 12c0 1.52 3.36 2.75 7.5 2.75s7.5-1.23 7.5-2.75'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-database)'><path d='M4.5 6.5c0-1.52 3.36-2.75 7.5-2.75s7.5 1.23 7.5 2.75v11c0 1.52-3.36 2.75-7.5 2.75S4.5 19.02 4.5 17.5Z'/></g></svg>",
+   "alts": [],
+   "note": "Cylinder with one band (split 1x2).",
+   "replaces": [
+    "cylinder.split.1x2"
+   ]
+  },
+  {
+   "name": "icon.missing",
+   "meaning": "Unknown / missing icon",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='2.285' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/><path d='M9.944 9.944a2.057 2.057 0 1 1 2.879 1.883c-0.503 0.229 -0.823 0.685 -0.823 1.234v0.311'/><circle cx='12' cy='16.113' r='0.914' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='2.285' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/><path d='M9.944 9.944a2.057 2.057 0 1 1 2.879 1.883c-0.503 0.229 -0.823 0.685 -0.823 1.234v0.311'/><circle cx='12' cy='16.113' r='1.051' fill='currentColor' stroke='none'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='5.602' width='15.538' height='14.167' rx='2.285' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/><path d='M9.944 10.857a2.057 2.057 0 1 1 2.879 1.883c-0.503 0.229 -0.823 0.685 -0.823 1.234v0.311'/><circle cx='12' cy='16.799' r='0.914' fill='currentColor' stroke='none'/><path class='accent' stroke='var(--accent)' d='M6.059 5.602V3.317l1.828 1.828M17.941 5.602V3.317l-1.828 1.828'/></svg>",
+   "alts": [],
+   "note": "placeholder + drawn question mark. Cat: ears on the dashed box (a stray cat for a missing icon).",
+   "replaces": [
+    "questionmark.square.dashed"
+   ]
+  },
+  {
+   "name": "notification",
+   "meaning": "Notifications",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z'/><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3a6 6 0 0 0-6 6v4.5l-1.5 3.25h15L18 13.5V9a6 6 0 0 0-6-6Z' fill='currentColor'/><path d='M10.25 19.25a1.75 1.75 0 0 0 3.5 0'/></svg>",
+   "alts": [],
+   "note": "Bell with a flared rim and a small clapper. Solid fills the bell, clapper stays a stroke.",
+   "replaces": [
+    "bell"
+   ]
+  },
+  {
+   "name": "placeholder",
+   "meaning": "Unknown kind / pane borders",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='2.285' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='2.285' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/></svg>",
+   "alts": [],
+   "note": "Dashed rounded square, 8 dashes so gaps survive at 12 px. Solid stays dashed (stroke 2).",
+   "replaces": [
+    "square.dashed"
+   ]
+  },
+  {
+   "name": "profile.dot",
+   "meaning": "Space (profile) dot in the profile bar",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.5' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8'/></svg>",
+   "alts": [],
+   "note": "Plain dot tinted with the space color; Solid (selected/hover) adds the ring, as group.collapsed.dot. When a layer draws the dot at its own diameter instead of in an icon slot, scale to r 9.25 (full box).",
+   "replaces": [
+    "NSBezierPath oval"
+   ]
+  },
+  {
+   "name": "server.health",
+   "meaning": "Server health",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.299' y='4.299' width='15.402' height='15.402' rx='2.265'/><path d='M7.017 12.453h2.492l1.359 -3.171 2.265 6.342 1.359 -3.171h2.492'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-server-health' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.017 12.453h2.492l1.359 -3.171 2.265 6.342 1.359 -3.171h2.492'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-server-health)'><rect x='4.299' y='4.299' width='15.402' height='15.402' rx='2.265'/></g></svg>",
+   "alts": [
+    {
+     "label": "heart with pulse",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 19.5C7.25 16.25 3.75 13 3.75 9.25A4.25 4.25 0 0 1 12 7.25a4.25 4.25 0 0 1 8.25 2c0 3.75-3.5 7-8.25 10.25Z'/><path d='M7.5 12h2l1.25-2 2 4 1.25-2h2.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-server-health-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 12h2l1.25-2 2 4 1.25-2h2.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-server-health-alt1)'><path d='M12 19.5C7.25 16.25 3.75 13 3.75 9.25A4.25 4.25 0 0 1 12 7.25a4.25 4.25 0 0 1 8.25 2c0 3.75-3.5 7-8.25 10.25Z'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: pulse line in a rounded square (monitor-ish, no organ). Heart alt reads 'favorite' at 12 px.",
+   "replaces": [
+    "heart.text.square"
+   ]
+  },
+  {
+   "name": "state.changed",
+   "meaning": "Changed (debug)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M8.75 15.25l.6-2.35 4.65-4.65a1.15 1.15 0 0 1 1.65 1.65L11 14.6Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-state-changed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M8.75 15.25l.6-2.35 4.65-4.65a1.15 1.15 0 0 1 1.65 1.65L11 14.6Z'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-state-changed)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "Small pencil in the ring (debug sidebar only). Mush below 14 px; acceptable for a debug row.",
+   "replaces": [
+    "pencil.circle"
+   ]
+  },
+  {
+   "name": "state.idle",
+   "meaning": "Idle / hibernate after 1h",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path class='accent' stroke='var(--accent)' d='M10.048 9.614h3.904l-3.904 4.772h3.904'/></svg>",
+   "alts": [
+    {
+     "label": "moon (hibernate setting)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M19.375 13.756A7.492 7.492 0 1 1 10.244 4.625a6.087 6.087 0 0 0 9.131 9.131Z'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M19.375 13.756A7.492 7.492 0 1 1 10.244 4.625a6.087 6.087 0 0 0 9.131 9.131Z' fill='currentColor'/></svg>"
+    }
+   ],
+   "note": "Hollow circle per SPEC (= task.status.todo). Cat: a sleeper z inside the ring (a z outside the shoulder read as the male sign at 12 px). Moon alt for the Hibernate setting row, distinct from action.snooze (moon + z).",
+   "replaces": [
+    "moon"
+   ]
+  },
+  {
+   "name": "state.off",
+   "meaning": "Off / disabled / none",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M6.794 6.794l10.412 10.412'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-state-off' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M5.926 5.926l12.147 12.147'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-state-off)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [
+    {
+     "label": "plain ring (unchecked / empty)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/></svg>"
+    }
+   ],
+   "note": "Slashed circle per SPEC, slash in the shared top-left -> bottom-right direction. Unchecked/empty rows and the sidebar fallback should use alt1 (plain ring); fallback icons could also use icon.missing.",
+   "replaces": [
+    "circle"
+   ]
+  },
+  {
+   "name": "state.pinned",
+   "meaning": "Pinned",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 3.5h6a1.25 1.25 0 0 1 0 2.5h-.5v4l3 2.5V15h-11v-2.5l3-2.5V6H9a1.25 1.25 0 0 1 0-2.5Z'/><path d='M12 15v5.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 3.5h6a1.25 1.25 0 0 1 0 2.5h-.5v4l3 2.5V15h-11v-2.5l3-2.5V6H9a1.25 1.25 0 0 1 0-2.5Z' fill='currentColor'/><path d='M12 15v5.5'/></svg>",
+   "alts": [],
+   "note": "Same pin as action.pin. The pinned indicator (tab strip, 8.5 pt) should draw Solid; Line exists for symmetry.",
+   "replaces": [
+    "pin.fill"
+   ]
+  },
+  {
+   "name": "state.selected",
+   "meaning": "Selected / done checkmark",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 12.169l4.388 4.388L18.75 7.444'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 12.169l4.388 4.388L18.75 7.444'/></svg>",
+   "alts": [],
+   "note": "Bare check, same geometry as action.confirm. Never in a circle (that is status.success).",
+   "replaces": [
+    "checkmark",
+    "CheckIcon (ComposerPickers)",
+    "Check (conversation/icons)",
+    "Check (changeIcons)"
+   ]
+  },
+  {
+   "name": "status.attention",
+   "meaning": "Waiting/attention dot (pulse)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><circle cx='12' cy='12' r='2.82' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-attention' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.555' stroke-width='2'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-attention)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "Same glyph as status.needsinput (both mean 'waiting on you'); the tab strip animates the ring. A bare dot stays reserved for unread/connection dots.",
+   "replaces": [
+    "StatusIndicatorLayer .dot"
+   ]
+  },
+  {
+   "name": "status.complete",
+   "meaning": "Completed / toggled on",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-complete' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.746 12.217l2.169 2.169L15.254 9.831'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-complete)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-complete' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.746 12.217l2.169 2.169L15.254 9.831'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-complete)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "The filled form of status.success in both styles (source is .fill; it is the 'on' half of a toggle whose 'off' half is the plain ring, state.off alt1).",
+   "replaces": [
+    "checkmark.circle.fill"
+   ]
+  },
+  {
+   "name": "status.critical",
+   "meaning": "Critical",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.95v4.5'/><circle cx='12' cy='15.6' r='0.99' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical)'><path d='M8.625 3.9h6.75L20.1 8.625v6.75L15.375 20.1h-6.75L3.9 15.375v-6.75Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.95v4.5'/><circle cx='12' cy='15.6' r='0.99' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical)'><path d='M8.625 3.9h6.75L20.1 8.625v6.75L15.375 20.1h-6.75L3.9 15.375v-6.75Z'/></g></svg>",
+   "alts": [
+    {
+     "label": "outline octagon + bang (16 px and up only)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.554 3.729h6.893L20.271 8.554v6.893L15.446 20.271h-6.893L3.729 15.446v-6.893Z'/><path d='M12 7.864v4.595'/><circle cx='12' cy='15.676' r='0.919' fill='currentColor' stroke='none'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical-alt0' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.864v4.595'/><circle cx='12' cy='15.676' r='1.011' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical-alt0)'><path d='M8.554 3.729h6.893L20.271 8.554v6.893L15.446 20.271h-6.893L3.729 15.446v-6.893Z'/></g></svg>"
+    },
+    {
+     "label": "filled x disc (error, Solid)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.52 9.52l4.961 4.961M14.481 9.52l-4.961 4.961'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical-alt1)'><circle cx='12' cy='12' r='7.667'/></g></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-critical-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.52 9.52l4.961 4.961M14.481 9.52l-4.961 4.961'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-critical-alt1)'><circle cx='12' cy='12' r='7.667'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: filled octagon + bang in both styles: at 12 px an outline octagon reads as a circle and collides with info/disconnected. Same octagon as policy.reject, which carries a bar). One step past error and still not a triangle. Alt: just error's filled disc if Cloud wants only three severities.",
+   "replaces": [
+    "exclamationmark.octagon.fill"
+   ]
+  },
+  {
+   "name": "status.disconnected",
+   "meaning": "Session disconnected",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M12 8.096v4.338'/><circle cx='12' cy='15.471' r='0.868' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-disconnected' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8.096v4.338'/><circle cx='12' cy='15.471' r='0.954' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-disconnected)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [
+    {
+     "label": "broken ring (two arcs, opposite gaps)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.28 8.373A7.252 7.252 0 0 1 13.877 19.004'/><path d='M5.72 15.627A7.252 7.252 0 0 1 10.123 4.996'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.28 8.373A7.252 7.252 0 0 1 13.877 19.004'/><path d='M5.72 15.627A7.252 7.252 0 0 1 10.123 4.996'/></svg>"
+    },
+    {
+     "label": "ring with a gap-cut slash (= state.off)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M6.794 6.794l10.412 10.412'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-disconnected-alt2' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M5.926 5.926l12.147 12.147'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-disconnected-alt2)'><circle cx='12' cy='12' r='7.375'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: circled bang (keeps today's sidebar meaning; inverse of status.info's i, the dot sits low). Broken-ring alt avoids the bang but competes with status.running at 12 px.",
+   "replaces": [
+    "DisconnectedIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "status.dot",
+   "meaning": "Machine/section connection status dot",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.5' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8'/></svg>",
+   "alts": [],
+   "note": "Plain dot; the app tints it (connected/error). Same dot as group.collapsed.dot (r 4.5). When a layer draws the dot at its own diameter instead of in an icon slot, scale to r 9.25 (full box).",
+   "replaces": [
+    "circle layer"
+   ]
+  },
+  {
+   "name": "status.error",
+   "meaning": "Error / failed",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M9.614 9.614l4.772 4.772M14.386 9.614l-4.772 4.772'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-error' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.614 9.614l4.772 4.772M14.386 9.614l-4.772 4.772'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-error)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "x in circle per SPEC (NOT the triangle). Same x as field.clear; field.clear is a control, error a state, and the row context separates them.",
+   "replaces": [
+    "exclamationmark.triangle.fill"
+   ]
+  },
+  {
+   "name": "status.info",
+   "meaning": "Info / about / details",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M12 11.132v4.772'/><circle cx='12' cy='8.312' r='0.868' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-info' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 11.132v4.772'/><circle cx='12' cy='8.312' r='0.954' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-info)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "Drawn i: stem + dot, no serifs (they fill in at 12 px).",
+   "replaces": [
+    "info.circle"
+   ]
+  },
+  {
+   "name": "status.inprogress",
+   "meaning": "Task in progress",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M12 8.096a3.904 3.904 0 0 1 0 7.809Z' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M12 7.662a4.338 4.338 0 0 1 0 8.676Z' fill='currentColor' stroke='none'/></svg>",
+   "alts": [
+    {
+     "label": "running arc (same as status.running)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.625A7.375 7.375 0 1 1 4.625 12'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.625A7.375 7.375 0 1 1 4.625 12'/></svg>"
+    },
+    {
+     "label": "dotted ring (source)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.045' pathLength='36' stroke-dasharray='0 3' stroke-width='2'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.045' pathLength='36' stroke-dasharray='0 3' stroke-width='2.5'/></svg>"
+    }
+   ],
+   "note": "Preferred: half-filled ring = task.status.started, so a todo list reads ring -> half -> check (state.off alt1 / status.inprogress / status.complete). Running arc alt if it should look busy rather than partway.",
+   "replaces": [
+    "circle.dotted"
+   ]
+  },
+  {
+   "name": "status.needsinput",
+   "meaning": "Session needs input (pending permission/question)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><circle cx='12' cy='12' r='2.82' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-needsinput' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.555' stroke-width='2'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-needsinput)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "Dot inside its pulse ring (SPEC). Solid = disc with a knocked gap ring around the center dot. The current shield+bang reads as security, which permission cards own.",
+   "replaces": [
+    "NeedsInputIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "status.progress",
+   "meaning": "Busy with known progress: ring",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='11.494' cy='12' r='6.36'/><path d='M11.494 5.64A6.36 6.36 0 1 1 7.754 17.142' stroke-width='3.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11.494' cy='12' r='6.36'/><path d='M11.494 5.64A6.36 6.36 0 1 1 7.754 17.142' stroke-width='4'/></svg>",
+   "alts": [
+    {
+     "label": "arc with dotted remainder",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M11.888 4.625A7.375 7.375 0 1 1 7.553 17.963'/><circle cx='4.871' cy='14.28' r='0.76' fill='currentColor' stroke='none'/><circle cx='4.871' cy='9.72' r='0.76' fill='currentColor' stroke='none'/><circle cx='7.553' cy='6.037' r='0.76' fill='currentColor' stroke='none'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M11.888 4.625A7.375 7.375 0 1 1 7.553 17.963'/><circle cx='4.871' cy='14.28' r='0.939' fill='currentColor' stroke='none'/><circle cx='4.871' cy='9.72' r='0.939' fill='currentColor' stroke='none'/><circle cx='7.553' cy='6.037' r='0.939' fill='currentColor' stroke='none'/></svg>"
+    }
+   ],
+   "note": "Full track ring + a heavy 60% arc (static sample; the app sets the sweep). Full ring keeps it apart from running's open arc and from context.usage's pie.",
+   "replaces": [
+    "StatusIndicatorLayer .ring"
+   ]
+  },
+  {
+   "name": "status.running",
+   "meaning": "Agent/terminal busy: arc spinner",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.625A7.375 7.375 0 1 1 4.625 12'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.625A7.375 7.375 0 1 1 4.625 12'/></svg>",
+   "alts": [],
+   "note": "3/4 of the r 8.5 ring, open top-left quadrant, static; the app rotates it. Replaces the braille and native spinners too.",
+   "replaces": [
+    "StatusIndicatorLayer .arc",
+    "StatusIndicatorLayer .native",
+    "StatusIndicatorLayer .braille",
+    "StatusIndicatorView",
+    "WorkingIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "status.success",
+   "meaning": "Success / done / confirmed / on",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.375'/><path d='M8.746 12.217l2.169 2.169L15.254 9.831'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-success' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.746 12.217l2.169 2.169L15.254 9.831'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-success)'><circle cx='12' cy='12' r='7.375'/></g></svg>",
+   "alts": [],
+   "note": "Check in the r 8.5 ring; identical to task.status.done. In 10-12 px rows prefer Solid (disc) when the row is tinted green.",
+   "replaces": [
+    "checkmark.circle",
+    "StatusIndicatorLayer .check"
+   ]
+  },
+  {
+   "name": "status.warning",
+   "meaning": "Warning / unverified",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.27 4.75a2 2 0 0 1 3.46 0l7.07 12.25a2 2 0 0 1-1.73 3H4.93a2 2 0 0 1-1.73-3Z'/><path d='M12 9.5v4'/><circle cx='12' cy='16.75' r='1' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-status-warning' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 9.5v4'/><circle cx='12' cy='16.75' r='1.1' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-status-warning)'><path d='M10.27 4.75a2 2 0 0 1 3.46 0l7.07 12.25a2 2 0 0 1-1.73 3H4.93a2 2 0 0 1-1.73-3Z'/></g></svg>",
+   "alts": [],
+   "note": "The only triangle in the family. Callers that use the triangle for errors (AgentActivityFormat .error, ServerHealth) move to status.error.",
+   "replaces": [
+    "exclamationmark.triangle"
+   ]
+  },
+  {
+   "name": "system.requirement",
+   "meaning": "Needs a newer macOS",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.558' y='4.496' width='16.884' height='11.725' rx='2.345'/><path d='M12 16.221V19.504M8.717 19.504h6.566'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.558' y='4.496' width='16.884' height='11.725' rx='2.345' fill='currentColor'/><path d='M12 16.221V19.504M8.717 19.504h6.566'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.558' y='5.434' width='16.884' height='10.787' rx='2.345'/><path d='M12 16.221V19.504M8.717 19.504h6.566'/><path class='accent' stroke='var(--accent)' d='M12.469 5.434V3.089l1.876 1.876M18.566 5.434V3.089l-1.876 1.876'/></svg>",
+   "alts": [],
+   "note": "Monitor on a stand. Cat: workspace-reference ears on the screen.",
+   "replaces": [
+    "desktopcomputer"
+   ]
+  },
+  {
+   "name": "terminal",
+   "meaning": "Terminal",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718M12.453 14.718H16.53'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-terminal)'><rect x='3.167' y='4.072' width='17.667' height='15.855' rx='2.945'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path class='accent' stroke='var(--accent)' d='M12.453 14.718H15.624a1.359 1.359 0 0 0 1.359 -1.359V12.453'/></svg>",
+   "alts": [],
+   "note": "Reference glyph, unchanged (Line, Solid and Cat from glyphs.json).",
+   "replaces": [
+    "terminal"
+   ]
+  },
+  {
+   "name": "terminal.copymode",
+   "meaning": "Terminal copy mode",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M14.718 8.829v6.342M13.359 8.829h2.718M13.359 15.171h2.718'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-copymode' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M14.718 8.829v6.342M13.359 8.829h2.718M13.359 15.171h2.718'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-copymode)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='5.658' width='16.308' height='13.59' rx='2.265'/><path d='M7.47 9.735l2.718 2.718 -2.718 2.718M14.718 9.282v6.342M13.359 9.282h2.718M13.359 15.624h2.718'/><path class='accent' stroke='var(--accent)' d='M12.453 5.658V3.393l1.812 1.812M18.342 5.658V3.393l-1.812 1.812'/></svg>",
+   "alts": [
+    {
+     "label": "selection bar over text lines",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='6.564' y='8.376' width='7.248' height='3.171' rx='0.906' fill='currentColor' stroke='none'/><path d='M7.47 14.718h9.06'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-copymode-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='6.564' y='8.376' width='7.248' height='3.171' rx='0.906' fill='#000' stroke='none'/><path d='M7.47 14.718h9.06'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-copymode-alt1)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: the prompt with an I-beam in place of the underscore cursor (text-selection cursor in the terminal). Selection-bar alt reads as a document at 12 px. Cat: ears.",
+   "replaces": [
+    "character.cursor.ibeam",
+    "keyboard.badge.ellipsis"
+   ]
+  },
+  {
+   "name": "terminal.dead",
+   "meaning": "Terminal process exited",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/><path d='M13.133 11.321l3.171 3.171M16.303 11.321l-3.171 3.171'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [
+    {
+     "label": "terminal with x badge (badge pattern)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-dead-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.472' cy='17.472' r='4.332' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-dead-alt1)'><rect x='3.792' y='4.704' width='16.416' height='14.592' rx='2.28'/><path d='M7.44 9.264l2.736 2.736 -2.736 2.736'/></g><path d='M15.876 15.876l3.192 3.192M19.068 15.876l-3.192 3.192'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.44 9.264l2.736 2.736 -2.736 2.736'/></g><circle cx='17.472' cy='17.472' r='4.56' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead-alt1)'><rect x='3.792' y='4.704' width='16.416' height='14.592' rx='2.28'/></g><path d='M15.876 15.876l3.192 3.192M19.068 15.876l-3.192 3.192' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    },
+    {
+     "label": "empty frame, prompt only (dimmed by the app)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-dead-alt2' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.47 9.282l2.718 2.718 -2.718 2.718'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-dead-alt2)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>"
+    }
+   ],
+   "note": "Preferred: the terminal with an x where the cursor was: still a terminal, clearly not running, and no octagon (that is policy.reject/critical). No cat on a dead process.",
+   "replaces": [
+    "xmark.octagon"
+   ]
+  },
+  {
+   "name": "terminal.new",
+   "meaning": "New terminal (sidebar shortcut / on machine)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-terminal-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.445 9.289l2.733 2.733 -2.733 2.733'/></g><circle cx='17.466' cy='17.488' r='4.555' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-terminal-new)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-terminal-new-cat' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-terminal-new-cat)'><rect x='3.801' y='5.645' width='16.398' height='13.665' rx='2.277'/><path d='M7.445 9.745l2.733 2.733 -2.733 2.733'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/><path class='accent' stroke='var(--accent)' d='M5.623 5.645V3.368l1.822 1.822M11.544 5.645V3.368l-1.822 1.822'/></svg>",
+   "alts": [],
+   "note": "Terminal + the shared bottom-right plus badge (SPEC 'new X'). Underscore dropped: a stub left by the badge ring read as '>-+'. Cat: ears moved to the left so they do not crowd the badge.",
+   "replaces": [
+    "apple.terminal"
+   ]
+  },
+  {
+   "name": "unread.badge",
+   "meaning": "Unread count badge on a tab icon",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='7' width='18' height='10' rx='5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><rect x='2.25' y='6.25' width='19.5' height='11.5' rx='5.75'/></svg>",
+   "alts": [],
+   "note": "Capsule container; the count is app text. Single digits use a circle of the same height (r 5.75 Solid). Solid is the normal state.",
+   "replaces": [
+    "round badge layer",
+    "UnreadBadgeView capsule"
+   ]
+  },
+  {
+   "name": "unread.dot",
+   "meaning": "Unread notification dot",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.5' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8'/></svg>",
+   "alts": [],
+   "note": "Plain dot, tinted by the accent. Solid only if a selected row needs it. When a layer draws the dot at its own diameter instead of in an icon slot, scale to r 9.25 (full box).",
+   "replaces": [
+    "circle layer",
+    "NSBezierPath oval"
+   ]
+  }
+ ]
+}

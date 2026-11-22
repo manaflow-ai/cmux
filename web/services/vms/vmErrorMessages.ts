@@ -198,7 +198,30 @@ export async function vmGoLimitCopy(
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }
 
-/** Copy returned when an account's shared Cloud VM resource pool is full. */
+/** Localized copy for a create, resume, resize, or fork that does not fit the shared pool. */
+export async function vmResourcePoolCopy(
+  locale: Locale,
+  values: {
+    readonly resource: "memoryMb" | "vcpus";
+    readonly used: number;
+    readonly pool: number;
+    readonly requested: number;
+    readonly canUpgrade: boolean;
+  },
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.resourcePool",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  const numbers = { used: values.used, pool: values.pool, requested: values.requested };
+  return {
+    title: t("title"),
+    message: t(values.resource === "memoryMb" ? "memoryMessage" : "vcpuMessage", numbers),
+    action: t(values.canUpgrade ? "upgradeAction" : "action"),
+  };
+}
+
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

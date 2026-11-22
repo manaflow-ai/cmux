@@ -1,0 +1,43 @@
+{
+  "oracle": {
+    "keys-value": "aZ",
+    "select-all-delete": "",
+    "hover-visible": true,
+    "dbl": "Double clicked",
+    "ctx": "Context opened",
+    "drop": "Dropped payload",
+    "canvas": "hit right trusted=true",
+    "scrolled": true,
+    "editor": "start typed",
+    "trusted-types": [
+      "blur",
+      "click",
+      "contextmenu",
+      "dblclick",
+      "dragstart",
+      "drop",
+      "focus",
+      "input",
+      "keydown",
+      "keyup",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "wheel"
+    ],
+    "untrusted-events": []
+  },
+  "cmux": {
+    "element-at-canvas": {
+      "ref": "e1",
+      "role": "canvas",
+      "name": "Canvas",
+      "sameBox": true
+    },
+    "element-at-button": {
+      "role": "button",
+      "name": "Double clicked"
+    },
+    "element-at-ref-clicks": 3
+  }
+}

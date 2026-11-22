@@ -1,0 +1,116 @@
+{
+  "description": "Menu token lifecycle on the remote browser host (plans/cmux-next/remote-tab-protocol.md section 5.2). Each case starts with next token 1 and no open menu. After each step the reducer returns exactly these effects (in order) and note, or this reject (state unchanged), and the open menu has this token (null = none). Implementations: cmux-tui/crates/cmux-remote-browser (menu.rs).",
+  "version": 1,
+  "cases": [
+    {
+      "name": "a context menu answered with a listed command",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [100, 101, 102], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "command", "id": 101}},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 1, "choice": {"choice": "command", "id": 101}}], "note": null, "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a second answer for a closed menu is a duplicate with no effect",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [100], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "cancel"}},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 1, "choice": {"choice": "cancel"}}], "note": null, "reject": null, "open": null}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "command", "id": 100}},
+         "expect": {"effects": [], "note": "duplicate", "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a token that was never issued is rejected",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [100], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 7, "choice": {"choice": "cancel"}},
+         "expect": {"effects": [], "note": null, "reject": "unknown_token", "open": 1}},
+        {"input": {"op": "result", "token": 0, "choice": {"choice": "cancel"}},
+         "expect": {"effects": [], "note": null, "reject": "unknown_token", "open": 1}}
+      ]
+    },
+    {
+      "name": "a new menu cancels the open one; the old token's late answer is a duplicate",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [100], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "show", "kind": "select", "item_ids": [], "item_count": 3, "multiple": false},
+         "expect": {"effects": [
+           {"effect": "chrome_cancel", "token": 1},
+           {"effect": "viewer_cancel", "token": 1},
+           {"effect": "viewer_show", "token": 2}], "note": null, "reject": null, "open": 2}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "command", "id": 100}},
+         "expect": {"effects": [], "note": "duplicate", "reject": null, "open": 2}},
+        {"input": {"op": "result", "token": 2, "choice": {"choice": "indices", "indices": [0]}},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 2, "choice": {"choice": "indices", "indices": [0]}}], "note": null, "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a single select needs exactly one index in range; a wrong choice keeps the menu open",
+      "steps": [
+        {"input": {"op": "show", "kind": "select", "item_ids": [], "item_count": 5, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [5]}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [1, 2]}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": []}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "command", "id": 3}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [4]}},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 1, "choice": {"choice": "indices", "indices": [4]}}], "note": null, "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a multiple select takes unique indices in range",
+      "steps": [
+        {"input": {"op": "show", "kind": "select", "item_ids": [], "item_count": 4, "multiple": true},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [0, 2, 2]}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [0, 3]}},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 1, "choice": {"choice": "indices", "indices": [0, 3]}}], "note": null, "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a context menu refuses a command that is not in it",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [1, 2], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "command", "id": 99}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [0]}},
+         "expect": {"effects": [], "note": null, "reject": "invalid_choice", "open": 1}}
+      ]
+    },
+    {
+      "name": "the page closes the menu; later page cancels are stale and answers are duplicates",
+      "steps": [
+        {"input": {"op": "show", "kind": "select", "item_ids": [], "item_count": 2, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "page_cancel", "token": 1},
+         "expect": {"effects": [{"effect": "viewer_cancel", "token": 1}], "note": null, "reject": null, "open": null}},
+        {"input": {"op": "page_cancel", "token": 1},
+         "expect": {"effects": [], "note": "stale", "reject": null, "open": null}},
+        {"input": {"op": "result", "token": 1, "choice": {"choice": "indices", "indices": [1]}},
+         "expect": {"effects": [], "note": "duplicate", "reject": null, "open": null}}
+      ]
+    },
+    {
+      "name": "a viewer that leaves cancels the open menu in Chromium",
+      "steps": [
+        {"input": {"op": "show", "kind": "context", "item_ids": [5], "item_count": 0, "multiple": false},
+         "expect": {"effects": [{"effect": "viewer_show", "token": 1}], "note": null, "reject": null, "open": 1}},
+        {"input": {"op": "viewer_gone"},
+         "expect": {"effects": [{"effect": "chrome_continue", "token": 1, "choice": {"choice": "cancel"}}], "note": null, "reject": null, "open": null}},
+        {"input": {"op": "viewer_gone"},
+         "expect": {"effects": [], "note": null, "reject": null, "open": null}}
+      ]
+    }
+  ]
+}

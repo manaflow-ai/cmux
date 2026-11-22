@@ -1,17 +1,19 @@
 # cmux iOS
 
-SwiftUI iOS/iPadOS shell for the CMUXMobileCore production path.
+The rewritten iOS/iPadOS app (plans/cmux-next/ios-rewrite.md). The app target in
+`cmux-ios.xcodeproj` (scheme `cmux-ios`, product `cmux.app`) links one package,
+`ios/CmuxiOS` (product `CmuxiOSApp`), plus `CmuxPhonePush` for the notification
+service extension. Bundle ids, entitlements, and the URL scheme are unchanged
+from the legacy app.
 
 Current phase:
 
 - Stack Auth sign-in gate with Apple, Google, email code, and a debug-only `42` shortcut
-- QR/manual pairing surface
-- CMUXMobileCore pairing payload and attach-ticket decoding
-- injectable `CmxByteTransportFactory` runtime hook
-- isolated preview host data when no concrete transport is installed
-- workspace list, workspace detail, terminal dropdown, and input bar
+- the Home screens over `Packages/Shared/CmuxHomeCore`
 
-No Rust, Iroh, or Zig dependency is linked into this shell. Concrete route implementations should enter through `CMUXMobileRuntime`.
+The legacy app (`ios/cmuxPackage`, the `Packages/iOS` UI and transport packages,
+and `ios/cmuxUITests`) was deleted. Pairing, the terminal, and UI tests return
+with the new screens.
 
 Build and reload the simulator:
 
@@ -19,10 +21,10 @@ Build and reload the simulator:
 ios/scripts/reload.sh --tag iossh
 ```
 
-Run package tests:
+Run the home model tests:
 
 ```bash
-swift test --package-path ios/cmuxPackage
+swift test --package-path Packages/Shared/CmuxHomeCore
 ```
 
 ## Build compatibility and production-auth DEV builds
@@ -44,11 +46,6 @@ What `--prod-auth` does:
   `CMUX_IOS_AUTH_ENV` build setting), so the build signs in against the
   production Stack project and uses `https://cmux.com` for the device
   registry/API and the magic-link callback.
-- Makes the presence worker follow the auth channel: the app resolves the
-  production presence instance (see `PresenceClient.productionServiceURL`) so
-  compatible Macs appear in Computers. The worker URLs live only in Swift;
-  the script bakes no copy, and an explicit `CMUX_PRESENCE_BASE_URL` still
-  wins.
 - Skips the dogfood auto sign-in/auto-pair (those credentials belong to the
   development Stack project). Sign in in-app with the same account as your
   matching tagged DEV Mac.

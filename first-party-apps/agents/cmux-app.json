@@ -1,0 +1,80 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/agents",
+  "name": { "en": "Agent CLIs", "ja": "エージェントCLI" },
+  "version": "0.1.0",
+  "description": {
+    "en": "See which agent CLIs are installed on this Mac, your cmux servers and the team VM, their versions and sign-ins. Update, install and sign in with one tap; cmux runs the command in a terminal you can see.",
+    "ja": "このMac、cmuxサーバー、チームVMにインストールされたエージェントCLI、そのバージョンとサインイン状態を表示します。更新、インストール、サインインはワンタップで、cmuxが見えるターミナルでコマンドを実行します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["sidebar", "developer-tools"],
+  "keywords": ["agents", "cli", "update", "version", "sign in", "install"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "machine:read": "List this Mac, your cmux servers and the team VM.",
+    "agent_cli:read": "See which agent CLIs are installed, their versions and whether they are signed in. Never a credential or an email."
+  },
+  "optionalScopes": {
+    "agent_cli:execute": "Run a CLI's own update, install or sign-in command in a terminal you can see, only when you tap Update, Install or Sign In.",
+    "actions:run": "Open the cmux Accounts sign-in for Claude Code, Codex and others on this Mac."
+  },
+  "contributes": {
+    "sidebarSections": [
+      { "id": "agents", "title": { "en": "Agents", "ja": "エージェント" }, "symbol": "terminal", "defaultRegion": "bottom", "render": "renderSection" }
+    ],
+    "paneKinds": [
+      { "id": "agentHub", "title": { "en": "Agent CLIs", "ja": "エージェントCLI" }, "symbol": "terminal", "render": "renderPane" }
+    ],
+    "commands": [
+      {
+        "id": "openAgents",
+        "title": { "en": "Open Agent CLIs", "ja": "エージェントCLIを開く" },
+        "symbol": "terminal",
+        "run": "openAgents",
+        "keywords": ["agents", "cli", "versions"],
+        "contexts": ["palette", "sidebarSection:agents"]
+      },
+      {
+        "id": "checkForUpdates",
+        "title": { "en": "Check Agent CLIs for Updates", "ja": "エージェントCLIの更新を確認" },
+        "symbol": "arrow.clockwise",
+        "run": "checkForUpdates",
+        "keywords": ["update", "version", "latest"],
+        "contexts": ["palette", "sidebarSection:agents"]
+      },
+      {
+        "id": "cycleVariant",
+        "title": { "en": "Next Agent CLIs Variant", "ja": "エージェントCLIの次のバリアント" },
+        "run": "cycleVariant",
+        "contexts": ["palette"],
+        "x-cmux-devOnly": true
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": ["byCli", "byMachine", "matrix"],
+          "default": "byCli",
+          "title": "Design variant",
+          "description": "byCli: one block per CLI with a line per machine. byMachine: one section per machine. matrix: CLI by machine grid with details below.",
+          "x-cmux-devOnly": true
+        },
+        "showMissing": {
+          "type": "boolean",
+          "default": true,
+          "title": "Show agent CLIs that are not installed"
+        }
+      }
+    }
+  },
+  "activation": ["onSidebarSection:agents", "onPane:agentHub", "onCommand:openAgents", "onCommand:checkForUpdates"],
+  "files": ["dist/", "assets/", "strings/"]
+}

@@ -1,4 +1,5 @@
 //! Real attach-stream transitions must distinguish viewer defaults from PTY OSC.
+use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ impl ColorFixture {
             ..Default::default()
         };
         let mux = Mux::new(session, options);
-        let surface = mux.new_workspace(None, Some((40, 8))).unwrap();
+        let surface = mux.new_workspace_as(&Actor::Daemon, None, Some((40, 8))).unwrap();
         let socket = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
         Self { mux, surface, socket }
     }
@@ -104,7 +105,7 @@ impl ColorFixture {
 
 impl Drop for ColorFixture {
     fn drop(&mut self) {
-        let _ = self.mux.close_surface(self.surface.id);
+        let _ = self.mux.close_surface_as(&Actor::Daemon, self.surface.id);
         cmux_tui_core::server::cleanup(&self.socket);
     }
 }
@@ -176,9 +177,9 @@ fn color_ownership_same_valued_osc_survives_defaults_and_resets_per_terminal() {
     assert_eq!(reattached["colors"]["overrides"], authored);
     assert_eq!(reattached["colors"]["palette"], json!({"4": "#445566"}));
 
-    let peer = fixture.mux.new_workspace(None, Some((40, 8))).unwrap();
+    let peer = fixture.mux.new_workspace_as(&Actor::Daemon, None, Some((40, 8))).unwrap();
     let peer_state = ColorFixture::event(&mut fixture.attach_surface(peer.id), "vt-state");
-    fixture.mux.close_surface(peer.id).unwrap();
+    fixture.mux.close_surface_as(&Actor::Daemon, peer.id).unwrap();
     assert_eq!(peer_state["colors"]["overrides"], json!({"fg": null, "bg": null, "cursor": null}));
     assert_eq!(peer_state["colors"]["palette"], json!({}));
 

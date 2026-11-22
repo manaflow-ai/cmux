@@ -25,10 +25,11 @@ struct CmxIrohRelayRefreshSchedule: Sendable {
     init(role: Role, endpointIdentity: CmxIrohPeerIdentity) {
         var hash = Self.fnvOffsetBasis
         for byte in endpointIdentity.endpointID.utf8 {
-            hash ^= UInt64(byte)
+            hash ^= UInt64(clamping: byte)
             hash &*= Self.fnvPrime
         }
-        secondWithinMinute = role.phaseStart + Int(hash % UInt64(Self.phaseWidth))
+        // The remainder is below phaseWidth, so both conversions are exact.
+        secondWithinMinute = role.phaseStart + Int(clamping: hash % UInt64(clamping: Self.phaseWidth))
     }
 
     func deadline(now: Date, refreshAfter: Date) -> Date {

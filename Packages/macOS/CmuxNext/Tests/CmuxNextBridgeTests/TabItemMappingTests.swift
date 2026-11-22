@@ -1,0 +1,108 @@
+import CmuxNextIcons
+@testable import CmuxNextDaemon
+import Foundation
+import CmuxNextTabs
+import Testing
+@testable import CmuxNextBridge
+
+/// A tab shows its terminal's progress as the daemon parses it for every
+/// terminal, not only the mounted ones: running progress spins the icon,
+/// an error marks the tab failed.
+@MainActor
+struct TabItemMappingTests {
+    /// An agent terminal wears its agent's brand mark (design/agent-icons, R79); a terminal
+    /// without an agent, or whose agent has no mark, keeps the registry's terminal icon.
+    @Test func agentTerminalWearsItsBrandMark() throws {
+        let store = try BridgeFixture.store()
+        let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .icon(.terminal))
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "claude"))
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .agentMark("claude"))
+        tab.setAgent(AgentStatus(surface: 1, state: .idle, agent: "codex"))
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .agentMark("openai"))
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "hermes-agent"))
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .agentMark("hermes"))
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "prime-agent"))
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .icon(.terminal))
+    }
+
+    @Test func terminalProgressFromTheDaemonDrivesTheTab() throws {
+        let store = try BridgeFixture.store()
+        let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
+        let terminal = try #require(tab.terminalResourceID)
+        #expect(!TabItemMapping.shared.item(tab, fallbackTitle: "t").isBusy)
+
+        var state = SessionStateMirror()
+        state.terminalProgress[terminal] = TerminalProgressReport(state: .normal, value: 40)
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").isBusy)
+
+        state.terminalProgress[terminal] = TerminalProgressReport(state: .error, value: 40)
+        store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
+        let failed = TabItemMapping.shared.item(tab, fallbackTitle: "t")
+        #expect(!failed.isBusy && failed.status == .failure)
+
+        state.terminalProgress[terminal] = nil
+        store.apply(batch: [DaemonEventEnvelope(sequence: 3, event: .sessionState(.snapshot(state)))])
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .none)
+    }
+}
+
+/// An agent chat tab (a conversation tab whose source is an acpmux session)
+/// wears its harness's brand mark, else the registry's agent chat icon.
+@MainActor
+struct AgentSessionTabItemTests {
+    static func chat(harness: String?) throws -> TabModel {
+        let value = harness.map { "\"\($0)\"" } ?? "null"
+        let line = """
+        {"surface":8,"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"install:mac-1","session":"s-1","harness":\(value)}}}
+        """
+        return TabModel(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+    }
+
+    @Test func anAgentSessionTabWithoutAHarnessWearsTheAgentChatIcon() throws {
+        let item = TabItemMapping.shared.item(try Self.chat(harness: nil), fallbackTitle: "Chat")
+        #expect(item.icon == .icon(.agentChat))
+        #expect(item.title == "Chat")
+    }
+
+    @Test func anAgentSessionTabWearsItsHarnessMark() throws {
+        #expect(TabItemMapping.shared.item(try Self.chat(harness: "claude"), fallbackTitle: "Chat").icon == .agentMark("claude"))
+        #expect(TabItemMapping.shared.item(try Self.chat(harness: "codex"), fallbackTitle: "Chat").icon == .agentMark("openai"))
+        #expect(TabItemMapping.shared.item(try Self.chat(harness: "prime-agent"), fallbackTitle: "Chat").icon == .icon(.agentChat))
+    }
+
+    /// Browsers and exited terminals draw from the registry too.
+    @Test func browserAndExitedTerminalTabsDrawRegistryIcons() throws {
+        let store = try BridgeFixture.store()
+        let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
+        tab.dead = true
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .icon(.terminalDead))
+        tab.dead = false
+        tab.kind = .browser
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").icon == .icon(.browser))
+    }
+}
+
+/// A new terminal is titled before its shell reports a title (#17485):
+/// it shows the folder the shell titles it with, not a generic name that
+/// the shell's first title replaces a frame later.
+@MainActor
+struct UntitledTerminalTabTitleTests {
+    private func terminal(cwd: String?) throws -> TabModel {
+        let cwd = cwd.map { #","cwd":"\#($0)""# } ?? ""
+        let line = #"{"surface":3,"kind":"pty","title":""\#(cwd)}"#
+        return TabModel(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+    }
+
+    @Test func anUntitledTerminalShowsItsFolder() throws {
+        let home = NSHomeDirectory()
+        #expect(TabItemMapping.shared.item(try terminal(cwd: home), fallbackTitle: "Terminal").title == "~")
+        #expect(TabItemMapping.shared.item(try terminal(cwd: home + "/src"), fallbackTitle: "Terminal").title == "~/src")
+    }
+
+    @Test func anUntitledTerminalWithoutAFolderKeepsTheFallback() throws {
+        #expect(TabItemMapping.shared.item(try terminal(cwd: nil), fallbackTitle: "Terminal").title == "Terminal")
+    }
+}

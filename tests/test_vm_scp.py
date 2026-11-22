@@ -98,10 +98,11 @@ LogLevel ERROR
         wrong_host_key = False
         short_grant = False
         cleanup_grants_remaining = None
+        watch_grant_drop = False
         idle_connection_closed = threading.Event()
 
         def serve_connection(conn):
-            nonlocal short_grant, cleanup_grants_remaining
+            nonlocal short_grant, cleanup_grants_remaining, watch_grant_drop
             # Match the app's bounded control-socket lifecycle. File transfer
             # can continue after its endpoint request's connection goes idle.
             conn.settimeout(2)
@@ -123,6 +124,9 @@ LogLevel ERROR
                     with lock:
                         requests.append(request)
                     if request["method"] == "vm.scp_info":
+                        if watch_grant_drop:
+                            watch_grant_drop = False
+                            return  # Simulate one transient Cloud grant transport drop.
                         if cleanup_grants_remaining is not None:
                             if cleanup_grants_remaining == 0:
                                 return  # Drop only cleanup's grant response.
@@ -244,11 +248,13 @@ LogLevel ERROR
                 # Wait for the server to retire the endpoint connection, then
                 # make a new edit. The old test edited before the idle timeout.
                 assert idle_connection_closed.wait(timeout=5), "control socket never reached its idle deadline"
+                watch_grant_drop = True
                 (tree / "b").write_text("two")
                 stdout, stderr = watch.communicate(timeout=30)
                 assert watch.returncode == 0, stderr
                 events = [json.loads(line) for line in stdout.splitlines()]
-                assert [event["sync"] for event in events] == [0, 1], events
+                assert [event["sync"] for event in events if event.get("event") == "synced"] == [0, 1], events
+                assert any(event.get("event") == "retrying" for event in events), events
                 assert (guest / "watch/b").read_text() == "two"
             finally:
                 if watch.poll() is None:
@@ -256,9 +262,9 @@ LogLevel ERROR
                     watch.wait()
             assert all(r["method"] in {"vm.scp_info", "vm.file_transfer_failure"} for r in requests), requests
             failures = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure"]
-            assert len(failures) == 2, failures
-            assert {p["phase"] for p in failures} == {"process", "connect"}
-            assert all(p["failure"] == "process" for p in failures), failures
+            assert len(failures) == 3, failures
+            assert {p["phase"] for p in failures} == {"process", "connect", "request"}
+            assert sum(p["failure"] == "network" for p in failures) == 1, failures
             assert max(len(json.dumps(r)) for r in requests) < 1024
             print("PASS watch and bounded control messages without file bytes", flush=True)
 

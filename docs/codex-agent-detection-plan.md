@@ -1,5 +1,7 @@
 # Codex Agent Detection Plan
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). This is a design record; the Rust CLI's hook entry point is `cmux agent hook emit --source codex --event <event>`.
+
 Status: IMPLEMENTED + live-verified (macOS/daemon side). Owner: Aziz. Last
 updated: 2026-06-22. Branch `feat-codex-detection`, PR #6655 (do-not-merge
 pending on-device dogfood). Base/return point: tag `agent-session-sot-landmark`.

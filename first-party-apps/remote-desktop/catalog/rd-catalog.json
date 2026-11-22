@@ -1,0 +1,606 @@
+{
+  "family": "rd",
+  "owner": "app:cmux/remote-desktop",
+  "operations": [
+    {
+      "name": "rd.view.open",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "description": "The machine: its directory id or name; local is this machine."
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^(display:[0-9]{1,10}|window:[0-9]{1,20}|virtual)$",
+            "description": "display:<n> or window:<id> from the host's own list, or virtual (a display sized to the pane). Default: display:1."
+          }
+        },
+        "required": [
+          "host"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tab": {
+            "type": "string",
+            "description": "tab_ id of the new or existing remote_view tab."
+          }
+        },
+        "required": [
+          "tab"
+        ]
+      },
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "remote_desktop"
+      },
+      "docs": "Open a view-only remote desktop tab for the person using this Mac, beside the focused tab, without moving focus. In phase 1 the tab shows Connect and streams nothing until the person presses it (RemoteViewTabPolicy); control is the person's toggle in the pane, never this op. Development builds only until the host verifies link tokens (plan 11.0).",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.session.start",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "description": "The machine: its directory id or name; local is this machine."
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^(display:[0-9]{1,10}|window:[0-9]{1,20}|virtual)$",
+            "description": "display:<n> or window:<id> from the host's own list, or virtual (a display sized to the pane). Default: display:1."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "view",
+              "control"
+            ],
+            "description": "view streams the screen only; control also sends input. Default: control for a person, view otherwise."
+          }
+        },
+        "required": [
+          "host"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^rds_[A-Za-z0-9]{1,60}$",
+            "description": "rds_ id from rd.session.start or rd.session.list."
+          },
+          "tab": {
+            "type": "string",
+            "description": "tab_ id of the remote_view tab."
+          }
+        },
+        "required": [
+          "session",
+          "tab"
+        ]
+      },
+      "cli": {
+        "path": "connect",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "palette": {
+        "title": {
+          "en": "Connect to Desktop…",
+          "ja": "デスクトップに接続…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Start a remote desktop session on a host and open it in a remote_view tab. Needs a live gesture (a person in the palette, a menu or the pane): until the actor stamp lands (plan 11.0) nothing else can tell a person's CLI call from an agent's. Control mode is code execution on the host: the host allows it only for its owner user from an interactive client or a principal the owner granted there, never for an agent. Returns the session id; the channel ticket stays in the app.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.session.stop",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^rds_[A-Za-z0-9]{1,60}$",
+            "description": "rds_ id from rd.session.start or rd.session.list."
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "cli": {
+        "path": "stop",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "remote_desktop"
+      },
+      "docs": "Stop a session. A viewer stops only its own sessions; the host's user stops any session on that host. No frame is sent after it.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.session.list",
+      "owner": "app:cmux/remote-desktop",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "description": "The machine: its directory id or name; local is this machine."
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "sessions"
+        ]
+      },
+      "cli": {
+        "path": "ls",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "remote_desktop"
+      },
+      "docs": "List remote desktop sessions: yours on every host, or every session on a host you own. Ids, host, target, mode, path and start time; never screen content.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.control.request",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^rds_[A-Za-z0-9]{1,60}$",
+            "description": "rds_ id from rd.session.start or rd.session.list."
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "cli": {
+        "path": "control request",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "gesture": "required",
+      "docs": "Ask for control (input) in a view session. People only, from the pane; the host may ask the person at its console first.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.control.release",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^rds_[A-Za-z0-9]{1,60}$",
+            "description": "rds_ id from rd.session.start or rd.session.list."
+          }
+        },
+        "required": [
+          "session"
+        ]
+      },
+      "cli": {
+        "path": "control release",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "docs": "Give control back; the session continues as view only. Always allowed.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.host.enable",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "targets": {
+            "type": "string",
+            "enum": [
+              "displays",
+              "displays-and-windows"
+            ],
+            "description": "What viewers may pick. Default: displays."
+          },
+          "unattended": {
+            "type": "boolean",
+            "description": "Your own devices connect without a consent prompt. Default: false."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "host enable",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "palette": {
+        "title": {
+          "en": "Allow Remote Desktop to This Machine",
+          "ja": "このマシンへのリモートデスクトップを許可"
+        }
+      },
+      "gesture": "required",
+      "docs": "Allow remote desktop to this machine. Only a person on this machine (origin user, live gesture); never over a remote relay, never from agents (hosting is a human decision).",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.host.disable",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "host disable",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "palette": {
+        "title": {
+          "en": "Stop Allowing Remote Desktop to This Machine",
+          "ja": "このマシンへのリモートデスクトップの許可をやめる"
+        }
+      },
+      "gesture": "optional",
+      "docs": "Stop allowing remote desktop to this machine. Every session ends at once. Any local caller may turn hosting off (it only removes access); never over a remote relay.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.host.grant",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "principal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^(usr|ins)_[A-Za-z0-9]{1,60}$",
+            "description": "usr_ or ins_ id of the person or device."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "view",
+              "control"
+            ],
+            "description": "The most the grant allows."
+          },
+          "expires_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "description": "Days until the grant ends. Default 30 for other people; grants to your own devices never expire."
+          }
+        },
+        "required": [
+          "principal",
+          "mode"
+        ]
+      },
+      "cli": {
+        "path": "host grant",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "gesture": "required",
+      "docs": "Let another person or device connect without a consent prompt. Only a person on this machine after re-authentication (Touch ID or password); the owner gets a feed notification and an audit event. Risk execute: a control grant lets another principal type on this machine.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.host.revoke",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "grant": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^rdg_[A-Za-z0-9]{1,60}$",
+            "description": "rdg_ id of the grant."
+          }
+        },
+        "required": [
+          "grant"
+        ]
+      },
+      "cli": {
+        "path": "host revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "gesture": "required",
+      "docs": "Remove a grant. Its sessions end within one feedback interval.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.host.stop_all",
+      "owner": "app:cmux/remote-desktop",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "host stop-all",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "palette": {
+        "title": {
+          "en": "Stop All Remote Desktop Sessions",
+          "ja": "すべてのリモートデスクトップセッションを止める"
+        }
+      },
+      "gesture": "optional",
+      "docs": "End every remote desktop session on this machine at once. No frame is sent after it. Any local caller may do it (it only removes access); never over a remote relay.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.audit.list",
+      "owner": "app:cmux/remote-desktop",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "description": "The machine: its directory id or name; local is this machine."
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix time in milliseconds."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Most events to return. Default 100."
+          }
+        },
+        "required": []
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "events"
+        ]
+      },
+      "cli": {
+        "path": "audit",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "remote_desktop"
+      },
+      "docs": "List remote desktop audit events of a host you own: session starts and ends, consent, control and grants. Never screen content.",
+      "since": "rd/1"
+    },
+    {
+      "name": "rd.bench",
+      "owner": "app:cmux/remote-desktop",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+            "description": "The machine: its directory id or name; local is this machine."
+          },
+          "workload": {
+            "type": "string",
+            "enum": [
+              "marker",
+              "text",
+              "motion",
+              "idle"
+            ],
+            "description": "What the host's test window draws. Default: marker."
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Samples. Default 300."
+          }
+        },
+        "required": [
+          "host"
+        ]
+      },
+      "cli": {
+        "path": "bench",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "remote_desktop"
+      },
+      "docs": "Measure glass-to-glass latency, bandwidth and CPU against a host's test window. Development builds only.",
+      "since": "rd/1"
+    }
+  ]
+}

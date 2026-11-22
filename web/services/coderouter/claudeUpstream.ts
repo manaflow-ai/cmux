@@ -17,6 +17,10 @@ import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
 import {
+  buildCooldownWriteExpressions,
+  NON_TRANSIENT_FAILURE_CODES,
+} from "./cooldownWrite";
+import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
   type CredentialKeyService,
@@ -274,7 +278,7 @@ function parseLabel(value: unknown): string | null {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") return null;
   const label = value.trim();
-  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[\x00-\x1f\x7f]/.test(label)) return null;
   return label;
 }
 
@@ -452,9 +456,6 @@ function retryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number {
   return Math.max(1, soonest ?? DEFAULT_EXHAUSTED_RETRY_SECONDS);
 }
 
-/** A revoked or unauthorized credential needs a human, not a wait. */
-const NON_TRANSIENT_FAILURE_CODES = new Set(["invalid_credential"]);
-
 function capacityRetryAfter(eligible: readonly ClaudeAccountRow[], at: Date): number | null {
   let soonest: number | null = null;
   for (const row of eligible) {
@@ -471,7 +472,7 @@ export function rendezvousPick<T extends { readonly id: string }>(key: string, c
   let best: T | null = null;
   let bestScore = "";
   for (const candidate of candidates) {
-    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    const score = createHash("sha256").update(`${key}\x00${candidate.id}`).digest("hex");
     if (best === null || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -674,7 +675,15 @@ const drizzleStore: ClaudeAccountStore = {
   async markCooldown(accountId, until, failureCode, signal) {
     await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
-      .set({ cooldownUntil: until, lastFailureCode: failureCode, updatedAt: new Date() })
+      .set({
+        ...buildCooldownWriteExpressions(
+          coderouterClaudeAccounts.cooldownUntil,
+          coderouterClaudeAccounts.lastFailureCode,
+          until,
+          failureCode,
+        ),
+        updatedAt: new Date(),
+      })
       .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async touchUsed(accountId, at, signal) {

@@ -402,7 +402,8 @@ public extension DiagnosticEvent {
                 || code == .sessionClosed
                 || code == .transportCloseAttribution
                 || code == .transportCloseReason
-                || code == .transportPathEvent,
+                || code == .transportPathEvent
+                || code == .transportPathInventory,
               let c,
               c > 0 else { return nil }
         return c

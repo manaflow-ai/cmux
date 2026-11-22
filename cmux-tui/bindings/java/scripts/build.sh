@@ -37,7 +37,11 @@ javac --release 17 -Xlint:all -Werror \
   -d "$ROOT/build/examples" \
   "${EXAMPLE_SOURCES[@]}"
 
+# The jar carries the cmux GPL text (check_package_license.py jar fails without it).
+mkdir -p "$ROOT/build/classes/META-INF"
+cp "$ROOT/LICENSE" "$ROOT/build/classes/META-INF/LICENSE"
 jar --create --file "$ROOT/build/cmux-java-sdk.jar" -C "$ROOT/build/classes" .
+python3 "$BINDINGS_ROOT/check_package_license.py" jar "$ROOT/build/cmux-java-sdk.jar"
 
 CONSUMER_TEST_SOURCES=()
 while IFS= read -r source; do CONSUMER_TEST_SOURCES+=("$source"); done < <(

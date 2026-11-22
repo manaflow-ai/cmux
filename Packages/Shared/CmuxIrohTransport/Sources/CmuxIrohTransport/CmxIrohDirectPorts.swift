@@ -97,8 +97,8 @@ public struct CmxIrohDirectPorts: Codable, Equatable, Sendable {
             return hint
         }
         guard let port = port(forDirectAddress: hint.value),
-              let separator = hint.value.lastIndex(of: ":") else { return nil }
-        let value = String(hint.value[...separator]) + String(port)
+              let split = Substring(hint.value).splitAtLastColon else { return nil }
+        let value = String(split.head) + ":" + String(port)
         return try? CmxIrohPathHint(
             kind: hint.kind,
             value: value,

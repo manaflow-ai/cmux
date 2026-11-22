@@ -7,6 +7,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { execVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -94,6 +95,7 @@ export async function POST(
         providerVmId: id,
         command,
         timeoutMs,
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const result = run.value;

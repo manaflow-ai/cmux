@@ -46,7 +46,7 @@ domain wins over the release-domain fallback.
 | `SocketControlMode` | String | `cmuxOnly` | Forces the local automation Unix socket to `cmuxOnly` or `off`. A forced value wins over Settings, `cmux.json`, `CMUX_SOCKET_MODE`, and `CMUX_SOCKET_PASSWORD`; Settings locks the picker and shows the effective mode. Existing clients are revoked when the mode changes, including password-authenticated and event-stream clients. |
 | `BrowserURLAllowlist` | Array of strings | unset (allow all web origins) | Restricts every embedded-browser top-level navigation to matching URL patterns. Address-bar loads, links, redirects, `window.open`, automation, deep links, and restored panes are checked. A forced empty array denies all external web origins while cmux-owned internal documents (such as `about:blank` and diff pages), localhost, and local files remain available unless the two allow keys below turn them off. See [Browser allowlist](#browser-allowlist). |
 | `BrowserAllowLocalhost` | Boolean | `true` | Allow-style key. While `true`, a managed `BrowserURLAllowlist` permits `localhost`, `*.localhost`, `127.0.0.1`, `::1`, and `0.0.0.0` on any HTTP(S) port without a rule, so local development servers keep working. Forced to `false`, loopback origins are blocked in the embedded browser — even ones the list names, and even when no list is forced. |
-| `BrowserAllowLocalFiles` | Boolean | `true` | Allow-style key. While `true`, local `file:` documents opened through cmux (the address bar, `cmux browser open`, terminal links, a file dropped onto a browser pane, or a link from another local file) stay available under a managed list. Forced to `false`, local files are blocked whether or not a list is forced. |
+| `BrowserAllowLocalFiles` | Boolean | `true` | Allow-style key. While `true`, local `file:` documents opened through cmux (the address bar, `cmux browser page navigate`, terminal links, a file dropped onto a browser pane, or a link from another local file) stay available under a managed list. Forced to `false`, local files are blocked whether or not a list is forced. |
 
 Notes:
 
@@ -222,10 +222,8 @@ The allowlist governs page navigations (address bar, links, redirects,
 `window.open`, automation, deep links, restored panes). It does not filter
 subresource requests such as images, scripts, or `fetch`. A blocked
 navigation shows an in-page explanation with the blocked origin and the next
-step; Settings → Browser shows the effective rules and whether localhost and
-local files are allowed; and `cmux browser status --json` reports
-`url_allowlist`, `url_allowlist_managed`, `url_allowlist_allows_localhost`,
-and `url_allowlist_allows_local_files`.
+step; and Settings → Browser shows the effective rules and whether localhost
+and local files are allowed.
 
 `DisableCloud` independently gates Cloud Machines and the cmux-managed VPN;
 it does not disable local terminals, local automation, or ordinary
@@ -363,43 +361,20 @@ defaults read com.cmuxterm.app DisableAICredentialUpload
 defaults read com.cmuxterm.app BrowserURLAllowlist
 defaults read com.cmuxterm.app BrowserAllowLocalhost     # absent or 1 = allowed
 defaults read com.cmuxterm.app BrowserAllowLocalFiles    # absent or 1 = allowed
-
-# The CLI reports browser availability and URL-policy metadata:
-cmux browser status --json   # url_allowlist, url_allowlist_managed,
-                             # url_allowlist_allows_localhost, url_allowlist_allows_local_files
-
-# Reliable socket-policy compliance check. It works while the app is quit or
-# the socket is forced off and never sends a request to the automation socket:
-cmux socket-status --json
-# Example (no password or token is emitted):
-# {
-#   "configured_mode" : "allowAll",
-#   "effective_mode" : "cmuxOnly",
-#   "forced_value_status" : "valid",
-#   "live_enforcement" : "not_observed",
-#   "managed" : true,
-#   "managed_source" : "managed_app_domain",
-#   "observation_scope" : "profile_and_socket_path",
-#   "policy_key" : "SocketControlMode",
-#   "socket_path_state" : "present"
-# }
-# `live_enforcement` is intentionally not inferred from a separate process
-# reading defaults; use the app's own tagged verification run for live socket
-# admission evidence. When `SocketControlMode` is `off`, the same command
-# reports `socket_path_state: absent` without weakening the policy to answer.
-
-# Cloud verbs are refused with a managed-policy error (socket code
-# `cloud_disabled`); `cmux vpn status`, `cmux vpn down`, and `cmux vpn revoke`
-# remain available for cleanup:
-cmux vm list
-cmux vpn up
 ```
+
+The Swift CLI's `cmux browser status`, `cmux socket-status`, `cmux vm`, and
+`cmux vpn` verbs were removed with the Rust CLI cutover
+([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)), so `defaults read` above
+is the CLI check for these keys.
 
 In cmux, Settings → Browser shows the enable toggle disabled with
 "Managed by your organization", Settings → Mobile shows "Remote control from
-the iOS app is disabled by your organization.", and Settings → Beta Features
-shows the Cloud Machines toggle disabled with "Managed by your organization"
-while the Cloud settings section and the right-sidebar Cloud tab are hidden.
+the iOS app is disabled by your organization." Cloud's right-sidebar tab and
+Settings section remain discoverable only when the rollout is available; a
+managed `DisableCloud` profile reports that Cloud is unavailable and does not
+offer activation or VPN setup. The Beta Features page no longer owns a Cloud
+toggle.
 The telemetry toggle (Settings → App), the Computer Use toggle, and the
 Custom Sidebars toggle lock the same way under their keys, and
 "Check for Updates…" explains the managed state under `DisableAutoUpdate`.

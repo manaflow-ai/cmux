@@ -5,32 +5,35 @@ import type { DiffItem } from "../src/diff-stream";
 
 function itemsFromPatch(patch: string): DiffItem[] {
   const parsed = parsePatchFiles(patch) as Array<{ files: any[] }>;
-  return parsed.flatMap((entry) => entry.files).map((fileDiff, index) => ({
-    id: `item-${index}-${fileDiff.name}`,
-    fileDiff,
-  })) as DiffItem[];
+  return parsed
+    .flatMap((entry) => entry.files)
+    .map((fileDiff, index) => ({
+      id: `item-${index}-${fileDiff.name}`,
+      fileDiff,
+    })) as DiffItem[];
 }
 
-const patch = [
-  "diff --git a/a.txt b/a.txt",
-  "index 0000000..1111111 100644",
-  "--- a/a.txt",
-  "+++ b/a.txt",
-  "@@ -1,3 +1,4 @@",
-  " context Needle",
-  " plain line",
-  "-removed needle line",
-  "+added NEEDLE here",
-  "+another line",
-  "diff --git a/b.txt b/b.txt",
-  "index 0000000..2222222 100644",
-  "--- a/b.txt",
-  "+++ b/b.txt",
-  "@@ -10,2 +10,2 @@",
-  " untouched",
-  "-old needle needle",
-  "+new text",
-].join("\n") + "\n";
+const patch =
+  [
+    "diff --git a/a.txt b/a.txt",
+    "index 0000000..1111111 100644",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1,3 +1,4 @@",
+    " context Needle",
+    " plain line",
+    "-removed needle line",
+    "+added NEEDLE here",
+    "+another line",
+    "diff --git a/b.txt b/b.txt",
+    "index 0000000..2222222 100644",
+    "--- a/b.txt",
+    "+++ b/b.txt",
+    "@@ -10,2 +10,2 @@",
+    " untouched",
+    "-old needle needle",
+    "+new text",
+  ].join("\n") + "\n";
 
 test("collectFindMatches finds matches on both sides in document order", () => {
   const items = itemsFromPatch(patch);
@@ -63,14 +66,15 @@ test("collectFindMatches skips items without parsed hunks", () => {
 
 test("collectFindMatches caps pathological match counts", () => {
   const lines = Array.from({ length: 600 }, (_, i) => `+eeeeeeeeeeeeeeeeeeee${i}`);
-  const bigPatch = [
-    "diff --git a/big.txt b/big.txt",
-    "index 0000000..3333333 100644",
-    "--- a/big.txt",
-    "+++ b/big.txt",
-    `@@ -0,0 +1,${lines.length} @@`,
-    ...lines,
-  ].join("\n") + "\n";
+  const bigPatch =
+    [
+      "diff --git a/big.txt b/big.txt",
+      "index 0000000..3333333 100644",
+      "--- a/big.txt",
+      "+++ b/big.txt",
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines,
+    ].join("\n") + "\n";
   const items = itemsFromPatch(bigPatch);
   const matches = collectFindMatches(items, "e");
   expect(matches.length).toBe(FIND_MATCH_CAP);

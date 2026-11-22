@@ -1,10 +1,13 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+import type { PluggableList } from "unified";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import type { HighlighterCore, LanguageRegistration } from "shiki/core";
 import { CopyIcon } from "./components/icons";
+import { useRepositorySlug } from "./context";
+import { remarkGitHubReferences } from "./githubReferences";
 
 const langs = ["ts", "tsx", "js", "json", "bash", "shell", "python", "swift", "rust", "go", "html", "css", "markdown", "yaml", "diff"];
 const themeName = "agent-css-variables";
@@ -216,9 +219,22 @@ function markdownComponents(streaming: boolean): Components {
 
 export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const components = useMemo(() => markdownComponents(streaming), [streaming]);
+  const repositorySlug = useRepositorySlug();
+  // Agents write `#847` and `a360a95` far more often than they write a URL, and
+  // the terminal already makes both clickable. The reference becomes an
+  // ordinary link node in the parsed document, so it gets the same styling and
+  // the same click handling as any other link, and the parser is what decides
+  // that a `#847` inside a code block is characters rather than a reference.
+  //
+  // It runs after remark-gfm so bare URLs are already links by then, and before
+  // remark-breaks, which rewrites the text nodes this walks.
+  const plugins = useMemo<PluggableList>(
+    () => [remarkGfm, [remarkGitHubReferences, { repositorySlug, streaming }], remarkBreaks],
+    [repositorySlug, streaming],
+  );
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkBreaks]}
+      remarkPlugins={plugins}
       rehypePlugins={[[rehypeSanitize, schema]]}
       components={components}
     >

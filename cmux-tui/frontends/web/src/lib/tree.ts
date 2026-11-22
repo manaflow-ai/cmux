@@ -32,8 +32,8 @@ export function screenSelection(screen: ScreenView): ScreenSelection {
 }
 
 function livePane(screen: Screen, paneId: Id | null): LivePane | null {
-  const pane = screen.panes.find((candidate) => candidate.id === paneId)
-    ?? screen.panes.find((candidate) => "tabs" in candidate);
+  const pane =
+    screen.panes.find((candidate) => candidate.id === paneId) ?? screen.panes.find((candidate) => "tabs" in candidate);
   return pane && "tabs" in pane ? pane : null;
 }
 
@@ -52,9 +52,8 @@ export function treeToViewModel(
     const activeRawPane = displayRawScreen ? livePane(displayRawScreen, displayPaneId) : null;
     const activeTab = activeRawPane?.tabs[Number(activeRawPane.active_tab)];
     const title = activeRawPane?.name || activeTab?.name || activeTab?.title || t("shell");
-    const subtitle = workspace.screens.length > 1
-      ? t("workspaceSubtitle", { title, count: workspace.screens.length })
-      : title;
+    const subtitle =
+      workspace.screens.length > 1 ? t("workspaceSubtitle", { title, count: workspace.screens.length }) : title;
     return {
       id: workspace.id,
       name: workspace.name,

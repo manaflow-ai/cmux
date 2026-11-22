@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "snapshot_format": "GHOSTSNP",
+  "cases": [
+    {
+      "name": "shell-prompt",
+      "file": "shell-prompt.vt",
+      "cols": 120,
+      "rows": 40,
+      "bytes": 22730,
+      "features": [
+        "semantic-prompts",
+        "osc7",
+        "title",
+        "scrollback"
+      ]
+    },
+    {
+      "name": "alt-screen-editor",
+      "file": "alt-screen-editor.vt",
+      "cols": 100,
+      "rows": 24,
+      "bytes": 2142,
+      "features": [
+        "alt-screen",
+        "scroll-region",
+        "cursor-style",
+        "modes"
+      ]
+    },
+    {
+      "name": "wide-combining",
+      "file": "wide-combining.vt",
+      "cols": 80,
+      "rows": 24,
+      "bytes": 1108,
+      "features": [
+        "wide",
+        "graphemes",
+        "variation-selectors"
+      ]
+    },
+    {
+      "name": "hyperlinks",
+      "file": "hyperlinks.vt",
+      "cols": 100,
+      "rows": 30,
+      "bytes": 2130,
+      "features": [
+        "osc8",
+        "underline-color",
+        "underline-styles"
+      ]
+    },
+    {
+      "name": "styles",
+      "file": "styles.vt",
+      "cols": 132,
+      "rows": 50,
+      "bytes": 9094,
+      "features": [
+        "palette",
+        "truecolor",
+        "sgr"
+      ]
+    },
+    {
+      "name": "scrollback",
+      "file": "scrollback.vt",
+      "cols": 120,
+      "rows": 40,
+      "bytes": 377860,
+      "features": [
+        "scrollback-5000"
+      ]
+    },
+    {
+      "name": "kitty-graphics",
+      "file": "kitty-graphics.vt",
+      "cols": 80,
+      "rows": 24,
+      "bytes": 101,
+      "features": [
+        "kitty-placements",
+        "kitty-image-data-not-in-ghostsnp-v1"
+      ]
+    }
+  ]
+}

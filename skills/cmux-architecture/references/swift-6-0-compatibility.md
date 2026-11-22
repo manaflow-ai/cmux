@@ -8,8 +8,8 @@ iOS app; this pathway is best effort and changes nothing for Xcode 26.
 
 ## What stays within Swift 6.0
 
-Code linked into the macOS app (`Sources/`, `CLI/`, `TunnelExtension/`, and the
-packages it depends on) stays within Swift 6.0 syntax:
+Code linked into the macOS app (`App/`, `CLI/`, and the packages they depend
+on) stays within Swift 6.0 syntax:
 
 - No trailing commas in parameter or argument lists (SE-0439, Swift 6.1).
 - No `nonisolated` on struct, enum, class or protocol declarations (SE-0449,
@@ -24,4 +24,4 @@ unavailable at runtime on macOS 14.
 
 ## Outside the pathway
 
-`cmuxTests/`, `cmuxUITests/` and `Packages/iOS/` may use newer Swift.
+`cmuxCLITests/` and `Packages/iOS/` may use newer Swift.

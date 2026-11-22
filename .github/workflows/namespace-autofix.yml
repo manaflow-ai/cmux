@@ -1,0 +1,155 @@
+name: Namespace autofix
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "Packages/**/*.swift"
+      - "ios/cmux/**/*.swift"
+      - "scripts/lint-ios-package-conventions.sh"
+      - "scripts/lint_swift_namespaces.py"
+      - "scripts/swift_source_mask.py"
+      - "scripts/lint-namespace-types-baseline.txt"
+      - "scripts/lint-namespace-types-ratchet.txt"
+      - "scripts/lint-ios-package-conventions-baseline.txt"
+      - ".github/workflows/namespace-autofix.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: namespace-autofix-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  autofix:
+    name: namespace autofix
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && !github.event.pull_request.draft
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # This workflow is pull_request_target on purpose. Only this base-revision
+      # copy of the helper is executed; the PR tree is treated as data.
+      - name: Checkout trusted base helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mint scoped write token
+        id: app-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Fix safe namespace violations
+        id: fix
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APP_TOKEN" ]; then
+            echo "::warning::Namespace autofix skipped: the scoped write App is not configured."
+            exit 0
+          fi
+
+          git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
+          fetched_head="$(git rev-parse refs/remotes/pr/head)"
+          [ "$fetched_head" = "$HEAD_SHA" ] || {
+            echo "::error::Fetched PR head $fetched_head does not match event head $HEAD_SHA"
+            exit 1
+          }
+          # Never run hooks from a reused checkout: the PR tree is untrusted.
+          git -c core.hooksPath=/dev/null checkout --detach "$HEAD_SHA"
+
+          workspace="$(pwd -P)"
+          assert_safe_path() {
+            local path="$1" component="$1" real
+            while [ "$component" != "." ] && [ "$component" != "/" ]; do
+              if [ -L "$component" ]; then
+                echo "::error::Refusing symlinked PR path: $path"
+                exit 1
+              fi
+              component="$(dirname "$component")"
+            done
+            real="$(realpath -e -- "$path" 2>/dev/null || true)"
+            case "$real" in
+              "$workspace"/*) ;;
+              *) echo "::error::Refusing path outside the checkout: $path"; exit 1 ;;
+            esac
+          }
+
+          # Restore every executable and baseline from the trusted base before
+          # inspecting PR source. No PR-controlled script is executed here.
+          for path in \
+            scripts/lint-ios-package-conventions.sh \
+            scripts/lint_swift_namespaces.py \
+            scripts/swift_source_mask.py \
+            scripts/lint-namespace-types-baseline.txt \
+            scripts/lint-namespace-types-ratchet.txt \
+            scripts/lint-ios-package-conventions-baseline.txt; do
+            assert_safe_path "$(dirname "$path")"
+            [ ! -L "$path" ] || { echo "::error::Refusing symlinked helper path: $path"; exit 1; }
+            git show "$BASE_SHA:$path" > "$path"
+          done
+
+          git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+            | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
+            | sort -u > "$RUNNER_TEMP/namespace-files.txt"
+          if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then
+            echo "No changed package Swift files; namespace autofix is clean."
+            exit 0
+          fi
+          while IFS= read -r path; do
+            assert_safe_path "$path"
+            [ -f "$path" ] || { echo "::error::Changed Swift path is not a regular file: $path"; exit 1; }
+          done < "$RUNNER_TEMP/namespace-files.txt"
+
+          set +e
+          bash scripts/lint-ios-package-conventions.sh --namespace-fix \
+            --files-from "$RUNNER_TEMP/namespace-files.txt" \
+            > "$RUNNER_TEMP/namespace-lint.log" 2>&1
+          lint_status=$?
+          set -e
+
+          git add --pathspec-from-file="$RUNNER_TEMP/namespace-files.txt"
+          if git diff --cached --quiet; then
+            if [ "$lint_status" -ne 0 ]; then
+              echo "::error::Namespace lint still has violations that the safe fixer cannot rewrite."
+              grep -E '^(ERROR|WARN|FAIL|error:)' "$RUNNER_TEMP/namespace-lint.log" || cat "$RUNNER_TEMP/namespace-lint.log"
+              echo "Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally and repair the remaining declarations." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "Namespace autofix found no edits."
+            exit 0
+          fi
+
+          git config user.name "cmux namespace autofix"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -c core.hooksPath=/dev/null commit -m "lint: apply namespace autofix"
+          auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+          echo "Applied safe namespace fixes and pushed lint: apply namespace autofix." >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$lint_status" -ne 0 ]; then
+            echo "::error::Namespace autofix pushed safe edits, but non-rewritable violations remain."
+            grep -E '^(ERROR|WARN|FAIL|error:)' "$RUNNER_TEMP/namespace-lint.log" || true
+            exit 1
+          fi

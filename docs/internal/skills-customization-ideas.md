@@ -20,9 +20,9 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - `ui.surfaceTabBar.buttons`: replaces the visible tab bar button list. Built-ins must be included explicitly if they should remain visible.
 - `commands`: reusable shell commands and workspace layouts for worktrees, multiple checkouts, local services, browser previews, and SSH setups.
 - Config precedence: project-local actions and commands override global entries with the same ID or name. Global app preferences stay in `~/.config/cmux/cmux.json`.
-- `.cmux/dock.json` and `~/.config/cmux/dock.json`: right-sidebar Dock controls for TUIs, logs, tests, queues, dev servers, and `cmux feed tui --opentui`.
+- `.cmux/dock.json` and `~/.config/cmux/dock.json`: right-sidebar Dock controls for TUIs, logs, tests, queues, and dev servers.
 - `cmux-settings` paths: appearance, sidebar behavior, app icon, menu-bar mode, notifications, browser routing, automation, shortcuts, and new-workspace placement.
-- cmux CLI workspace metadata: workspace names, descriptions, colors, read/unread state, progress, status pills, and logs.
+- cmux CLI workspace metadata: workspace names (`cmux workspace <ws> rename --name …`) and colors (`cmux workspace set-color`); descriptions, read/unread state, progress, status pills, and logs have no Rust CLI verbs yet.
 - Notification hooks in `cmux.json`: filter, rewrite, suppress, or augment notification behavior.
 - Ghostty config: terminal fonts, themes, cursor, copy-on-select, shell integration, terminal keybindings, and rendering.
 

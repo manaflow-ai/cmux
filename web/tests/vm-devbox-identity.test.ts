@@ -349,6 +349,7 @@ describe("devbox warm template terminal", () => {
   test("a clone reseeds the kernel RNG and starts the shell's bounded wait before its daemon starts", () => {
     expect(devboxBoot).toContain("export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1");
     expect(devboxBoot).toContain('export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"');
+    expect(devboxBoot).toContain("export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=workspace-1");
     const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
     const announce = devboxBoot.indexOf("( announce_network & )", cloneBranch);
     const cloneStarted = devboxBoot.indexOf('"$TEMPLATE_RUN_DIR/clone-started"', cloneBranch);
@@ -379,7 +380,7 @@ describe("devbox warm template terminal", () => {
       expect(park).toBeGreaterThan(prepare);
     }
     const prepare = devboxPrepareTemplateTerminalCommand();
-    expect(prepare.indexOf("template-arm")).toBeLessThan(prepare.indexOf("workspace create --name Cloud"));
+    expect(prepare.indexOf("template-arm")).toBeLessThan(prepare.indexOf("workspace create --name workspace-1"));
     expect(prepare).toContain("test -e /run/cmux/template-shell-ready");
     expect(prepare).toContain("test ! -e /run/cmux/template-arm");
     const park = devboxParkDaemonCommand();
@@ -387,4 +388,3 @@ describe("devbox warm template terminal", () => {
     expect(park).toContain("rm -f /run/cmux/bound /run/cmux/clone-started /run/cmux/first-prompt-named");
   });
 });
-

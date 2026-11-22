@@ -14,6 +14,9 @@ Builds cmuxd-remote release assets for the supported remote platforms and emits:
   cmuxd-remote-<goos>-<goarch>[-<suffix>]
   cmuxd-remote-checksums[-<suffix>].txt
   cmuxd-remote-manifest[-<suffix>].json
+  cmuxd-remote-THIRD_PARTY_LICENSES[-<suffix>].txt  (Go std and Go module
+      texts, scripts/remote_daemon_notices.py; a release asset beside the
+      binaries, not in the manifest)
 
 When --asset-suffix is provided, all output filenames and manifest download URLs
 include the suffix, making each build's assets immutable (used by nightly builds
@@ -165,5 +168,10 @@ python3 "$SCRIPT_DIR/generate_remote_daemon_release_manifest.py" \
 
 python3 "$SCRIPT_DIR/verify_remote_daemon_release.py" \
   --manifest "$MANIFEST_PATH" --assets-dir "$OUTPUT_DIR"
+
+# Third-party notices: the Go texts and the reviewed texts of every linked module.
+python3 "$SCRIPT_DIR/remote_daemon_notices.py" generate \
+  --daemon-root "$DAEMON_ROOT" \
+  --out "${OUTPUT_DIR}/cmuxd-remote-THIRD_PARTY_LICENSES${SUFFIX_TAG}.txt"
 
 echo "Built cmuxd-remote assets in ${OUTPUT_DIR}"

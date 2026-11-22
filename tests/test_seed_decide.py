@@ -285,7 +285,7 @@ class Wiring(unittest.TestCase):
         seed = workflow["jobs"][seed_decide.SEED_JOB]
         self.assertEqual(seed["strategy"]["matrix"], "${{ fromJSON(needs.decide.outputs.matrix) }}")
         self.assertEqual(decide_job["outputs"]["matrix"], "${{ steps.inputs.outputs.matrix }}")
-        stage = next(step for step in seed["steps"] if step.get("id") == "stage-products")
+        stage = next(step for step in seed["steps"] if step.get("id") == "package-products")
         self.assertIn("matrix.pool == needs.decide.outputs.publisher", stage["if"])
         self.assertNotIn("job-index", yaml.safe_dump(workflow))
         # A rename would silently turn every skip into a build.

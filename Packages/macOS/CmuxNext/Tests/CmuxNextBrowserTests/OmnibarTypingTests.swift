@@ -1,0 +1,164 @@
+import AppKit
+import Testing
+@testable import CmuxNextBrowser
+
+/// Typing through the real field editor, one keystroke at a time, with the
+/// suggestion round trip settling between keys the way it does live. The
+/// older view tests type through `stringValue`, which never exercised the
+/// caret, so "google.com" once came out as "moc.elgoog".
+@MainActor
+@Suite(.serialized) struct OmnibarTypingTests {
+    final class Harness {
+        let window: NSWindow
+        let chrome: BrowserChromeView
+        let tab: MockBrowserTab
+
+        /// - Parameter answerDelay: How long the history provider takes to
+        ///   answer, as a loaded runner can (CI run 37355953589).
+        init(history: [String] = [], answerDelay: Duration = .zero) {
+            tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+            let store = InMemoryBrowserHistory()
+            for url in history {
+                for _ in 0..<5 { store.recordVisit(url: URL(string: url)!, title: nil, at: Date()) }
+            }
+            let history = HistorySuggestionProvider(store: store)
+            let provider: any BrowserSuggestionProvider = answerDelay == .zero ? history : SlowSuggestionProvider(history, delay: answerDelay)
+            chrome = BrowserChromeView(tab: tab, suggestionEngine: OmniboxSuggestionEngine(providers: [provider]))
+            window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 900, height: 320), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = chrome
+            chrome.layoutSubtreeIfNeeded()
+            tab.load(URL(string: "https://example.org/start")!)
+        }
+
+        deinit {
+            MainActor.assumeIsolated {
+                window.orderOut(nil)
+                // Only this harness's own rows: a sweep of every
+                // SuggestionWindow closed the next test's popup when this
+                // deinit ran late (order-dependent failures).
+                bar.dismissRows()
+            }
+        }
+
+        var bar: AddressBarView { chrome.addressBar }
+        var editor: NSTextView? { bar.subviews.compactMap { $0 as? AddressField }.first?.currentEditor() as? NSTextView }
+
+        /// Lets queued main-actor work run, then waits for the omnibar's
+        /// suggestion query in flight (`OmnibarController.pendingQuery`) to
+        /// answer, until no newer query replaced it.
+        func settle() async {
+            for _ in 0..<50 { await Task.yield() }
+            while let query = bar.controller.pendingQuery {
+                await query.value
+                if bar.controller.pendingQuery == query { break }
+            }
+            chrome.layoutSubtreeIfNeeded()
+        }
+
+        /// One keystroke per character through the field editor, as
+        /// `interpretKeyEvents` delivers it.
+        func type(_ text: String) async {
+            for character in text {
+                editor?.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+                await settle()
+            }
+        }
+
+        func backspace() async {
+            guard let editor else { return }
+            editor.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            await settle()
+        }
+    }
+
+    @Test func typingKeepsTheCaretAtTheEnd() async throws {
+        let h = Harness()
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        await h.type("google.com")
+        let editor = try #require(h.editor)
+        #expect(editor.string == "google.com")
+        #expect(editor.selectedRange() == NSRange(location: 10, length: 0))
+        #expect(h.bar.state.edit.userText == "google.com")
+        #expect(h.bar.state.popup.rows.first?.title == "google.com")
+    }
+
+    @Test func inlineCompletionIsASelectedSuffixAndBackspaceRemovesIt() async throws {
+        let h = Harness(history: ["https://github.com/"])
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        await h.type("gi")
+        let editor = try #require(h.editor)
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 2, length: 8))
+
+        // Typing on replaces the completion and keeps completing.
+        await h.type("th")
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 4, length: 6))
+        #expect(h.bar.state.edit.userText == "gith")
+
+        // Backspace removes the completion and does not re-add it.
+        await h.backspace()
+        #expect(editor.string == "gith")
+        #expect(editor.selectedRange() == NSRange(location: 4, length: 0))
+
+        await h.type("ub.com")
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 10, length: 0))
+    }
+
+    /// The settle waits for the suggestion round trip itself, not for a
+    /// number of scheduler turns: a slow answer still completes inline.
+    @Test func inlineCompletionWaitsForASlowAnswer() async throws {
+        let h = Harness(history: ["https://github.com/"], answerDelay: .milliseconds(50))
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        await h.type("gi")
+        let editor = try #require(h.editor)
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 2, length: 8))
+    }
+
+    @Test func typingInTheMiddleKeepsTheCaretThere() async throws {
+        let h = Harness(history: ["https://github.com/"])
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        await h.type("gthub.com")
+        let editor = try #require(h.editor)
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        await h.type("i")
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 2, length: 0))
+    }
+
+    @Test func clampingKeepsACaretWhereItIs() {
+        #expect(OmnibarRules.clamped(NSRange(location: 3, length: 0), length: 3) == NSRange(location: 3, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: 1, length: 0), length: 5) == NSRange(location: 1, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: 2, length: 8), length: 10) == NSRange(location: 2, length: 8))
+        #expect(OmnibarRules.clamped(NSRange(location: 4, length: 9), length: 6) == NSRange(location: 4, length: 2))
+        #expect(OmnibarRules.clamped(NSRange(location: 9, length: 0), length: 6) == NSRange(location: 6, length: 0))
+        #expect(OmnibarRules.clamped(NSRange(location: NSNotFound, length: 0), length: 6) == NSRange(location: 6, length: 0))
+    }
+}
+
+/// Answers like `base`, after `delay` (a deterministic sleep in a test).
+private final class SlowSuggestionProvider: BrowserSuggestionProvider {
+    private let base: any BrowserSuggestionProvider
+    private let delay: Duration
+
+    init(_ base: any BrowserSuggestionProvider, delay: Duration) {
+        self.base = base
+        self.delay = delay
+    }
+
+    func suggestions(for text: String) async -> [BrowserSuggestion] {
+        try? await Task.sleep(for: delay)
+        return await base.suggestions(for: text)
+    }
+}

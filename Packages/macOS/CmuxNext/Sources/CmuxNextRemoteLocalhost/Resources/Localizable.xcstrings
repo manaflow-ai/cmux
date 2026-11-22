@@ -1,0 +1,1054 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "remoteLocalhost.error.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمرير localhost معطّل على %@ (server.loopback_forward في cmux-tui.json)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prosljeđivanje localhosta je isključeno na %@ (server.loopback_forward u cmux-tui.json)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendelse af localhost er slået fra på %@ (server.loopback_forward i cmux-tui.json)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die localhost-Weiterleitung ist auf %@ ausgeschaltet (server.loopback_forward in cmux-tui.json)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost forwarding is turned off on %@ (server.loopback_forward in cmux-tui.json)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El reenvío de localhost está desactivado en %@ (server.loopback_forward en cmux-tui.json)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le relais de localhost est désactivé sur %@ (server.loopback_forward dans cmux-tui.json)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’inoltro di localhost è disattivato su %@ (server.loopback_forward in cmux-tui.json)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ では localhost 転送がオフになっています（cmux-tui.json の server.loopback_forward）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ជូន localhost ត្រូវបានបិទនៅលើ %@ (server.loopback_forward ក្នុង cmux-tui.json)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 localhost 전달이 꺼져 있습니다(cmux-tui.json의 server.loopback_forward)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresending av localhost er slått av på %@ (server.loopback_forward i cmux-tui.json)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przekazywanie localhost jest wyłączone na %@ (server.loopback_forward w cmux-tui.json)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O encaminhamento de localhost está desativado em %@ (server.loopback_forward em cmux-tui.json)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пересылка localhost отключена на %@ (server.loopback_forward в cmux-tui.json)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การส่งต่อ localhost ถูกปิดบน %@ (server.loopback_forward ใน cmux-tui.json)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde localhost iletimi kapalı (cmux-tui.json içindeki server.loopback_forward)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пересилання localhost вимкнено на %@ (server.loopback_forward у cmux-tui.json)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tính năng chuyển tiếp localhost đã tắt trên %@ (server.loopback_forward trong cmux-tui.json)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上已关闭 localhost 转发（cmux-tui.json 中的 server.loopback_forward）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上已關閉 localhost 轉送（cmux-tui.json 中的 server.loopback_forward）。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في علامة التبويب هذه، localhost هو %@ وليس جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U ovoj kartici localhost je %@, a ne ovaj Mac."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I denne fane er localhost %@, ikke denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In diesem Tab ist localhost %@, nicht dieser Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In this tab, localhost is %@, not this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En esta pestaña, localhost es %@, no este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dans cet onglet, localhost est %@, pas ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In questa scheda, localhost è %@, non questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブでは、localhost はこの Mac ではなく %@ です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្នុងផ្ទាំងនេះ localhost គឺ %@ មិនមែន Mac នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭에서 localhost는 이 Mac이 아니라 %@입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I denne fanen er localhost %@, ikke denne Mac-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W tej karcie localhost to %@, a nie ten Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nesta aba, localhost é %@, não este Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой вкладке localhost — это %@, а не этот Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ในแท็บนี้ localhost คือ %@ ไม่ใช่ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmede localhost bu Mac değil, %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій вкладці localhost — це %@, а не цей Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong tab này, localhost là %@, không phải máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此标签页中，localhost 是 %@，而不是这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此分頁中，localhost 是 %@，而不是這台 Mac。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض %@ الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je odbio vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ afviste forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ hat die Verbindung abgelehnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ refused the connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ rechazó la conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ a refusé la connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ha rifiutato la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が接続を拒否しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បានបដិសេធការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 연결을 거부했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ avviste tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ odrzucił połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ recusou a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ отклонил подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ปฏิเสธการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bağlantıyı reddetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ відхилив підключення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đã từ chối kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 拒绝了连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 拒絕了連線。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.portNotAllowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يسمح %@ بالتمرير إلى هذا المنفذ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ne dozvoljava prosljeđivanje na ovaj port."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tillader ikke videresendelse til denne port."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ erlaubt keine Weiterleitung an diesen Port."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ does not allow forwarding to this port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ no permite reenviar a este puerto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ n’autorise pas le relais vers ce port."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ non consente l’inoltro a questa porta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこのポートへの転送を許可していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ មិនអនុញ្ញាតឱ្យបញ្ជូនទៅច្រកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서 이 포트로의 전달을 허용하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tillater ikke videresending til denne porten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nie zezwala na przekazywanie do tego portu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ não permite encaminhar para esta porta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не разрешает пересылку на этот порт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ไม่อนุญาตให้ส่งต่อไปยังพอร์ตนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bu bağlantı noktasına iletime izin vermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не дозволяє пересилання на цей порт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ không cho phép chuyển tiếp tới cổng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不允许转发到此端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 不允許轉送到此連接埠。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء يستمع على هذا المنفذ في %@. شغّل الخادم هناك أو تحقّق من المنفذ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa ne sluša na tom portu na %@. Pokrenite server tamo ili provjerite port."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet lytter på den port på %@. Start serveren der, eller kontrollér porten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auf diesem Port von %@ lauscht nichts. Starten Sie den Server dort oder prüfen Sie den Port."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is listening on that port of %@. Start the server there, or check the port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada escucha en ese puerto de %@. Inicia el servidor allí o revisa el puerto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’écoute sur ce port de %@. Démarrez le serveur là-bas ou vérifiez le port."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nulla è in ascolto su quella porta di %@. Avvia il server lì o controlla la porta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のそのポートでは何も待ち受けていません。そこでサーバーを起動するか、ポートを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីកំពុងស្តាប់នៅលើច្រកនោះរបស់ %@ ទេ។ សូមចាប់ផ្តើមម៉ាស៊ីនមេនៅទីនោះ ឬពិនិត្យច្រក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 해당 포트에서 수신 대기 중인 것이 없습니다. 그곳에서 서버를 시작하거나 포트를 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting lytter på den porten på %@. Start serveren der, eller sjekk porten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic nie nasłuchuje na tym porcie na %@. Uruchom tam serwer lub sprawdź port."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada está escutando nessa porta de %@. Inicie o servidor lá ou verifique a porta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этом порту %@ ничего не слушает. Запустите там сервер или проверьте порт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีสิ่งใดรอรับที่พอร์ตนั้นของ %@ เริ่มเซิร์ฟเวอร์ที่นั่นหรือตรวจสอบพอร์ต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerinde o bağlantı noktasını dinleyen bir şey yok. Sunucuyu orada başlatın veya bağlantı noktasını kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цьому порту %@ нічого не слухає. Запустіть там сервер або перевірте порт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có gì đang lắng nghe trên cổng đó của %@. Hãy khởi động máy chủ ở đó hoặc kiểm tra cổng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 的该端口上没有服务在监听。请在那里启动服务器，或检查端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 的該連接埠上沒有服務在監聽。請在那裡啟動伺服器，或檢查連接埠。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر الوصول إلى %1$@ على %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće doći do %1$@ na %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke nå %1$@ på %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ auf %2$@ ist nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t reach %1$@ on %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede acceder a %1$@ en %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de joindre %1$@ sur %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile raggiungere %1$@ su %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ の %1$@ に接続できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ទៅ %1$@ នៅលើ %2$@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@의 %1$@에 연결할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke nå %1$@ på %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można połączyć się z %1$@ na %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível acessar %1$@ em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удаётся подключиться к %1$@ на %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเข้าถึง %1$@ บน %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ üzerindeki %1$@ adresine ulaşılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається підключитися до %1$@ на %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể truy cập %1$@ trên %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法访问 %2$@ 上的 %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法連線到 %2$@ 上的 %1$@"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux غير متصل بـ %@. سيعيد الاتصال تلقائيًا؛ أعد التحميل عند عودة الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije povezan sa %@. Ponovo se povezuje sam; osvježite kada se mašina vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er ikke forbundet til %@. Den genopretter forbindelsen selv; genindlæs, når maskinen er tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ist nicht mit %@ verbunden. Es verbindet sich selbst neu; laden Sie neu, wenn der Rechner zurück ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is not connected to %@. It reconnects by itself; reload when the machine is back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no está conectado a %@. Se reconecta solo; recarga cuando la máquina vuelva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’est pas connecté à %@. Il se reconnecte tout seul ; rechargez quand la machine est de retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è connesso a %@. Si riconnette da solo; ricarica quando la macchina torna disponibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に接続されていません。自動で再接続します。マシンが戻ったら再読み込みしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនបានភ្ជាប់ទៅ %@ ទេ។ វានឹងភ្ជាប់ឡើងវិញដោយខ្លួនឯង សូមផ្ទុកឡើងវិញពេលម៉ាស៊ីនត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 %@에 연결되어 있지 않습니다. 자동으로 다시 연결되니 머신이 돌아오면 새로고침하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux er ikke koblet til %@. Den kobler til på nytt av seg selv; last inn på nytt når maskinen er tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie jest połączony z %@. Połączy się ponownie sam; odśwież, gdy maszyna wróci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não está conectado a %@. Ele reconecta sozinho; recarregue quando a máquina voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не подключён к %@. Он переподключится сам; обновите страницу, когда машина вернётся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่ได้เชื่อมต่อกับ %@ ระบบจะเชื่อมต่อใหม่เอง โหลดใหม่เมื่อเครื่องกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, %@ makinesine bağlı değil. Kendi kendine yeniden bağlanır; makine geri geldiğinde yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не підключений до %@. Він перепідключиться сам; оновіть сторінку, коли машина повернеться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux chưa kết nối tới %@. Nó sẽ tự kết nối lại; hãy tải lại khi máy hoạt động trở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 未连接到 %@。它会自动重连；机器恢复后请重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 未連線到 %@。它會自動重新連線；機器恢復後請重新載入。"
+          }
+        }
+      }
+    },
+    "remoteLocalhost.error.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لـ cmux-tui على %@ تمرير localhost. حدّث ذلك الجهاز لاستخدام localhost الخاص به هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na %@ ne može prosljeđivati localhost. Ažurirajte tu mašinu da biste ovdje koristili njen localhost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på %@ kan ikke videresende localhost. Opdater den maskine for at bruge dens localhost her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux-tui auf %@ kann localhost nicht weiterleiten. Aktualisieren Sie diesen Rechner, um hier seinen localhost zu nutzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux-tui on %@ cannot forward localhost. Update that machine to use its localhost here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux-tui de %@ no puede reenviar localhost. Actualiza esa máquina para usar su localhost aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux-tui de %@ ne peut pas relayer localhost. Mettez cette machine à jour pour utiliser son localhost ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux-tui su %@ non può inoltrare localhost. Aggiorna quella macchina per usare qui il suo localhost."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux-tui は localhost を転送できません。ここでその localhost を使うには、そのマシンを更新してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui នៅលើ %@ មិនអាចបញ្ជូន localhost បានទេ។ សូមធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីននោះ ដើម្បីប្រើ localhost របស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 cmux-tui는 localhost를 전달할 수 없습니다. 여기서 그 localhost를 사용하려면 해당 머신을 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui på %@ kan ikke videresende localhost. Oppdater den maskinen for å bruke localhost-en dens her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui na %@ nie może przekazywać localhost. Zaktualizuj tę maszynę, aby używać tu jej localhost."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux-tui em %@ não consegue encaminhar localhost. Atualize essa máquina para usar o localhost dela aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на %@ не умеет пересылать localhost. Обновите эту машину, чтобы использовать здесь её localhost."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui บน %@ ส่งต่อ localhost ไม่ได้ อัปเดตเครื่องนั้นเพื่อใช้ localhost ของเครื่องนั้นที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki cmux-tui localhost'u iletemiyor. Oradaki localhost'u burada kullanmak için o makineyi güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui на %@ не вміє пересилати localhost. Оновіть цю машину, щоб використовувати тут її localhost."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-tui trên %@ không thể chuyển tiếp localhost. Hãy cập nhật máy đó để dùng localhost của nó tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux-tui 无法转发 localhost。请更新该机器，以便在这里使用它的 localhost。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的 cmux-tui 無法轉送 localhost。請更新該機器，以便在這裡使用它的 localhost。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

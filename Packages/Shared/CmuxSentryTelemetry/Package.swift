@@ -28,8 +28,11 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(
+            // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
+            // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
+            // Keep the cap until that call moves to a public API.
             url: "https://github.com/getsentry/sentry-cocoa.git",
-            .upToNextMajor(from: "9.3.0")
+            "9.3.0"..<"9.29.0"
         ),
     ],
     targets: [
@@ -46,7 +49,12 @@ let package = Package(
             dependencies: [
                 "CmuxSentryScrubbing",
                 "CMUXMobileCore",
-                .product(name: "Sentry", package: "sentry-cocoa"),
+                // macOS links the dynamic SDK: a static Sentry adds the
+                // Objective-C personality routine to the cmux-next app image,
+                // one more than compact unwind encodes (C++, iroh-ffi and
+                // CCmuxAppFFI already use the three; check-app-personalities.sh).
+                .product(name: "Sentry", package: "sentry-cocoa", condition: .when(platforms: [.iOS])),
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa", condition: .when(platforms: [.macOS])),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

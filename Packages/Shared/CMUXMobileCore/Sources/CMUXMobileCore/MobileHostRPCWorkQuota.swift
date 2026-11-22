@@ -21,10 +21,9 @@ public struct MobileHostRPCWorkQuota: Sendable {
         maximumAggregateFrameByteCount: Int = Self
             .recommendedMaximumAggregateFrameByteCount
     ) {
-        precondition(maximumConcurrentRequestCount > 0)
-        precondition(maximumAggregateFrameByteCount > 0)
-        self.maximumConcurrentRequestCount = maximumConcurrentRequestCount
-        self.maximumAggregateFrameByteCount = maximumAggregateFrameByteCount
+        // A limit below one becomes one: the quota still admits nothing beyond it.
+        self.maximumConcurrentRequestCount = max(1, maximumConcurrentRequestCount)
+        self.maximumAggregateFrameByteCount = max(1, maximumAggregateFrameByteCount)
     }
 
     /// Returns whether one more decoded frame fits both request budgets.

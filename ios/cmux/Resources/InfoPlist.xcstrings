@@ -90,6 +90,95 @@
         }
       }
     },
+    "NSFaceIDUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief へのテキストの保護を下げることを確認するために、cmux は Face ID を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux uses Face ID to confirm that you want to lower the protection for texts to Chief."
+          }
+        }
+      }
+    },
     "NSLocalNetworkUsageDescription": {
       "extractionState": "manual",
       "localizations": {

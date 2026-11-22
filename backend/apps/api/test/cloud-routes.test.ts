@@ -1,0 +1,160 @@
+import { env, exports } from "cloudflare:workers"
+import { importJWK, SignJWT, type JWK } from "jose"
+import { describe, expect, it } from "vitest"
+import { cloudOpByName } from "@cmux/protocol"
+import { Exit, Schema } from "effect"
+import vectors from "../../../catalog/cloud-vectors.json"
+
+/**
+ * CloudDO through the Worker: the live ops answer for real (fake provider), the other cloud.* ops
+ * keep answering owner.unreachable, and every answer has the shape of the shared wire vectors
+ * (backend/catalog/cloud-vectors.json): the same envelope keys, a value the op's result schema
+ * decodes, and the same error tag and code.
+ */
+
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
+const worker = (exports as unknown as { default: Fetcher }).default
+const token = async (sub: string) =>
+  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+const call = async (path: string, t: string, body: unknown) => {
+  const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify(body) })
+  return { status: res.status, body: (await res.json()) as any }
+}
+const op = (t: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", t, { op: name, params, idempotency_key: key, origin: "user" })
+const read = (t: string, name: string, params: unknown = {}) => call("/v1/read", t, { op: name, params })
+const signedIn = async (sub: string) => {
+  const t = await token(sub)
+  const e = await op(t, "user.ensure", {})
+  return { t, team: e.body.value.personal_team as string }
+}
+
+interface VectorResponse {
+  readonly http: { readonly path: string; readonly status: number }
+  readonly body: Record<string, unknown>
+}
+interface VectorCase {
+  readonly name: string
+  readonly op: string
+  readonly responses: ReadonlyArray<VectorResponse>
+}
+const cases = (vectors as unknown as { cases: ReadonlyArray<VectorCase> }).cases
+const vector = (name: string): VectorResponse => {
+  const c = cases.find((x) => x.name === name)
+  if (!c) throw new Error(`no vector ${name}`)
+  return c.responses[0]!
+}
+const sortedKeys = (o: object) => Object.keys(o).sort()
+
+/** The answer has the vector's status, envelope keys and error code; its value decodes with the op's result schema. */
+const sameShape = (name: string, got: { status: number; body: any }) => {
+  const v = vector(name)
+  const c = cases.find((x) => x.name === name)!
+  expect(got.status, JSON.stringify(got.body)).toBe(v.http.status)
+  expect(sortedKeys(got.body)).toEqual(sortedKeys(v.body))
+  if ("value" in v.body) {
+    const def = cloudOpByName.get(c.op)!
+    const decoded = Schema.decodeUnknownExit(def.result as Schema.Codec<unknown, unknown>)(got.body.value)
+    expect(Exit.isSuccess(decoded), `${name}: ${String(Exit.isFailure(decoded) ? decoded.cause : "")}`).toBe(true)
+    expect(sortedKeys(got.body.value)).toEqual(sortedKeys(v.body.value as object))
+  }
+  if ("error" in v.body) expect(got.body.error.code).toBe((v.body.error as { code: string }).code)
+  // The app reads details keys (details.plan drives "See plans"): the same keys as the vector.
+  if ("error" in v.body) expect(sortedKeys(got.body.error.details ?? {}), name).toEqual(sortedKeys((v.body.error as { details?: object }).details ?? {}))
+  if ("_tag" in v.body) expect([got.body._tag, got.body.code]).toEqual([v.body._tag, v.body.code])
+  if ("stream" in v.body) expect(got.body.stream).toMatch(/^cloud:team_[a-z0-9]{20}$/)
+}
+
+describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
+  it("serves the live ops with the vector shapes", async () => {
+    const { t, team } = await signedIn("cloud-route-1")
+    sameShape("plan.get", await read(t, "cloud.plan.get"))
+    const created = await op(t, "cloud.machine.create", { name: "new box", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, "key-create-1")
+    sameShape("machine.create", created)
+    expect(created.body.stream).toBe(`cloud:${team}`)
+    const replay = await op(t, "cloud.machine.create", { name: "new box", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, "key-create-1")
+    expect(replay.body).toMatchObject({ ok: true, replayed: true, value: { machine: { id: created.body.value.machine.id } } })
+    const conflict = await op(t, "cloud.machine.create", { name: "other box", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, "key-create-1")
+    sameShape("machine.create.conflict", conflict)
+    const id = created.body.value.machine.id as string
+    await op(t, "cloud.machine.create", { name: "second", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    await op(t, "cloud.machine.create", { name: "third", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    const page1 = await read(t, "cloud.machine.list", { limit: 2 })
+    sameShape("machine.list.first_page", page1)
+    sameShape("machine.list.second_page", await read(t, "cloud.machine.list", { limit: 2, cursor: page1.body.value.next_cursor }))
+    sameShape("machine.list.default", await read(t, "cloud.machine.list"))
+    sameShape("machine.get", await read(t, "cloud.machine.get", { machine: id }))
+    sameShape("machine.get.not_found", await read(t, "cloud.machine.get", { machine: "vm_00000000000000000009" }))
+    sameShape("machine.rename", await op(t, "cloud.machine.rename", { machine: id, name: "renamed box" }))
+    sameShape("machine.idle_policy.set", await op(t, "cloud.machine.idle_policy.set", { machine: id, idle_seconds: 3600 }))
+    const del = await op(t, "cloud.machine.delete", { machine: id }, "key-delete-1")
+    sameShape("machine.delete", del)
+    sameShape("machine.delete.tombstone", await op(t, "cloud.machine.delete", { machine: id }, "key-delete-2"))
+    sameShape("machine.get.gone", await read(t, "cloud.machine.get", { machine: id }))
+    sameShape("machine.create.size_locked", await op(t, "cloud.machine.create", { name: "huge box", size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } }))
+  })
+
+  it("refuses create with cloud.plan.required for a team not on CLOUD_ALLOWED_TEAMS (P1-1)", async () => {
+    const { t } = await signedIn("cloud-route-not-allowed")
+    sameShape("machine.create.plan_required", await op(t, "cloud.machine.create", { name: "big box", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } }))
+    expect((await read(t, "cloud.plan.get")).body.value).toMatchObject({ plan_id: "none" })
+  })
+
+  it("keeps answering owner.unreachable for the cloud ops that are not live yet", async () => {
+    const { t } = await signedIn("cloud-route-2")
+    for (const name of ["cloud.billing.checkout"]) {
+      const r = await op(t, name, {})
+      expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
+    }
+    for (const name of ["cloud.migration.status"]) {
+      const r = await read(t, name, {})
+      expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
+    }
+  })
+
+  it("publishes cloud.machine.upsert and cloud.machine.removed on the cloud wire with revision = stream seq", async () => {
+    const { t, team } = await signedIn("cloud-route-3")
+    const created = await op(t, "cloud.machine.create", { name: "watched", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${t}` } })
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    const frames: Array<any> = []
+    ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))
+    ws.accept()
+    ws.send(JSON.stringify({ t: "subscribe" }))
+    const wait = async (pred: (f: any) => boolean) => {
+      for (let i = 0; i < 200 && !frames.some(pred); i++) await new Promise((r) => setTimeout(r, 10))
+      return frames.find(pred)
+    }
+    const snap = await wait((f) => f.t === "snapshot")
+    expect(snap.stream).toBe(`cloud:${team}`)
+    expect(snap.state).toEqual({ team, rev: snap.seq, active: 1, saved: 0, changed: null })
+    // The last commit was the create's driver_result, which changes the ledger only.
+    const id = created.body.value.machine.id as string
+    const renamed = await op(t, "cloud.machine.rename", { machine: id, name: "watched 2" })
+    const up = await wait((f) => f.t === "event" && f.event === "cloud.machine.upsert")
+    expect(up.data.machine).toMatchObject({ id, name: "watched 2", revision: String(up.seq) })
+    expect(renamed.body.revision).toBe(String(up.seq))
+    // Private rows never leave the owner: the effects carry the head only.
+    expect(up.effects.writes).toEqual([])
+    await op(t, "cloud.machine.delete", { machine: id })
+    const gone = await wait((f) => f.t === "event" && f.event === "cloud.machine.removed")
+    expect(gone.data).toEqual({ machine: id, revision: String(gone.seq) })
+    // P3-8: internal ops never show the ledger key or provider error text to subscribers.
+    const internal = frames.filter((f) => f.t === "event" && f.op === "cloud.driver_result")
+    expect(internal.length).toBeGreaterThan(0)
+    for (const f of internal) expect(f.params).toEqual({})
+    // P3-7: ops go through /v1/ops, never the socket.
+    ws.send(JSON.stringify({ t: "op", op: "cloud.machine.rename", params: { machine: id, name: "via socket" }, idempotency_key: "sock-1" }))
+    const refused = await wait((f) => f.t === "error")
+    expect(refused).toMatchObject({ code: "validation.invalid", message: "send ops through /v1/ops" })
+    expect(Number(gone.seq)).toBeGreaterThan(Number(up.seq))
+    ws.close()
+  })
+})

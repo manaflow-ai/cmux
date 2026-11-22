@@ -1,0 +1,47 @@
+{
+  "init": {
+    "settings": {
+      "variant": "statusLine"
+    },
+    "props": {
+      "doc": "doc_routes"
+    }
+  },
+  "ops": {
+    "document.open": {
+      "info": {
+        "doc": "doc_routes",
+        "uri": "file://mac/Users/dev/orbit/src/server/routes.ts",
+        "name": "routes.ts",
+        "type": {
+          "uti": "public.typescript-source",
+          "language": "typescript"
+        },
+        "encoding": "utf-8",
+        "lineEnding": "lf",
+        "revision": {
+          "counter": 7,
+          "hash": "h000007"
+        },
+        "dirty": true,
+        "readOnly": false,
+        "conflict": null
+      },
+      "text": "import { LruCache } from \"./lru\"\n\n/** Rendered pages, newest last. Evictions are counted. */\nconst pages = new LruCache<string, string>(500, (key) => metrics.count(\"cache.evict\", { key }))\n\nexport interface RenderOptions {\n  locale: string\n  preview?: boolean\n}\n\nexport function render(path: string, options: RenderOptions = { locale: \"en\" }): string {\n  const key = `${options.locale}:${path}`\n  const hit = pages.get(key)\n  if (hit !== undefined) return hit\n  const html = template(path, options).replace(/\\s+$/g, \"\")\n  if (!options.preview) pages.set(key, html)\n  return html\n}\n\nexport const clearPages = () => pages.clear()\n"
+    },
+    "document.edit": {
+      "revision": {
+        "counter": 8,
+        "hash": "h000008"
+      },
+      "dirty": true
+    },
+    "document.save": {
+      "revision": {
+        "counter": 8,
+        "hash": "h000008"
+      },
+      "dirty": false
+    }
+  }
+}

@@ -94,15 +94,15 @@ private func canonicalIPv4Address(_ value: String) -> String? {
     }
     var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
     return buffer.withUnsafeMutableBufferPointer { output in
-        guard inet_ntop(
+        guard let text = inet_ntop(
             AF_INET,
             &address,
             output.baseAddress,
             socklen_t(output.count)
-        ) != nil else {
+        ) else {
             return nil
         }
-        return String(cString: output.baseAddress!)
+        return String(cString: text)
     }
 }
 
@@ -115,14 +115,14 @@ private func canonicalIPv6Address(_ value: String) -> String? {
     }
     var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
     return buffer.withUnsafeMutableBufferPointer { output in
-        guard inet_ntop(
+        guard let text = inet_ntop(
             AF_INET6,
             &address,
             output.baseAddress,
             socklen_t(output.count)
-        ) != nil else {
+        ) else {
             return nil
         }
-        return String(cString: output.baseAddress!)
+        return String(cString: text)
     }
 }

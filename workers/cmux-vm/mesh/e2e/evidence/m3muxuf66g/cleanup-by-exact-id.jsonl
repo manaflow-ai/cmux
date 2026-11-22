@@ -1,0 +1,3 @@
+{"t":"2026-10-07T08:32:01.960Z","kind":"tunnel","id":"tun-3082dbecb46645ceb8251438b49df8e2","delete":204,"get":404,"note":"run m3muxuf66g left this tunnel: its cleanup used a key without the admin scope after the device owner's key was revoked; deleted by exact ledger id"}
+{"t":"2026-10-07T08:32:02.066Z","kind":"tunnel","id":"tun-05e7f2c1d2994eb9bd94d91976acb65f","delete":204,"get":404,"note":"same"}
+{"t":"2026-10-07T08:32:02.104Z","kind":"vpc","id":"vpc-766a0abcbed84770ac5d9217821c2ac6","delete":204,"get":404,"note":"same; the VM and both rules were already 404 in the run's own check"}

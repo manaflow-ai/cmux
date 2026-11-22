@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+.output/
+.vercel/
+.nitro/
+.tanstack/
+*.log
+apps/api/wrangler.*.generated.jsonc
+.drizzle-pull-*.config.ts

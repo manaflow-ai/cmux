@@ -7,6 +7,7 @@ import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resizeVm } from "../../../../../services/vms/workflows";
 import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/machineSpec";
 import { maxDiskMbForPlan, maxMemoryMbForPlan, maxVcpusForPlan } from "../../../../../services/vms/entitlements";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
 /** Grow a Cloud VM's resources. The workflow owns plan and grow-only checks. */
 export async function POST(
@@ -53,6 +54,7 @@ export async function POST(
         cpu: cpu as number | undefined,
         memoryMb: memoryMb as number | undefined,
         maxActiveVms: account.entitlements.maxActiveVms,
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const stats = run.value;

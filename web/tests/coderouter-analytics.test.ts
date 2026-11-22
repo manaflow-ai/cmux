@@ -129,6 +129,46 @@ describe("coderouter analytics", () => {
     expect(captured.bodies[0]).not.toContain("free-form error");
   });
 
+  test("keeps handoff analytics enum-only even when callers provide token-shaped fields", async () => {
+    const captured = collector();
+    captureCoderouterEvent(
+      {
+        event: "coderouter_handoff_lease_issued",
+        userId: "raw-user",
+        teamId: "raw-team",
+        properties: {
+          authorization_mode: "native_stack",
+          lease: "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          token: "crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN",
+        },
+      },
+      captured.dependencies,
+    );
+    captureCoderouterEvent(
+      {
+        event: "coderouter_handoff_lease_exchanged",
+        userId: "raw-user",
+        teamId: "raw-team",
+        properties: {
+          authorization_mode: "lease",
+          lease: "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          route_token: "crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN",
+        },
+      },
+      captured.dependencies,
+    );
+
+    await Promise.all(captured.deferred);
+    expect(captured.bodies).toHaveLength(2);
+    for (const body of captured.bodies) {
+      expect(body).not.toContain("crh_");
+      expect(body).not.toContain("crt_");
+      const event = JSON.parse(body).batch[0];
+      expect(event.distinct_id).toBe("raw-user");
+      expect(event.properties.team_id).toBe("raw-team");
+    }
+  });
+
   test("fails closed for usage and ops when the project key is missing", () => {
     const defer = mock(() => {});
     const dependencies = {

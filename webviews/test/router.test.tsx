@@ -6,9 +6,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { createWebviewsRouter } from "../src/router";
 
 test("generated diff viewer file paths render the webview instead of TanStack not-found", async () => {
-  await expectRouteToRenderWebview(
-    "cmux-diff-viewer://01234567-89ab-cdef-0123-456789abcdef/diff-123-opening.html",
-  );
+  await expectRouteToRenderWebview("cmux-diff-viewer://01234567-89ab-cdef-0123-456789abcdef/diff-123-opening.html");
 });
 
 test("generated diff viewer hash routes render the webview instead of TanStack not-found", async () => {

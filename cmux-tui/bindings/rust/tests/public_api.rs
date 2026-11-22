@@ -140,3 +140,16 @@ fn generated_numeric_models_are_only_under_raw() {
     assert_eq!(numeric, 42);
     let _legacy_type: Option<cmux::raw::SurfaceResult> = None;
 }
+
+#[test]
+fn byte_attachment_lives_only_under_raw() {
+    fn raw_byte_attachment(
+        _: Option<cmux::raw::ByteAttachment>,
+        _: Option<cmux::raw::ByteAttachmentWriter>,
+        _: Option<cmux::raw::ByteAttachmentReader>,
+        _: Option<cmux::raw::AttachmentItem>,
+    ) {
+    }
+    raw_byte_attachment(None, None, None, None);
+    assert!(cmux::raw::BYTE_ATTACHMENT_CAPABILITIES.contains(&"view-attachment-lease-v1"));
+}

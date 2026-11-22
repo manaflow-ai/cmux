@@ -1,0 +1,18 @@
+[package]
+name = "cmux-unix-socket"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Unix socket path rules for cmux: the sun_path length check with a clear error, and short socket directories for tests"
+
+[features]
+# `short_test_dir`, for dev-dependencies only.
+test-support = ["dep:tempfile"]
+
+[dependencies]
+tempfile = { version = "3", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

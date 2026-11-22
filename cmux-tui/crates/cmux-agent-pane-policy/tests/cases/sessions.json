@@ -1,0 +1,185 @@
+[
+ {
+  "name": "prompt to own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "a"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "prompt to other session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "prompt without session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "session/prompt",
+   "params": {}
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "kill other",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/kill",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "attach is not scoped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/attach",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "fork is source scoped, not session scoped",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.session.fork",
+   "params": {
+    "sessionId": "b"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "acp.trust.get naming a session outside the scope is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.get",
+   "params": {
+    "cwd": "/x",
+    "sessionId": "s9"
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "acp.trust.set naming a session outside the scope is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/x",
+    "level": "trusted",
+    "sessionId": "s9"
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "acp.trust.get naming the pane's session passes",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.get",
+   "params": {
+    "cwd": "/x",
+    "sessionId": "s1"
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "acp.trust.set naming no session asks about the folder only",
+  "sessions": [],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.set",
+   "params": {
+    "cwd": "/x",
+    "level": "trusted"
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "acp.trust.get with a sessionId that is not a string is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.get",
+   "params": {
+    "cwd": "/x",
+    "sessionId": 1
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "acp.trust.get with a null sessionId is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "acp.trust.get",
+   "params": {
+    "cwd": "/x",
+    "sessionId": null
+   }
+  },
+  "refused": true
+ }
+]

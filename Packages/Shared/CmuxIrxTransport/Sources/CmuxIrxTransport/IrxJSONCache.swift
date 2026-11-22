@@ -38,7 +38,7 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
     }
 
     public func load() -> Value? {
-        var query = baseQuery()
+        var query: [String: Any] = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -50,7 +50,7 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
     @discardableResult
     public func save(_ value: Value) -> Bool {
         guard let data = try? JSONEncoder().encode(value) else { return false }
-        let query = baseQuery()
+        let query: [String: Any] = baseQuery()
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String:
@@ -60,7 +60,7 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
             query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return load() != nil }
         guard updateStatus == errSecItemNotFound else { return false }
-        var insert = query
+        var insert: [String: Any] = query
         attributes.forEach { insert[$0.key] = $0.value }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus == errSecSuccess { return load() != nil }

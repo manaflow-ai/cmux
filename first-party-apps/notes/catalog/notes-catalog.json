@@ -1,0 +1,393 @@
+{
+  "family": "notes",
+  "operations": [
+    {
+      "name": "notes.new_note",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "new-note",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "New Note"
+      },
+      "docs": "Create an empty note and open it.",
+      "since": "notes/1",
+      "export": "newNote"
+    },
+    {
+      "name": "notes.capture",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Note text. The first line becomes the title."
+          },
+          "workspace": {
+            "type": "string",
+            "description": "Attach to this workspace: an id, a name, or \"current\" (your workspace)."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "cli": {
+        "path": "capture",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Quick Capture Note"
+      },
+      "docs": "Save text as a new note; the first line becomes the title.",
+      "since": "notes/1",
+      "export": "capture"
+    },
+    {
+      "name": "notes.list",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Only notes matching every word."
+          },
+          "workspace": {
+            "type": "string",
+            "description": "Only notes attached to this workspace: an id, a name, or \"current\" (your workspace)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "List notes, optionally filtered by words or by workspace.",
+      "since": "notes/1",
+      "export": "list"
+    },
+    {
+      "name": "notes.read",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "cli": {
+        "path": "read",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Read one note.",
+      "since": "notes/1",
+      "export": "read"
+    },
+    {
+      "name": "notes.create",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown."
+          },
+          "workspace": {
+            "type": "string",
+            "description": "An id, a name, or \"current\"."
+          },
+          "pinned": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Create a note with a title and a Markdown body.",
+      "since": "notes/1",
+      "export": "create"
+    },
+    {
+      "name": "notes.append",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The note. Give this or workspace."
+          },
+          "workspace": {
+            "type": "string",
+            "description": "Append to this workspace's scratchpad (created on first use): an id, a name, or \"current\" (your workspace)."
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "cli": {
+        "path": "append",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Append text to a note or to a workspace's scratchpad.",
+      "since": "notes/1",
+      "export": "append"
+    },
+    {
+      "name": "notes.search",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "cli": {
+        "path": "search",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Search notes.",
+      "since": "notes/1",
+      "export": "search"
+    },
+    {
+      "name": "notes.export",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "One note; every note when absent."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "export",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Export Notes as Markdown…"
+      },
+      "docs": "Export one note or every note as Markdown files into a folder you pick.",
+      "since": "notes/1",
+      "export": "exportNotes",
+      "gesture": "required"
+    },
+    {
+      "name": "notes.import",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "import",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Import Markdown Files as Notes…"
+      },
+      "docs": "Import Markdown files you pick as notes.",
+      "since": "notes/1",
+      "export": "importNotes",
+      "gesture": "required"
+    },
+    {
+      "name": "notes.open",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "docs": "Open a note in the Notes section.",
+      "since": "notes/1",
+      "export": "open"
+    },
+    {
+      "name": "notes.cycle_variant",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Notes Variant"
+      },
+      "docs": "Switch to the next Notes design variant (DEV and NIGHTLY).",
+      "since": "notes/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

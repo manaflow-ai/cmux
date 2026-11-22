@@ -8,7 +8,9 @@
 //! The process-group and edge-trigger ideas are derived from herdr's
 //! `src/pane.rs` and `src/pane/agent_detection.rs` at commit
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), then adapted to
-//! the cmux journal contract.
+//! the cmux journal contract. Keeping a suspended or backgrounded agent's
+//! identity follows herdr `950d012cf0cfd17737b4fff2f4982210b50b5794`
+//! (`crate::background_agent`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -24,6 +26,7 @@ use cmux::{
 };
 use serde_json::json;
 
+use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
@@ -61,6 +64,7 @@ struct ScannerState {
     tracker: ScreenDetectTracker,
     process_cache: ProcessGroupCache,
     process_info_cache: ProcessInfoCache,
+    agent_jobs: HashMap<String, AgentJobTracker>,
     pending_appends: HashMap<String, PendingAppend>,
     emission_nonce: String,
     emission_sequence: u64,
@@ -72,6 +76,7 @@ impl ScannerState {
             tracker: ScreenDetectTracker::default(),
             process_cache: ProcessGroupCache::default(),
             process_info_cache: ProcessInfoCache::default(),
+            agent_jobs: HashMap::new(),
             pending_appends: HashMap::new(),
             emission_nonce: format!("{}-{}", std::process::id(), now_nanos()),
             emission_sequence: 0,
@@ -87,6 +92,7 @@ impl ScannerState {
         self.tracker.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_info_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
+        self.agent_jobs.retain(|terminal_id, _| retained.contains(terminal_id));
         // Pending appends are exact journal envelopes. They can have been
         // committed even when this catalog snapshot briefly omits a terminal,
         // so the replay path owns their lifetime instead of catalog pruning.
@@ -637,9 +643,40 @@ fn scan_terminal(
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
-    let manifest = process_discovery::identify_job_with_process_fallback(manifests, &job, &process)
-        .map(|(manifest, _)| manifest);
+    let job_match = process_discovery::identify_job_process(manifests, &job);
+    let agent_pid = job_match.as_ref().map(|(_, _, pid)| *pid);
+    let manifest = job_match.map(|(manifest, _, _)| manifest).or_else(|| {
+        process_discovery::identify_process_info(manifests, &process).map(|(manifest, _)| manifest)
+    });
     let process_group_id = state.process_cache.authoritative_group_id(&terminal_id);
+    let current_agent = state.tracker.foreground_agent(&terminal_id).map(str::to_owned);
+    let held = state.agent_jobs.entry(terminal_id.clone()).or_default().hold(
+        ProbeObservation {
+            shell_pid: process.pid,
+            current_agent: current_agent.as_deref(),
+            identified_agent: manifest.map(|manifest| manifest.id()),
+            identified_pid: agent_pid,
+            foreground_group: process_group_id,
+        },
+        &PlatformProcesses,
+    );
+    if held {
+        // The agent was suspended or backgrounded (herdr 950d012c). A probe of
+        // its own identity, without a group, resets the miss window and makes
+        // no identity edge. The visible screen belongs to the foreground job,
+        // so it is not read. Unknown-cadence probes notice the job's exit or
+        // return quickly.
+        let _ = state.tracker.note_foreground_job_at_with_revision(
+            &terminal_id,
+            current_agent.as_deref(),
+            None,
+            snapshot.stream_revision,
+            now,
+        );
+        state.process_cache.mark_identified(&terminal_id, false, now);
+        state.process_info_cache.mark_identified(&terminal_id, false, now);
+        return Ok(());
+    }
     let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         manifest.map(|item| item.id()),

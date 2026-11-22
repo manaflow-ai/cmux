@@ -3,6 +3,7 @@ import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -12,6 +13,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     path: "/docs/cloud/cli",
   });
 }
+
+const linkClass =
+  "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
 export default async function CloudCliPage({
   params,
@@ -132,6 +136,7 @@ cmux vpn revoke`}</CodeBlock>
 cmux ai-accounts upload claude|codex|anthropic-key|openai-key [--label <label>] [--team <id>]
 cmux coderouter status
 cmux coderouter machines`}</CodeBlock>
+      <p><Link href="/docs/coderouter/cli" className={linkClass}>{t("coderouterLink")}</Link></p>
 
       <DocsHeading level={2} id="scripting-checklist">{t("preflightTitle")}</DocsHeading>
       <p>{t("preflightDesc")}</p>

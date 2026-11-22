@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { nextFitSize } from "../src/lib/fit";
 
 describe("nextFitSize", () => {

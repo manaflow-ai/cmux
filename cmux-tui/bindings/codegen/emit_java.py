@@ -363,6 +363,14 @@ class JavaEmitter:
         for value in expr["values"]:
             constants.append(f"    {_constant(str(value))}({_java_literal(value)})")
         body = ",\n".join(constants) + ";\n"
+        fallback = expr.get("fallback")
+        unknown = (
+            "        if (value instanceof String) {\n"
+            + f"            return {_constant(str(fallback))};\n"
+            + "        }\n"
+            if fallback is not None
+            else ""
+        )
         return (
             _HEADER
             + "import java.util.Objects;\n\n"
@@ -386,6 +394,7 @@ class JavaEmitter:
             + "                return candidate;\n"
             + "            }\n"
             + "        }\n"
+            + unknown
             + f"        throw new CmuxDecodeException(\"unknown {name} value \" + value, null);\n"
             + "    }\n"
             + "}\n"

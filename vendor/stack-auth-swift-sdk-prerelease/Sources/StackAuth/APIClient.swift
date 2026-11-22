@@ -108,6 +108,30 @@ actor APIClient {
     let refreshTimeoutNanoseconds: UInt64
     
     private static let sdkVersion = "1.0.0"
+
+    /// Stack's OAuth client secret for projects that do not require a
+    /// publishable key (`publishableClientKeyNotNecessarySentinel` in the JS SDK).
+    static let publicClientSecret = "__stack_public_client__"
+
+    /// The publishable key header value, or `nil` when no key is configured.
+    /// A project that does not require keys accepts a request without one but
+    /// rejects a revoked key, so an empty key must never be sent.
+    nonisolated var publishableClientKeyHeader: String? {
+        publishableClientKey.isEmpty ? nil : publishableClientKey
+    }
+
+    /// The OAuth `client_secret`: the publishable key, or Stack's public-client
+    /// secret when no key is configured.
+    nonisolated var oauthClientSecret: String {
+        publishableClientKey.isEmpty ? Self.publicClientSecret : publishableClientKey
+    }
+
+    /// Sets the publishable key header only when a key is configured.
+    nonisolated func applyPublishableClientKey(to request: inout URLRequest) {
+        if let key = publishableClientKeyHeader {
+            request.setValue(key, forHTTPHeaderField: "x-stack-publishable-client-key")
+        }
+    }
     
     init(
         baseUrl: String,
@@ -152,7 +176,7 @@ actor APIClient {
         
         // Required headers
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+        applyPublishableClientKey(to: &request)
         request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-stack-client-version")
         request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-stack-access-type")
         request.setValue("true", forHTTPHeaderField: "x-stack-override-error-status")
@@ -317,14 +341,14 @@ actor APIClient {
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+        applyPublishableClientKey(to: &request)
         request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
 
         let body = [
             "grant_type=refresh_token",
             "refresh_token=\(formURLEncode(refreshToken))",
             "client_id=\(formURLEncode(projectId))",
-            "client_secret=\(formURLEncode(publishableClientKey))"
+            "client_secret=\(formURLEncode(oauthClientSecret))"
         ].joined(separator: "&")
 
         request.httpBody = body.data(using: .utf8)

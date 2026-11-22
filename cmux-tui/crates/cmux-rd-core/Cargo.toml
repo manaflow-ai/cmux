@@ -1,0 +1,17 @@
+[package]
+name = "cmux-rd-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop engine core: FEC, packetizer, reassembly, flow and congestion control, input, sessions and access policy (pure, injected clock)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-rd-proto = { path = "../cmux-rd-proto" }
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }

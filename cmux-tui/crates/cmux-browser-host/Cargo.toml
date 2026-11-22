@@ -1,0 +1,28 @@
+[package]
+name = "cmux-browser-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux browser host: engine-neutral agent browser runtime, driver protocol and CDP driver"
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+# raw_value only (a9): script values keep the page's key order. Never
+# preserve_order, which would change every map in the crate.
+serde_json = { workspace = true, features = ["raw_value"] }
+url = "2.5"
+hmac.workspace = true
+# Undoable cookie clears: encrypted backups (src/cookie_backups.rs).
+chacha20poly1305 = "0.10"
+getrandom.workspace = true
+sha1 = "0.10"
+rquickjs = "0.14"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

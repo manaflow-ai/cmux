@@ -1,0 +1,40 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/Security.framework/Versions/A/Security'
+current-version: 61901.120.67
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_SecCertificateCopyData',
+                       '_SecCertificateCopySubjectSummary',
+                       '_SecCertificateCreateWithData',
+                       '_SecCodeCheckValidity',
+                       '_SecCodeCopyGuestWithAttributes',
+                       '_SecCodeCopySelf',
+                       '_SecCodeCopySigningInformation',
+                       '_SecCodeCopyStaticCode',
+                       '_SecCopyErrorMessageString',
+                       '_SecKeychainAddGenericPassword',
+                       '_SecKeychainCopyDefault',
+                       '_SecKeychainFindGenericPassword',
+                       '_SecKeychainItemFreeContent',
+                       '_SecKeychainItemModifyAttributesAndData',
+                       '_SecPolicyCreateSSL',
+                       '_SecRequirementCreateWithString',
+                       '_SecStaticCodeCheckValidity',
+                       '_SecStaticCodeCreateWithPath',
+                       '_SecTrustCreateWithCertificates',
+                       '_SecTrustEvaluateWithError',
+                       '_SecTrustSetAnchorCertificates',
+                       '_SecTrustSetAnchorCertificatesOnly',
+                       '_SecTrustSetOCSPResponse',
+                       '_SecTrustSetVerifyDate',
+                       '_SecTrustSettingsCopyCertificates',
+                       '_SecTrustSettingsCopyTrustSettings',
+                       '_kSecCodeInfoIdentifier',
+                       '_kSecCodeInfoTeamIdentifier',
+                       '_kSecCodeInfoUnique',
+                       '_kSecGuestAttributeAudit' ]
+...

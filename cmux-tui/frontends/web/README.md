@@ -24,7 +24,8 @@ cd ../../frontends/web && npm ci
 Start these in two terminals from this directory:
 
 ```bash
-~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681 --ws-token change-me
+~/.local/bin/cmux-tui --headless --session webfront --ws 127.0.0.1:7681 --ws-token change-me \
+  --ws-allow-origin http://localhost:5173
 ```
 
 ```bash
@@ -34,6 +35,11 @@ npm run dev
 Open `http://localhost:5173`, keep the default WebSocket URL, and connect. The
 browser and TUI show the same six-digit code. Approve it in the TUI with Enter.
 `--ws-token <token>` remains available as a non-interactive automation bypass.
+The listener refuses browser pages from any other origin and requests whose
+`Host` is not loopback; `--ws-allow-origin` adds the dev server page, and
+`--ws-allow-host` adds a name such as the `tailscale serve` host. Behind
+`tailscale serve --https=8443`, pass both
+`--ws-allow-origin https://<name>.ts.net:8443 --ws-allow-host <name>.ts.net`.
 
 ## Remote access and one-tap links
 

@@ -1,0 +1,233 @@
+{
+  "en": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "ar": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "bs": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "da": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "de": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "es": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "fr": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "it": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "ja": {
+    "changelog.page.allChanges": "すべての変更",
+    "changelog.page.current": "インストール済み",
+    "changelog.page.hasHighlights": "ハイライトあり",
+    "changelog.page.heading": "%@ の新機能",
+    "changelog.page.loading": "読み込み中…",
+    "changelog.page.noHistory": "リリースノートはまだありません。",
+    "changelog.page.title": "新機能",
+    "changelog.page.unavailable": "このバージョンのノートはまだオフラインで利用できません。",
+    "changelog.page.versions": "バージョン"
+  },
+  "km": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "ko": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "nb": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "pl": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "pt-BR": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "ru": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "th": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "tr": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "uk": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "vi": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "zh-Hans": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  },
+  "zh-Hant": {
+    "changelog.page.allChanges": "All Changes",
+    "changelog.page.current": "Installed",
+    "changelog.page.hasHighlights": "Has highlights",
+    "changelog.page.heading": "What's New in %@",
+    "changelog.page.loading": "Loading…",
+    "changelog.page.noHistory": "No release notes yet.",
+    "changelog.page.title": "What's New",
+    "changelog.page.unavailable": "The notes for this version are not available offline yet.",
+    "changelog.page.versions": "Versions"
+  }
+}

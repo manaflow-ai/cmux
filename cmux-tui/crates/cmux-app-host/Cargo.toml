@@ -1,0 +1,34 @@
+[package]
+name = "cmux-app-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux app host: one sandboxed QuickJS VM per app, driven by the daemon's app supervisor over fd 3"
+
+[lints]
+workspace = true
+
+[lib]
+name = "cmux_app_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cmux-app-host"
+path = "src/main.rs"
+required-features = ["engine"]
+
+[features]
+default = ["engine"]
+# The VM, the process loop and the OS sandbox. The daemon's supervisor uses
+# only the wire types (`default-features = false`).
+engine = ["dep:rquickjs"]
+
+[dependencies]
+rquickjs = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

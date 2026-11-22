@@ -53,6 +53,8 @@ const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
 const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_not_found",
   "vm_snapshot_not_found",
+  "vm_file_not_found",
+  "vm_firewall_rule_not_found",
   "vm_tunnel_not_found",
   "vm_access_revoked",
   "vm_access_grant_not_found",

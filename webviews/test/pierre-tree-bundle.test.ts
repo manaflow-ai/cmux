@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-describe("vendored Pierre tree bundle", () => {
+describe("Pierre tree package", () => {
   test("supports the public APIs used by the diff viewer", async () => {
-    const { FileTree, preparePresortedFileTreeInput } = await import(
-      "../../Resources/markdown-viewer/diff-viewer/trees.mjs"
-    );
+    const { FileTree, preparePresortedFileTreeInput } = await import("@pierre/trees");
     const paths = ["src/App.tsx"];
     const tree = new FileTree({
       gitStatus: [{ path: "src/App.tsx", status: "modified" }],

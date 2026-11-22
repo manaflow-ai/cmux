@@ -16,7 +16,9 @@ XCODE_VERSION_FILE="$REPO_ROOT/.xcode-version"
 
 # Source of truth for the team's Xcode pin: .xcode-version at the repo root.
 # When the team bumps to a new Xcode major, edit that one file and update
-# the case below if Apple bumped objectVersion in the new major.
+# the case below if Apple bumped objectVersion in the new major. Xcode's
+# synchronized-folder format uses objectVersion 77 even while the repository
+# remains pinned to Xcode 26.
 XCODE_VERSION="$(tr -d '[:space:]' < "$XCODE_VERSION_FILE")"
 XCODE_MAJOR="${XCODE_VERSION%%.*}"
 case "$XCODE_MAJOR" in
@@ -25,7 +27,7 @@ case "$XCODE_MAJOR" in
 esac
 
 actual="$(grep -E '^[[:space:]]*objectVersion = [0-9]+;' "$PBXPROJ" | head -1 | grep -oE '[0-9]+')"
-if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
+if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" && ! ( "$actual" == "77" && "$(grep -c 'PBXFileSystemSynchronizedRootGroup' "$PBXPROJ")" -gt 0 ) ]]; then
     echo "::error file=cmux.xcodeproj/project.pbxproj,line=6::objectVersion is $actual, expected $EXPECTED_OBJECT_VERSION for Xcode $XCODE_VERSION." >&2
     echo "The team is pinned to Xcode $XCODE_VERSION (see .xcode-version)." >&2
     echo "If you intended to bump the pin, edit .xcode-version and add a case in scripts/check-pbxproj.sh." >&2

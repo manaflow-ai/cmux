@@ -1,0 +1,28 @@
+{"t":1791357753833,"event":"mesh","meshId":"mesh_rfkcb36s9wxw8dqskkfrexj9gr","ipv4Cidr":"10.191.64.0/20","ms":107}
+{"t":1791357753981,"event":"vm","vmId":"vm_1nx2226r12pn96k03m9vtbm28w","state":"running","idleTimeoutSeconds":300,"ms":147}
+{"t":1791357754161,"event":"vm-joined","ipv4":"10.191.64.1","ms":181}
+{"t":1791357755206,"event":"vm-server","exitCode":0,"stdout":"1"}
+{"t":1791357755340,"event":"keygen","code":0,"publicKey":"sWM6H3d5Zoqoa7gIAUmFCAMMrMuMJVgMPUmUHj5G+zk="}
+{"t":1791357755766,"event":"enroll","code":0,"stderr":""}
+{"t":1791357755845,"event":"acl","version":1,"status":200,"body":{"meshId":"mesh_rfkcb36s9wxw8dqskkfrexj9gr","version":1,"ruleCount":2,"rulesCreated":2,"rulesDeleted":0,"applyMs":74},"ms":77}
+{"t":1791357755847,"event":"peers","deviceId":"dev_8vpgn9p785mdk8tcjzz941vkdm","meshId":"mesh_rfkcb36s9wxw8dqskkfrexj9gr","aclVersion":1,"peers":[{"kind":"vm","id":"vm_1nx2226r12pn96k03m9vtbm28w","address":"10.191.64.1","allow":[{"protocol":"icmp"},{"protocol":"tcp","port":8080}]}]}
+{"t":1791357760132,"event":"ping","code":0,"stdout":["{\"rttMs\":13.79,\"seq\":1}","{\"rttMs\":15.491,\"seq\":2}","{\"rttMs\":18.541,\"seq\":3}","{\"rttMs\":21.626,\"seq\":4}","{\"rttMs\":8.915,\"seq\":5}","{\"avgMs\":15.673,\"maxMs\":21.626,\"minMs\":8.915,\"peer\":\"10.191.64.1\",\"received\":5,\"sent\":5,\"summary\":true}"],"stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":266}"]}
+{"t":1791357760237,"event":"tcp","code":0,"stdout":"{\"connectMs\":11.258,\"peer\":\"10.191.64.1:8080\",\"received\":\"pong hello\",\"roundTripMs\":13.116,\"sent\":\"hello\"}","stderr":["{\"endpoint\":\"208.72.218.30:51820\",\"event\":\"handshake\",\"ms\":67}"]}
+{"t":1791357795246,"event":"error","message":"Error: acl allow -> 429 {\"message\":\"This mesh's ACL changed 10 times in the last minute; the limit is 10\",\"retryAfterSeconds\":21,\"budget\":\"aclApply.perMeshPerMinute\",\"_tag\":\"QuotaExceeded\"}"}
+{"t":1791357795341,"event":"cleanup","path":"/v1/devices/dev_8vpgn9p785mdk8tcjzz941vkdm","status":204}
+{"t":1791357795492,"event":"cleanup","path":"/v1/meshes/mesh_rfkcb36s9wxw8dqskkfrexj9gr/vms/vm_1nx2226r12pn96k03m9vtbm28w","status":204}
+{"t":1791357795548,"event":"cleanup","path":"/v1/vms/vm_1nx2226r12pn96k03m9vtbm28w","status":204}
+{"t":1791357795578,"event":"cleanup","path":"/v1/meshes/mesh_rfkcb36s9wxw8dqskkfrexj9gr","status":204}
+{"t":1791357795581,"event":"cmux-404","path":"/v1/devices/dev_8vpgn9p785mdk8tcjzz941vkdm","status":404}
+{"t":1791357795582,"event":"cmux-404","path":"/v1/vms/vm_1nx2226r12pn96k03m9vtbm28w","status":404}
+{"t":1791357795583,"event":"cmux-404","path":"/v1/meshes/mesh_rfkcb36s9wxw8dqskkfrexj9gr","status":404}
+{"t":1791357795601,"event":"provider-404","kind":"vpc","id":"vpc-cab55c7b06d04ef4a71b3261c1f11039","status":404}
+{"t":1791357795617,"event":"provider-404","kind":"vm","id":"vm-06ff51647dd44971910d752b3df929e6","status":404}
+{"t":1791357795633,"event":"provider-404","kind":"tunnel","id":"tun-a6cac836723b45e79250c746879f3a1a","status":404}
+{"t":1791357795653,"event":"provider-404","kind":"rule","id":"fw-fb02e399b5b44615bb490d55230c0502","status":404}
+{"t":1791357795671,"event":"provider-404","kind":"rule","id":"fw-5c1c150a9a6440e3bca7cc90ebd6dbf4","status":404}
+{"t":1791357795688,"event":"provider-404","kind":"rule","id":"fw-3f1b6eea4ac04745a3a7818d2089361d","status":404}
+{"t":1791357795703,"event":"provider-404","kind":"rule","id":"fw-26f19e37cb8f472382070af579e76f45","status":404}
+{"t":1791357795718,"event":"provider-404","kind":"rule","id":"fw-c19c1293ea7c40d2927336393a7ae5f6","status":404}
+{"t":1791357795734,"event":"provider-404","kind":"rule","id":"fw-169008d90dc149569342add72acb3f7a","status":404}
+{"t":1791357795735,"event":"done","run":"m1cmuxs5kza","ok":false,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m1cmuxs5kza"}

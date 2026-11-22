@@ -223,12 +223,22 @@ fn run_stdio_rpc(input: &[u8]) -> Output {
 }
 
 fn run_stdio_rpc_in_root(input: &[u8], root: &Path) -> Output {
+    run_stdio_rpc_with(
+        input,
+        root,
+        Path::new(env!("CARGO_BIN_EXE_diff-sidecar-test-host")),
+        &[],
+    )
+}
+
+fn run_stdio_rpc_with(input: &[u8], root: &Path, cmux: &Path, extra: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
         .arg("rpc")
         .arg("--root")
         .arg(root)
         .arg("--cmux")
-        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .arg(cmux)
+        .args(extra)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -685,10 +695,10 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
     let branches: serde_json::Value =
         serde_json::from_slice(&branch_bytes).expect("branch list JSON");
     assert_eq!(branches["result"]["type"], "branches");
-    assert_eq!(
-        branches["result"]["value"]["groups"][0]["rows"][0]["ref"],
-        "HEAD"
-    );
+    let rows = &branches["result"]["value"]["groups"][0]["rows"];
+    assert_eq!(rows[0]["ref"], "main");
+    assert_eq!(rows[0]["current"], true);
+    assert_eq!(rows[1]["ref"], "HEAD");
 
     let unauthorized_request = serde_json::json!({
         "id": "unauthorized",
@@ -734,55 +744,35 @@ async fn verify_branch_change(
     group: &str,
     root: &Path,
 ) {
-    let branch_change = serde_json::json!({
-        "id": "branch-change",
-        "version": 1,
-        "method": "branchChange",
-        "params": {
-            "groupId": group,
-            "repoRoot": root,
-            "baseRef": "main",
-            "capabilityToken": token
-        }
-    });
-    let changed: serde_json::Value = client
-        .post(endpoint)
-        .header(reqwest::header::ORIGIN, origin)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(branch_change.to_string())
-        .send()
-        .await
-        .expect("branch change request")
-        .bytes()
-        .await
-        .map(|bytes| serde_json::from_slice(&bytes).expect("branch change response JSON"))
-        .expect("branch change response bytes");
-    assert_eq!(changed["result"]["type"], "navigation");
-
-    let malformed_change = serde_json::json!({
-        "id": "malformed-branch-change",
-        "version": 1,
-        "method": "branchChange",
-        "params": {
-            "groupId": group,
-            "repoRoot": root,
-            "baseRef": "malformed",
-            "capabilityToken": token
-        }
-    });
-    let malformed: serde_json::Value = client
-        .post(endpoint)
-        .header(reqwest::header::ORIGIN, origin)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(malformed_change.to_string())
-        .send()
-        .await
-        .expect("malformed branch change request")
-        .bytes()
-        .await
-        .map(|bytes| serde_json::from_slice(&bytes).expect("malformed response JSON"))
-        .expect("malformed response bytes");
-    assert_eq!(malformed["error"]["code"], "branchChangeFailed");
+    // The served root is not a git repository, so an authorized change
+    // still fails; an unknown group fails before any git runs. Real
+    // repositories are covered by the stdio branch tests.
+    for (group, base) in [(group, "main"), ("other-group", "main"), (group, "")] {
+        let branch_change = serde_json::json!({
+            "id": "branch-change",
+            "version": 1,
+            "method": "branchChange",
+            "params": {
+                "groupId": group,
+                "repoRoot": root,
+                "baseRef": base,
+                "capabilityToken": token
+            }
+        });
+        let changed: serde_json::Value = client
+            .post(endpoint)
+            .header(reqwest::header::ORIGIN, origin)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(branch_change.to_string())
+            .send()
+            .await
+            .expect("branch change request")
+            .bytes()
+            .await
+            .map(|bytes| serde_json::from_slice(&bytes).expect("branch change response JSON"))
+            .expect("branch change response bytes");
+        assert_eq!(changed["error"]["code"], "branchChangeFailed", "{changed}");
+    }
 }
 
 async fn verify_websocket(port: u16) {
@@ -829,4 +819,311 @@ async fn verify_websocket(port: u16) {
         .expect("WebSocket close")
         .expect("valid WebSocket close");
     assert!(close.is_close());
+}
+
+/// A repository with `main` (one commit) and `feature` (one more commit plus
+/// an uncommitted edit), checked out on `feature`, and a branch session that
+/// allows it for `token` in group `group`.
+fn branch_test_root(
+    name: &str,
+    token: &str,
+    group: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-{name}-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).expect("create repo");
+    #[cfg(unix)]
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+    run_git(&repo, &["init", "--initial-branch=main"]);
+    run_git(&repo, &["config", "user.name", "cmux tests"]);
+    run_git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    std::fs::write(repo.join("story.txt"), b"one\n").expect("write initial file");
+    run_git(&repo, &["add", "story.txt"]);
+    run_git(&repo, &["commit", "-m", "initial"]);
+    run_git(&repo, &["checkout", "-b", "feature"]);
+    std::fs::write(repo.join("story.txt"), b"one\ntwo\n").expect("write feature file");
+    run_git(&repo, &["commit", "-am", "feature"]);
+    std::fs::write(repo.join("story.txt"), b"one\ntwo\nthree\n").expect("write edit");
+    // Sessions append their patch to the token's manifest, which the host
+    // creates with the viewer page.
+    let shell = root.join("viewer.html");
+    std::fs::write(&shell, b"<!doctype html>").expect("write shell");
+    std::fs::write(
+        root.join(format!(".manifest-{token}.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "files": [{
+                "request_path": "/viewer.html",
+                "file_path": shell,
+                "mime_type": "text/html"
+            }]
+        }))
+        .expect("encode manifest"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        root.join(format!(".branch-session-{group}.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": group,
+            "allowedRepoRoots": [&repo]
+        }))
+        .expect("encode session"),
+    )
+    .expect("write session");
+    (root, repo)
+}
+
+fn stdio_rpc_json(
+    root: &Path,
+    cmux: &Path,
+    extra: &[&str],
+    request: &serde_json::Value,
+) -> serde_json::Value {
+    let output = run_stdio_rpc_with(
+        &serde_json::to_vec(request).expect("encode request"),
+        root,
+        cmux,
+        extra,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("decode response")
+}
+
+fn branch_change_request(group: &str, repo: &Path, base: &str, token: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": "branch-change",
+        "version": 1,
+        "method": "branchChange",
+        "params": {"groupId": group, "repoRoot": repo, "baseRef": base, "capabilityToken": token}
+    })
+}
+
+/// The patch a session reply names, read from the secure root.
+fn session_patch(root: &Path, token: &str, response: &serde_json::Value, prefix: &str) -> Vec<u8> {
+    let id = response["result"]["value"]["patch"]["id"]
+        .as_str()
+        .expect("patch id");
+    let request_path = id
+        .strip_prefix(prefix)
+        .and_then(|rest| rest.strip_prefix(token))
+        .unwrap_or_else(|| panic!("{id} does not start with {prefix}{token}"));
+    assert!(request_path.starts_with("/diff-session-"), "{id}");
+    std::fs::read(root.join(request_path.trim_start_matches('/'))).expect("read session patch")
+}
+
+fn git_stdout(repo: &Path, arguments: &[&str]) -> Vec<u8> {
+    let output = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(repo)
+        .args(arguments)
+        .output()
+        .expect("run git");
+    assert!(output.status.success());
+    output.stdout
+}
+
+#[test]
+fn rpc_branch_list_and_change_use_a_real_repository() {
+    let token = "0123456789abcdef";
+    let group = "branch-test";
+    let (root, repo) = branch_test_root("branch-test", token, group);
+    let cmux = Path::new(env!("CARGO_BIN_EXE_diff-sidecar-test-host"));
+
+    // The picker lists the session host's base (the test host says HEAD)
+    // after the base the viewer already uses.
+    let listed = stdio_rpc_json(
+        &root,
+        cmux,
+        &[],
+        &serde_json::json!({
+            "id": "branches",
+            "version": 1,
+            "method": "branchList",
+            "params": {"repoRoot": repo, "capabilityToken": token, "selectedBase": "main"}
+        }),
+    );
+    assert_eq!(listed["result"]["type"], "branches", "{listed}");
+    let rows = &listed["result"]["value"]["groups"][0]["rows"];
+    assert_eq!(rows[0]["ref"], "main");
+    assert_eq!(rows[0]["current"], true);
+    assert_eq!(rows[1]["ref"], "HEAD");
+    assert_eq!(rows[1]["reason"], "default");
+
+    // Changing the base opens a branch session against the merge base of
+    // HEAD and the new base, including the uncommitted edit.
+    let changed = stdio_rpc_json(
+        &root,
+        cmux,
+        &[],
+        &branch_change_request(group, &repo, "main", token),
+    );
+    assert_eq!(changed["result"]["type"], "sessionOpened", "{changed}");
+    assert_eq!(changed["result"]["value"]["source"]["kind"], "branch");
+    assert_eq!(changed["result"]["value"]["source"]["baseRef"], "main");
+    let merge_base = String::from_utf8(git_stdout(&repo, &["merge-base", "HEAD", "main"]))
+        .expect("merge base")
+        .trim()
+        .to_owned();
+    assert_eq!(
+        session_patch(&root, token, &changed, "cmux-diff-viewer://"),
+        git_stdout(
+            &repo,
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-color",
+                "--binary",
+                &merge_base,
+                "--"
+            ]
+        )
+    );
+
+    // Unknown refs, option-shaped refs, foreign groups and foreign tokens are
+    // refused without a session.
+    for (group, base, token) in [
+        (group, "does-not-exist", token),
+        (group, "--output=/tmp/cmux-diff-sidecar-injected", token),
+        ("other-group", "main", token),
+        (group, "main", "fedcba9876543210"),
+    ] {
+        let refused = stdio_rpc_json(
+            &root,
+            cmux,
+            &[],
+            &branch_change_request(group, &repo, base, token),
+        );
+        assert_eq!(refused["error"]["code"], "branchChangeFailed", "{refused}");
+    }
+    assert!(!Path::new("/tmp/cmux-diff-sidecar-injected").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn rpc_page_scheme_names_patches_for_the_page_host() {
+    let token = "0123456789abcdef";
+    let group = "page-test";
+    let (root, repo) = branch_test_root("page-test", token, group);
+    let cmux = Path::new(env!("CARGO_BIN_EXE_diff-sidecar-test-host"));
+    let opened = stdio_rpc_json(
+        &root,
+        cmux,
+        &["--resource-scheme", "page"],
+        &serde_json::json!({
+            "id": "open",
+            "version": 1,
+            "method": "sessionOpen",
+            "params": {
+                "source": {"kind": "unstaged", "repoRoot": repo},
+                "capabilityToken": token
+            }
+        }),
+    );
+    assert_eq!(opened["result"]["type"], "sessionOpened", "{opened}");
+    assert_eq!(
+        session_patch(
+            &root,
+            token,
+            &opened,
+            cmux_diff_sidecar::protocol::PAGE_PATCH_URL_PREFIX
+        ),
+        git_stdout(
+            &repo,
+            &["diff", "--no-ext-diff", "--no-color", "--binary", "--"]
+        )
+    );
+    let output = run_stdio_rpc_with(b"{}", &root, cmux, &["--resource-scheme", "http"]);
+    assert!(!output.status.success());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// End to end against the real session host: set `CMUX_DIFF_SIDECAR_REAL_CMUX`
+/// to a cmux-tui binary and `CMUX_TUI_SOCKET` to a running `server start`
+/// socket, then run with `--ignored`.
+#[test]
+#[ignore = "needs a running cmux-tui session host"]
+fn rpc_branch_base_comes_from_the_real_session_host() {
+    let cmux = std::env::var_os("CMUX_DIFF_SIDECAR_REAL_CMUX")
+        .map(std::path::PathBuf::from)
+        .expect("CMUX_DIFF_SIDECAR_REAL_CMUX names a cmux-tui binary");
+    let token = "0123456789abcdef";
+    let group = "real-host";
+    let (root, repo) = branch_test_root("real-host", token, group);
+
+    // Without a remote, the daemon's base branch is `main`.
+    let opened = stdio_rpc_json(
+        &root,
+        &cmux,
+        &[],
+        &serde_json::json!({
+            "id": "open",
+            "version": 1,
+            "method": "sessionOpen",
+            "params": {"source": {"kind": "branch", "repoRoot": repo}, "capabilityToken": token}
+        }),
+    );
+    assert_eq!(opened["result"]["type"], "sessionOpened", "{opened}");
+    assert_eq!(opened["result"]["value"]["source"]["baseRef"], "main");
+
+    let listed = stdio_rpc_json(
+        &root,
+        &cmux,
+        &[],
+        &serde_json::json!({
+            "id": "branches",
+            "version": 1,
+            "method": "branchList",
+            "params": {"repoRoot": repo, "capabilityToken": token, "selectedBase": null}
+        }),
+    );
+    assert_eq!(listed["result"]["type"], "branches", "{listed}");
+    assert_eq!(
+        listed["result"]["value"]["groups"][0]["rows"][0]["ref"],
+        "main"
+    );
+
+    let changed = stdio_rpc_json(
+        &root,
+        &cmux,
+        &[],
+        &branch_change_request(group, &repo, "main", token),
+    );
+    assert_eq!(changed["result"]["type"], "sessionOpened", "{changed}");
+
+    // A remote default branch wins, as in the daemon's `git.diff --scope branch`.
+    run_git(&repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+    run_git(
+        &repo,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    );
+    let listed = stdio_rpc_json(
+        &root,
+        &cmux,
+        &[],
+        &serde_json::json!({
+            "id": "branches",
+            "version": 1,
+            "method": "branchList",
+            "params": {"repoRoot": repo, "capabilityToken": token, "selectedBase": null}
+        }),
+    );
+    assert_eq!(
+        listed["result"]["value"]["groups"][0]["rows"][0]["ref"], "origin/main",
+        "{listed}"
+    );
+    let _ = std::fs::remove_dir_all(root);
 }

@@ -132,8 +132,13 @@ if [[ " \$* " == *" --check-auth-contract "* ]]; then
 fi
 if [[ "$write_receipt" == "1" ]]; then
   mkdir -p "$CMUX_READINESS_RECEIPT_DIR"
-  echo '{"schema":"cmux-ios-dogfood-readiness-v1"}' \
-    > "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
+  if [[ " \$* " == *" --readiness app-receipt "* ]]; then
+    echo '{"schema":"cmux-ios-dogfood-readiness-v1","readiness":"app-receipt"}' \
+      > "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
+  else
+    echo '{"schema":"cmux-ios-dogfood-readiness-v1"}' \
+      > "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
+  fi
 fi
 if [[ "$exit_code" != "0" ]]; then
   echo "error: iPhone auth gate FAILED: fake sign-in failure"
@@ -318,8 +323,8 @@ terminate_line="$(grep -n "devicectl device process terminate --device $DEVICE_I
 install_line="$(grep -n "devicectl device install app --device $DEVICE_ID" "$CALL_LOG" | head -n1 | cut -d: -f1 || true)"
 [[ -n "$terminate_line" && "$terminate_line" -lt "$install_line" ]] \
   || fail "drain must terminate the registered tagged app before replacing its bundle"
-grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
-  || fail "drain should signed-launch via mobile-dev-launch.sh with --ensure-mac"
+grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac --readiness mac-rpc" "$CALL_LOG" \
+  || fail "drain should signed-launch via mobile-dev-launch.sh with --ensure-mac pinned to mac-rpc"
 grep -q -- "--auth-profile personal --expected-account person@manaflow.ai --credentials-file $CREDENTIALS_FILE" "$CALL_LOG" \
   || fail "drain should preserve the queued auth contract"
 grep -q "cmux notify --title iPhone install queue: installed tstq" "$CALL_LOG" \
@@ -384,6 +389,59 @@ write_fake_mdl 0 1
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain after unlock should succeed"
 [[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "entry should drain once the launcher succeeds"
 ok "launcher exit 75 keeps the entry pending for the LaunchAgent retry"
+
+# --- readiness mode: persisted at enqueue, replayed by the drain ---------------
+RECEIPT_APP="$TMP_DIR/receipt-app/cmux.app"
+mkdir -p "$RECEIPT_APP"
+cat > "$RECEIPT_APP/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>dev.cmux.ios.tstq</string>
+  <key>CMUXDogfoodReadiness</key><string>app-receipt-v1</string>
+</dict></plist>
+PLIST
+echo "binary" > "$RECEIPT_APP/cmux"
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$RECEIPT_APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+grep -q '"readiness": "app-receipt"' "$CMUX_IPHONE_QUEUE_DIR/pending/tstq/meta.json" \
+  || fail "auto readiness should persist the app's declared app-receipt mode"
+echo "reachable" > "$STATE_FILE"
+write_fake_mdl 0 1
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "app-receipt drain should succeed"
+grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --readiness app-receipt --auth-profile personal" "$CALL_LOG" \
+  || fail "app-receipt drain should replay --readiness app-receipt with the auth contract"
+grep -q -- "--ensure-mac" "$CALL_LOG" && fail "app-receipt drain must not arm the tagged Mac"
+grep -q "VERIFIED signed in by app receipt" "$CALL_LOG" \
+  || fail "app-receipt success notification must not claim pairing"
+grep -q "VERIFIED signed in + paired" "$CALL_LOG" && fail "app-receipt drain must not claim pairing"
+ok "app-receipt readiness is persisted at enqueue and replayed by the drain"
+
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$RECEIPT_APP" --readiness mac-rpc --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+grep -q '"readiness": "mac-rpc"' "$CMUX_IPHONE_QUEUE_DIR/pending/tstq/meta.json" \
+  || fail "an explicit --readiness should override the app's declaration"
+/usr/bin/python3 - "$CMUX_IPHONE_QUEUE_DIR/pending/tstq/meta.json" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1]))
+meta.pop("readiness")
+json.dump(meta, open(sys.argv[1], "w"))
+PY
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "legacy entry drain should succeed"
+grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac --auth-profile" "$CALL_LOG" \
+  || fail "entries without a readiness field must keep the legacy --ensure-mac launch"
+if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$RECEIPT_APP" --readiness pairing --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null 2>&1; then
+  fail "enqueue must reject an unknown --readiness"
+fi
+/usr/libexec/PlistBuddy -c 'Set :CMUXDogfoodReadiness app-receipt-v9' "$RECEIPT_APP/Info.plist"
+if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$RECEIPT_APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null 2>&1; then
+  fail "enqueue must fail closed on an unsupported app readiness contract"
+fi
+[[ ! -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "rejected enqueues must not leave an entry"
+ok "explicit readiness overrides, legacy entries stay mac-rpc, unknown modes fail closed"
 
 # --- unauthenticated enqueue is human-only -------------------------------------
 if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null 2>&1; then

@@ -1,0 +1,28 @@
+{
+  "oracle": {
+    "same-origin": [
+      200,
+      {
+        "ok": true,
+        "q": "same"
+      }
+    ],
+    "cross-origin": [
+      200,
+      {
+        "ok": true,
+        "q": "cross"
+      }
+    ],
+    "redirect-hop": [
+      200,
+      true,
+      "/api/data",
+      {
+        "ok": true,
+        "q": "hop"
+      }
+    ]
+  },
+  "cmux": {}
+}

@@ -139,7 +139,7 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
         let laneCode = try prefix.readUInt8()
         let flags = try prefix.readUInt8()
         let credentialCode = try prefix.readUInt8()
-        let payloadByteCount = Int(try prefix.readUInt32())
+        let payloadByteCount = try prefix.readByteCount(UInt32.self)
         let totalByteCount = Self.fixedPrefixByteCount + payloadByteCount
         guard totalByteCount <= configuration.maximumHeaderByteCount else {
             throw CmxIrohStreamHeaderCodecError.headerTooLarge(totalByteCount)
@@ -148,9 +148,7 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             throw CmxIrohStreamHeaderCodecError.incompleteFrame(requiredByteCount: totalByteCount)
         }
 
-        let payloadStart = data.index(data.startIndex, offsetBy: Self.fixedPrefixByteCount)
-        let payloadEnd = data.index(payloadStart, offsetBy: payloadByteCount)
-        var payload = CmxIrohBinaryCursor(data: data[payloadStart ..< payloadEnd])
+        var payload = CmxIrohBinaryCursor(data: data.dropFirst(Self.fixedPrefixByteCount).prefix(payloadByteCount))
         let header = try decodeHeader(
             laneCode: laneCode,
             flags: flags,
@@ -227,12 +225,12 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     ) throws -> CmxIrohAdmissionCredential {
         switch code {
         case 1:
-            let length = Int(try payload.readUInt16())
+            let length = try payload.readByteCount(UInt16.self)
             return try .pairGrant(payload.readString(byteCount: length))
         case 2:
-            let attestationLength = Int(try payload.readUInt16())
+            let attestationLength = try payload.readByteCount(UInt16.self)
             let attestation = try payload.readString(byteCount: attestationLength)
-            let invitationLength = Int(try payload.readUInt8())
+            let invitationLength = try payload.readByteCount(UInt8.self)
             let invitationID = try CmxIrohResourceID(
                 payload.readString(byteCount: invitationLength)
             )
@@ -266,7 +264,7 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
     private func readResourceID(
         payload: inout CmxIrohBinaryCursor
     ) throws -> CmxIrohResourceID {
-        let length = Int(try payload.readUInt8())
+        let length = try payload.readByteCount(UInt8.self)
         return try CmxIrohResourceID(payload.readString(byteCount: length))
     }
 

@@ -1,0 +1,214 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/integrations",
+  "name": {
+    "en": "Integrations",
+    "ja": "連携"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Connect GitHub, Linear, Slack, Google Calendar, Gmail or any OpenAPI, GraphQL or MCP API, share connections with your team, fix sign-ins, and choose per tool whether agents may run it, must ask, or never run it.",
+    "ja": "GitHub、Linear、Slack、Google カレンダー、Gmail、または任意の OpenAPI・GraphQL・MCP API を接続し、チームと共有し、サインインを修復し、ツールごとにエージェントが実行できるか、確認が必要か、実行しないかを選べます。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later AND MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "developer-tools",
+    "cloud"
+  ],
+  "keywords": [
+    "integrations",
+    "connections",
+    "openapi",
+    "graphql",
+    "mcp",
+    "oauth",
+    "policy"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "integration:read": "List your team's connections, their health and the team's integration policy."
+  },
+  "optionalScopes": {
+    "integration:write": "Start a connection, sign in again, share it with your team, disconnect it (cmux confirms first), turn its MCP exposure on or off, or change a tool's policy when you click those buttons.",
+    "workspace:write": "Open the Integrations pane from the palette or the sidebar."
+  },
+  "contributes": {
+    "sidebarSections": [
+      {
+        "id": "integrations",
+        "title": {
+          "en": "Integrations",
+          "ja": "連携"
+        },
+        "symbol": "puzzlepiece.extension",
+        "defaultRegion": "bottom",
+        "render": "renderSection",
+        "maxRows": 6
+      }
+    ],
+    "paneKinds": [
+      {
+        "id": "pane",
+        "title": {
+          "en": "Integrations",
+          "ja": "連携"
+        },
+        "symbol": "puzzlepiece.extension",
+        "render": "renderPane"
+      }
+    ],
+    "commands": [
+      {
+        "id": "openIntegrations",
+        "title": {
+          "en": "Open Integrations",
+          "ja": "連携を開く"
+        },
+        "symbol": "puzzlepiece.extension",
+        "run": "openIntegrations",
+        "keywords": [
+          "integrations",
+          "connections",
+          "github",
+          "linear",
+          "slack"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:integrations"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "connection": {
+              "type": "string",
+              "description": "Open this connection (conn_…)."
+            }
+          }
+        },
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "connect",
+        "title": {
+          "en": "Connect an Integration",
+          "ja": "連携を接続"
+        },
+        "symbol": "plus.circle",
+        "run": "connect",
+        "keywords": [
+          "connect",
+          "oauth",
+          "github",
+          "linear",
+          "slack"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "required": [
+            "provider"
+          ],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "github",
+                "linear",
+                "slack"
+              ],
+              "description": "The provider to connect (Google Calendar and Gmail are coming)."
+            }
+          }
+        },
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "importApi",
+        "title": {
+          "en": "Add an API from a Spec",
+          "ja": "仕様から API を追加"
+        },
+        "symbol": "curlybraces",
+        "run": "importApi",
+        "keywords": [
+          "openapi",
+          "graphql",
+          "mcp",
+          "spec",
+          "import"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "A spec URL, or the JSON of an OpenAPI 3 document, a GraphQL introspection result or an MCP tool list."
+            }
+          }
+        },
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Integrations Variant",
+          "ja": "連携の次のバリアント"
+        },
+        "run": "cycleVariant",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "connections",
+            "gallery",
+            "catalog"
+          ],
+          "default": "connections",
+          "title": "Design variant",
+          "description": "connections: list and detail. gallery: providers first, for onboarding. catalog: every tool with its Allow / Ask / Block policy.",
+          "x-cmux-devOnly": true
+        }
+      }
+    }
+  },
+  "activation": [
+    "onSidebarSection:integrations",
+    "onCommand:openIntegrations",
+    "onCommand:connect",
+    "onCommand:importApi"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "strings/",
+    "LICENSE-executor"
+  ]
+}

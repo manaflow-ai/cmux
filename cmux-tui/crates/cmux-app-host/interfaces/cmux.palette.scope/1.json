@@ -1,0 +1,16 @@
+{
+  "name": "cmux.palette.scope/1",
+  "version": 1,
+  "docs": "A command palette scope: items, actions and optional detail views.",
+  "props": {
+    "title": "string",
+    "prefix": "string?",
+    "placeholder": "string?"
+  },
+  "methods": {
+    "items": "(query) -> stream<PaletteItem>",
+    "detail": "(item) -> scene?"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

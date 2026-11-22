@@ -51,6 +51,7 @@ public actor CmxConnectivityEngine {
     ///   - protocolConfiguration: Application ALPN and lane limits.
     ///   - authority: Optional revisioned backend reconciliation boundary.
     ///   - installRouteSnapshot: Atomic policy installer paired with `authority`.
+    ///     Reconciliation needs both; a lone half is dropped (as if neither were given).
     public init(
         factory: any CmxIrohEndpointFactory,
         endpointConfiguration: CmxIrohEndpointConfiguration,
@@ -61,15 +62,15 @@ public actor CmxConnectivityEngine {
         diagnosticLog: DiagnosticLog? = nil,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
-        precondition((authority == nil) == (installRouteSnapshot == nil))
         supervisor = CmxIrohEndpointSupervisor(
             factory: factory,
             configuration: endpointConfiguration
         )
         self.contextProvider = contextProvider
         self.protocolConfiguration = protocolConfiguration
-        self.authority = authority
-        self.installRouteSnapshot = installRouteSnapshot
+        let paired = authority != nil && installRouteSnapshot != nil
+        self.authority = paired ? authority : nil
+        self.installRouteSnapshot = paired ? installRouteSnapshot : nil
         self.diagnosticLog = diagnosticLog
         self.clock = clock
     }
@@ -101,12 +102,12 @@ public actor CmxConnectivityEngine {
         diagnosticLog: DiagnosticLog? = nil,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     ) {
-        precondition((authority == nil) == (installRouteSnapshot == nil))
         self.supervisor = supervisor
         self.contextProvider = contextProvider
         self.protocolConfiguration = protocolConfiguration
-        self.authority = authority
-        self.installRouteSnapshot = installRouteSnapshot
+        let paired = authority != nil && installRouteSnapshot != nil
+        self.authority = paired ? authority : nil
+        self.installRouteSnapshot = paired ? installRouteSnapshot : nil
         self.diagnosticLog = diagnosticLog
         self.clock = clock
     }

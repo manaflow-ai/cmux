@@ -145,6 +145,26 @@
       "name": "help wanted",
       "color": "008672",
       "description": "Nobody on the team is working on this and we would take a patch"
+    },
+    {
+      "name": "difficulty:1",
+      "color": "5319E7",
+      "description": "Onboarding: one small, explicit surface"
+    },
+    {
+      "name": "difficulty:2",
+      "color": "5319E7",
+      "description": "Focused: one package or feature boundary"
+    },
+    {
+      "name": "difficulty:3",
+      "color": "5319E7",
+      "description": "Systems: multiple components or a runtime lifecycle"
+    },
+    {
+      "name": "difficulty:4",
+      "color": "5319E7",
+      "description": "Architecture: security, protocol, migration, release, or broad design"
     }
   ]
 }

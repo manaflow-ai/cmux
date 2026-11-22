@@ -2,7 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchBasePicker, branchPickerStateKey, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
+import {
+  BranchBasePicker,
+  branchPickerStateKey,
+  buildFlatRows,
+  toCurrentOriginRelative,
+  type BranchPickerPayload,
+} from "../src/BranchBasePicker";
 import type { DiffTransport } from "../src/diff/transport";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
@@ -39,13 +45,19 @@ const label = createDiffViewerLabelResolver(undefined);
 function pickerPayload(remoteCount: number): BranchPickerPayload {
   const refs = {
     groups: [
-      { id: "suggested", label: "Suggested", rows: [
-        { ref: "origin/main", label: "origin/main", reason: "PR base", current: false },
-      ] },
-      { id: "remotes", label: "Remotes", rows: Array.from({ length: remoteCount }, (_v, index) => ({
-        ref: `origin/feature-${index}`,
-        label: `origin/feature-${index}`,
-      })) },
+      {
+        id: "suggested",
+        label: "Suggested",
+        rows: [{ ref: "origin/main", label: "origin/main", reason: "PR base", current: false }],
+      },
+      {
+        id: "remotes",
+        label: "Remotes",
+        rows: Array.from({ length: remoteCount }, (_v, index) => ({
+          ref: `origin/feature-${index}`,
+          label: `origin/feature-${index}`,
+        })),
+      },
     ],
   };
   return {
@@ -81,20 +93,16 @@ test("switching repositories remounts the picker and ignores an older refs load"
   dom = createDom();
   installDomGlobals(dom);
   const completions = new Map<string, (response: Response) => void>();
-  (globalThis as any).fetch = (input: RequestInfo | URL) => new Promise<Response>((resolve) => {
-    completions.set(String(input), resolve);
-  });
+  (globalThis as any).fetch = (input: RequestInfo | URL) =>
+    new Promise<Response>((resolve) => {
+      completions.set(String(input), resolve);
+    });
   const first = { ...pickerPayload(0), repoRoot: "/tmp/first", capabilityToken: "first", refsURL: "/first" };
   const second = { ...pickerPayload(0), repoRoot: "/tmp/second", capabilityToken: "second", refsURL: "/second" };
   const render = (picker: BranchPickerPayload) => {
     flushSync(() => {
       root?.render(
-        <BranchBasePicker
-          key={branchPickerStateKey(picker)}
-          label={label}
-          onNavigate={() => {}}
-          picker={picker}
-        />,
+        <BranchBasePicker key={branchPickerStateKey(picker)} label={label} onNavigate={() => {}} picker={picker} />,
       );
     });
   };
@@ -106,9 +114,14 @@ test("switching repositories remounts the picker and ignores an older refs load"
   render(second);
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => completions.has("/second"));
-  completions.get("/second")?.(new Response(JSON.stringify({
-    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "second-ref", label: "second-ref" }] }],
-  }), { status: 200 }));
+  completions.get("/second")?.(
+    new Response(
+      JSON.stringify({
+        groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "second-ref", label: "second-ref" }] }],
+      }),
+      { status: 200 },
+    ),
+  );
   await waitFor(() => document.body.textContent?.includes("second-ref") === true);
 
   let staleResponseRead = false;
@@ -128,9 +141,14 @@ test("switching repositories remounts the picker and ignores an older refs load"
   render(changedBase);
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => completions.has("/changed-base"));
-  completions.get("/changed-base")?.(new Response(JSON.stringify({
-    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "new-base-ref", label: "new-base-ref" }] }],
-  }), { status: 200 }));
+  completions.get("/changed-base")?.(
+    new Response(
+      JSON.stringify({
+        groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "new-base-ref", label: "new-base-ref" }] }],
+      }),
+      { status: 200 },
+    ),
+  );
   await waitFor(() => document.body.textContent?.includes("new-base-ref") === true);
   expect(document.body.textContent).not.toContain("second-ref");
 });
@@ -157,18 +175,20 @@ test("button title is the full untruncated comparison string", () => {
 
   const button = document.querySelector<HTMLButtonElement>(".base-picker-button");
   // Comparing <head> against <base> (<reason>) +a -b, untruncated for hover.
-  expect(button?.getAttribute("title")).toBe(
-    "Comparing feat-x against origin/main (fork point) +1 -1",
-  );
+  expect(button?.getAttribute("title")).toBe("Comparing feat-x against origin/main (fork point) +1 -1");
 });
 
 test("empty filter caps each group and flags the hidden tail count", () => {
   const groups = [
     { id: "suggested", label: "Suggested", rows: [{ ref: "origin/main", label: "origin/main" }] },
-    { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_v, index) => ({
-      ref: `origin/feature-${index}`,
-      label: `origin/feature-${index}`,
-    })) },
+    {
+      id: "remotes",
+      label: "Remotes",
+      rows: Array.from({ length: 2304 }, (_v, index) => ({
+        ref: `origin/feature-${index}`,
+        label: `origin/feature-${index}`,
+      })),
+    },
   ];
   const flat = buildFlatRows(groups, "", label);
   // 1 suggested + 8 capped remotes.
@@ -180,10 +200,14 @@ test("empty filter caps each group and flags the hidden tail count", () => {
 
 test("filtering scans every group and caps the rendered total at 50", () => {
   const groups = [
-    { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_v, index) => ({
-      ref: `origin/feature-${index}`,
-      label: `origin/feature-${index}`,
-    })) },
+    {
+      id: "remotes",
+      label: "Remotes",
+      rows: Array.from({ length: 2304 }, (_v, index) => ({
+        ref: `origin/feature-${index}`,
+        label: `origin/feature-${index}`,
+      })),
+    },
   ];
   const flat = buildFlatRows(groups, "feature-1", label);
   // Hundreds match "feature-1"; rendered set is capped at 50 with no "more" rows.
@@ -194,9 +218,7 @@ test("filtering scans every group and caps the rendered total at 50", () => {
 });
 
 test("a query matching nothing offers the raw typed ref", () => {
-  const groups = [
-    { id: "remotes", label: "Remotes", rows: [{ ref: "origin/main", label: "origin/main" }] },
-  ];
+  const groups = [{ id: "remotes", label: "Remotes", rows: [{ ref: "origin/main", label: "origin/main" }] }];
   const flat = buildFlatRows(groups, "zzz-nope", label);
   expect(flat[0]?.raw).toBe(true);
   expect(flat[0]?.row.ref).toBe("zzz-nope");
@@ -206,12 +228,12 @@ test("toCurrentOriginRelative strips an http origin so a restored page re-resolv
   // The persisted HTML embeds the HTTP origin live at generation time; after a
   // restart the port changes and the page is served via the custom scheme, so
   // the picker must rebase the embedded absolute URL to a root-relative path.
-  expect(
-    toCurrentOriginRelative("http://127.0.0.1:51234/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc"),
-  ).toBe("/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc");
-  expect(
-    toCurrentOriginRelative("cmux-diff-viewer://tok/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}"),
-  ).toBe("/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}");
+  expect(toCurrentOriginRelative("http://127.0.0.1:51234/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc")).toBe(
+    "/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc",
+  );
+  expect(toCurrentOriginRelative("cmux-diff-viewer://tok/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}")).toBe(
+    "/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}",
+  );
 });
 
 test("toCurrentOriginRelative preserves a literal {ref} placeholder (no URL parsing)", () => {
@@ -236,11 +258,16 @@ test("selecting a ref navigates to a root-relative regenerate URL", async () => 
     currentReason: "fork point",
     confidence: "high",
     aheadBehind: { ahead: 1, behind: 1 },
-    refsURL: "data:application/json," + encodeURIComponent(JSON.stringify({
-      groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
-    })),
+    refsURL:
+      "data:application/json," +
+      encodeURIComponent(
+        JSON.stringify({
+          groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
+        }),
+      ),
     // Absolute HTTP origin as embedded in a freshly generated page.
-    regenerateURLTemplate: "http://127.0.0.1:51234/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base={ref}",
+    regenerateURLTemplate:
+      "http://127.0.0.1:51234/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base={ref}",
   };
   const container = document.getElementById("root");
   root = createRoot(container!);
@@ -251,9 +278,9 @@ test("selecting a ref navigates to a root-relative regenerate URL", async () => 
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => rowCount() > 0);
   flushSync(() => {
-    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
-      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-    );
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   });
 
   expect(navigated.length).toBe(1);
@@ -275,9 +302,9 @@ test("selecting the active base closes without regenerating the same URL", async
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => rowCount() > 0);
   flushSync(() => {
-    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
-      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-    );
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   });
 
   expect(navigated).toEqual([]);
@@ -317,15 +344,22 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
   const container = document.getElementById("root");
   root = createRoot(container!);
   flushSync(() => {
-    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} transport={transport} />);
+    root?.render(
+      <BranchBasePicker
+        label={label}
+        onNavigate={(url) => navigated.push(url)}
+        picker={picker}
+        transport={transport}
+      />,
+    );
   });
 
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => rowCount() === 1);
   flushSync(() => {
-    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
-      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-    );
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   });
   await waitFor(() => changeAttempts === 1);
   await waitFor(() => rowCount() === 1);
@@ -335,13 +369,97 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
   expect(document.activeElement).toBe(document.querySelector(".base-picker-input"));
 
   flushSync(() => {
-    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
-      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
-    );
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
   });
   await waitFor(() => navigated.length === 1);
   expect(changeAttempts).toBe(2);
   expect(navigated).toEqual(["/retry-succeeded"]);
+});
+
+test("a branch change answered with a new session hands it over without navigating", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const navigated: string[] = [];
+  const opened: unknown[] = [];
+  const session = {
+    sessionId: "s2",
+    patch: {
+      id: "cmux-page://cmux.diff/__patch/t/develop.patch",
+      mediaType: "text/x-diff",
+      byteLength: 0,
+      revision: 1,
+    },
+    source: { kind: "branch" as const, repoRoot: "/tmp/mock", baseRef: "develop" },
+    generatedPaths: [],
+  };
+  const transport: DiffTransport = {
+    request(command) {
+      if (command.method === "branchList") {
+        return Promise.resolve({
+          type: "branches",
+          value: {
+            groups: [
+              { id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop", reason: "default" }] },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ type: "sessionOpened", value: session });
+    },
+    subscribe: () => () => {},
+    openResource: () => Promise.reject(new Error("unused")),
+    close: () => {},
+  };
+  const picker: BranchPickerPayload = { ...pickerPayload(0), groupId: "1234567890-group", capabilityToken: "t" };
+  root = createRoot(document.getElementById("root")!);
+  flushSync(() => {
+    root?.render(
+      <BranchBasePicker
+        label={label}
+        onBranchSessionOpened={(value) => opened.push(value)}
+        onNavigate={(url) => navigated.push(url)}
+        picker={picker}
+        transport={transport}
+      />,
+    );
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() === 1);
+  // The sidecar's own reason tag is shown with its label, not verbatim.
+  expect(document.querySelector(".base-picker-row-secondary")?.textContent).toBe("default branch");
+  flushSync(() => {
+    document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await waitFor(() => opened.length === 1);
+  expect(opened).toEqual([session]);
+  expect(navigated).toEqual([]);
+  expect(document.querySelector(".base-picker-popover")).toBeNull();
+  expect(document.querySelector(".base-picker-status-error")).toBeNull();
+});
+
+test("a single Suggested group shows its one header and no empty group headers", () => {
+  const rows = buildFlatRows(
+    [
+      {
+        id: "suggested",
+        label: "Suggested",
+        rows: [
+          { ref: "main", label: "main", current: true },
+          { ref: "develop", label: "develop" },
+        ],
+      },
+      { id: "branches", label: "Branches", rows: [] },
+    ],
+    "",
+    label,
+  );
+  expect(rows.filter((row) => row.firstInGroup).map((row) => row.groupLabel)).toEqual(["Suggested"]);
+  expect(rows.map((row) => row.row.ref)).toEqual(["main", "develop"]);
 });
 
 function createDom(): JSDOM {

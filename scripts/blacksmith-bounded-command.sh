@@ -40,8 +40,11 @@ def terminate(_signum, _frame):
         process.wait()
     raise SystemExit(128 + _signum)
 
-signal.signal(signal.SIGINT, terminate)
-signal.signal(signal.SIGTERM, terminate)
+# A caller that ignores INT or TERM (a cleanup that must finish) keeps that:
+# the child inherits the ignore, and so does this bound.
+for signum in (signal.SIGINT, signal.SIGTERM):
+    if signal.getsignal(signum) != signal.SIG_IGN:
+        signal.signal(signum, terminate)
 try:
     raise SystemExit(process.wait(timeout=seconds))
 except subprocess.TimeoutExpired:

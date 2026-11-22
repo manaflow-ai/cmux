@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type {
   RenderGraphicImage,
   RenderCursor,
@@ -9,11 +9,7 @@ import type {
 } from "cmux/raw";
 import { decodeRenderGraphicImage } from "../src/lib/renderGraphics";
 import * as renderModelApi from "../src/lib/renderModel";
-import {
-  applyDelta,
-  applySnapshot,
-  releaseRenderModelGraphicsBudget,
-} from "../src/lib/renderModel";
+import { applyDelta, applySnapshot, releaseRenderModelGraphicsBudget } from "../src/lib/renderModel";
 
 const cursor: RenderCursor = {
   x: 1,
@@ -30,44 +26,49 @@ function row(index: number, text: string): RenderRow {
 
 const graphics: RenderGraphics = {
   generation: 4n,
-  images: [{
-    id: 9,
-    generation: 2n,
-    width: 1,
-    height: 1,
-    format: "rgba",
-    data: "/wAA/w==",
-  }, {
-    id: 10,
-    generation: 1n,
-    width: 1,
-    height: 1,
-    format: "rgb",
-    data: "AP8A",
-  }],
-  placements: [{
-    image_id: 9,
-    placement_id: 3,
-    ordinal: 0,
-    x_offset: 0,
-    y_offset: 0,
-    source_x: 0,
-    source_y: 0,
-    source_width: 1,
-    source_height: 1,
-    columns: 1,
-    rows: 1,
-    grid_cols: 1,
-    grid_rows: 1,
-    pixel_width: 8,
-    pixel_height: 16,
-    viewport_col: 1,
-    viewport_row: 0,
-    viewport_visible: true,
-    anchor_col: 1,
-    anchor_row: 0,
-    z: 0,
-  }],
+  images: [
+    {
+      id: 9,
+      generation: 2n,
+      width: 1,
+      height: 1,
+      format: "rgba",
+      data: "/wAA/w==",
+    },
+    {
+      id: 10,
+      generation: 1n,
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "AP8A",
+    },
+  ],
+  placements: [
+    {
+      image_id: 9,
+      placement_id: 3,
+      ordinal: 0,
+      x_offset: 0,
+      y_offset: 0,
+      source_x: 0,
+      source_y: 0,
+      source_width: 1,
+      source_height: 1,
+      columns: 1,
+      rows: 1,
+      grid_cols: 1,
+      grid_rows: 1,
+      pixel_width: 8,
+      pixel_height: 16,
+      viewport_col: 1,
+      viewport_row: 0,
+      viewport_visible: true,
+      anchor_col: 1,
+      anchor_row: 0,
+      z: 0,
+    },
+  ],
 };
 
 function snapshot(
@@ -127,12 +128,15 @@ describe("render model", () => {
 
   it("treats a resize as a full viewport replacement", () => {
     const initial = applySnapshot(snapshot());
-    const resized = applyDelta(initial, delta({
-      full: true,
-      size: { cols: 4, rows: 3 },
-      rows: [row(2, "new2"), row(0, "new0"), row(1, "new1")],
-      scrollback_rows: 20,
-    }));
+    const resized = applyDelta(
+      initial,
+      delta({
+        full: true,
+        size: { cols: 4, rows: 3 },
+        rows: [row(2, "new2"), row(0, "new0"), row(1, "new1")],
+        scrollback_rows: 20,
+      }),
+    );
 
     expect(resized.size).toEqual({ cols: 4, rows: 3 });
     expect(resized.rows.map((candidate) => candidate.runs[0]?.text)).toEqual(["new0", "new1", "new2"]);
@@ -149,10 +153,13 @@ describe("render model", () => {
 
   it("updates cursor and defaults without copying the row array", () => {
     const initial = applySnapshot(snapshot());
-    const updated = applyDelta(initial, delta({
-      cursor: { ...cursor, x: 2, style: "bar", visible: false },
-      default_bg: "#222222",
-    }));
+    const updated = applyDelta(
+      initial,
+      delta({
+        cursor: { ...cursor, x: 2, style: "bar", visible: false },
+        default_bg: "#222222",
+      }),
+    );
 
     expect(updated.rows).toBe(initial.rows);
     expect(updated.cursor).toMatchObject({ x: 2, style: "bar", visible: false });
@@ -161,23 +168,31 @@ describe("render model", () => {
 
   it("applies image pixels and authoritative placements from snapshots and deltas", () => {
     const initial = applySnapshot(snapshot());
-    const moved = applyDelta(initial, delta({
-      graphics: {
-        generation: 4n,
-        placements: [{ ...graphics.placements[0], viewport_col: 2 }],
-      },
-    }));
-    const replaced = applyDelta(moved, delta({
-      graphics: {
-        generation: 5n,
-        images: [{
-          ...graphics.images![0],
-          generation: 3n,
-          data: "AAD//w==",
-        }],
-        placements: [{ ...graphics.placements[0], viewport_col: 3 }],
-      },
-    }));
+    const moved = applyDelta(
+      initial,
+      delta({
+        graphics: {
+          generation: 4n,
+          placements: [{ ...graphics.placements[0], viewport_col: 2 }],
+        },
+      }),
+    );
+    const replaced = applyDelta(
+      moved,
+      delta({
+        graphics: {
+          generation: 5n,
+          images: [
+            {
+              ...graphics.images![0],
+              generation: 3n,
+              data: "AAD//w==",
+            },
+          ],
+          placements: [{ ...graphics.placements[0], viewport_col: 3 }],
+        },
+      }),
+    );
 
     expect(initial.graphics.images[0]?.data).toBe("/wAA/w==");
     expect(moved.graphics.images).toBe(initial.graphics.images);
@@ -189,12 +204,15 @@ describe("render model", () => {
 
   it("applies placement deltas that only change absolute history anchors", () => {
     const initial = applySnapshot(snapshot());
-    const reanchored = applyDelta(initial, delta({
-      graphics: {
-        generation: initial.graphics.generation,
-        placements: [{ ...graphics.placements[0], anchor_row: 4 }],
-      },
-    }));
+    const reanchored = applyDelta(
+      initial,
+      delta({
+        graphics: {
+          generation: initial.graphics.generation,
+          placements: [{ ...graphics.placements[0], anchor_row: 4 }],
+        },
+      }),
+    );
 
     expect(reanchored.graphics.placements).not.toBe(initial.graphics.placements);
     expect(reanchored.graphics.placements[0]?.anchor_row).toBe(4);
@@ -206,25 +224,33 @@ describe("render model", () => {
       const initial = applySnapshot(snapshot());
       expect(charCodeAt).not.toHaveBeenCalled();
 
-      const moved = applyDelta(initial, delta({
-        graphics: {
-          generation: 5n,
-          placements: [{ ...graphics.placements[0], viewport_col: 2 }],
-        },
-      }));
+      const moved = applyDelta(
+        initial,
+        delta({
+          graphics: {
+            generation: 5n,
+            placements: [{ ...graphics.placements[0], viewport_col: 2 }],
+          },
+        }),
+      );
       expect(moved.graphics.images).toBe(initial.graphics.images);
       expect(charCodeAt).not.toHaveBeenCalled();
 
-      applyDelta(moved, delta({
-        graphics: {
-          generation: 6n,
-          images: [{
-            ...graphics.images![0],
-            generation: 3n,
-            data: "AAD//w==",
-          }],
-        },
-      }));
+      applyDelta(
+        moved,
+        delta({
+          graphics: {
+            generation: 6n,
+            images: [
+              {
+                ...graphics.images![0],
+                generation: 3n,
+                data: "AAD//w==",
+              },
+            ],
+          },
+        }),
+      );
       expect(charCodeAt).not.toHaveBeenCalled();
     } finally {
       charCodeAt.mockRestore();
@@ -233,16 +259,21 @@ describe("render model", () => {
 
   it("preserves placements for image-only graphics deltas", () => {
     const initial = applySnapshot(snapshot());
-    const replaced = applyDelta(initial, delta({
-      graphics: {
-        generation: 5n,
-        images: [{
-          ...graphics.images![0],
-          generation: 3n,
-          data: "AAD//w==",
-        }],
-      },
-    }));
+    const replaced = applyDelta(
+      initial,
+      delta({
+        graphics: {
+          generation: 5n,
+          images: [
+            {
+              ...graphics.images![0],
+              generation: 3n,
+              data: "AAD//w==",
+            },
+          ],
+        },
+      }),
+    );
 
     expect(replaced.graphics.images[0]).toMatchObject({ generation: 3n, data: "AAD//w==" });
     expect(replaced.graphics.placements).toBe(initial.graphics.placements);
@@ -251,13 +282,16 @@ describe("render model", () => {
   it("removes images and placements only when a graphics update says they are gone", () => {
     const initial = applySnapshot(snapshot());
     const textOnly = applyDelta(initial, delta({ rows: [row(0, "text")] }));
-    const removed = applyDelta(textOnly, delta({
-      graphics: {
-        generation: 5n,
-        removed_image_ids: [9, 10],
-        placements: [],
-      },
-    }));
+    const removed = applyDelta(
+      textOnly,
+      delta({
+        graphics: {
+          generation: 5n,
+          removed_image_ids: [9, 10],
+          placements: [],
+        },
+      }),
+    );
 
     expect(textOnly.graphics).toBe(initial.graphics);
     expect(textOnly.rows[0]?.runs[0]?.text).toBe("text");
@@ -292,15 +326,10 @@ describe("render model", () => {
 
     const owners = Array.from({ length: 7 }, () => ({}));
     const models = owners.map((owner) =>
-      budgetedApplySnapshot(
-        snapshot([], { generation: 1n, images: [image], placements: [] }),
-        encodedBudget,
-        owner,
-      )
+      budgetedApplySnapshot(snapshot([], { generation: 1n, images: [image], placements: [] }), encodedBudget, owner),
     );
     const retained = models.reduce(
-      (total, model) =>
-        total + model.graphics.images.reduce((sum, candidate) => sum + candidate.data.length, 0),
+      (total, model) => total + model.graphics.images.reduce((sum, candidate) => sum + candidate.data.length, 0),
       0,
     );
 
@@ -309,11 +338,7 @@ describe("render model", () => {
 
     const subscribe = (
       renderModelApi as unknown as {
-        subscribeRenderModelGraphicsBudget?: (
-          budget: object,
-          owner: object,
-          listener: () => void,
-        ) => () => void;
+        subscribeRenderModelGraphicsBudget?: (budget: object, owner: object, listener: () => void) => () => void;
       }
     ).subscribeRenderModelGraphicsBudget;
     if (subscribe === undefined) {
@@ -356,11 +381,15 @@ describe("render model", () => {
       data: "A".repeat(6_666_672),
     });
 
-    expect(() => applySnapshot(snapshot([], {
-      generation: 1n,
-      images: [image(1), image(2)],
-      placements: [],
-    }))).toThrow(/exceeds 10000000 decoded image bytes/);
+    expect(() =>
+      applySnapshot(
+        snapshot([], {
+          generation: 1n,
+          images: [image(1), image(2)],
+          placements: [],
+        }),
+      ),
+    ).toThrow(/exceeds 10000000 decoded image bytes/);
   });
 
   it("rejects incremental image growth beyond the authoritative byte budget", () => {
@@ -372,21 +401,36 @@ describe("render model", () => {
       format: "rgba",
       data: `${"A".repeat(6_666_667)}=`,
     });
-    const initial = applySnapshot(snapshot([], {
-      generation: 1n,
-      images: [image(1)],
-      placements: [],
-    }));
+    const initial = applySnapshot(
+      snapshot([], {
+        generation: 1n,
+        images: [image(1)],
+        placements: [],
+      }),
+    );
 
-    expect(() => applyDelta(initial, delta({
-      graphics: { generation: 2n, images: [image(2)] },
-    }))).not.toThrow();
-    const full = applyDelta(initial, delta({
-      graphics: { generation: 2n, images: [image(2)] },
-    }));
-    expect(() => applyDelta(full, delta({
-      graphics: { generation: 3n, images: [{ ...image(3), width: 1, data: "AAAAAA==" }] },
-    }))).toThrow(/exceeds 10000000 decoded image bytes/);
+    expect(() =>
+      applyDelta(
+        initial,
+        delta({
+          graphics: { generation: 2n, images: [image(2)] },
+        }),
+      ),
+    ).not.toThrow();
+    const full = applyDelta(
+      initial,
+      delta({
+        graphics: { generation: 2n, images: [image(2)] },
+      }),
+    );
+    expect(() =>
+      applyDelta(
+        full,
+        delta({
+          graphics: { generation: 3n, images: [{ ...image(3), width: 1, data: "AAAAAA==" }] },
+        }),
+      ),
+    ).toThrow(/exceeds 10000000 decoded image bytes/);
   });
 
   it("rejects too many retained images across incremental deltas", () => {
@@ -398,33 +442,46 @@ describe("render model", () => {
       format: "rgb",
       data: "AAAA",
     }));
-    const initial = applySnapshot(snapshot([], {
-      generation: 1n,
-      images,
-      placements: [],
-    }));
+    const initial = applySnapshot(
+      snapshot([], {
+        generation: 1n,
+        images,
+        placements: [],
+      }),
+    );
 
-    expect(() => applyDelta(initial, delta({
-      graphics: {
-        generation: 2n,
-        images: [{ ...images[0]!, id: images.length }],
-      },
-    }))).toThrow(/exceeds 4096 images/);
+    expect(() =>
+      applyDelta(
+        initial,
+        delta({
+          graphics: {
+            generation: 2n,
+            images: [{ ...images[0]!, id: images.length }],
+          },
+        }),
+      ),
+    ).toThrow(/exceeds 4096 images/);
   });
 
   it("rejects encoded image data that does not match its dimensions", () => {
-    expect(() => applySnapshot(snapshot([], {
-      generation: 1n,
-      images: [{
-        id: 1,
-        generation: 1n,
-        width: 1,
-        height: 1,
-        format: "rgba",
-        data: "A".repeat(1_000_000),
-      }],
-      placements: [],
-    }))).toThrow(/pixel data does not match its dimensions/);
+    expect(() =>
+      applySnapshot(
+        snapshot([], {
+          generation: 1n,
+          images: [
+            {
+              id: 1,
+              generation: 1n,
+              width: 1,
+              height: 1,
+              format: "rgba",
+              data: "A".repeat(1_000_000),
+            },
+          ],
+          placements: [],
+        }),
+      ),
+    ).toThrow(/pixel data does not match its dimensions/);
   });
 
   it("defers full base64 validation to the image decoder", () => {
@@ -436,11 +493,13 @@ describe("render model", () => {
       format: "rgb",
       data: "AAA!",
     };
-    const model = applySnapshot(snapshot([], {
-      generation: 1n,
-      images: [image],
-      placements: [],
-    }));
+    const model = applySnapshot(
+      snapshot([], {
+        generation: 1n,
+        images: [image],
+        placements: [],
+      }),
+    );
 
     expect(model.graphics.images).toHaveLength(1);
     expect(decodeRenderGraphicImage(image)).toBeNull();

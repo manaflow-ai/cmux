@@ -48,6 +48,35 @@ struct MobileReleaseGateUIProbeTests {
         #expect(probe.latencies() == measured)
     }
 
+    @Test func keepsCachedRowTimingUntilLiveSelectionIsAvailable() async throws {
+        let probe = MobileReleaseGateUIProbe()
+        var connected = false
+        var failedSelectionAttempts = 0
+        probe.closeWorkspace = {
+            probe.terminalDidUnmount(surfaceID: "terminal")
+        }
+        probe.revealWorkspace = { _ in
+            probe.registerVisibleWorkspace("workspace") {
+                guard connected else {
+                    failedSelectionAttempts += 1
+                    return false
+                }
+                probe.record(.workspaceSelectionTapped)
+                probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+                return true
+            }
+            connected = true
+            probe.registerVisibleWorkspace("workspace") {
+                probe.record(.workspaceSelectionTapped)
+                probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+                return true
+            }
+        }
+        try await probe.exercise(workspaceID: "workspace", surfaceID: "terminal")
+        #expect(failedSelectionAttempts == 1)
+        #expect(probe.latencies()["app_launch_request_to_workspace_rows_visible"] != nil)
+    }
+
     @Test func revealsRequestedRowsAndDoesNotInspectTextAfterCompletion() async throws {
         let probe = MobileReleaseGateUIProbe()
         probe.closeWorkspace = { probe.terminalDidUnmount(surfaceID: "terminal") }

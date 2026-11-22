@@ -263,12 +263,16 @@ class _Definitions:
             f"pub enum {name} {{",
         ]
         used: set[str] = set()
+        fallback = expression.get("fallback")
         for index, value in enumerate(values, start=1):
             variant = _pascal(value)
             if variant in used:
                 variant = f"{variant}{index}"
             used.add(variant)
-            lines.append(f"    #[serde(rename = {_string(value)})]")
+            # The fallback variant also takes every string value this SDK
+            # does not know, so a newer daemon's value still decodes.
+            other = ", other" if value == fallback else ""
+            lines.append(f"    #[serde(rename = {_string(value)}{other})]")
             lines.append(f"    {variant},")
         lines.append("}")
         self.definitions[name] = "\n".join(lines) + "\n"

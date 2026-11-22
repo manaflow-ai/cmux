@@ -1,0 +1,73 @@
+{
+  "grant": [
+    "machine:read",
+    "memory:read",
+    "document:read",
+    "document:write",
+    "fs:write"
+  ],
+  "scopes": {
+    "memory.roots": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "memory.list": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "memory.search": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "document.open": {
+      "scope": "document:read",
+      "class": "read"
+    },
+    "document.read": {
+      "scope": "document:read",
+      "class": "read"
+    },
+    "document.edit": {
+      "scope": "document:write",
+      "class": "mutation"
+    },
+    "document.propose": {
+      "scope": "document:read",
+      "class": "mutation"
+    },
+    "fs.trash": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "ui.open": {
+      "scope": "memory:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "memory:read",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "machine.list": [
+      {
+        "id": "machine_mac01",
+        "name": "MacBook Pro",
+        "origin": "local",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false
+      },
+      {
+        "id": "machine_srv01",
+        "name": "build-server",
+        "origin": "server",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false
+      }
+    ]
+  }
+}

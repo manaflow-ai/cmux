@@ -1,0 +1,39 @@
+# The cmux Cloud app server (`cmux/cloud`, plans/cmux-next/cloud-app.md L3).
+# Its own Cargo workspace: it is not a member of the cmux-tui workspace.
+[package]
+name = "cmux-cloud"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "cmux Cloud app server: catalog ops over the host credential relay, machine projection"
+
+[workspace]
+
+[[bin]]
+name = "cmux-cloud"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+# The terminal interfaces (cmux.terminal.backend/1 and connector/1), shared
+# with the cmux-tui daemon, by path only.
+cmux-terminal-iface = { path = "../../../cmux-tui/crates/cmux-terminal-iface" }
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+# The one manifest validator (cmux-tui/crates/cmux-app-manifest), by path only.
+cmux-app-manifest = { path = "../../../cmux-tui/crates/cmux-app-manifest" }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"

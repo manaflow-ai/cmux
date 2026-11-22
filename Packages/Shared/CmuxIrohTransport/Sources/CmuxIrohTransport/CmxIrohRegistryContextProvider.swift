@@ -1050,7 +1050,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             }
         }
         if let deadline = pairGrantRetryDeadline {
-            let remaining = Int(ceil(deadline.date.timeIntervalSince(now)))
+            let remaining = ceil(deadline.date.timeIntervalSince(now)).saturatedInteger(Int.self) ?? 0
             if remaining > 0 {
                 throw CmxIrohTrustBrokerClientError.rateLimited(
                     code: deadline.code,

@@ -292,6 +292,9 @@ class Routing(unittest.TestCase):
         self.assertIsNone(wd.remaining_seconds(entry(10, "app-host unit tests (3)"), MODEL, NOW))
         self.assertIsNone(wd.remaining_seconds(None, MODEL, NOW))
         self.assertEqual(wd.job_key("macOS / app-host unit tests (3)"), "app-host-unit-tests")
+        # A renamed job reads the lengths the model still keeps under its old key.
+        renamed = {"job_seconds": {"cli-product-tests": {"p50": 420.0, "p90": 800.0}}}
+        self.assertEqual(wd.remaining_seconds(entry(20, "macOS / Shell regressions (3)"), renamed, NOW), 400.0)
 
     def test_the_wait_limit_follows_the_queue_rounds(self):
         self.assertEqual([wd.routed_wait_limit(rounds) for rounds in (0, 1, 2, None)], [0, 600, 600, 0])

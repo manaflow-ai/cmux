@@ -124,7 +124,8 @@ const messages = {
     unknownError: "接続できませんでした。",
     wrongApp: "cmux-tui サーバーが必要ですが、{app} を受信しました。",
     wrongProtocol: "プロトコル{required}が必要ですが、サーバーはプロトコル{protocol}を返しました。",
-    attachOverflowRecoveryFailed: "ターミナル出力が繰り返しオーバーフローしました。安全に再開するには再接続してください。",
+    attachOverflowRecoveryFailed:
+      "ターミナル出力が繰り返しオーバーフローしました。安全に再開するには再接続してください。",
     openWorkspaces: "ワークスペースを開く",
     closeWorkspaces: "ワークスペースを閉じる",
     extraKeys: "ターミナル追加キー",

@@ -66,7 +66,9 @@ export function FindBar({ controller, label, query, requestToken }: FindBarProps
           onKeyDown={onInputKeyDown}
         />
         {hasQuery ? (
-          <span id="diff-find-count" aria-live="polite">{current}/{total}</span>
+          <span id="diff-find-count" aria-live="polite">
+            {current}/{total}
+          </span>
         ) : null}
         <button
           type="button"

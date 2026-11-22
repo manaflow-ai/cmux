@@ -1,0 +1,204 @@
+{
+  "grant": [
+    "feed:read",
+    "feed:write",
+    "actions:run",
+    "workspace:read"
+  ],
+  "scopes": {
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "feed.list": {
+      "items": [
+        {
+          "id": "fi_backupdone0000000000",
+          "home": "cloud",
+          "body": "",
+          "priority": "normal",
+          "dedupe_key": null,
+          "thread": null,
+          "context": {},
+          "attachments": [],
+          "actions": [],
+          "open": null,
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": 1790918636669,
+          "seen_at": null,
+          "archived_at": 1790924636669,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 1,
+          "revision": 1,
+          "created_at": 1790912636669,
+          "updated_at": 1790912636669,
+          "closed_at": null,
+          "type": "notice",
+          "kind": "notice",
+          "title": "Nightly backup finished",
+          "poster": {
+            "kind": "automation",
+            "scope": "run_backup",
+            "label": "nightly-backup"
+          }
+        }
+      ],
+      "next": null,
+      "revision": ""
+    },
+    "feed.counts": {
+      "open_requests": 6,
+      "unread": 9,
+      "by_priority": {
+        "high": 4,
+        "normal": 2
+      },
+      "by_poster_kind": {
+        "agent": 4,
+        "automation": 3,
+        "integration": 2
+      }
+    },
+    "feed.read": {
+      "items": []
+    },
+    "feed.archive": {
+      "items": []
+    },
+    "feed.snooze": {
+      "items": []
+    },
+    "feed.answer": {
+      "item": {
+        "id": "fi_backupdone0000000000",
+        "home": "cloud",
+        "body": "",
+        "priority": "normal",
+        "dedupe_key": null,
+        "thread": null,
+        "context": {},
+        "attachments": [],
+        "actions": [],
+        "open": null,
+        "state": "open",
+        "answer": null,
+        "cancel": null,
+        "needs_mac": false,
+        "expires_at": 1791035036669,
+        "read_at": 1790918636669,
+        "seen_at": null,
+        "archived_at": 1790924636669,
+        "snoozed_until": null,
+        "count": 1,
+        "order": 1,
+        "revision": 1,
+        "created_at": 1790912636669,
+        "updated_at": 1790912636669,
+        "closed_at": null,
+        "type": "notice",
+        "kind": "notice",
+        "title": "Nightly backup finished",
+        "poster": {
+          "kind": "automation",
+          "scope": "run_backup",
+          "label": "nightly-backup"
+        }
+      }
+    },
+    "feed.cancel": {
+      "item": {
+        "id": "fi_backupdone0000000000",
+        "home": "cloud",
+        "body": "",
+        "priority": "normal",
+        "dedupe_key": null,
+        "thread": null,
+        "context": {},
+        "attachments": [],
+        "actions": [],
+        "open": null,
+        "state": "open",
+        "answer": null,
+        "cancel": null,
+        "needs_mac": false,
+        "expires_at": 1791035036669,
+        "read_at": 1790918636669,
+        "seen_at": null,
+        "archived_at": 1790924636669,
+        "snoozed_until": null,
+        "count": 1,
+        "order": 1,
+        "revision": 1,
+        "created_at": 1790912636669,
+        "updated_at": 1790912636669,
+        "closed_at": null,
+        "type": "notice",
+        "kind": "notice",
+        "title": "Nightly backup finished",
+        "poster": {
+          "kind": "automation",
+          "scope": "run_backup",
+          "label": "nightly-backup"
+        }
+      }
+    },
+    "action.run": null,
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "web-dashboard",
+        "index": 1,
+        "focused": false
+      }
+    ],
+    "app.storage.get": null,
+    "app.storage.set": {}
+  }
+}

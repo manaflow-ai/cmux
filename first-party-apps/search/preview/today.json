@@ -1,0 +1,287 @@
+{
+ "scopes": {
+  "terminal.search": {
+   "scope": "terminal:read",
+   "class": "read"
+  },
+  "terminal.viewport.reveal": {
+   "scope": "terminal:write",
+   "class": "mutation"
+  },
+  "browser.history.search": {
+   "scope": "browser_history:read",
+   "class": "read"
+  },
+  "fs.search": {
+   "scope": "fs:read",
+   "class": "read"
+  },
+  "search.providers.query": {
+   "scope": "search:read",
+   "class": "read"
+  }
+ },
+ "ops": {
+  "session.snapshot": {
+   "workspaces": [
+    {
+     "id": "workspace_api",
+     "session_id": "session_1",
+     "name": "api-server",
+     "index": 0,
+     "focused": true
+    },
+    {
+     "id": "workspace_web",
+     "session_id": "session_1",
+     "name": "web-app",
+     "index": 1,
+     "focused": false
+    },
+    {
+     "id": "workspace_mig",
+     "session_id": "session_1",
+     "name": "auth migration",
+     "index": 2,
+     "focused": false
+    }
+   ],
+   "screens": [
+    {
+     "id": "screen_1",
+     "workspace_id": "workspace_api",
+     "name": null,
+     "index": 0,
+     "focused": true,
+     "layout": {}
+    },
+    {
+     "id": "screen_2",
+     "workspace_id": "workspace_web",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "layout": {}
+    },
+    {
+     "id": "screen_3",
+     "workspace_id": "workspace_mig",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "layout": {}
+    }
+   ],
+   "panes": [
+    {
+     "id": "pane_1",
+     "screen_id": "screen_1",
+     "name": null,
+     "focused": true,
+     "zoomed": false
+    },
+    {
+     "id": "pane_2",
+     "screen_id": "screen_1",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    },
+    {
+     "id": "pane_3",
+     "screen_id": "screen_2",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    },
+    {
+     "id": "pane_4",
+     "screen_id": "screen_3",
+     "name": null,
+     "focused": false,
+     "zoomed": false
+    }
+   ],
+   "tabs": [
+    {
+     "id": "tab_1",
+     "pane_id": "pane_1",
+     "name": null,
+     "index": 0,
+     "focused": true,
+     "content_kind": "terminal",
+     "content_id": "terminal_1"
+    },
+    {
+     "id": "tab_2",
+     "pane_id": "pane_2",
+     "name": "auth tests",
+     "index": 0,
+     "focused": false,
+     "content_kind": "terminal",
+     "content_id": "terminal_2"
+    },
+    {
+     "id": "tab_3",
+     "pane_id": "pane_3",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "content_kind": "browser",
+     "content_id": "browser_1"
+    },
+    {
+     "id": "tab_4",
+     "pane_id": "pane_3",
+     "name": null,
+     "index": 1,
+     "focused": false,
+     "content_kind": "terminal",
+     "content_id": "terminal_3"
+    },
+    {
+     "id": "tab_5",
+     "pane_id": "pane_4",
+     "name": null,
+     "index": 0,
+     "focused": false,
+     "content_kind": "browser",
+     "content_id": "browser_2"
+    }
+   ],
+   "terminals": [
+    {
+     "id": "terminal_1",
+     "tab_id": "tab_1",
+     "tab_ids": [
+      "tab_1"
+     ],
+     "title": "zsh",
+     "cwd": "/Users/dev/src/api-server",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    },
+    {
+     "id": "terminal_2",
+     "tab_id": "tab_2",
+     "tab_ids": [
+      "tab_2"
+     ],
+     "title": "bun test",
+     "cwd": "/Users/dev/src/api-server/auth",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    },
+    {
+     "id": "terminal_3",
+     "tab_id": "tab_4",
+     "tab_ids": [
+      "tab_4"
+     ],
+     "title": "vite",
+     "cwd": "/Users/dev/src/web-app",
+     "cols": 120,
+     "rows": 40,
+     "running": true,
+     "lifecycle": "running"
+    }
+   ],
+   "browsers": [
+    {
+     "id": "browser_1",
+     "tab_id": "tab_3",
+     "url": "http://localhost:5173/login",
+     "title": "Sign in · Web App",
+     "loading": false,
+     "source": "launched",
+     "status": "live",
+     "error": null,
+     "frames_stalled": false,
+     "size": {
+      "width": 1280,
+      "height": 800
+     }
+    },
+    {
+     "id": "browser_2",
+     "tab_id": "tab_5",
+     "url": "https://docs.example.com/guides/auth-tokens",
+     "title": "Auth tokens · Example Docs",
+     "loading": false,
+     "source": "launched",
+     "status": "live",
+     "error": null,
+     "frames_stalled": false,
+     "size": {
+      "width": 1280,
+      "height": 800
+     }
+    }
+   ],
+   "machine": {
+    "id": "machine_1",
+    "name": "studio",
+    "origin": "local",
+    "status": "running",
+    "connectable": true,
+    "deleted": false,
+    "recoverable": false
+   },
+   "session": {
+    "id": "session_1",
+    "machine_id": "machine_1",
+    "generation": "1",
+    "revision": "1",
+    "connected": true
+   },
+   "clients": [],
+   "notifications": [],
+   "agents": [],
+   "frontend_projections": [],
+   "sidebar_views": [],
+   "cursor": {
+    "generation": "1",
+    "revision": "1"
+   }
+  },
+  "terminal.search": {
+   "$error": {
+    "code": "operation.unsupported",
+    "message": "not implemented yet"
+   }
+  },
+  "terminal.screen.read": {
+   "text": "$ curl -s localhost:8080/v1/auth/me\n{\"error\":\"auth token missing\"}\n$ ",
+   "cols": 120,
+   "rows": 40,
+   "cursor_row": 2,
+   "cursor_col": 2,
+   "cursor_visible": true
+  },
+  "browser.history.search": {
+   "$error": {
+    "code": "operation.unsupported",
+    "message": "not implemented yet"
+   }
+  },
+  "fs.search": {
+   "$error": {
+    "code": "operation.unsupported",
+    "message": "not implemented yet"
+   }
+  },
+  "search.providers.query": {
+   "$error": {
+    "code": "operation.unsupported",
+    "message": "not implemented yet"
+   }
+  },
+  "app.storage.get": null,
+  "app.storage.set": null,
+  "tab.focus": null
+ }
+}

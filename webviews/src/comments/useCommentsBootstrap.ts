@@ -6,10 +6,7 @@ import type { DiffCommentRecord } from "./types";
  * Loads persisted comments for the active repository. Cleanup invalidates an
  * older load so a slow response cannot overwrite comments after a repo switch.
  */
-export function useCommentsBootstrap(
-  repoRoot: string | null,
-  onLoaded: (comments: DiffCommentRecord[]) => void,
-): void {
+export function useCommentsBootstrap(repoRoot: string | null, onLoaded: (comments: DiffCommentRecord[]) => void): void {
   useEffect(() => {
     onLoaded([]);
     if (repoRoot == null) {

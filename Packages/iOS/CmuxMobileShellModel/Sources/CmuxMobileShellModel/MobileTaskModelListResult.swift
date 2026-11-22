@@ -1,5 +1,5 @@
 /// Why a provider model catalog could not be read.
-public enum MobileTaskModelListError: String, Equatable, Sendable {
+public nonisolated enum MobileTaskModelListError: String, Equatable, Sendable {
     /// The provider executable is not available in the Mac user's login PATH.
     case providerUnavailable = "provider_unavailable"
     /// The provider was present, but its catalog command failed or returned no usable values.
@@ -9,7 +9,7 @@ public enum MobileTaskModelListError: String, Equatable, Sendable {
 }
 
 /// Models returned by the Mac and the strategy that produced them.
-public struct MobileTaskModelListResult: Equatable, Sendable {
+public nonisolated struct MobileTaskModelListResult: Equatable, Sendable {
     /// Models in composer display order.
     public let models: [MobileTaskAgentModel]
     /// Metadata for the provider's implicit Default selection. This is kept

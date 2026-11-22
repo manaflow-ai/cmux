@@ -41,6 +41,11 @@ class RemoteDaemonReleaseTests(unittest.TestCase):
                 self.assertEqual(manifest["checksumsAssetName"], checksum_name)
                 self.assertEqual(manifest["checksumsURL"], f"{base_url}/{checksum_name}")
                 checksums = dict(line.split()[::-1] for line in (output / checksum_name).read_text().splitlines())
+                # The third-party notices ship beside the binaries (not in the manifest).
+                notices = (output / f"cmuxd-remote-THIRD_PARTY_LICENSES{ending}.txt").read_text()
+                for module in ("github.com/creack/pty", "golang.org/x/sys", "nhooyr.io/websocket"):
+                    self.assertIn(module, notices)
+                self.assertIn("Go standard library and runtime", notices)
                 self.assertEqual(len(checksums), len(TARGETS))
                 for entry in manifest["entries"]:
                     name = f"cmuxd-remote-{entry['goOS']}-{entry['goArch']}{ending}"

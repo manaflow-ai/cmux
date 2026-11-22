@@ -10,7 +10,7 @@
     "reason": "cmux-dev-backend-1 DNS resolution failed"
   },
   "iOSAttempt": {
-    "command": "/Users/abdulazizalbahar/Dev/Manaflow/cmuxterm-hq/scripts/reload-cloud-ios.sh --tag v2sm --no-ensure-mac --no-launch --wait 1200",
+    "command": "$HQ_ROOT/scripts/reload-cloud-ios.sh --tag v2sm --no-ensure-mac --no-launch --wait 1200",
     "result": "terminated-before-launch",
     "reason": "script injected legacy Vercel origins; acceptance requires deployed v2 Cloudflare origin",
     "remoteRunID": "v2sm-71da0fbe7960",

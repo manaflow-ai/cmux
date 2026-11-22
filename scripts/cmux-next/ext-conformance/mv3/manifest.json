@@ -1,0 +1,138 @@
+{
+  "manifest_version": 3,
+  "name": "cmux conformance MV3",
+  "version": "1.0",
+  "description": "cmux-next chrome.* API conformance probe (MV3).",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwW6Pqn81Ur9rEqN8Yw6FzJ+hx1OjQyGqs7LwGx1+JIJUBJCVNLPALvqwrhts8DeN42xTF8yNLoxfPsg877piDlOT2u8m1Z9ZPZUl7gkXXKC2t4svj8/YfCAjL4ABbFyL6wMQD+QCCD3wEEwOI2WKddfOXThllHTuYH9rjkbgPbsXqfWahKSucZISKDVlAQYL7vAwr455E4D3LukYgquj0D+dN1qwzlCUvV6NU5v4uYDxuwYkFajy/IUu9AsJUub0URNEexB45FJuFCzk6rQPgJ3FYbQTGdA1AAovyW2bVbSbpas3jeWqISHkk3ya44/1eFbH2TEdhd4tBR740BAtxwIDAQAB",
+  "default_locale": "en",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "cmux conformance",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon48.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "bookmarks",
+    "browsingData",
+    "contentSettings",
+    "contextMenus",
+    "cookies",
+    "debugger",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "declarativeNetRequestWithHostAccess",
+    "downloads",
+    "fontSettings",
+    "history",
+    "identity",
+    "idle",
+    "management",
+    "nativeMessaging",
+    "notifications",
+    "offscreen",
+    "pageCapture",
+    "power",
+    "privacy",
+    "proxy",
+    "scripting",
+    "search",
+    "sessions",
+    "sidePanel",
+    "storage",
+    "system.cpu",
+    "system.display",
+    "system.memory",
+    "tabGroups",
+    "tabs",
+    "topSites",
+    "tts",
+    "unlimitedStorage",
+    "webNavigation",
+    "webRequest"
+  ],
+  "optional_permissions": [
+    "readingList"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "oauth2": {
+    "client_id": "000000000000-cmuxconformance.apps.googleusercontent.com",
+    "scopes": [
+      "openid"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "harness.js",
+        "content.js"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "war.txt",
+        "config.json"
+      ],
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ]
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "static",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Y"
+      },
+      "description": "Open the popup"
+    },
+    "run-probe": {
+      "suggested_key": {
+        "default": "Alt+Shift+U"
+      },
+      "description": "Probe command"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "omnibox": {
+    "keyword": "cxt"
+  },
+  "devtools_page": "devtools.html",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

@@ -39,7 +39,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     }
 
     private func read(service: String, account: String) throws -> Data? {
-        var query = baseQuery(service: service, account: account)
+        var query: [String: Any] = baseQuery(service: service, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -59,7 +59,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
     }
 
     private func writeStored(_ data: Data, account: String) throws {
-        let query = baseQuery(service: service, account: account)
+        let query: [String: Any] = baseQuery(service: service, account: account)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
@@ -70,7 +70,7 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         guard updateStatus == errSecItemNotFound else {
             throw CmxIrohKeychainIdentityStoreError(status: updateStatus)
         }
-        var insert = query
+        var insert: [String: Any] = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
@@ -100,7 +100,8 @@ public actor CmxIrohKeychainIdentityStore: CmxIrohSecureIdentityStoring {
         let count = 32
         var data = Data(count: count)
         let status = data.withUnsafeMutableBytes { bytes in
-            SecRandomCopyBytes(kSecRandomDefault, count, bytes.baseAddress!)
+            guard let base = bytes.baseAddress else { return errSecAllocate }
+            return SecRandomCopyBytes(kSecRandomDefault, count, base)
         }
         guard status == errSecSuccess else {
             throw CmxIrohIdentityRepositoryError.randomGenerationFailed(status)

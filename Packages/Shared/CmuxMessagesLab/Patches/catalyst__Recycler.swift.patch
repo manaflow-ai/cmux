@@ -1,0 +1,20 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Recycler.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Recycler.swift
+@@ -63,7 +63,7 @@
+     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
+ 
+     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
+-        index[ObjectIdentifier(cell)].map { IndexPath(item: $0, section: 0) }
++        index.value(for: ObjectIdentifier(cell)).map { /* cmux: dictionary read */ IndexPath(item: $0, section: 0) }
+     }
+ 
+     /// All rows may have changed: reconfigure every visible cell on the next pass.
+@@ -113,7 +113,7 @@
+             }
+             if cell.frame != a.frame { cell.frame = a.frame }
+             cell.layer.zPosition = CGFloat(a.zIndex)
+-            next[k] = cell
++            next.updateValue(cell, forKey: k) /* cmux */
+             newIndex[ObjectIdentifier(cell)] = i
+         }
+         // Rows that left the rect: back to the pool (hidden, not removed), in row order: the

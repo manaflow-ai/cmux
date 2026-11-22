@@ -1,0 +1,39 @@
+# The cmux VM command-line client. A standalone workspace: it shares nothing
+# with cmux-tui except the pinned toolchain (rust-toolchain.toml is a symlink
+# to cmux-tui's pin).
+[workspace]
+resolver = "3"
+members = ["crates/cmux-vm", "crates/cmux-vm-client", "crates/cmux-vm-codegen"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+rust-version = "1.95"
+
+[workspace.dependencies]
+# Code generator. Pinned exactly: a generator upgrade changes the checked-in
+# client, so it must be a deliberate edit here plus a regenerate.
+progenitor = { version = "=0.15.0", default-features = false }
+progenitor-client = "=0.15.0"
+openapiv3 = "=2.2.0"
+prettyplease = "=0.3.0"
+syn = { version = "=3.0.6", features = ["full"] }
+
+# Runtime dependencies of the generated client.
+bytes = "1"
+futures = "0.3"
+regress = "0.12"
+reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI.
+clap = { version = "4.6", features = ["derive", "env"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# Tests.
+wiremock = "0.6.5"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

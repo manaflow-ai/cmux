@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Tree } from "cmux/raw";
 import { initialLocalSelectionState } from "../src/lib/localSelection";
 import {
@@ -10,28 +10,42 @@ import {
 } from "../src/lib/tree";
 
 const tree: Tree = {
-  workspaces: [{
-    id: 1n,
-    name: "main",
-    active: true,
-    screens: [{
-      id: 2n,
-      name: null,
+  workspaces: [
+    {
+      id: 1n,
+      name: "main",
       active: true,
-      active_pane: 3n,
-      zoomed_pane: null,
-      layout: { type: "leaf", pane: 3n },
-      panes: [{
-        id: 3n,
-        name: null,
-        active_tab: 1n,
-        tabs: [
-          { surface: 4n, kind: "pty", browser_source: null, name: null, title: "shell", size: null, dead: false },
-          { surface: 5n, kind: "pty", browser_source: null, name: "logs", title: "tail", size: null, dead: false },
-        ],
-      }],
-    }],
-  }],
+      screens: [
+        {
+          id: 2n,
+          name: null,
+          active: true,
+          active_pane: 3n,
+          zoomed_pane: null,
+          layout: { type: "leaf", pane: 3n },
+          panes: [
+            {
+              id: 3n,
+              name: null,
+              active_tab: 1n,
+              tabs: [
+                { surface: 4n, kind: "pty", browser_source: null, name: null, title: "shell", size: null, dead: false },
+                {
+                  surface: 5n,
+                  kind: "pty",
+                  browser_source: null,
+                  name: "logs",
+                  title: "tail",
+                  size: null,
+                  dead: false,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
 const localSelection = {
@@ -69,7 +83,10 @@ describe("treeToViewModel", () => {
     changed.workspaces.push(foreignActive);
 
     const view = treeToViewModel(changed, new Set(), localSelection);
-    expect(view.map(({ id, active }) => [id, active])).toEqual([[1n, true], [9n, false]]);
+    expect(view.map(({ id, active }) => [id, active])).toEqual([
+      [1n, true],
+      [9n, false],
+    ]);
     expect(view[0]?.screens[0]?.active).toBe(true);
     expect(view[1]?.screens[0]?.active).toBe(false);
   });
@@ -81,12 +98,16 @@ describe("treeToViewModel", () => {
     secondScreen.active = false;
     secondScreen.active_pane = 7n;
     secondScreen.layout = { type: "leaf", pane: 7n };
-    secondScreen.panes = [{
-      id: 7n,
-      name: null,
-      active_tab: 0n,
-      tabs: [{ surface: 8n, kind: "pty", browser_source: null, name: null, title: "editor", size: null, dead: false }],
-    }];
+    secondScreen.panes = [
+      {
+        id: 7n,
+        name: null,
+        active_tab: 0n,
+        tabs: [
+          { surface: 8n, kind: "pty", browser_source: null, name: null, title: "editor", size: null, dead: false },
+        ],
+      },
+    ];
     multipleScreens.workspaces[0]!.screens.push(secondScreen);
 
     const drawerWorkspaces = treeToViewModel(multipleScreens, new Set(), localSelection);
@@ -98,13 +119,21 @@ describe("treeToViewModel", () => {
 
 describe("applySurfaceTitles", () => {
   it("coalesces authoritative titles into matching tabs with structural sharing", () => {
-    const updated = applySurfaceTitles(tree, new Map([[4n, "editor"], [5n, "logs"]]));
+    const updated = applySurfaceTitles(
+      tree,
+      new Map([
+        [4n, "editor"],
+        [5n, "logs"],
+      ]),
+    );
 
     expect(updated).not.toBe(tree);
     expect(updated.workspaces[0]?.screens[0]?.panes[0]).not.toBe(tree.workspaces[0]?.screens[0]?.panes[0]);
-    expect("tabs" in updated.workspaces[0]!.screens[0]!.panes[0]!
-      ? updated.workspaces[0]!.screens[0]!.panes[0]!.tabs.map(({ title }) => title)
-      : []).toEqual(["editor", "logs"]);
+    expect(
+      "tabs" in updated.workspaces[0]!.screens[0]!.panes[0]!
+        ? updated.workspaces[0]!.screens[0]!.panes[0]!.tabs.map(({ title }) => title)
+        : [],
+    ).toEqual(["editor", "logs"]);
     expect(applySurfaceTitles(tree, new Map([[99n, "missing"]]))).toBe(tree);
   });
 
@@ -126,9 +155,11 @@ describe("applySurfaceTitles", () => {
     replay.record(4n, "newest");
     const staleTree = structuredClone(tree);
     const recovered = replay.commit(staleTree, inFlight).tree;
-    expect("tabs" in recovered.workspaces[0]!.screens[0]!.panes[0]!
-      ? recovered.workspaces[0]!.screens[0]!.panes[0]!.tabs[0]!.title
-      : null).toBe("newest");
+    expect(
+      "tabs" in recovered.workspaces[0]!.screens[0]!.panes[0]!
+        ? recovered.workspaces[0]!.screens[0]!.panes[0]!.tabs[0]!.title
+        : null,
+    ).toBe("newest");
   });
 
   it("updates only the indexed title path", () => {
@@ -158,11 +189,40 @@ describe("locateSurface", () => {
     const tree = {
       workspaces: [
         {
-          id: 1n, name: "a", active: false,
+          id: 1n,
+          name: "a",
+          active: false,
           screens: [
-            { id: 10n, workspace: 1n, active: true, active_pane: 100n, zoomed_pane: null, name: null,
+            {
+              id: 10n,
+              workspace: 1n,
+              active: true,
+              active_pane: 100n,
+              zoomed_pane: null,
+              name: null,
               layout: { type: "pane", pane: 100n },
-              panes: [{ id: 100n, screen: 10n, name: null, active_tab: 0n, tabs: [{ surface: 7n, pane: 100n, kind: "pty", browser_source: null, name: null, title: "t", dead: false, cols: 80, rows: 24 }] }] },
+              panes: [
+                {
+                  id: 100n,
+                  screen: 10n,
+                  name: null,
+                  active_tab: 0n,
+                  tabs: [
+                    {
+                      surface: 7n,
+                      pane: 100n,
+                      kind: "pty",
+                      browser_source: null,
+                      name: null,
+                      title: "t",
+                      dead: false,
+                      cols: 80,
+                      rows: 24,
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ],

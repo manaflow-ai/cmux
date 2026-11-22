@@ -14,6 +14,7 @@ import java.util.Objects;
 public final class NotifyRequest implements WireValue {
     private final String body;
     private final Field<NotificationLevel> level;
+    private final Field<NotificationSource> source;
     private final Field<UInt64> surface;
     private final String title;
 
@@ -21,6 +22,7 @@ public final class NotifyRequest implements WireValue {
         if (!builder.bodySet) throw new IllegalArgumentException("body is required");
         this.body = Wire.nonNull(builder.body, "body");
         this.level = builder.level;
+        this.source = builder.source;
         this.surface = builder.surface;
         if (!builder.titleSet) throw new IllegalArgumentException("title is required");
         this.title = Wire.nonNull(builder.title, "title");
@@ -30,6 +32,7 @@ public final class NotifyRequest implements WireValue {
 
     public String body() { return body; }
     public Field<NotificationLevel> level() { return level; }
+    public Field<NotificationSource> source() { return source; }
     public Field<UInt64> surface() { return surface; }
     public String title() { return title; }
 
@@ -41,6 +44,10 @@ public final class NotifyRequest implements WireValue {
         Object rawLevel = Wire.optional(object, "level");
         if (!Wire.isMissing(rawLevel)) {
             builder.level(rawLevel == null ? null : NotificationLevel.fromWire(rawLevel));
+        }
+        Object rawSource = Wire.optional(object, "source");
+        if (!Wire.isMissing(rawSource)) {
+            builder.source(rawSource == null ? null : NotificationSource.fromWire(rawSource));
         }
         Object rawSurface = Wire.optional(object, "surface");
         if (!Wire.isMissing(rawSurface)) {
@@ -56,6 +63,7 @@ public final class NotifyRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "body", body);
         Wire.put(object, "level", level);
+        Wire.put(object, "source", source);
         Wire.put(object, "surface", surface);
         Wire.put(object, "title", title);
         return Collections.unmodifiableMap(object);
@@ -64,11 +72,11 @@ public final class NotifyRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NotifyRequest that)) return false;
-        return Objects.equals(body, that.body) && Objects.equals(level, that.level) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
+        return Objects.equals(body, that.body) && Objects.equals(level, that.level) && Objects.equals(source, that.source) && Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(body, level, surface, title); }
+    public int hashCode() { return Objects.hash(body, level, source, surface, title); }
 
     @Override
     public String toString() { return "NotifyRequest" + toWire(); }
@@ -77,6 +85,7 @@ public final class NotifyRequest implements WireValue {
         private String body;
         private boolean bodySet;
         private Field<NotificationLevel> level = Field.omitted();
+        private Field<NotificationSource> source = Field.omitted();
         private Field<UInt64> surface = Field.omitted();
         private String title;
         private boolean titleSet;
@@ -88,6 +97,10 @@ public final class NotifyRequest implements WireValue {
         }
         public Builder level(NotificationLevel value) {
             this.level = Field.ofNullable(value);
+            return this;
+        }
+        public Builder source(NotificationSource value) {
+            this.source = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

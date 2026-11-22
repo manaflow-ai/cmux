@@ -1,0 +1,26 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/app-store",
+  "name": { "en": "App Store", "ja": "App Store" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Find, install, hide and remove cmux apps, and review what each app may do.",
+    "ja": "cmux アプリを探して、インストール、非表示、削除し、各アプリにできることを確認します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "square.grid.2x2" },
+  "categories": ["developer-tools"],
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.pane/1": { "native": "app-store", "title": { "en": "App Store", "ja": "App Store" }, "symbol": "square.grid.2x2" }
+  },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 10 },
+    "screen": "app",
+    "tab": true,
+    "primaryInput": "appStore.search"
+  }
+}

@@ -1,0 +1,418 @@
+{
+  "description": "Shared test vectors for the user's Ghostty shell-integration, shell-integration-features and cursor-style-blink as libghostty resolves them from a config file and its config-file includes (decision DAEMON-SHELL-FEATURES-FROM-GHOSTTY-FILES). Each case's files are written to one directory; \"config\" is loaded, the others only through config-file. features lists the enabled features of Ghostty's ShellIntegrationFeatures (cursor, sudo, title, ssh-env, ssh-terminfo, path); cursor_blink is null when unset; shell_integration is the mode name. The oracle is libghostty (CmuxNextTerminalTests GhosttyShellFeaturesVectorTests); the cmux-tui daemon's reader (cmux-tui-core shell_integration/ghostty_files.rs) replays the same file. Change both together.",
+  "cases": [
+    {
+      "name": "no config: Ghostty's defaults",
+      "files": {
+        "config": ""
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "a name turns its feature on over the defaults",
+      "files": {
+        "config": "shell-integration-features = sudo\n"
+      },
+      "features": [
+        "cursor",
+        "sudo",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "no- turns a feature off",
+      "files": {
+        "config": "shell-integration-features = no-cursor,no-title\n"
+      },
+      "features": [
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "parts are trimmed",
+      "files": {
+        "config": "shell-integration-features = no-cursor , ssh-env,ssh-terminfo\n"
+      },
+      "features": [
+        "title",
+        "ssh-env",
+        "ssh-terminfo",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "true turns every feature on",
+      "files": {
+        "config": "shell-integration-features = true\n"
+      },
+      "features": [
+        "cursor",
+        "sudo",
+        "title",
+        "ssh-env",
+        "ssh-terminfo",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "false turns every feature off",
+      "files": {
+        "config": "shell-integration-features = false\n"
+      },
+      "features": [],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "1 is true",
+      "files": {
+        "config": "shell-integration-features = 1\n"
+      },
+      "features": [
+        "cursor",
+        "sudo",
+        "title",
+        "ssh-env",
+        "ssh-terminfo",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "f is false",
+      "files": {
+        "config": "shell-integration-features = f\n"
+      },
+      "features": [],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "a later line starts again from the defaults",
+      "files": {
+        "config": "shell-integration-features = sudo\nshell-integration-features = no-path\n"
+      },
+      "features": [
+        "cursor",
+        "title"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an empty value resets to the defaults",
+      "files": {
+        "config": "shell-integration-features = false\nshell-integration-features =\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an invalid value keeps the previous one",
+      "files": {
+        "config": "shell-integration-features = no-title\nshell-integration-features = bogus\n"
+      },
+      "features": [
+        "cursor",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an empty part is invalid",
+      "files": {
+        "config": "shell-integration-features = no-title\nshell-integration-features = cursor,\n"
+      },
+      "features": [
+        "cursor",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "a quoted value",
+      "files": {
+        "config": "shell-integration-features = \"no-cursor\"\n"
+      },
+      "features": [
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "comments, indentation and CRLF",
+      "files": {
+        "config": "# shell-integration-features = false\r\n  shell-integration-features = no-path  \r\n"
+      },
+      "features": [
+        "cursor",
+        "title"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "no spaces around = and the last part wins",
+      "files": {
+        "config": "shell-integration-features=no-sudo,sudo\n"
+      },
+      "features": [
+        "cursor",
+        "sudo",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "a key with no value is ignored",
+      "files": {
+        "config": "shell-integration-features = no-title\nshell-integration-features\n"
+      },
+      "features": [
+        "cursor",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "cursor-style-blink false",
+      "files": {
+        "config": "cursor-style-blink = false\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": false,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "cursor-style-blink true",
+      "files": {
+        "config": "cursor-style-blink = true\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": true,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an empty cursor-style-blink resets to unset",
+      "files": {
+        "config": "cursor-style-blink = false\ncursor-style-blink =\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an include loads after the file, whatever its position",
+      "files": {
+        "config": "config-file = extra\nshell-integration-features = sudo\n",
+        "extra": "shell-integration-features = no-title\n"
+      },
+      "features": [
+        "cursor",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "a missing optional include is skipped",
+      "files": {
+        "config": "config-file = ?missing\nshell-integration-features = no-path\n"
+      },
+      "features": [
+        "cursor",
+        "title"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "nested includes load in order and a cycle stops",
+      "files": {
+        "config": "config-file = a\n",
+        "a": "config-file = b\nshell-integration-features = sudo\n",
+        "b": "config-file = a\nshell-integration-features = no-cursor\n"
+      },
+      "features": [
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an empty config-file clears the includes",
+      "files": {
+        "config": "config-file = extra\nconfig-file =\nshell-integration-features = sudo\n",
+        "extra": "shell-integration-features = false\n"
+      },
+      "features": [
+        "cursor",
+        "sudo",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an include in a subdirectory resolves against its own file",
+      "files": {
+        "config": "config-file = sub/one\n",
+        "sub/one": "config-file = two\n",
+        "sub/two": "shell-integration-features = no-path\ncursor-style-blink = false\n"
+      },
+      "features": [
+        "cursor",
+        "title"
+      ],
+      "cursor_blink": false,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "shell-integration none",
+      "files": {
+        "config": "shell-integration = none\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "a forced shell",
+      "files": {
+        "config": "shell-integration = zsh\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "zsh"
+    },
+    {
+      "name": "every forced shell name",
+      "files": {
+        "config": "shell-integration = fish\nshell-integration = nushell\nshell-integration = elvish\nshell-integration = bash\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "bash"
+    },
+    {
+      "name": "an empty shell-integration resets to detect",
+      "files": {
+        "config": "shell-integration = none\nshell-integration =\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "detect"
+    },
+    {
+      "name": "an unknown shell keeps the previous value",
+      "files": {
+        "config": "shell-integration = none\nshell-integration = tcsh\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "a quoted shell-integration",
+      "files": {
+        "config": "shell-integration = \"none\"\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "shell-integration with no value is ignored",
+      "files": {
+        "config": "shell-integration = none\nshell-integration\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "none"
+    },
+    {
+      "name": "an include sets shell-integration",
+      "files": {
+        "config": "config-file = extra\nshell-integration = none\n",
+        "extra": "shell-integration = fish\n"
+      },
+      "features": [
+        "cursor",
+        "title",
+        "path"
+      ],
+      "cursor_blink": null,
+      "shell_integration": "fish"
+    }
+  ]
+}

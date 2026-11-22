@@ -12,7 +12,8 @@
 # This script removes those artifacts for tags that are safe to clean.
 # Safety rules (always on):
 #   - Skip any tag whose `cmux DEV <tag>` app is currently running.
-#   - Skip the tag pointed at by /tmp/cmux-last-cli-path (most recent reload).
+#   - Skip the tag of the app opened last (~/Library/Application Support/cmux/last-app-cli,
+#     written by the app) and of the most recent reload (/tmp/cmux-last-cli-path, legacy).
 # A worktree merely existing on the same name is not treated as a
 # protection. Use --keep TAG when you want to preserve a build whose
 # worktree you still have around, or --older-than DAYS to skip anything
@@ -36,6 +37,7 @@ set -euo pipefail
 DERIVED_DATA_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
 LAST_CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+LAST_APP_CLI_FILE="$APP_SUPPORT_DIR/last-app-cli"
 
 apply=0
 older_than_days=0
@@ -124,13 +126,16 @@ derived_data_mtime_days() {
 # Active tag (most recent reload) per the CLI symlink target. Match
 # `/cmux-<tag>/` anywhere in the path so we cover paths under DerivedData,
 # /tmp, or other locations reload.sh may emit.
-active_tag=""
-if [[ -r "$LAST_CLI_PATH_FILE" ]]; then
-    last_path="$(cat "$LAST_CLI_PATH_FILE" 2>/dev/null || true)"
+# The app's own pointer (plans/cmux-next/version-skew.md) and reload.sh's
+# legacy one each protect their tag.
+active_tags=()
+for pointer in "$LAST_APP_CLI_FILE" "$LAST_CLI_PATH_FILE"; do
+    [[ -r "$pointer" && ! -L "$pointer" ]] || continue
+    last_path="$(LC_ALL=C head -c 4097 "$pointer" 2>/dev/null | head -n 1 || true)"
     if [[ "$last_path" =~ /cmux-([A-Za-z0-9._-]+)/ ]]; then
-        active_tag="${BASH_REMATCH[1]}"
+        active_tags+=("${BASH_REMATCH[1]}")
     fi
-fi
+done
 
 # Running cmux DEV processes by tag (the app name embeds the tag).
 running_tags=()
@@ -159,8 +164,8 @@ while IFS= read -r tag; do
     [[ -n "$tag" ]] || continue
     reasons=()
 
-    if [[ "$tag" == "$active_tag" ]]; then
-        reasons+=("active (most recent reload)")
+    if contains "$tag" ${active_tags[@]+"${active_tags[@]}"}; then
+        reasons+=("active (opened last or most recent reload)")
     fi
     if contains "$tag" ${running_tags[@]+"${running_tags[@]}"}; then
         reasons+=("app running")

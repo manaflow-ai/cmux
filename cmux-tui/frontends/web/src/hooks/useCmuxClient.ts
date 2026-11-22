@@ -15,11 +15,7 @@ import {
 } from "cmux/raw";
 import { browserClientName } from "../lib/clientName";
 import { createCoalescedRefresh } from "../lib/coalescedRefresh";
-import {
-  initialLocalSelectionState,
-  localSelectionReducer,
-  selectionSnapshot,
-} from "../lib/localSelection";
+import { initialLocalSelectionState, localSelectionReducer, selectionSnapshot } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
@@ -86,9 +82,9 @@ export function useCmuxClient() {
       titleFlushTimer = undefined;
       if (cancelled || pendingSurfaceTitles.size === 0) return;
       pendingSurfaceTitles.clear();
-      setState((current) => current.tree === null
-        ? current
-        : { ...current, tree: titleReconciler.apply(current.tree) });
+      setState((current) =>
+        current.tree === null ? current : { ...current, tree: titleReconciler.apply(current.tree) },
+      );
     };
     const queueSurfaceTitle = (surface: Id, title: string) => {
       titleReconciler.record(surface, title);
@@ -167,20 +163,19 @@ export function useCmuxClient() {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
         if (!supportsProtocol(info.protocol)) {
-          throw new Error(t("wrongProtocol", {
-            required: SUPPORTED_PROTOCOL,
-            protocol: info.protocol,
-          }));
+          throw new Error(
+            t("wrongProtocol", {
+              required: SUPPORTED_PROTOCOL,
+              protocol: info.protocol,
+            }),
+          );
         }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
         await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
         const events = await client.subscribe();
-        const [tree, clients] = await Promise.all([
-          client.listWorkspaces(),
-          client.listClients().catch(() => []),
-        ]);
+        const [tree, clients] = await Promise.all([client.listWorkspaces(), client.listClients().catch(() => [])]);
         if (cancelled) return;
         canReconnect = true;
         // A successful (re)connect resets the retry baseline so the next drop
@@ -240,10 +235,10 @@ export function useCmuxClient() {
               await refresh();
             }
             if (
-              event.event === "client-attached"
-              || event.event === "client-changed"
+              event.event === "client-attached" ||
+              event.event === "client-changed" ||
               // Keep the client viewport list current after a shared resize.
-              || event.event === "surface-resized"
+              event.event === "surface-resized"
             ) {
               if (event.event !== "surface-resized") clientPresenceGeneration += 1;
               queueClientsRefresh();
@@ -303,48 +298,55 @@ export function useCmuxClient() {
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
-  const runMutation = useCallback(async (mutation: (client: CmuxClient) => Promise<unknown>) => {
-    if (!state.client) return false;
-    try {
-      await mutation(state.client);
-      return true;
-    } catch (error) {
-      const toast: Toast = {
-        event: "notification",
-        notification: localToastId.current--,
-        title: t("commandFailed"),
-        body: error instanceof Error ? error.message : String(error),
-        level: "error",
-        surface: null,
-      };
-      setToasts((current) => [...current.slice(-2), toast]);
-      return false;
-    }
-  }, [state.client]);
+  const runMutation = useCallback(
+    async (mutation: (client: CmuxClient) => Promise<unknown>) => {
+      if (!state.client) return false;
+      try {
+        await mutation(state.client);
+        return true;
+      } catch (error) {
+        const toast: Toast = {
+          event: "notification",
+          notification: localToastId.current--,
+          title: t("commandFailed"),
+          body: error instanceof Error ? error.message : String(error),
+          level: "error",
+          surface: null,
+        };
+        setToasts((current) => [...current.slice(-2), toast]);
+        return false;
+      }
+    },
+    [state.client],
+  );
 
   const selectScreen = useCallback((workspaceId: Id, screenId: Id, surface: Id | null) => {
     dispatchSelection({ type: "navigate", workspaceId, screenId });
-    if (surface !== null) setUnread((current) => {
-      const next = new Set(current);
-      next.delete(surface);
-      return next;
-    });
+    if (surface !== null)
+      setUnread((current) => {
+        const next = new Set(current);
+        next.delete(surface);
+        return next;
+      });
   }, []);
 
   const selectPane = useCallback((paneId: Id) => {
     dispatchSelection({ type: "select-pane", paneId });
   }, []);
 
-  const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
-    await runMutation(async (client) => {
-      await client.selectTab({ pane, index: BigInt(index) });
-      setUnread((current) => {
-        const next = new Set(current);
-        next.delete(surface);
-        return next;
+  const selectTab = useCallback(
+    async (pane: Id, index: number, surface: Id) => {
+      await runMutation(async (client) => {
+        await client.selectTab({ pane, index: BigInt(index) });
+        setUnread((current) => {
+          const next = new Set(current);
+          next.delete(surface);
+          return next;
+        });
       });
-    });
-  }, [runMutation]);
+    },
+    [runMutation],
+  );
 
   // Creation responses carry only the new surface id; selection is local, so
   // follow the creation by locating that surface in a fresh tree and
@@ -363,42 +365,49 @@ export function useCmuxClient() {
     [runMutation],
   );
 
-  const mutations = useMemo(() => ({
-    newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
-    newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
-    newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
-    newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
-    split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
-    closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
-    closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
-    closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
-    closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
-    renameWorkspace: (workspace: Id, name: string) => runMutation((client) => client.renameWorkspace(workspace, name)),
-    renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
-    renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
-    renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
-    zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
-    swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
-      runMutation((client) => client.swapPane({ pane, dir })),
-    setSplitRatio: (split: Id, ratio: number) =>
-      runMutation((client) => client.setSplitRatio(split, ratio)),
-    setClientSizing: (surface: Id, clientId: Id, enabled: boolean) => runMutation(async (client) => {
-      await client.setClientSizing(surface, clientId, enabled);
+  const mutations = useMemo(
+    () => ({
+      newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
+      newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
+      newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
+      newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
+      split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
+      closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
+      closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
+      closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
+      closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
+      renameWorkspace: (workspace: Id, name: string) =>
+        runMutation((client) => client.renameWorkspace(workspace, name)),
+      renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
+      renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
+      renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
+      zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
+      swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
+        runMutation((client) => client.swapPane({ pane, dir })),
+      setSplitRatio: (split: Id, ratio: number) => runMutation((client) => client.setSplitRatio(split, ratio)),
+      setClientSizing: (surface: Id, clientId: Id, enabled: boolean) =>
+        runMutation(async (client) => {
+          await client.setClientSizing(surface, clientId, enabled);
+        }),
+      useOnlyClientSizing: (surface: Id, clientId: Id) =>
+        runMutation(async (client) => {
+          await client.useOnlyClientSizing(surface, clientId);
+        }),
+      useAllClientSizing: (surface: Id) =>
+        runMutation(async (client) => {
+          await client.useAllClientSizing(surface);
+        }),
+      detachClient: (clientId: Id) =>
+        runMutation(async (client) => {
+          await client.detachClient(clientId);
+          setState((current) => ({
+            ...current,
+            clients: current.clients.filter((item) => item.client !== clientId),
+          }));
+        }),
     }),
-    useOnlyClientSizing: (surface: Id, clientId: Id) => runMutation(async (client) => {
-      await client.useOnlyClientSizing(surface, clientId);
-    }),
-    useAllClientSizing: (surface: Id) => runMutation(async (client) => {
-      await client.useAllClientSizing(surface);
-    }),
-    detachClient: (clientId: Id) => runMutation(async (client) => {
-      await client.detachClient(clientId);
-      setState((current) => ({
-        ...current,
-        clients: current.clients.filter((item) => item.client !== clientId),
-      }));
-    }),
-  }), [createAndFollow, runMutation]);
+    [createAndFollow, runMutation],
+  );
 
   const refreshClients = useCallback(() => {
     clientsRefreshRef.current?.();
@@ -409,7 +418,7 @@ export function useCmuxClient() {
   }, []);
 
   const view = useMemo(
-    () => state.tree ? treeToViewModel(state.tree, unread, selection) : [],
+    () => (state.tree ? treeToViewModel(state.tree, unread, selection) : []),
     [selection, state.tree, unread],
   );
   return {

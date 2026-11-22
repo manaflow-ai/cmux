@@ -59,7 +59,7 @@ export CMUX_COMPILE_ADMISSION_CAS="$root/compile-admission-cas"
 export CMUX_SKIP_ZIG_BUILD=1
 export CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26
 export CMUX_CI_SKIP_XCODE_SELECT=1
-export CI=true  # as in a job: build phases read it (a missing cargo fails the Nucleo FFI build instead of skipping)
+export CI=true  # as in a job: build phases read it (a missing cargo fails a Rust helper build instead of skipping)
 # The seed key's runner fields, as compile admission sees them on an owned mini.
 export RUNNER_OS=macOS RUNNER_ARCH=ARM64
 export CMUX_SEED_GIT_DIR="$workspace/.git"

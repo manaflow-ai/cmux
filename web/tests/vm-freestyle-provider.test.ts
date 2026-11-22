@@ -178,6 +178,26 @@ describe("Freestyle platform contract", () => {
     await conflictProvider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
   });
 
+  test("network creation names the requested IPv4 range and omits it otherwise", async () => {
+    const creates: unknown[] = [];
+    const client = {
+      vpc: {
+        create: async (options: { slug: string; cidr?: string }) => {
+          creates.push(options);
+          return { data: { id: `vpc-${creates.length}`, slug: options.slug, cidr: options.cidr ?? "10.16.1.0/24", cidrV6: "fd01::/64" } };
+        },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await expect(provider.privateNetworking!.ensureNetwork({ slug: "user-slug", membersRule: false, cidr: "10.200.0.0/16" }))
+      .resolves.toMatchObject({ cidr: "10.200.0.0/16" });
+    await provider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
+    expect(creates).toEqual([
+      { slug: "user-slug", displayName: undefined, cidr: "10.200.0.0/16", firewall: { rules: [] } },
+      { slug: "team-slug", displayName: undefined, firewall: { rules: [] } },
+    ]);
+  });
+
   test("team tunnel attach/detach maps addresses and classifies overlap", async () => {
     const attachment = { vpcId: "vpc-team", ipv4: "10.2.0.2", ipv6: "fd02::2" };
     const client = {

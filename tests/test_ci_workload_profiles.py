@@ -112,7 +112,6 @@ class WorkloadProfileTests(unittest.TestCase):
             {
                 ("cmux.macos.compile-admission", 1),
                 ("cmux.macos.dev-check", 1),
-                ("cmux.macos.app-host-test-shard", 1),
                 ("cmux.ci.guard", 1),
             },
         )
@@ -166,10 +165,6 @@ class WorkloadProfileTests(unittest.TestCase):
         by_id = {item["id"]: item for item in registry["profiles"]}
         self.assertEqual(by_id["cmux.ci.guard"]["environment_class"], "isolated-portable")
         self.assertEqual(by_id["cmux.macos.dev-check"]["environment_class"], "isolated-build")
-        self.assertEqual(
-            by_id["cmux.macos.app-host-test-shard"]["environment_class"],
-            "isolated-console-test",
-        )
 
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             profile.os.environ,
@@ -198,9 +193,31 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(environment["TMPDIR"], str(state / "tmp"))
         self.assertEqual(environment["CMUX_CI_SKIP_XCODE_SELECT"], "1")
 
-    def test_declared_runtime_input_is_the_only_parent_value_admitted(self) -> None:
+    @staticmethod
+    def shard_profile() -> dict:
+        """A console-test profile with a parameter and a runtime input.
+
+        No registered profile declares either since the app-host shard
+        profile went away, so the contract is exercised on this one.
+        """
         registry = profile.load_registry()
-        app_host = profile.profile_by_id(registry, "cmux.macos.app-host-test-shard")
+        base = profile.profile_by_id(registry, "cmux.macos.compile-admission")
+        return {
+            **json.loads(json.dumps(base)),
+            "id": "cmux.macos.example-test-shard",
+            "environment_class": "isolated-console-test",
+            "parameters": {"shard": {"type": "integer", "minimum": 1, "maximum": 6, "required": True}},
+            "runtime_inputs": [{
+                "name": "app_host_xctestrun",
+                "env": "CMUX_APP_HOST_XCTESTRUN",
+                "class": "cmux.app-host-product-tree/v1",
+                "identity": "parent-tree-sha256",
+                "required": True,
+            }],
+        }
+
+    def test_declared_runtime_input_is_the_only_parent_value_admitted(self) -> None:
+        app_host = self.shard_profile()
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             profile.os.environ,
             {
@@ -282,8 +299,7 @@ class WorkloadProfileTests(unittest.TestCase):
                 pass
 
     def test_parameters_are_bounded_by_profile_contract(self) -> None:
-        registry = profile.load_registry()
-        shard = profile.profile_by_id(registry, "cmux.macos.app-host-test-shard")
+        shard = self.shard_profile()
         self.assertEqual(profile.parse_parameters(shard, ["shard=1"]), {"shard": 1})
         with self.assertRaisesRegex(profile.ProfileError, "between 1 and 6"):
             profile.parse_parameters(shard, ["shard=7"])
@@ -753,24 +769,6 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(result["result"], "ambiguous")
         self.assertEqual(result["cleanup"]["state"], "forced")
         self.assertFalse(result["cleanup"]["process_group_settled"])
-
-    def test_app_host_workload_fails_closed_on_planner_errors_and_empty_filters(self) -> None:
-        script = (
-            ROOT / "scripts/ci/workloads/macos-app-host-test-shard.sh"
-        ).read_text(encoding="utf-8")
-        self.assertIn('|| plan_status=$?', script)
-        self.assertIn('if [[ "$plan_status" -ne 0 ]]', script)
-        self.assertIn('return "$plan_status"', script)
-        self.assertIn('if [[ "${#only_testing_args[@]}" -eq 0 ]]', script)
-        self.assertIn('shard planner produced no test arguments', script)
-        syntax = subprocess.run(
-            ["bash", "-n", "scripts/ci/workloads/macos-app-host-test-shard.sh"],
-            cwd=ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(syntax.returncode, 0, syntax.stderr.decode())
 
     def test_runtime_product_tree_rejects_external_or_dangling_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
