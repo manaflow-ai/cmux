@@ -345,8 +345,7 @@ fn diff_stage(
     let mut by_repo: BTreeMap<String, Vec<Change>> = BTreeMap::new();
     let mut add = |path: &str, file: Option<PathBuf>| {
         let Some(repo) = repository_of(manifest, path) else { return };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         by_repo.entry(repo).or_default().push(Change { path: path.to_owned(), inside, file });
     };
     for write in plan.writes.iter().filter(|w| w.kind == Kind::File) {
@@ -526,8 +525,7 @@ fn keep_ignored_home(
         .filter(|(path, _)| manifest.resolve(path).is_none());
     for (path, dir) in new_paths {
         let Some(repo) = repository_of(manifest, path) else { continue };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         // A folder is asked about through a name inside it: git checks a missing path's leading
         // folders as folders (so `target/` matches), never the missing path itself.
         by_repo.entry(repo).or_default().push(if dir {
@@ -567,6 +565,15 @@ fn keep_ignored_home(
     plan.writes.retain(|write| write.replaces.is_some() || !under_ignored(&write.path));
     plan.conflicts.retain(|c| manifest.resolve(&c.path).is_some() || !under_ignored(&c.path));
     Ok(ignored)
+}
+
+/// `path` relative to repository folder `repo`, which `repository_of` found as a whole leading
+/// folder of it (`""` is the root).
+fn path_inside(repo: &str, path: &str) -> String {
+    if repo.is_empty() {
+        return path.to_owned();
+    }
+    path.strip_prefix(repo).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path).to_owned()
 }
 
 /// The repository (its folder, empty for the top) whose working tree holds `path`, by the
