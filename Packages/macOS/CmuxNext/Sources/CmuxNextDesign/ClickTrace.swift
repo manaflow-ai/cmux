@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// Where each of the person's clicks went, in every build (`cmux app clicks`, control method `input.clicks`).
 ///
@@ -95,7 +96,7 @@ public final class ClickTrace {
     /// Records every press that reaches `window`, one of its child windows (a page, a divider catcher) or its overlay
     /// panel, from now on (its ``WindowOverlayHost`` starts it; idempotent). The monitor sees a press as it is
     /// dequeued, before any window or the overlay panel's own monitor handles it, and returns it unchanged; where the
-    /// keyboard went is read on the next main-actor turn, after the press's dispatch and its focus changes.
+    /// keyboard went is read after the next frame commit, after the press's dispatch and its focus changes.
     func startMonitoring(window: NSWindow, panel: NSWindow) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) {
@@ -104,7 +105,7 @@ public final class ClickTrace {
                   source === window || source.parent === window || source === panel else { return event }
             self.press(event, window: source)
             let timestamp = event.timestamp
-            Task { @MainActor [weak self] in self?.settled(timestamp: timestamp, keyWindow: NSApp.keyWindow) }
+            AfterFrameCommit().run { [weak self] in self?.settled(timestamp: timestamp, keyWindow: NSApp.keyWindow) }
             return event
         }
     }
