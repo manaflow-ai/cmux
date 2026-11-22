@@ -137,7 +137,7 @@ const CHUNK_S = MOTION_MS.standard / 1000;
 /// under the glass composer) so the drift never runs dry between chunks: the next chunk lands in the
 /// reserve and the view keeps its speed, with no start and stop per chunk. Speed changes at no more
 /// than STEADY_ACCEL px/s², so a tool row arriving or a burst bends the drift instead of jolting it;
-/// past the trail bound the drift speeds up by the excess over STEADY_CATCH_S. When the stream stops
+/// past the trail bound the drift speeds up by the excess over STEADY_CATCH_S, at once. When the stream stops
 /// the reserve drains at no less than STEADY_MIN_SPEED and rests.
 export const STEADY_RATE_S = 0.4;
 export const STEADY_RESERVE_S = 0.1;
@@ -173,8 +173,12 @@ export function steadyStep(
   let want = Math.max(0, rate + (away - reserve) / STEADY_LAG_S);
   if (away > trail) want += (away - trail) / STEADY_CATCH_S;
   want = Math.max(want, STEADY_MIN_SPEED);
+  // Past the trail bound the speed rises to what catches up at once: held to STEADY_ACCEL there, a
+  // fast stream (a block a frame) filled the room under the composer and its overflow moved at once,
+  // 38 px in a 120 Hz frame (send-stream-motion.test.ts). The per-frame cap still bounds each move.
   const accel = STEADY_ACCEL * dt;
-  const speed = Math.max(0, state.speed + Math.max(-accel, Math.min(accel, want - state.speed)));
+  const rise = away > trail ? Number.POSITIVE_INFINITY : accel;
+  const speed = Math.max(0, state.speed + Math.max(-accel, Math.min(rise, want - state.speed)));
   const move = Math.min(away, speed * dt, Math.max(0, cap));
   const left = away - move;
   const x = left < 1e-6 ? 0 : Math.sign(state.x) * left;

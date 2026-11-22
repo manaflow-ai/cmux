@@ -66,6 +66,8 @@ type FollowSample = {
   gap: number;
   reader?: { id: string; top: number };
   tail?: { id: string; top: number };
+  /** The running turn's live line is drawn (under the reply while it streams: "Writing"). */
+  live?: boolean;
 };
 
 type FollowReport = {
@@ -78,6 +80,10 @@ type FollowReport = {
   reader: Moves;
   /** The newest drawn row above the live line (a tool call, a fold or a reply), between frames that drew the same row. */
   tail: Moves;
+  /** The reader's moves while a live turn's reply streams: the reply is the newest row over the live
+   *  line in both frames. Apart from a prompt or a notice that lands under it (the send's own move, at
+   *  once on every arm) and a turn the fixture opened mid-way (no prompt row, so no live line). */
+  streaming: Moves;
   watch: Pick<WatchResult, "played" | "steps" | "turns" | "stoppedEarly">;
 };
 
@@ -89,12 +95,24 @@ function followReport(arm: string, samples: FollowSample[], watch: WatchResult):
   const scroll: number[] = [];
   const reader: number[] = [];
   const tail: number[] = [];
+  const streaming: number[] = [];
   for (let index = 1; index < followed.length; index += 1) {
     const before = followed[index - 1]!;
     const after = followed[index]!;
     scroll.push(after.scrollTop - before.scrollTop);
     reader.push(before.reader && after.reader?.id === before.reader.id ? after.reader.top - before.reader.top : 0);
     tail.push(before.tail && after.tail?.id === before.tail.id ? after.tail.top - before.tail.top : 0);
+    const reply = before.reader?.id;
+    streaming.push(
+      reply?.startsWith("assistant") &&
+        before.live &&
+        after.live &&
+        before.tail?.id === reply &&
+        after.tail?.id === reply &&
+        after.reader?.id === reply
+        ? after.reader.top - before.reader!.top
+        : 0,
+    );
   }
   return {
     arm,
@@ -104,6 +122,7 @@ function followReport(arm: string, samples: FollowSample[], watch: WatchResult):
     scroll: moves(scroll, seconds, JOLT_PX),
     reader: moves(reader, seconds, JOLT_PX),
     tail: moves(tail, seconds, JOLT_PX),
+    streaming: moves(streaming, seconds, JOLT_PX),
     watch: { played: watch.played, steps: watch.steps, turns: watch.turns, stoppedEarly: watch.stoppedEarly },
   };
 }
@@ -156,6 +175,7 @@ try {
             ...(newest && row
               ? { reader: { id: row.dataset.rowId ?? "", top: newest.getBoundingClientRect().top } }
               : {}),
+            live: Boolean(scroller.querySelector(".acpmux-row[data-row-id='thinking-live']")),
             ...(tail ? { tail: { id: tail.dataset.rowId ?? "", top: tail.getBoundingClientRect().top } } : {}),
           });
         }
@@ -193,12 +213,12 @@ try {
   await vite.close();
 }
 console.log(
-  `| arm | reader jolts/s | reader max px | reader jerk p95 | newest row jolts/s | newest row max px | scroll jolts/s | scroll max px | frames |`,
+  `| arm | streaming jolts/s | streaming max px | streaming jerk p95 | reader jolts/s | reader max px | reader jerk p95 | newest row jolts/s | newest row max px | scroll jolts/s | scroll max px | frames |`,
 );
-console.log(`|---|---|---|---|---|---|---|---|---|`);
+console.log(`|---|---|---|---|---|---|---|---|---|---|---|---|`);
 for (const r of reports)
   console.log(
-    `| ${r.arm} | ${r.reader.joltsPerS} | ${r.reader.maxPx} | ${r.reader.jerkP95Px} | ${r.tail.joltsPerS} | ${r.tail.maxPx} | ${r.scroll.joltsPerS} | ${r.scroll.maxPx} | ${r.frames} |`,
+    `| ${r.arm} | ${r.streaming.joltsPerS} | ${r.streaming.maxPx} | ${r.streaming.jerkP95Px} | ${r.reader.joltsPerS} | ${r.reader.maxPx} | ${r.reader.jerkP95Px} | ${r.tail.joltsPerS} | ${r.tail.maxPx} | ${r.scroll.joltsPerS} | ${r.scroll.maxPx} | ${r.frames} |`,
   );
 if (out) writeFileSync(out, JSON.stringify(reports, null, 1));
 process.exit(0);

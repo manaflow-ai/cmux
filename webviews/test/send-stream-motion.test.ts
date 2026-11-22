@@ -167,7 +167,8 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
   test.each(SCENARIOS)("%s: the steady arm drifts with the stream and rests when it stops", async (scenario) => {
     const report = await measure("", scenario);
     console.log(`send-stream-motion steady arm ${scenario}: ${JSON.stringify(report, null, 2)}`);
-    const sendSteps = new Set(["send", "steer"]);
+    // The send's own rows (its `prompt` among them) land at once, as in the slim arm.
+    const sendSteps = new Set(["send", "steer", "prompt"]);
     const steps = Object.entries(report.byPhase).filter(([phase]) => !sendSteps.has(phase));
     expect(steps.length).toBeGreaterThan(0);
     expect(Object.fromEntries(steps.filter(([, step]) => step.maxPx > MAX_FRAME_PX))).toEqual({});
