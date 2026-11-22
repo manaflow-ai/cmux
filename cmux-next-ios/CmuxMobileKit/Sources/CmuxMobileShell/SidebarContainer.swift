@@ -146,6 +146,17 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         if sidebarController.view.isHidden == present { sidebarController.view.isHidden = !present }
     }
 
+    /// The grounds again when the Mac's theme changes (ask-87d30da8e5): UIKit tracks the
+    /// Observation reads here and calls this again on a change.
+    override func updateProperties() {
+        super.updateProperties()
+        let bg = theme.colors.bg.uiColor
+        view.backgroundColor = bg
+        sidebarController.view.backgroundColor = bg
+        shadowView.backgroundColor = bg
+        cardView.backgroundColor = bg
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bounds = view.bounds
