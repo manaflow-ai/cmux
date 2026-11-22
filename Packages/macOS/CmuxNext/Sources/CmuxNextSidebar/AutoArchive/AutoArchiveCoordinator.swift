@@ -216,7 +216,7 @@ public final class AutoArchiveCoordinator {
     }
 
     /// The document items of `workspaces` that Archive Other Workspaces, Archive Workspaces Above or
-    /// Below would archive, in that order: placed, not pinned (top-level Pinned or pinned in a group)
+    /// Below would archive, in that order: placed, not pinned (anywhere in Pinned, or pinned in a group by an older app)
     /// and not archived yet, by itself or under an archived group.
     public func archivableItems(workspaces: [String]) -> [String] {
         guard let records = activeStore()?.records else { return [] }

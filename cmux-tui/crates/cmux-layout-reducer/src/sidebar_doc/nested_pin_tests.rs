@@ -1,8 +1,9 @@
 //! Pin and Unpin on nested groups (a283's remote groups slice 1, pinning-DESIGN.md):
-//! a top-level group pins and unpins with its whole tree; a nested group or a
-//! workspace in one pins inside its own parent; a member of a pinned tree is not
-//! pinned itself, so Unpin leaves it in the tree. Closing the last workspace removes
-//! the groups it empties in a machine section, never in Pinned.
+//! a group pins and unpins with its whole tree; a nested group or a workspace
+//! in one pins to the Pinned band, as a drag into Pinned puts it, and Unpin puts
+//! it back in its parent; a member of a pinned tree is pinned (it sits in Pinned),
+//! so Pin leaves it and Unpin takes it out to its machine section. Closing the
+//! last workspace removes the groups it empties in a machine section, never in Pinned.
 
 use super::doc::Doc;
 use super::model::*;
@@ -98,42 +99,64 @@ fn a_pinned_tree_unpins_whole_to_its_place() {
 }
 
 #[test]
-fn a_nested_group_pins_first_in_its_parent_with_its_subtree() {
+fn a_nested_group_pins_to_the_band_with_its_subtree_and_unpins_back_into_its_parent() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec!["branch".into()] }]);
     let branch = doc.item("branch").unwrap();
-    assert_eq!(
-        (branch.section.as_str(), branch.parent.as_deref()),
-        (sec().as_str(), Some("project"))
-    );
-    assert!(branch.pinned_in_group());
-    assert_eq!(names(&doc, &sec(), Some("project")), ["branch", "w1", "w2"]);
-    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3", "w4"]);
+    assert_eq!((branch.section.as_str(), branch.parent.as_deref()), (PINNED_SECTION_ID, None));
+    assert!(!branch.pinned_in_group());
+    assert_eq!(names(&doc, PINNED_SECTION_ID, None), ["branch"]);
+    assert_eq!(names(&doc, PINNED_SECTION_ID, Some("branch")), ["w3", "w4"]);
+    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2"]);
     run(&mut doc, vec![Op::Unpin { items: vec!["branch".into()] }]);
-    assert!(!doc.item("branch").unwrap().pinned_in_group());
-    assert_eq!(doc.item("branch").unwrap().parent.as_deref(), Some("project"));
+    let branch = doc.item("branch").unwrap();
+    assert_eq!((branch.section.clone(), branch.parent.as_deref()), (sec(), Some("project")));
+    assert_eq!(names(&doc, &sec(), Some("project")), ["w1", "w2", "branch"]);
+    assert_eq!(doc.item(&ws("w3")).unwrap().section, sec(), "its subtree came back with it");
 }
 
 #[test]
-fn a_workspace_in_the_deepest_group_pins_there() {
+fn a_workspace_in_the_deepest_group_pins_to_the_band_and_unpins_back_there() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![ws("w4")] }]);
-    assert_eq!(names(&doc, &sec(), Some("branch")), ["w4", "w3"]);
+    assert_eq!(names(&doc, PINNED_SECTION_ID, None), ["w4"]);
+    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3"]);
+    run(&mut doc, vec![Op::Unpin { items: vec![ws("w4")] }]);
+    assert_eq!(names(&doc, &sec(), Some("branch")), ["w3", "w4"]);
     assert_eq!(doc.item(&ws("w4")).unwrap().parent.as_deref(), Some("branch"));
 }
 
 #[test]
-fn unpin_on_a_member_of_a_pinned_tree_leaves_it_in_the_tree() {
+fn pin_on_a_member_of_a_pinned_tree_leaves_it_in_the_tree() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec!["host".into()] }]);
-    run(&mut doc, vec![Op::Unpin { items: vec![ws("w3"), "project".into()] }]);
-    assert_eq!(doc.item(&ws("w3")).unwrap().parent.as_deref(), Some("branch"), "w3 left its group");
+    run(&mut doc, vec![Op::Pin { items: vec![ws("w3")] }]);
+    assert_eq!(doc.item(&ws("w3")).unwrap().parent.as_deref(), Some("branch"), "already pinned");
+    assert_eq!(names(&doc, PINNED_SECTION_ID, None), ["host"]);
+}
+
+#[test]
+fn unpin_on_a_member_of_a_pinned_tree_takes_it_out_to_its_machine_section() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["host".into()] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![ws("w3")] }]);
+    let w3 = doc.item(&ws("w3")).unwrap();
     assert_eq!(
-        doc.item("project").unwrap().parent.as_deref(),
-        Some("host"),
-        "project left its tree"
+        (w3.section.clone(), w3.parent.as_deref()),
+        (sec(), None),
+        "as a drag out of Pinned"
     );
-    assert_eq!(doc.item(&ws("w3")).unwrap().section, PINNED_SECTION_ID);
+    assert_eq!(names(&doc, &sec(), None), ["w3", "w0", "w9"]);
+    assert_eq!(names(&doc, PINNED_SECTION_ID, Some("branch")), ["w4"]);
+}
+
+#[test]
+fn unpin_of_a_tree_and_one_of_its_members_moves_the_tree_whole() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["host".into()] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![ws("w3"), "host".into()] }]);
+    assert_eq!(names(&doc, &sec(), None), ["w0", "host", "w9"]);
+    assert_eq!(doc.item(&ws("w3")).unwrap().parent.as_deref(), Some("branch"));
 }
 
 #[test]

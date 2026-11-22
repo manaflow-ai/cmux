@@ -777,20 +777,28 @@ fn place_run(
             (ids, item.section.clone())
         })
         .collect();
-    // Where each top-level item entering the Pinned band sat, for Unpin.
+    // Where each item entering the Pinned band sat (its section, its group, the
+    // sibling before it), for Unpin; a group member too (the one pin, Leo 2026-11-22).
     let enters_band = to.section == PINNED_SECTION_ID && to.parent.is_none();
     let unpin_to: HashMap<ItemId, Value> = moved
         .iter()
         .filter_map(|id| tx.doc.item(id))
-        .filter(|item| enters_band && item.parent.is_none() && item.section != PINNED_SECTION_ID)
+        .filter(|item| enters_band && item.section != PINNED_SECTION_ID)
         .map(|item| {
-            let after = tx.doc.list_entries(&item.section, None).and_then(|set| {
-                Doc::entry_before(set, &(item.order.clone(), item.id.clone()), &|id| {
-                    moved_set.contains(id)
-                })
-            });
+            let after =
+                tx.doc.list_entries(&item.section, item.parent.as_deref()).and_then(|set| {
+                    Doc::entry_before(set, &(item.order.clone(), item.id.clone()), &|id| {
+                        moved_set.contains(id)
+                    })
+                });
             let after = after.map_or(Value::Null, |(_, id)| Value::String(id.clone()));
-            (item.id.clone(), serde_json::json!({ "section": item.section, "after": after }))
+            let place = match &item.parent {
+                Some(parent) => {
+                    serde_json::json!({ "section": item.section, "after": after, "parent": parent })
+                }
+                None => serde_json::json!({ "section": item.section, "after": after }),
+            };
+            (item.id.clone(), place)
         })
         .collect();
     for (id, key) in assignments {
@@ -857,30 +865,20 @@ fn ensure_pinned_section(tx: &mut Tx) {
     tx.put_section(section);
 }
 
-/// Pin (plans/cmux-next/pinning-DESIGN.md). A group member stays in its
-/// group, marked pinned, after the group's other pinned members. Any other
-/// item goes to the end of the Pinned band; [`place`] remembers where it was.
+/// Pin (plans/cmux-next/pinning-DESIGN.md): one pin, the same as a drag into
+/// Pinned (Leo 2026-11-22, "well fucking do the pin properly"). Any item not in
+/// Pinned yet, a group member or nested group too, goes to the end of the Pinned
+/// band; [`place`] remembers where it was. An item already in Pinned (in the band
+/// or inside a pinned tree) stays. A member pinned inside its group by an older
+/// app (`extra.pinned`) moves to the band and loses the mark.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     // A pin is not archived: it comes back first.
     unarchive(tx, ids)?;
     let mut moving = Vec::new();
-    for id in ids {
-        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if let Some(group) = item.parent.clone() {
-            if item.pinned_in_group() {
-                continue;
-            }
-            let section = item.section.clone();
-            tx.edit_item(id, |item| {
-                item.extra.insert(PINNED_IN_GROUP_KEY.into(), Value::Bool(true));
-                Ok(())
-            })?;
-            let index = pinned_members(tx.doc, &section, &group, id);
-            let to =
-                Target { section, parent: Some(group), index: Some(index), ..Target::default() };
-            place(tx, std::slice::from_ref(id), &to)?;
-        } else if item.section != PINNED_SECTION_ID {
-            moving.push(id.clone());
+    for id in outermost(tx.doc, ids)? {
+        let item = tx.doc.item(&id).ok_or(Refusal::UnknownItem)?;
+        if item.section != PINNED_SECTION_ID {
+            moving.push(id);
         }
     }
     if moving.is_empty() {
@@ -890,32 +888,53 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
-/// Unpin. A member pinned in its group goes right under the group's other
-/// pinned members; any other group member is not pinned and stays (a tree
-/// pinned with its top group unpins with it). An item in the Pinned band (or a custom section) goes
-/// back where it was pinned from when that place is still there, else to
-/// the top of its own machine section.
-fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+/// `ids` without the ones under another of them (a group and its member in one
+/// Pin or Unpin: the group carries the member), in their order, once each.
+fn outermost(doc: &Doc, ids: &[ItemId]) -> Result<Vec<ItemId>, Refusal> {
+    let named: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let mut out: Vec<ItemId> = Vec::with_capacity(ids.len());
     for id in ids {
-        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if item.pinned_in_group() {
+        let item = doc.item(id).ok_or(Refusal::UnknownItem)?;
+        if out.contains(id) || doc.ancestors(item).iter().any(|a| named.contains(a.id.as_str())) {
+            continue;
+        }
+        out.push(id.clone());
+    }
+    Ok(out)
+}
+
+/// Unpin. An item in Pinned, at any depth, leaves it: back where it was pinned
+/// from (its section, its group, after the same neighbor) while that place is
+/// still there, else the top of its own machine section; a member of a pinned
+/// tree leaves the tree, as a drag out of Pinned takes it. A member pinned inside
+/// its group by an older app goes right under the group's other pinned members.
+/// An item in a custom section goes back the same way; any other item is not pinned.
+fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    for id in outermost(tx.doc, ids)? {
+        let item = tx.doc.item(&id).ok_or(Refusal::UnknownItem)?;
+        if item.pinned_in_group() && item.section != PINNED_SECTION_ID {
             let (section, group) = (item.section.clone(), item.parent.clone());
-            tx.edit_item(id, |item| {
+            tx.edit_item(&id, |item| {
                 item.extra.remove(PINNED_IN_GROUP_KEY);
                 Ok(())
             })?;
             let index =
-                group.as_deref().map_or(0, |group| pinned_members(tx.doc, &section, group, id));
+                group.as_deref().map_or(0, |group| pinned_members(tx.doc, &section, group, &id));
             let to = Target { section, parent: group, index: Some(index), ..Target::default() };
-            place(tx, std::slice::from_ref(id), &to)?;
+            place(tx, std::slice::from_ref(&id), &to)?;
             continue;
         }
-        // A member of a group that is not pinned in it is not pinned itself
-        // (in a pinned tree, it is pinned with its top group): it stays.
-        if item.parent.is_some() {
+        // A member of a group outside Pinned is not pinned: it stays.
+        if item.parent.is_some() && item.section != PINNED_SECTION_ID {
             continue;
         }
-        let machine = unpin_machine(tx.doc, item).ok_or(Refusal::NoMachine)?;
+        let Some(machine) = unpin_machine(tx.doc, item) else {
+            // A member of a pinned tree with no machine (a link, a tab) stays in its tree.
+            if item.parent.is_some() {
+                continue;
+            }
+            return Err(Refusal::NoMachine);
+        };
         if tx
             .doc
             .section(&item.section)
@@ -933,7 +952,7 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
                 ..Target::default()
             },
         };
-        place(tx, std::slice::from_ref(id), &target)?;
+        place(tx, std::slice::from_ref(&id), &target)?;
     }
     Ok(())
 }
@@ -984,13 +1003,31 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     if doc.section(section)?.kind.machine() != Some(machine) {
         return None;
     }
+    // A group member goes back into its group while that group is still in the section.
+    let parent = remembered.get("parent").and_then(Value::as_str);
+    if let Some(parent) = parent {
+        let group = doc.item(parent)?;
+        if !group.body.is_group() || group.section != section || group.id == item.id {
+            return None;
+        }
+        // A pinned group whose old parent sank deeper since then no longer fits there.
+        if item.body.is_group()
+            && doc.group_level(group).saturating_add(doc.group_height(item)) > MAX_GROUP_DEPTH
+        {
+            return None;
+        }
+    }
+    let parent = parent.map(str::to_string);
     match remembered.get("after").and_then(Value::as_str) {
-        None => Some(Target { section: section.into(), index: Some(0), ..Target::default() }),
+        None => {
+            Some(Target { section: section.into(), parent, index: Some(0), ..Target::default() })
+        }
         Some(after) => {
             let anchor = doc.item(after)?;
-            (anchor.id != item.id && anchor.section == section && anchor.parent.is_none()).then(
+            (anchor.id != item.id && anchor.section == section && anchor.parent == parent).then(
                 || Target {
                     section: section.into(),
+                    parent,
                     after: Some(after.into()),
                     ..Target::default()
                 },

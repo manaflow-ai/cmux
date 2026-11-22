@@ -2,11 +2,10 @@ import Foundation
 @testable import CmuxNextSidebar
 import Testing
 
-/// Pinning a workspace inside a group (Lawrence 2026-10-20: "pinning workspaces
-/// in groups, works"): the reducer keeps the member in its group, first, and
-/// marks it `extra.pinned` (plans/cmux-next/pinning-DESIGN.md). The client
-/// reads that mark, so the row's hover pin and the menu read Unpin Workspace,
-/// and a second Pin/Unpin unpins instead of pinning again.
+/// Pinned reads one way (Leo 2026-11-22, "well fucking do the pin properly"): a row is
+/// pinned when it sits in Pinned, at any depth, as a drag into Pinned and the row's Pin
+/// both put it. A member pinned inside its group by an older app (`extra.pinned`) still
+/// reads pinned, so its hover pin and menu read Unpin (plans/cmux-next/pinning-DESIGN.md).
 @Suite struct SidebarDocPinInGroupTests {
     /// Machine section with group `g1` (members `w1` pinned in the group, `w2`), loose `w3`;
     /// Pinned holds `w4` and the pinned group `g2` (member `w5`).
@@ -56,10 +55,10 @@ import Testing
         #expect(records.isPinned(item: "g2"))
     }
 
-    @Test func aMemberOfAPinnedGroupIsNotPinnedItself() throws {
-        // Pin on it pins it inside that group; Unpin would have taken it out of the group.
+    @Test func aMemberOfAPinnedGroupReadsPinned() throws {
+        // It sits in Pinned: its hover control reads Unpin, which takes it out, as dragging it out does.
         let records = try SidebarDocRecords(document: Self.document)
-        #expect(!records.isPinned(item: "w5"))
+        #expect(records.isPinned(item: "w5"))
     }
 
     @Test func aBatchCarriesTheMark() throws {

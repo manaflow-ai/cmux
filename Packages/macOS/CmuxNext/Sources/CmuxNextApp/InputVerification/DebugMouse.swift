@@ -175,7 +175,7 @@ enum DebugMouse {
     /// Top-left window-local point from `x`,`y` or the center of `pane`.
     private static func point(_ params: [String: JSONValue], controller: WindowController, window: NSWindow) -> NSPoint? {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
-        if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
+        if let row = params["row"]?.stringValue { return rowPoint(row, control: params["control"]?.stringValue, controller: controller, window: window) }
         if let divider = params["divider"]?.stringValue { return dividerPoint(divider, controller: controller, window: window) }
         guard let named = params["pane"]?.stringValue, let key = named == "focused" ? controller.focus.state.pane : named, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view

@@ -1,0 +1,322 @@
+{
+ "title": "One pin: the row's hover Pin and a drag into Pinned are the same pin, for every row (a row in a group too); Unpin puts a row back where it was; pins survive a relaunch. Record it with: cmux-ci capture SHA --state tour:sidebar-one-pin --video",
+ "settings": {
+  "sidebar": {
+   "hoverCards": {
+    "enabled": false
+   }
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "New workspace Notes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Notes"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace Build",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Build"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace Docs",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Docs"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace Alpha",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Alpha"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace Beta",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Beta"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Show Alpha",
+   "cmux": [
+    "workspace",
+    "name:Alpha",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Select Beta too",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Beta",
+     "action": "click",
+     "modifiers": [
+      "cmd"
+     ]
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Alpha and Beta into a new group Project",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup",
+    "--name",
+    "Project"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "At rest: nothing pinned; Alpha and Beta in the group Project",
+   "wait": 1
+  },
+  {
+   "title": "Hover Build: its hover Pin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Click Build's hover Pin: Build moves up into Pinned",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Hover pinned Build: its hover Unpin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Click Build's hover Unpin: Build goes back where it was",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Drag Docs up into Pinned: the same pin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Docs",
+     "action": "drag",
+     "by_y": -200,
+     "steps": 40
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Hover Docs (pinned by the drag): its hover reads Unpin, as for a hover pin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Docs",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Hover Alpha, in the group Project: its hover Pin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": true
+  },
+  {
+   "title": "Click Alpha's hover Pin: Alpha leaves its group for Pinned, as a drag puts it",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Click pinned Alpha's hover Unpin: Alpha goes back into Project",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Hover Build again",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Pin Build and Alpha again by their hover Pin",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Build",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Hover Alpha",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "action": "move"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Pinned: Docs (dragged), Build and Alpha (hover Pin)",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "Relaunch: quit cmux and open it again",
+   "relaunch": true,
+   "wait": 6,
+   "shot": false
+  },
+  {
+   "title": "Dark again after the relaunch",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "After the relaunch: Docs, Build and Alpha are still pinned, in the same order",
+   "wait": 2
+  },
+  {
+   "title": "After the relaunch, click Alpha's hover Unpin: it goes back into Project",
+   "rpc": {
+    "method": "debug.mouse",
+    "params": {
+     "row": "Alpha",
+     "control": "pin",
+     "action": "click"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  }
+ ]
+}

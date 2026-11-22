@@ -136,6 +136,22 @@ extension SidebarViewComponents {
     /// row is not shown (the icon picker anchors its popover here).
     public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? { list.rowFrameOnScreen(for: id) }
 
+    /// Workspace `id`'s row on screen, or with `control` (`pin`, `more`, `close`) that hover button of the row as it
+    /// shows now (after a hover), so a capture tour presses the row's own Pin as a person does; nil when not shown.
+    public func rowFrameOnScreen(for id: WorkspaceID, control: String?) -> CGRect? {
+        guard let control else { return rowFrameOnScreen(for: id) }
+        guard rowFrameOnScreen(for: id) != nil, let window = list.window, let root = window.contentView else { return nil }
+        let identifier = "cmux.sidebar.workspace.\(id.rawValue).\(control)"
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            if view.accessibilityIdentifier() == identifier, !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0 {
+                return window.convertToScreen(view.convert(view.bounds, to: nil))
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
     /// Group `id`'s row on screen (its header, or the one row it draws as), scrolled into view first; nil when
     /// neither is shown (the icon picker anchors its popover here).
     public func groupRowFrameOnScreen(for id: GroupID) -> CGRect? {
