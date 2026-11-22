@@ -447,9 +447,9 @@ fn gauge_rss(rpc: &Rpc) -> (Option<u64>, f64, Value) {
         .as_ref()
         .and_then(|v| v.pointer("/gauges/memory/rssBytes").and_then(Value::as_u64))
         .map(|b| b / 1024);
-    let fanout =
-        v.as_ref().and_then(|v| v.pointer("/gauges/fanout")).cloned().unwrap_or(Value::Null);
-    (kb, ms, fanout)
+    let gauge = |p: &str| v.as_ref().and_then(|v| v.pointer(p)).cloned().unwrap_or(Value::Null);
+    // The per-connection feeds and the hub's one notice loop (`gauges.rs`).
+    (kb, ms, json!({"fanout": gauge("/gauges/fanout"), "notices": gauge("/gauges/peerNotices")}))
 }
 
 fn sampler<'s>(
@@ -472,11 +472,11 @@ fn sampler<'s>(
                 let mut last = Vec::new();
                 for ((role, name, _), conn) in targets.iter().zip(&conns) {
                     let t = now_us();
-                    let (rss, status_ms, fanout) =
+                    let (rss, status_ms, gauges) =
                         conn.as_ref().map_or((None, 0.0, Value::Null), gauge_rss);
                     nd.line(&json!({"t_us": t, "role": role, "name": name, "rss_kb": rss,
                                     "status_ms": (status_ms * 10.0).round() / 10.0,
-                                    "fanout": fanout}));
+                                    "fanout": gauges["fanout"], "notices": gauges["notices"]}));
                     if *role == "daemon" {
                         let st_us = (status_ms * 1000.0) as u64;
                         sm.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((t, st_us, rss.unwrap_or(0)));

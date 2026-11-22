@@ -143,6 +143,8 @@ impl Hub {
                 }
             };
             let Some((peer, generation, notice)) = incoming else { break };
+            let started = Instant::now();
+            let queued = rx.len() as u64;
             if let Some(bytes) = notice.list_bytes() {
                 crate::gauges::peer_lists().taken(bytes);
             }
@@ -204,6 +206,8 @@ impl Hub {
                 current.mark_settled();
                 self.watches.peer_settled();
             }
+            crate::gauges::peer_notices()
+                .applied(u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX), queued);
         }
         let dirty: Vec<_> = self
             .peers

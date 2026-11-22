@@ -95,8 +95,45 @@ impl Gauges {
             "startup": phases,
             "memory": memory(),
             "peerLists": peer_lists().status(),
+            "peerNotices": peer_notices().status(),
             "attach": attach_latency().status(),
             "fanout": fanout_status(),
+        })
+    }
+}
+
+/// The hub's one notice loop (`hub/peer_grace.rs`): how many notices it applied, the time it
+/// spent applying them, the longest one, and the deepest its queue was when it took one. A link
+/// blocks on a full queue, so a loop slower than the notices coming in holds back every peer's
+/// chat updates behind them.
+pub fn peer_notices() -> &'static PeerNotices {
+    static NOTICES: OnceLock<PeerNotices> = OnceLock::new();
+    NOTICES.get_or_init(PeerNotices::default)
+}
+
+#[derive(Default)]
+pub struct PeerNotices {
+    applied: AtomicU64,
+    busy_us: AtomicU64,
+    max_us: AtomicU64,
+    peak_queued: AtomicU64,
+}
+
+impl PeerNotices {
+    /// One notice took `us` to apply, with `queued` more behind it.
+    pub fn applied(&self, us: u64, queued: u64) {
+        self.applied.fetch_add(1, Ordering::Relaxed);
+        self.busy_us.fetch_add(us, Ordering::Relaxed);
+        self.max_us.fetch_max(us, Ordering::Relaxed);
+        self.peak_queued.fetch_max(queued, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "applied": self.applied.load(Ordering::Relaxed),
+            "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
+            "maxUs": self.max_us.load(Ordering::Relaxed),
+            "peakQueued": self.peak_queued.load(Ordering::Relaxed),
         })
     }
 }
