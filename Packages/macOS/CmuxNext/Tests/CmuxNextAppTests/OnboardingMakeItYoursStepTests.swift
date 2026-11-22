@@ -181,21 +181,18 @@ import Testing
         let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        final class Densities { var set: [String] = [] }
-        let densities = Densities()
-        let source = FirstRunChoicesSettingsSource(settings: { settings }, setDensity: { densities.set.append($0) }, windowOpacity: { 0.7 })
+        let source = FirstRunChoicesSettingsSource(settings: { settings }, windowOpacity: { 0.7 })
         let opened = source.currentChoices()
         #expect(opened == .recommended)
         #expect(source.shownOpacity() == 0.7)
 
         let picked = FirstRunChoices(workStyle: .terminal, density: "spacious", background: "hokusai-great-wave", opacity: 0.45, material: .glassClear)
         source.apply(picked, from: opened)
-        #expect(densities.set == ["spacious"], "density goes through the density action, which saves and applies it")
         #expect(source.pickedWorkStyle == .terminal)
-        // Material is written last; the opacity write before it may already set a linked material of its own.
-        await Self.until { settings.snapshot.windowBackground.material?.rawValue == "glass-clear" }
+        await source.settled()
         let read = source.currentChoices()
         #expect(read.workStyle == .terminal)
+        #expect(read.density == "spacious", "density lands in the same write, and the reload applies its tokens")
         #expect(read.background == "hokusai-great-wave")
         #expect(read.opacity == 0.45)
         #expect(read.material == .glassClear)
@@ -207,16 +204,167 @@ import Testing
 
         // Skip's write back: every key the window set is removed again.
         source.apply(FirstRunChoices(workStyle: .gui, density: "spacious", background: nil), from: picked)
-        await Self.until { settings.snapshot.windowBackground.material == nil && settings.snapshot.windowBackground.opacity == nil }
+        await source.settled()
         let back = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         for path in [["tabs", "newTabTemplate"], ["appearance", "background"], ["appearance", "backgroundOpacity"], ["appearance", "backgroundBlur"]] {
             #expect(back.value(at: path) == nil, "\(path.joined(separator: ".")) is removed")
         }
     }
 
+    /// A settings file writer that counts its publishes (each `edit` call is one write the file
+    /// watcher sees), over the test writer.
+    nonisolated final class CountingWriter: SettingsFileWriter, @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var publishes: Int { lock.withLock { count } }
+        func edit(_ edits: [SettingsFileEdit], file: URL) async throws -> [Int] {
+            lock.withLock { count += 1 }
+            return try await TestSettingsWriter().edit(edits, file: file)
+        }
+    }
+
+    /// A settings owner over a temporary cmux.json holding `text`, counting its publishes.
+    private func countedSettings(_ text: String) async throws -> (SettingsController, CountingWriter, URL) {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-make-yours-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(text.utf8).write(to: url)
+        let writer = CountingWriter()
+        let settings = SettingsController(writer: writer, registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        return (settings, writer, url)
+    }
+
+    /// A person's own settings the walk replays over: a custom density, Plain Backgrounds on, a set
+    /// opacity, an empty object the file keeps, and a key the step never touches.
+    private static let ownSettings = JSONValue.object([
+        "appearance": .object(["density": .string("compact"), "customDensity": .string("my-tight"), "backgroundOpacity": .number(0.9)]),
+        "ui": .object(["reducedBackgrounds": .bool(true)]),
+        "tabs": .object([:]),
+        "terminal": .object(["fontSize": .number(13)]),
+    ]).prettyText() + "\n"
+
+    /// One click is one publish of the settings file: a pick's own key and every linked edit it
+    /// carries (density ends the custom density; a see-through opacity turns Plain Backgrounds off)
+    /// go together, so the window behind never shows half a pick.
+    @Test func eachPickIsOnePublishWithItsLinkedEdits() async throws {
+        let (settings, writer, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let provider = OnboardingPageProvider(model: model)
+        model.stepDidAppear()
+        await Self.until { model.makeItYours.loaded }
+        await source.settled()
+        #expect(writer.publishes == 0, "opening the step reads, it writes nothing")
+
+        _ = try await provider.call("cmux.onboarding.makeItYours.density", params: ["value": "spacious"], context: clicked(600))
+        await source.settled()
+        #expect(writer.publishes == 1)
+        var file = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(file.value(at: ["appearance", "density"])?.stringValue == "spacious")
+        #expect(file.value(at: ["appearance", "customDensity"]) == nil, "the built-in ends the custom density in the same write")
+        #expect(settings.snapshot.density == "spacious")
+
+        _ = try await provider.call("cmux.onboarding.makeItYours.opacity", params: ["value": 0.4], context: clicked(601))
+        await source.settled()
+        #expect(writer.publishes == 2)
+        file = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
+        #expect(file.value(at: ["appearance", "backgroundOpacity"])?.doubleValue == 0.4)
+        #expect(file.value(at: ["ui", "reducedBackgrounds"]) == nil, "a see-through opacity turns Plain Backgrounds off in the same write")
+
+        for (index, (op, params)) in ([("workStyle", ["value": "terminal"]), ("background", ["id": "daily"]), ("material", ["value": "glass"])]
+                                      as [(String, JSONValue)]).enumerated() {
+            _ = try await provider.call("cmux.onboarding.makeItYours.\(op)", params: params, context: clicked(602 + Double(index)))
+            await source.settled()
+            #expect(writer.publishes == 3 + index, "\(op) is one publish")
+        }
+
+        // A change of several choices at once (a bundle) is still one publish.
+        source.apply(FirstRunChoices(workStyle: .gui, density: "cozy", background: nil, opacity: 0.7, material: .frosted), from: model.makeItYours.choices)
+        await source.settled()
+        #expect(writer.publishes == 6)
+    }
+
+    /// Skip and Escape put back the file as it was when the step opened, in one publish: every
+    /// value a pick wrote, linked edits included, present or absent, so a walk replayed over a
+    /// person's own settings loses nothing (the custom density and Plain Backgrounds come back).
+    @Test func skipPutsTheFileBackAsItWasAtOpenInOnePublish() async throws {
+        let (settings, writer, url) = try await countedSettings(Self.ownSettings)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let model = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: source)
+        let provider = OnboardingPageProvider(model: model)
+        model.stepDidAppear()
+        await Self.until { model.makeItYours.loaded }
+        let opened = model.makeItYours.choices
+        for (index, (op, params)) in ([("workStyle", ["value": "terminal"]), ("density", ["value": "spacious"]), ("background", ["id": "daily"]),
+                                       ("opacity", ["value": 0.4]), ("material", ["value": "glass"])] as [(String, JSONValue)]).enumerated() {
+            _ = try await provider.call("cmux.onboarding.makeItYours.\(op)", params: params, context: clicked(700 + Double(index)))
+        }
+        await source.settled()
+        let beforeSkip = writer.publishes
+        #expect(beforeSkip >= 1 && beforeSkip <= 5)
+        var ended: Bool?
+        model.onEnd = { ended = $0 }
+        _ = try await provider.call("cmux.onboarding.skip", params: [:], context: clicked(710))
+        await source.settled()
+        #expect(ended == false)
+        #expect(writer.publishes == beforeSkip + 1, "Skip is one publish")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(try JSONC.parse(text) == JSONC.parse(Self.ownSettings), "the file's values and keys are the ones at open")
+        #expect(text == Self.ownSettings, "byte for byte, with this writer")
+        #expect(model.makeItYours.choices == opened)
+        #expect(source.pickedWorkStyle == opened.workStyle)
+        #expect(settings.snapshot.density == "compact")
+
+        // Skip with no pick writes nothing; a blank file stays blank (no emptied objects left behind).
+        let (blank, blankWriter, blankURL) = try await countedSettings("{}")
+        defer { try? FileManager.default.removeItem(at: blankURL.deletingLastPathComponent()) }
+        let quiet = FirstRunChoicesSettingsSource(settings: { blank })
+        let untouched = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: quiet)
+        untouched.stepDidAppear()
+        await Self.until { untouched.makeItYours.loaded }
+        untouched.skipStep()
+        await quiet.settled()
+        #expect(blankWriter.publishes == 0)
+
+        let picked = FirstRunChoicesSettingsSource(settings: { blank })
+        let walked = OnboardingModel(services: MockOnboardingServices(), step: .makeItYours, choices: picked)
+        let page = OnboardingPageProvider(model: walked)
+        walked.stepDidAppear()
+        await Self.until { walked.makeItYours.loaded }
+        _ = try await page.call("cmux.onboarding.makeItYours.workStyle", params: ["value": "terminal"], context: clicked(720))
+        _ = try await page.call("cmux.onboarding.makeItYours.opacity", params: ["value": 0.3], context: clicked(721))
+        await picked.settled()
+        walked.skipStep()
+        await picked.settled()
+        #expect(try JSONC.parse(String(contentsOf: blankURL, encoding: .utf8)) == .object([:]))
+    }
+
+    /// A write the settings refuse reaches the step, not only the log: the step records why and
+    /// reads the settings again, so the page shows what the file holds.
+    @Test func aRefusedWriteReadsTheSettingsAgain() async throws {
+        let (settings, _, url) = try await countedSettings("{}")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let source = FirstRunChoicesSettingsSource(settings: { settings })
+        let step = MakeItYoursStepModel(source: source)
+        step.start()
+        await Self.until { step.loaded }
+        await source.settled()
+        // The settings file is now a folder: the write fails.
+        try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        step.setWorkStyle(.terminal)
+        await source.settled()
+        #expect(step.writeFailure != nil)
+        #expect(step.choices.workStyle == .gui, "the page shows what the settings hold")
+    }
+
     /// The offered backgrounds are built-in works this app has thumbnails for, Shuffle Paintings first.
     @Test func everyOfferedBackgroundIsABuiltInWorkWithAPreview() async {
-        let source = FirstRunChoicesSettingsSource(settings: { nil }, setDensity: { _ in })
+        let source = FirstRunChoicesSettingsSource(settings: { nil })
         let offered = await source.backgrounds()
         #expect(offered.map(\.id) == FirstRunChoicesSettingsSource.offered)
         #expect(offered.first?.id == "daily")

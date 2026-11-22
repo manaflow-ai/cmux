@@ -80,12 +80,23 @@ public protocol FirstRunChoicesSource: AnyObject {
     /// reading: over a picture, the tint the window lays over it). Read while the page's state is
     /// built, so an observable reading re-sends the state when it changes.
     func shownOpacity() -> Double?
-    /// Writes what changed from `old` to `new` now, so the app behind the window shows it at once.
+    /// Writes what changed from `old` to `new` now, in one publish, so the app behind the window
+    /// shows it at once and never half of it.
     func apply(_ new: FirstRunChoices, from old: FirstRunChoices)
+    /// The step opened: read what every pick may write (linked edits included), for Skip.
+    func markOpened()
+    /// Skip: puts back what `markOpened` read, in one publish. False when it has nothing to put back
+    /// (the step then writes its opening choices with `apply`).
+    func restoreOpened() -> Bool
+    /// `handler` runs when a write is refused or fails, with what went wrong.
+    func observeWriteFailures(_ handler: @escaping @MainActor (String) -> Void)
 }
 
 public extension FirstRunChoicesSource {
     func shownOpacity() -> Double? { nil }
+    func markOpened() {}
+    func restoreOpened() -> Bool { false }
+    func observeWriteFailures(_ handler: @escaping @MainActor (String) -> Void) {}
 }
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
@@ -103,6 +114,9 @@ public final class MakeItYoursStepModel {
     public private(set) var loaded = false
     /// What was set when the step opened: Skip writes it back.
     public private(set) var opened: FirstRunChoices?
+    /// The last write the settings refused or that failed (nil: every write landed). The choices are
+    /// read again then, so the page shows what the settings hold.
+    public private(set) var writeFailure: String?
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
@@ -121,6 +135,12 @@ public final class MakeItYoursStepModel {
         if opened == nil {
             choices = source.currentChoices()
             opened = choices
+            source.markOpened()
+            source.observeWriteFailures { [weak self] reason in
+                guard let self, let source = self.source else { return }
+                writeFailure = reason
+                choices = source.currentChoices()
+            }
         }
         densities = source.densities()
         read?.cancel()
@@ -171,9 +191,14 @@ public final class MakeItYoursStepModel {
 
     public func setMaterial(_ value: FirstRunMaterial) { update { $0.material = value } }
 
-    /// Skip: writes back what was set when the step opened, so the person keeps their settings.
+    /// Skip: puts back what was set when the step opened, in one write, so the person keeps their
+    /// settings exactly (the linked edits a pick made too).
     public func revert() {
         guard let opened else { return }
+        if source?.restoreOpened() == true {
+            choices = opened
+            return
+        }
         update { $0 = opened }
     }
 
