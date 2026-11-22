@@ -5,6 +5,9 @@ import CmuxMobileMarkdown
 import CmuxMobileModel
 import Foundation
 import Observation
+#if DEBUG && os(iOS)
+import QuartzCore
+#endif
 
 /// One prompt and everything the agent did for it.
 public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
@@ -546,9 +549,17 @@ public final class AgentChatStore {
         keepSent(attachments, promptID: promptID)
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
+        #if DEBUG && os(iOS)
+        if InputLatencyTrace.isEnabled { sendStarts[promptID] = CACurrentMediaTime() }
+        #endif
         source.send(.prompt(text: text, attachments: attachments, steer: steers,
                             promptID: promptID, resend: resend != nil))
     }
+
+    #if DEBUG && os(iOS)
+    /// When each prompt was sent (`InputLatencyTrace`: `chat_send_acked`, `chat_send_visible`).
+    private var sendStarts: [String: CFTimeInterval] = [:]
+    #endif
 
     /// Whether `text` is one of a Claude agent's own slash commands (`commands`, its
     /// `available_commands_update`: built-ins, skills, plugin commands such as `/loop`), the Mac's
@@ -930,6 +941,13 @@ public final class AgentChatStore {
             currentMessageID = nil
             startsNewAttempt = true
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
+            #if DEBUG && os(iOS)
+            if let start = sendStarts.removeValue(forKey: promptId), let trace = InputLatencyTrace.shared {
+                // The Mac's echo of the prompt is its ack; the turn draws in the next frame.
+                trace.sample("chat_send_acked", since: start)
+                trace.sampleAtNextFrame("chat_send_visible", since: start)
+            }
+            #endif
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
