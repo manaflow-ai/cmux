@@ -1471,7 +1471,19 @@ async fn connect_with_timeout<T>(
     future: impl Future<Output = Result<T, String>>,
     timeout: StdDuration,
 ) -> Result<T, String> {
-    tokio::time::timeout(timeout, future).await.map_err(|_| CONNECTION_TIMEOUT_ERROR.to_string())?
+    tokio::time::timeout(timeout, future).await.map_err(|_| {
+        format!("{CONNECTION_TIMEOUT_ERROR}: no connection within {} ms", timeout.as_millis())
+    })?
+}
+
+/// The connect deadline when the caller names none (the untimed entry point, or a timeout of 0):
+/// one reconnect attempt for an enrolled or carrier connect, and the daemon's approval window on
+/// top of that for an invitation, whose welcome waits on a person. A connect had no deadline at
+/// all here before, so a carrier that accepted and never answered (a WireGuard tunnel whose first
+/// handshake never completes, a socket black-holed mid-open) held the embedding app's call forever.
+fn default_connect_timeout(invitation: bool) -> StdDuration {
+    let attempt = ReconnectPolicy::default().attempt_timeout;
+    if invitation { attempt + cmux_remote::identity::APPROVAL_TIMEOUT } else { attempt }
 }
 
 unsafe fn connect_terminal_client(
@@ -1512,13 +1524,10 @@ unsafe fn connect_terminal_client(
             return std::ptr::null_mut();
         }
     };
-    let connection = match timeout {
-        Some(timeout) => runtime.block_on(connect_with_timeout(
-            connect_client(invitation, terminal_id.clone()),
-            timeout,
-        )),
-        None => runtime.block_on(connect_client(invitation, terminal_id.clone())),
-    };
+    // This entry point always enrolls with an invitation.
+    let timeout = timeout.unwrap_or_else(|| default_connect_timeout(true));
+    let connection = runtime
+        .block_on(connect_with_timeout(connect_client(invitation, terminal_id.clone()), timeout));
     match connection {
         Ok((stream, connection, provider, multiplexer, state)) => {
             let updates = Arc::new(ClientUpdates::default());
@@ -1557,6 +1566,8 @@ unsafe fn connect_terminal_client(
 }
 
 /// Connects a terminal client and returns an owning handle, or null on failure.
+/// The connect ends with an error after the default deadline: one reconnect
+/// attempt plus the daemon's approval window, since this always enrolls.
 ///
 /// # Safety
 ///
@@ -2389,7 +2400,8 @@ unsafe fn required_str_from_ffi<'a>(value: *const c_char, what: &str) -> Result<
 /// `invitation_uri` enrolls on first contact and may be NULL afterwards, when
 /// the enrolled key is used. `wireguard` may be NULL; when set, addresses
 /// inside that tunnel's routes are dialed through it. `timeout_milliseconds`
-/// of zero means no deadline. No terminal is attached; call
+/// of zero means the default deadline: one reconnect attempt (15 s), plus the
+/// daemon's approval window (5 min) when enrolling with an invitation. No terminal is attached; call
 /// [`cmux_terminal_client_attach`] after installing an output callback.
 ///
 /// # Safety
@@ -2510,12 +2522,9 @@ unsafe fn connect_route_from_ffi(
         trusted_carrier,
         wireguard,
     });
-    let connected = if timeout_milliseconds == 0 {
-        runtime.block_on(connect)
-    } else {
-        runtime
-            .block_on(connect_with_timeout(connect, StdDuration::from_millis(timeout_milliseconds)))
-    };
+    let timeout = timeout_from_millis(timeout_milliseconds)
+        .unwrap_or_else(|| default_connect_timeout(invitation_uri.is_some()));
+    let connected = runtime.block_on(connect_with_timeout(connect, timeout));
     match connected {
         Ok(RouteConnection { transport, connection, multiplexer, state }) => {
             let updates = Arc::new(ClientUpdates::default());
