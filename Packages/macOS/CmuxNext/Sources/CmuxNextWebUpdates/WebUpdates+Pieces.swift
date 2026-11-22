@@ -129,7 +129,7 @@ extension WebUpdates {
         }
         // A drill has its own file, serial and log, so it never moves the channel's own.
         let drill = piecesDrill
-        var words = ["app", "web-pieces", "check", "--state", (drill ? store.base.appending(path: "pieces-drill") : store.base).path,
+        var words = ["app", "web-pieces", "check", "--state", (drill ? store.base.appending(path: "pieces-drill", directoryHint: .isDirectory) : store.base).path,
                      "--channel", (drill ? "drill-" : "") + channel.rawValue]
         if let active { words += ["--active", active.key] }
         for pointer in candidates { words += ["--kept", pointer.key] }
