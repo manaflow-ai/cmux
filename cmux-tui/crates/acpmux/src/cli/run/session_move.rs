@@ -119,6 +119,25 @@ struct Outcome {
     preflight: preflight::Preflight,
 }
 
+impl Outcome {
+    /// The chat `key` before any step ran: not moved, no error yet.
+    fn new(key: &str) -> Self {
+        Outcome {
+            session: key.to_owned(),
+            name: key.to_owned(),
+            host: None,
+            cwd: None,
+            moved: false,
+            there: None,
+            resumed: Ok(false),
+            carried: None,
+            error: None,
+            error_code: None,
+            preflight: preflight::Preflight::default(),
+        }
+    }
+}
+
 pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
     let local = connect(true).await?;
     let peers = local.request("_acpmux/peers", json!({})).await?;
@@ -185,10 +204,22 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             .collect();
         print_json(&json!({"moves": rows, "failed": failed}));
     }
-    if failed > 0 {
-        bail!("{failed} of {} chats did not move", outcomes.len());
+    match not_moved(&outcomes) {
+        Some(why) => bail!("{why}"),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// The run's error when a chat did not move: how many, and each one's own reason (a caller
+/// that reads only the error, as `--json`'s does, still learns why).
+fn not_moved(outcomes: &[Outcome]) -> Option<String> {
+    let why: Vec<String> = outcomes
+        .iter()
+        .filter_map(|o| o.error.as_ref().map(|e| format!("{} ({}): {e}", o.name, o.session)))
+        .collect();
+    (!why.is_empty()).then(|| {
+        format!("{} of {} chats did not move: {}", why.len(), outcomes.len(), why.join("; "))
+    })
 }
 
 fn print_outcome(o: &Outcome, dry_run: bool) {
@@ -291,19 +322,7 @@ async fn move_one_from(
     home: &Path,
     targets: &mut Targets,
 ) -> Outcome {
-    let mut o = Outcome {
-        session: key.to_owned(),
-        name: key.to_owned(),
-        host: None,
-        cwd: None,
-        moved: false,
-        there: None,
-        resumed: Ok(false),
-        carried: None,
-        error: None,
-        error_code: None,
-        preflight: preflight::Preflight::default(),
-    };
+    let mut o = Outcome::new(key);
     if let Err(e) = move_steps(src, source, key, args, home, targets, &mut o).await {
         o.error = Some(format!("{e:#}"));
     }
