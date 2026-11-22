@@ -57,7 +57,7 @@ class DemoTests(unittest.TestCase):
     def test_failed_apply_restores_and_keeps_error(self):
         result, calls = self.run_demo("--auto", "0", DEMO_FAIL_USE="1")
         self.assertEqual(result.returncode, 7)
-        self.assertEqual(calls[-3:], [["customize", "discard"], ["action", "run", "newTab.default"],
+        self.assertEqual(calls[-3:], [["customize", "discard"], ["action", "run", "newTab.page", "--focus"],
                                      ["customize", "library", "status"]])
 
     def test_hand_edits_survive_a_failed_first_import(self):
@@ -76,6 +76,12 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertEqual(calls, [])
 
+    def test_demo_opens_and_focuses_pages_regardless_of_default_tab(self):
+        result, calls = self.run_demo("--auto", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        actions = [call for call in calls if call[:2] == ["action", "run"]]
+        self.assertEqual(actions, [["action", "run", "newTab.page", "--focus"]] * 14)
+
     def test_per_look_video_states(self):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder) / "states"
@@ -90,6 +96,9 @@ class DemoTests(unittest.TestCase):
                 self.assertEqual(starts, [{"recording": "start", "clip": state.stem}])
                 self.assertEqual(sum(step.get("recording") == "stop" for step in steps), 1)
                 self.assertIn({"cmux": ["customize", "discard"], "record": True}, steps)
+                # Capture's action runner supplies focus: true; do not inherit tabs.newTabKind.
+                self.assertEqual([step["action"] for step in steps if "action" in step],
+                                 ["newTab.page", "newTab.page"])
                 for step in steps:
                     self.assertTrue(all(len(arg) <= 2000 for arg in step.get("cmux", [])))
 
@@ -105,6 +114,27 @@ class DemoTests(unittest.TestCase):
                 self.assertEqual(len(shots), len(set(shots)))
                 self.assertEqual(len(shots), 14)  # before, 12 frames, after reset
                 self.assertFalse(any("recording" in step for step in steps))
+
+    def test_each_look_opens_the_new_tab_page(self):
+        # A capture's action.run and the CLI are scripts: newTab.default gives them a tab of the selected
+        # tab's kind (a terminal, or the Chief home's chat), never the page a look's tabs.newTabApp draws.
+        result, calls = self.run_demo("--auto", "0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        uses = [i for i, call in enumerate(calls) if call[:2] == ["customize", "use"]]
+        self.assertEqual(len(uses), 13)
+        for i in uses:
+            self.assertEqual(calls[i + 1], ["action", "run", "newTab.page", "--focus"])
+        self.assertNotIn(["action", "run", "newTab.default"], calls)
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "states"
+            subprocess.run(["python3", str(HERE / "record-steps.py"), "--ref", "a" * 40, "--frames", "3",
+                            "--output-dir", str(output)], check=True, capture_output=True)
+            for state in output.glob("*.json"):
+                steps = json.loads(state.read_text())["steps"]
+                actions = [step["action"] for step in steps if "action" in step]
+                self.assertEqual(actions, ["newTab.page", "newTab.page"], state.name)
+                use = next(i for i, step in enumerate(steps) if step.get("cmux", [])[:2] == ["customize", "use"])
+                self.assertEqual(steps[use + 1].get("action"), "newTab.page", state.name)
 
 
 if __name__ == "__main__":

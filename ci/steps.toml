@@ -5,13 +5,16 @@
 # reds per 100 landings today). Advisory steps run idle-class and never block."
 #
 # A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
-# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
-# scripts/ci/ci_steps.py routes a diff to steps and runs one job's steps in parallel. A step with
-# `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the job
-# still passes. tests/test_ci_step_table.py holds both rules.
+# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout;
+# `alone = true` runs it by itself, after the job's other steps.
+# `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
+# with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
+# job still passes. tests/test_ci_step_table.py holds both rules.
 #
-# Steps run from the base branch's checkout, never the pull request's code. They read the event from
-# the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
+# `linux` steps run on the pull request's merge commit, in pr-pipeline.yml's one job, which pr-router.yml
+# starts only when a step's inputs changed. `advisory` steps run from the base branch's checkout, never
+# the pull request's code, and read the event from the environment the calling workflow step sets (BODY,
+# TITLE, LABELS, PATHS_LISTED, ...).
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
 [jobs]
@@ -21,6 +24,668 @@ mac = "a Mac holding the app tree: incremental compile and the changed targets' 
 ios = "a mini with simulators, only when routed"
 advisory = "every blocks = false step, class idle, posts warnings, never fails"
 verdict = "no machine: the one check may_merge reads"
+
+# What a job's steps share, made once before them and only when one is routed. It fills $CI_TOOLS, whose
+# bin leads the steps' PATH. A warm tree will hold this already; until then it is a few seconds a job.
+[setup]
+linux = '''
+# The workflow parser the contract tests import (PyYAML, pinned). A machine whose python3 already has
+# that version needs nothing; any other gets a venv beside what its python3 has.
+if python3 -c 'import sys, yaml; sys.exit(yaml.__version__ != "6.0.3")' 2>/dev/null; then
+  echo "python3 already has PyYAML 6.0.3"
+  exit 0
+fi
+python3 -m venv --system-site-packages "$CI_TOOLS"
+"$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
+'''
+
+# What only some steps need, made only when a routed step of the job lists it in `needs` (so a pull request
+# that routes no bun step never downloads bun). Each runs in the job's checkout after [setup], all at once, and
+# puts its binaries in "$CI_TOOLS/bin". No root, no apt: a download into $CI_TOOLS (or the runner's tool
+# cache, which a persistent runner keeps, so its next job downloads nothing).
+[tools]
+# The version every workflow that moved here pinned for oven-sh/setup-bun; only that exact version passes.
+bun = 'scripts/ci/ensure-bun.sh 1.4.4 "$CI_TOOLS/bin"'
+# The `24.22.1` the repository's other workflows pin for setup-node (the moved one asked for `24`).
+node = '''
+export RUNNER_TOOL_CACHE="${RUNNER_TOOL_CACHE:-$CI_TOOLS/tool-cache}"
+export GITHUB_PATH="$CI_TOOLS/github-path"
+: > "$GITHUB_PATH"
+scripts/ci/ensure-setup-node.sh 24.22.1
+mkdir -p "$CI_TOOLS/bin"
+node_bin="$(tail -n 1 "$GITHUB_PATH")"
+[ -n "$node_bin" ] || node_bin="$(dirname "$(command -v node)")"
+for tool in node npm npx; do ln -sf "$node_bin/$tool" "$CI_TOOLS/bin/$tool"; done
+'''
+# The exact Go of daemon/remote/go.mod's `toolchain` line (setup-go's go-version-file; the daemon's release
+# script refuses any other). A host go of that version is used as is. Otherwise tailnet-go.sh's Go (the host's
+# Go 1.21+, or its pinned, checksummed download into $CI_TOOLS) fetches it as Go's toolchain module, checked
+# against sum.golang.org, into a module cache the runner keeps (Go extracts it beside and renames it).
+go = '''
+want="$(sed -n 's/^toolchain \(go[0-9.]*\)$/\1/p' daemon/remote/go.mod)"
+if [ "$(GOTOOLCHAIN=local go env GOVERSION 2>/dev/null)" = "$want" ]; then
+  goroot="$(GOTOOLCHAIN=local go env GOROOT)"
+else
+  . scripts/ci/tailnet-go.sh
+  ensure_tailnet_go "$CI_TOOLS"
+  export GOMODCACHE="${RUNNER_TOOL_CACHE:-$CI_TOOLS}/go-toolchains"
+  goroot="$(GOTOOLCHAIN="$want" go env GOROOT)"
+fi
+mkdir -p "$CI_TOOLS/bin"
+ln -sf "$goroot/bin/go" "$goroot/bin/gofmt" "$CI_TOOLS/bin/"
+"$CI_TOOLS/bin/go" version
+'''
+# rustup's proxies, so a directory's rust-toolchain.toml or the step's RUSTUP_TOOLCHAIN picks the toolchain, and
+# the 1.94.0 coderouter-ci.yml pinned for dtolnay/rust-toolchain (rustup checks each download against its
+# manifest). A runner with no rustup gets it the way setup-cmux-tui-rust does, from a checksummed rustup-init.
+rust = '''
+cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+if [ ! -x "$cargo_bin/rustup" ]; then
+  url="https://static.rust-lang.org/rustup/dist/$(uname -m)-unknown-linux-gnu/rustup-init"
+  curl -fsSL --retry 3 --max-time 120 -o "$CI_TOOLS/rustup-init" "$url"
+  sum="$(curl -fsSL --retry 3 --max-time 30 "$url.sha256" | cut -d' ' -f1)"
+  echo "$sum  $CI_TOOLS/rustup-init" | sha256sum -c -
+  chmod +x "$CI_TOOLS/rustup-init"
+  "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
+fi
+"$cargo_bin/rustup" toolchain install 1.94.0 --profile minimal --component clippy,rustfmt
+mkdir -p "$CI_TOOLS/bin"
+for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do
+  ln -sf "$cargo_bin/$tool" "$CI_TOOLS/bin/$tool"
+done
+'''
+
+# Python contract tests that each had a workflow, a runner and a checkout of their own
+# (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
+# ci-cache-receipts.yml). `inputs` is each one's former path filter.
+[step.indexnow]
+job = "linux"
+timeout = 300
+title = "IndexNow notification tests"
+about = "the IndexNow notifier's tests (scripts/ci/notify-indexnow.py)"
+inputs = [
+  ".github/workflows/indexnow.yml",
+  "scripts/ci/notify-indexnow.py",
+  "tests/test_indexnow_notification.py",
+  "tests/workflow_jobs.py",
+  "scripts/ci/gh_expressions.py",
+  "web/app/lib/indexnow.ts",
+]
+run = "python3 tests/test_indexnow_notification.py"
+
+# Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
+# (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
+# without a re-sync.
+[step.vendored-agent-cursor]
+job = "linux"
+timeout = 300
+title = "Vendored agent cursor"
+about = "Packages/Shared/CmuxAgentCursor is the pinned upstream copy, unedited"
+inputs = [
+  "Packages/Shared/CmuxAgentCursor/**",
+  "scripts/cmux_agent_cursor_vendor.py",
+  "tests/test_vendored_cmux_agent_cursor.py",
+  "tests/git_fixture_env.py",
+]
+run = "python3 tests/test_vendored_cmux_agent_cursor.py"
+
+[step.r2-upload]
+job = "linux"
+timeout = 300
+title = "R2 upload tests"
+about = "the release uploaders and publishers: R2 object upload, GitHub release publication, the cmux-tui artifact retry, Mac live delivery"
+inputs = [
+  ".github/workflows/nightly.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/cmux-tui-artifacts.yml",
+  "scripts/ci/publish-release-assets.py",
+  "scripts/ci/finalize-release.py",
+  "tests/test_github_release_publication.py",
+  "scripts/ci/upload-r2-object.py",
+  "tests/test_ci_r2_upload_python.sh",
+  "tests/test_r2_upload_requests.py",
+  "scripts/ci/cmux_tui_artifacts_retry.py",
+  "tests/test_cmux_tui_artifacts_retry.py",
+  "tests/test_mac_live_delivery.py",
+  # What test_mac_live_delivery.py reads through tests/runs_on_labels.py.
+  "tests/runs_on_labels.py",
+  "tests/workflow_jobs.py",
+  "tests/test_ci_fleet_rule_lints.py",
+  "tests/fleet-rule-allowlist.json",
+  "scripts/ci/gh_expressions.py",
+  "scripts/ci/repair-nightly-appcast-content-types.py",
+]
+run = '''
+bash tests/test_ci_r2_upload_python.sh
+python3 tests/test_github_release_publication.py
+# finalize-release.py runs only at real publish time; at least prove it loads.
+python3 scripts/ci/finalize-release.py publish --help
+python3 scripts/ci/finalize-release.py download --help
+python3 tests/test_cmux_tui_artifacts_retry.py
+python3 tests/test_mac_live_delivery.py
+# The uploader's CLI and the headers R2 receives (scripts/ci/upload-r2-object.py).
+python3 tests/test_r2_upload_requests.py
+'''
+
+[step.skill-contracts]
+job = "linux"
+timeout = 300
+title = "cmux skill contracts"
+about = "the browser, settings and bug-triage skills agree with the CLI, the settings schema and their fixtures"
+inputs = [
+  "skills/cmux-browser/**",
+  "skills/cmux-settings/**",
+  "web/data/cmux.schema.json",
+  "tests/test_cmux_settings_supported_paths.py",
+  "tests/git_fixture_env.py",
+  ".agents/skills",
+  ".claude/skills/**",
+  "skills.sh",
+  "scripts/validate-cmux-browser-skill.py",
+  "tests/test_cmux_browser_skill.py",
+  "tests/test_cmux_settings_jsonc.py",
+  "tests/test_cmux_settings_transactions.py",
+  "skills/cmux-bug-triage/**",
+  "skills/*/SKILL.md",
+  "tests/fixtures/bug-triage/**",
+  "tests/test_cmux_bug_triage.py",
+  "tests/test_socket_control_schema.py",
+]
+run = '''
+python3 scripts/validate-cmux-browser-skill.py
+python3 tests/test_cmux_browser_skill.py
+python3 tests/test_cmux_settings_jsonc.py
+python3 tests/test_cmux_settings_transactions.py
+python3 tests/test_cmux_settings_supported_paths.py
+# These two run whatever the first of them says, as they did under `if: !cancelled()`.
+rc=0
+python3 tests/test_socket_control_schema.py || rc=1
+python3 tests/test_cmux_bug_triage.py || rc=1
+exit "$rc"
+'''
+
+[step.cache-receipts]
+job = "linux"
+timeout = 300
+title = "CI cache receipt contract"
+about = "cache restore receipts classify a restore, and their test is deterministic"
+inputs = [
+  ".github/actions/cache-restore/action.yml",
+  ".github/actions/cache-save/action.yml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/ci-macos.yml",
+  ".github/workflows/nightly.yml",
+  ".github/workflows/seed-derived-data.yml",
+  "scripts/ci/cache_restore_receipt.py",
+  "scripts/check-test-determinism.py",
+  "tests/test_ci_cache_restore_receipt.py",
+  "tests/test_ci_pull_request_caches_are_read_only.py",
+]
+run = '''
+python3 tests/test_ci_cache_restore_receipt.py
+python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
+'''
+
+# Checks whose pull request runs each had a job of their own (labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
+# swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
+# request runs them here. `inputs` is each one's former pull_request path filter. A step whose
+# workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+[step.labels-manifest]
+job = "linux"
+timeout = 120
+title = "Labels manifest"
+about = "the label manifest (.github/labels.json) parses and fits GitHub's limits; labels-sync.yml applies it on main"
+inputs = [
+  ".github/labels.json",
+  "scripts/ci/sync_labels.py",
+]
+run = "python3 scripts/ci/sync_labels.py --dry-run"
+
+# Header-only C++ with no CEF and no Apple SDK: scripts/cmux-next/lib/cxx.sh picks clang++ on Linux.
+# Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
+[step.shim-cpp]
+job = "linux"
+timeout = 300
+title = "CEF shim C++ tests"
+about = "the CEF shim's header-only rules (downloads, password reveal, switches, local files, agent URLs, proxies, DevTools, cmux-page://, the host wire, file chooser, helper signals, Web Store), compiled and run with clang++"
+inputs = [
+  "Packages/macOS/CmuxNext/CEFShim/**",
+  "scripts/cmux-next/test-shim-downloads-cpp.sh",
+  "scripts/cmux-next/test-password-reveal-relay-cpp.sh",
+  "scripts/cmux-next/test-shim-switches-cpp.sh",
+  "scripts/cmux-next/test-auth-callback-policy-cpp.sh",
+  "scripts/cmux-next/test-permission-prompt-policy-cpp.sh",
+  "scripts/cmux-next/test-local-file-handoff-cpp.sh",
+  "schemas/local-file-handoff/vectors.json",
+  "scripts/cmux-next/test-local-file-scope-cpp.sh",
+  "schemas/local-file-scope/vectors.json",
+  "scripts/cmux-next/test-agent-url-policy-cpp.sh",
+  "schemas/agent-url-policy/vectors.json",
+  "scripts/cmux-next/test-context-proxy-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-id-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-dock-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-ready-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-call-target-cpp.sh",
+  "scripts/cmux-next/test-cmux-page-path-cpp.sh",
+  "scripts/cmux-next/test-chromium-host-wire-cpp.sh",
+  "scripts/cmux-next/test-shim-file-dialog-cpp.sh",
+  "scripts/cmux-next/test-shim-helper-signals-cpp.sh",
+  "scripts/cmux-next/test-shim-webstore-cpp.sh",
+  "scripts/cmux-next/lib/cxx.sh",
+  "tests/test_cmux_next_shim_cpp_linux.py",
+]
+run = '''
+rc=0
+./scripts/cmux-next/test-shim-downloads-cpp.sh || rc=1
+./scripts/cmux-next/test-password-reveal-relay-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+./scripts/cmux-next/test-auth-callback-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-permission-prompt-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-handoff-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-scope-cpp.sh || rc=1
+./scripts/cmux-next/test-agent-url-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-context-proxy-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-id-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-dock-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-ready-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-call-target-cpp.sh || rc=1
+./scripts/cmux-next/test-cmux-page-path-cpp.sh || rc=1
+./scripts/cmux-next/test-chromium-host-wire-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-file-dialog-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-helper-signals-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-webstore-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# Chrome ships its security fixes in stable first (CVE-2026-106378 was fixed in Chrome 155 while cmux
+# shipped 154). One HTTPS request to Google's version history API.
+[step.chromium-currency]
+job = "linux"
+timeout = 300
+title = "Shipped Chromium is at most one stable milestone behind"
+about = "the Chromium cmux-next ships (scripts/cmux-next/cef-manifest.json) is at most one Chrome stable milestone behind, and no sandbox-weakening switch reaches Chromium"
+inputs = [
+  "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-chromium-currency.py",
+  "scripts/cmux-next/tests/chromium-currency.test.sh",
+]
+run = '''
+rc=0
+# The check itself (fixed versions).
+bash scripts/cmux-next/tests/chromium-currency.test.sh || rc=1
+# A pull request that leaves the pin alone inherits the pin's age from the base: it warns. One that
+# changes the pin is judged (cmuxterm-hq#5745). HEAD^1 is the base side of the merge commit; when it
+# can't be read, the step judges.
+if git diff --quiet HEAD^1 HEAD -- scripts/cmux-next/cef-manifest.json; then
+  python3 scripts/cmux-next/check-chromium-currency.py \
+    || echo "::warning::The base's Chromium pin is behind stable; this PR does not change it."
+else
+  python3 scripts/cmux-next/check-chromium-currency.py || rc=1
+fi
+# Sandbox-weakening switches never reach Chromium.
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json; the app's Swift side
+# names acpmux methods and param keys by hand. swift-acpmux-protocol.yml keeps its post-merge batch run.
+[step.swift-acpmux-protocol]
+job = "linux"
+timeout = 300
+title = "Swift acpmux calls are in the protocol"
+about = "every acpmux method and param key the Swift app names is in the acpmux protocol, or in the allowlist with its reason"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "scripts/ci/check-swift-acpmux-protocol.py",
+  "scripts/ci/swift-acpmux-protocol-allowlist.txt",
+  "tests/test_check_swift_acpmux_protocol.py",
+]
+run = '''
+rc=0
+# Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.
+python3 -I tests/test_check_swift_acpmux_protocol.py || rc=1
+python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
+exit "$rc"
+'''
+
+# Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
+# ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
+# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+[step.app-platform]
+job = "linux"
+timeout = 300
+title = "App platform (runtime, SDK, samples, first-party forks)"
+about = "the app host's runtime bundle and generated cmux global are current, the app-test harness, runtime and sample apps pass their bun tests, and every first-party app runs its own tests as a fork with only the public SDK"
+needs = ["bun"]
+inputs = [
+  "cmux-tui/crates/cmux-app-host/**",
+  "samples/apps/**",
+  "first-party-apps/**",
+  "examples/extensions/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**",
+  "scripts/cmux-next/check-app-platform.sh",
+  "scripts/cmux-next/sync-app-runtime.sh",
+]
+run = "bash scripts/cmux-next/check-app-platform.sh"
+
+[step.mux]
+job = "linux"
+timeout = 300
+title = "mux bun test"
+about = "the mux brain host's bun test suite (mux/), on its frozen lockfile"
+needs = ["bun"]
+inputs = ["mux/**"]
+run = '''
+cd mux
+bun install --frozen-lockfile
+bun test
+'''
+
+[step.automation-bench]
+job = "linux"
+timeout = 300
+title = "Automation bench scoreboard"
+about = "the unit tests of the automation bench scoreboard (tests/automation-bench)"
+needs = ["bun"]
+inputs = ["tests/automation-bench/**"]
+run = "bun test tests/automation-bench"
+
+[step.cloud-vm-image-lock]
+job = "linux"
+timeout = 300
+title = "Cloud VM image lock"
+about = "images/cmux-vm/inputs.lock.json, the sshd policy checker, the bake and promote workflows' step scripts (with a stubbed bun) and the promote workflow's permissions, key handling and delete refusal; web's locked dependencies installed first"
+needs = ["bun"]
+inputs = [
+  "images/cmux-vm/**",
+  "web/scripts/cmux-vm-image/**",
+  "web/tests/vm-image-cmux-vm-lock.test.ts",
+  "web/tests/vm-image-cmux-vm-sshd.test.ts",
+  "web/tests/vm-image-cmux-vm-bake-workflow.test.ts",
+  "web/tests/vm-image-cmux-vm-dev-tree.test.ts",
+  "web/tests/vm-image-cmux-vm-dns.test.ts",
+  "web/tests/vm-image-cmux-vm-machine-health.test.ts",
+  "web/tests/vm-image-cmux-vm-promote-workflow.test.ts",
+  "web/tests/vm-image-cmux-vm-github-auth.test.ts",
+  "web/services/vms/hygiene/cmux-machine-hygiene",
+  ".github/workflows/cloud-vm-image-bake.yml",
+  ".github/workflows/cloud-vm-image-promote.yml",
+]
+run = '''
+cd web
+bun install --frozen-lockfile
+bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts
+'''
+
+# ci-artifact-transport.yml's two halves. Its Python tests ran on every change to its list; its Worker half
+# (npm, node 24) only when workers/ci-artifacts changed, which is now this step's own input, so a change to
+# the Python side installs no node.
+[step.ci-artifact-transport]
+job = "linux"
+timeout = 300
+title = "CI artifact transport"
+about = "the CI artifact transport's and fallback's Python tests (node product cache, LAN product source, R2 artifact and canary, rpath relocation, parallel download)"
+inputs = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/ci-macos.yml",
+  "workers/ci-artifacts/**",
+  "scripts/ci/restore-r2-artifact.py",
+  "scripts/ci/parallel_artifact_download.py",
+  "scripts/ci/deadline_http.py",
+  "tests/test_ci_parallel_artifact_transport.py",
+  "scripts/ci/node_product_cache.py",
+  "docs/ci/node-product-cache-maintenance.md",
+  "scripts/ci/peer_product_source.py",
+  "scripts/ci/restore-app-host-test-product.sh",
+  "scripts/ci/relocate_package_framework_rpaths.py",
+  "tests/test_relocate_package_framework_rpaths.py",
+  "tests/test_node_product_cache.py",
+  "tests/test_lan_product_source.py",
+  "scripts/ci/verify-r2-canary.py",
+  "scripts/ci/r2-canary-cloudflare.py",
+  "tests/test_ci_r2_canary.py",
+  ".github/workflows/ci-artifact-canary.yml",
+  "tests/test_ci_r2_artifact.py",
+  ".github/actions/download-test-product/action.yml",
+  "scripts/ci/measure-r2-artifact-run.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+python3 tests/test_node_product_cache.py
+python3 tests/test_lan_product_source.py
+python3 tests/test_ci_r2_artifact.py
+python3 tests/test_ci_r2_canary.py
+python3 tests/test_relocate_package_framework_rpaths.py
+python3 tests/test_ci_parallel_artifact_transport.py
+'''
+
+[step.ci-artifact-worker]
+job = "linux"
+timeout = 360
+title = "CI artifact Worker"
+about = "the artifact Worker (workers/ci-artifacts) typechecks and passes its tests against local R2 and Durable Objects; its dependencies install without scripts"
+needs = ["node"]
+inputs = ["workers/ci-artifacts/**"]
+run = '''
+cd workers/ci-artifacts
+npm ci --ignore-scripts --no-audit --no-fund
+WRANGLER_SEND_METRICS=false npm run check
+'''
+
+# Two more checks whose pull request runs each took a Linux job: cmux-vm-clients.yml's sdk job (its rust job
+# stays) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
+# into main); a feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former
+# pull_request path filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the
+# workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
+# as the jobs' `!cancelled()` steps did. The sdk job's failure-only artifact upload (the regenerated schema) is
+# not a step: a failed step prints its `git diff --stat`.
+[step.cmux-vm-sdk]
+job = "linux"
+timeout = 300
+title = "cmux VM SDK"
+about = "the @cmux/vm SDK's generated schema (src/schema.d.ts) matches workers/cmux-vm/openapi.json, and the SDK typechecks"
+needs = ["bun"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+cd workers/cmux-vm/sdk
+bun install --frozen-lockfile
+status=0
+bun run generate
+if [[ -n "$(git status --porcelain -- .)" ]]; then
+  git --no-pager diff --stat -- .
+  echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
+  status=1
+fi
+bun run typecheck || status=1
+exit "$status"
+'''
+
+[step.web-complexity]
+job = "linux"
+timeout = 300
+title = "Web complexity candidate"
+about = "web's Oxlint configuration parses and its complexity baseline holds against the base tip (the contributor-side diagnostic; web-complexity-trusted.yml is the required check)"
+needs = ["bun", "node"]
+inputs = ["web/**"]
+run = '''
+# The merge commit's first parent is the base tip the router diffed against; its second is the pull request.
+base="$(git rev-parse -q --verify 'HEAD^1')"
+bash scripts/ci/fetch-complexity-base.sh "$base"
+cd web
+bash ../scripts/ci/bun-install.sh --frozen-lockfile
+./node_modules/.bin/oxlint --config .oxlintrc.json --print-config app/page.tsx >/dev/null
+bun run lint:complexity -- --base "$base" --head "$(git rev-parse HEAD)"
+'''
+
+# ci-guards.yml's workflow-guard-submodule-forward-only job, which a feat-cmux-next pull request reached through
+# cmux-next-guards.yml's nightly-guards call on every change but a docs-only one. A docs-only change stays out
+# of the pipeline (test_the_router_starts_it_only_when_a_step_is_routed) and globs cannot say "not docs-only", so
+# `inputs` is what the step's verdict reads: the gitlinks and .gitmodules (a change touching neither passes the
+# guard, which only compares gitlinks that moved), every build.zig.zon (the Zig host check reads all of the tree's),
+# the lock, the three commands' scripts and what they import, and the job's workflow. The job keeps pushes,
+# dispatch, the post-merge batch and pull requests into other bases, and skips only feat-cmux-next's pull
+# requests, where Guard status counts that skip as fine. The job's checkout was this one's (depth 2, no
+# submodules): the guard compares the merge commit against its first parent, which that depth holds, and fetches
+# what else it needs itself (a changed gitlink's submodule, bounded deepening). This job passes no GITHUB_TOKEN, so
+# the guard's GitHub compare fallback is unauthenticated; its bounded deepening is the fallback after that. One
+# failed command does not stop the others. 110 s on 2 CPUs (its unit test is 102 s of that).
+[step.submodule-forward-only]
+job = "linux"
+timeout = 300
+title = "Submodule forward-only guard"
+about = "no submodule gitlink moves backwards from the merge base (unless a commit declares the rollback), the guard's tests pass, and no Ghostty build fetches a Zig package from a third-party host"
+inputs = [
+  ".gitmodules",
+  "ghostty",
+  "ghostty-next",
+  "homebrew-cmux",
+  "**/build.zig.zon",
+  "scripts/ci/zig-packages.lock",
+  "scripts/ci/zig_package_mirror.py",
+  "scripts/ci/deadline_http.py",
+  "scripts/ci/submodule_forward_only.py",
+  "scripts/ci/ci_process_tree.py",
+  "scripts/ci/git_fetch_retry.py",
+  "tests/test_submodule_forward_only.py",
+  "tests/git_fixture_env.py",
+  ".github/workflows/ci-guards.yml",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+export GITHUB_BASE_SHA="$base" GITHUB_HEAD_SHA="$(git rev-parse HEAD)"
+status=0
+python3 scripts/ci/submodule_forward_only.py || status=1
+python3 tests/test_submodule_forward_only.py || status=1
+# A change to the lock, a Ghostty gitlink or the detector also downloads every mirrored copy and checks it.
+git submodule update --init --depth 1 ghostty ghostty-next
+args=()
+if git diff --name-only HEAD^1 HEAD -- scripts/ci/zig-packages.lock scripts/ci/zig_package_mirror.py ghostty ghostty-next | grep -q .; then
+  args+=(--online)
+fi
+python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status=1
+exit "$status"
+'''
+
+# Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
+# drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
+# test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
+# `inputs` is each workflow's former pull_request path filter, less the workflow file.
+[step.agent-brands-drift]
+job = "linux"
+timeout = 300
+title = "Agent brand icons are generated from design/agent-icons"
+about = "the generated agent brand catalog (Swift, TS, Rust) matches design/agent-icons and every SVG keeps the rules and size budget; agent-brands.yml keeps the Swift tests on macOS"
+inputs = [
+  "design/agent-icons/**",
+  "scripts/agent-icons/**",
+  "scripts/icons/build_pack.py",
+  "Packages/Shared/CmuxAgentBrands/**",
+  "webviews/src/agent-session/shared/agentBrands.generated.ts",
+  "agent-chat/src/agentBrands.generated.ts",
+  "cmux-tui/crates/acpmux/src/chats/brand/table.rs",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+]
+run = "python3 scripts/agent-icons/generate.py --check --sizes"
+
+[step.terminal-hang-release-gate]
+job = "linux"
+timeout = 300
+title = "Terminal hang release gate"
+about = "the terminal hang release gate (scripts/terminal-hang-release-gate.py) passes its tests; terminal-hang-diagnostics.yml keeps phase attribution on macOS"
+inputs = [
+  "Packages/Shared/CMUXMobileCore/**",
+  "Packages/Shared/CmuxSentryTelemetry/**",
+  "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+  "scripts/terminal-hang-release-gate.py",
+  "tests/test_terminal_hang_release_gate.py",
+]
+run = "python3 tests/test_terminal_hang_release_gate.py"
+
+[step.repair-nightly-appcast]
+job = "linux"
+timeout = 300
+title = "Nightly appcast Content-Type repair tests"
+about = "the nightly appcast Content-Type repair (scripts/ci/repair-nightly-appcast-content-types.py) passes its tests; the repair itself stays a dispatch of repair-nightly-appcast-content-types.yml"
+inputs = [
+  "scripts/ci/repair-nightly-appcast-content-types.py",
+  "scripts/ci/upload-r2-object.py",
+  "tests/test_repair_nightly_appcast_content_types.py",
+]
+run = "python3 tests/test_repair_nightly_appcast_content_types.py"
+
+# cmux-next-remote-daemon.yml's release-packaging job, which keeps its feat-cmux-next push and dispatch runs.
+# `inputs` is its former pull_request path filter, less the workflow file. Cold on 2 CPUs: 143 s (four
+# platforms built three times with an empty Go build cache); the runner keeps that cache.
+[step.remote-daemon-packaging]
+job = "linux"
+timeout = 360
+title = "cmux-next remote daemon packaging"
+about = "cmuxd-remote's licenses are allowed, its third-party notices and release verification pass their tests, and stable, nightly and rc daemon artifacts build with the go.mod Go and pass verification"
+needs = ["go"]
+inputs = [
+  "daemon/remote/**",
+  "scripts/*remote_daemon*",
+  "tests/*remote_daemon*",
+  "tests/fixtures/remote-daemon-notices/**",
+  "cmux-tui/build-support/notices/license_match.py",
+  "scripts/cmux-next/check_app_crate_licenses.py",
+  "scripts/cmux-next/cargo-locks.py",
+]
+run = '''
+# Every check runs after a red one, as the job's `!cancelled()` steps did.
+rc=0
+python3 scripts/remote_daemon_notices.py check --daemon-root daemon/remote || rc=1
+python3 tests/test_remote_daemon_release_verification.py || rc=1
+python3 tests/test_remote_daemon_notices.py || rc=1
+python3 tests/test_remote_daemon_release_assets.py || rc=1
+exit "$rc"
+'''
+
+# coderouter-ci.yml's test job, which keeps its main push runs. `inputs` is its former pull_request path filter
+# (`.github/workflows/coderouter-*.yml`) less coderouter-ci.yml. It had a Swatinem/rust-cache; here coderouter/target
+# starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
+[step.coderouter]
+job = "linux"
+# Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
+alone = true
+timeout = 360
+title = "coderouter CLI"
+about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.94.0, its cargo, Python and npm versions agree, and its npm package packs"
+needs = ["rust", "node"]
+inputs = [
+  "coderouter/**",
+  ".github/workflows/coderouter-publish-npm.yml",
+  ".github/workflows/coderouter-publish-pypi.yml",
+  ".github/workflows/coderouter-release.yml",
+  ".github/workflows/coderouter-verify-release.yml",
+]
+run = '''
+cd coderouter
+export RUSTUP_TOOLCHAIN=1.94.0
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+node scripts/check-version.mjs
+cd npm
+npm pack --dry-run
+'''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
@@ -101,4 +766,227 @@ printf '%s' "$BODY" > "$RUNNER_TEMP/cloud-body.md"
 python3 scripts/ci/pr_cloud_backend_check.py --body-file "$RUNNER_TEMP/cloud-body.md" \
   --status-file "$RUNNER_TEMP/status.txt" --map .github/cloud-backend-paths.json \
   || echo "::warning title=Cloud backend belongs in cmux-platform::the check could not run (exit $?); see this job's log"
+'''
+
+# pr-checks.yml's advisory checks, once five jobs on five runners for every feat-cmux-next pull request push
+# (24 h to 2026-11-21T12Z: 10,498 jobs and 9,754 runner-minutes, 7,132 of them split-plan's fetch of every
+# branch), now steps of its one `advisory` job (CI v2 step 6, cmuxterm-hq docs/design/ci-v2.md). The job's
+# "Pick the steps" step keeps each old job's conditions (drafts, CI_QUOTA_HOLD, fork pull requests, a
+# base-only update, a description edit) and names the steps to run with `--only`. None ever failed a pull
+# request and none does now.
+#
+# Leo, 2026-11-21: "we need to absolutely get that f***ing CI V2, that Borg design up and running everywhere.
+# Like as much as possible, as fast as possible, as efficiently as possible".
+#
+# They run at once in the base checkout, so each writes only its own files under $RUNNER_TEMP (pr-size-*,
+# ui-review-*, split-plan/, swift-logic*, review-link.md). The workflow step sets what they read: GH_TOKEN,
+# REPOSITORY, SERVER, URL, PR, ACTION, HEAD_SHA, HEAD_REF, BASE_SHA, BASE_REF, MERGE_SHA (the event's merge
+# commit) and BODY.
+
+# Warns on a pull request over about 800 changed lines (added + deleted, less the paths in
+# scripts/ci/pr_size_exclusions.json) whose body has no `Size:` line with the reason. Never a gate: Leo,
+# 2026-10-28, "as long as you're mindful about it, I feel like it's reasonable, but you don't need to make it,
+# like, a hard gate". One paginated GraphQL query reads the files and the current body (not the event's copy:
+# a re-run of an older run must not answer with a `Size:` line the body no longer has); REST is only its
+# fallback. It runs on a base-only update too: a previous head's green run from before it could fail (or that
+# a later Size: edit changed) must not answer for it.
+[step.pr-size]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "PR size"
+about = "a pull request over about 800 changed lines says why in a Size: line"
+run = '''
+if [ ! -f scripts/ci/pr_size.py ]; then
+  echo "::notice title=PR size::the base predates the size check; skipped"
+  exit 0
+fi
+# GraphQL has its own hourly pool; the REST reads below, the GITHUB_TOKEN pool every workflow shares (it ran
+# out at 00:50Z on 2026-10-31), are only the fallback. --paginate advances only a cursor named $endCursor.
+# Each page repeats the body line.
+# shellcheck disable=SC2016 # GraphQL's $variables, not the shell's
+query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){body changedFiles files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{path additions deletions}}}}}'
+rows='.data.repository.pullRequest | ({pull_request: {body, changed_files: .changedFiles}} | @json), (.files.nodes[] | {filename: .path, additions, deletions} | @json)'
+event="$GITHUB_EVENT_PATH"
+if gh api graphql --paginate -f query="$query" -f owner="${REPOSITORY%%/*}" -f name="${REPOSITORY#*/}" \
+  -F number="$PR" --jq "$rows" > "$RUNNER_TEMP/pr-size-graphql.jsonl" 2>/dev/null \
+  && grep -m1 '^{"pull_request":' "$RUNNER_TEMP/pr-size-graphql.jsonl" > "$RUNNER_TEMP/pr-size-live-event.json"; then
+  grep -v '^{"pull_request":' "$RUNNER_TEMP/pr-size-graphql.jsonl" > "$RUNNER_TEMP/pr-size-files.jsonl" || true
+  event="$RUNNER_TEMP/pr-size-live-event.json"
+else
+  echo "::notice title=PR size::GraphQL read failed; reading the files over REST"
+  # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
+  if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+    --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/pr-size-files.jsonl"; then
+    echo "::warning title=PR size::could not read the pull request's files; size not measured"
+    exit 0
+  fi
+  # A failed read of the current body keeps the event's.
+  if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+    > "$RUNNER_TEMP/pr-size-live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/pr-size-live-event.json" ]; then
+    event="$RUNNER_TEMP/pr-size-live-event.json"
+  else
+    echo "::notice title=PR size::could not read the current body; using the event's"
+  fi
+fi
+status=0
+python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/pr-size-files.jsonl" --event "$event" || status=$?
+case "$status" in
+  0) ;;
+  3) ;;  # over the limit with no `Size:` line: the script printed the warning; never a gate
+  *) echo "::warning title=PR size::the size script failed (exit $status); size not measured" ;;
+esac
+'''
+
+# Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
+# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
+[step.ui-review]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "UI review"
+about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+run = '''
+if [ ! -f scripts/ci/ui_review_advisory.py ]; then
+  echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
+  exit 0
+fi
+paths="$RUNNER_TEMP/ui-review-paths.txt"
+files="$RUNNER_TEMP/ui-review-files.json"
+body_file="$RUNNER_TEMP/ui-review-body.md"
+# Its own scratch repository: the other steps run beside it in the shared base checkout.
+repo="$RUNNER_TEMP/ui-review-git"
+listed() {
+  if git init -q "$repo" && git -C "$repo" remote add origin "${URL:-}" \
+    && timeout 120 git -C "$repo" fetch --no-tags --no-recurse-submodules --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
+    && [ "$(git -C "$repo" rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
+    && git -C "$repo" diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$paths"; then
+    echo "changed files: $(wc -l < "$paths" | tr -d ' ') from the merge commit (git)"
+    return 0
+  fi
+  echo "::notice title=UI review::git could not list the changed files; reading them over the API"
+  timeout 120 gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+}
+if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l in open(sys.argv[1]).read().splitlines() if l], open(sys.argv[2], "w"))' \
+  "$paths" "$files"; then
+  echo "::warning title=UI review::could not check out the advisory or read changed files; review the UI section manually"
+  exit 0
+fi
+printf '%s' "$BODY" > "$body_file"
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
+  || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
+'''
+
+# The split-plan advisory (scripts/cmux-next/check-pr-split.py, the base's copy: a head branched before the
+# guard has none, and a pull request should not grade itself with its own edits to it). The classifier reads
+# only `merge-base`, `rev-list --count` and `diff --name-only` of the base and head commits, so a scratch
+# repository fetches those two commits' last 14 days of commits and trees, no blobs, no tags, no submodules
+# (cmuxterm-hq docs/handbook/whole-origin-fetch-pulls-submodule-pins.md), and deepens only when their merge
+# base is older. It was a head checkout plus `git fetch --unshallow origin` of every branch: 7,132
+# runner-minutes a day.
+[step.split-plan]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "split-plan advisory"
+about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
+run = '''
+if [ ! -f scripts/cmux-next/check-pr-split.py ]; then
+  echo "::notice title=split-plan advisory::the base has no scripts/cmux-next/check-pr-split.py; skipped"
+  exit 0
+fi
+repo="$RUNNER_TEMP/split-plan"
+rm -rf "$repo"
+git init -q "$repo"
+git -C "$repo" remote add origin "$URL"
+fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
+# can find no commit that new (a head or base older than 14 days): the whole history below answers that.
+fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
+  || fetch --shallow-since="14 days ago" origin "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
+  || true
+# A merge base found while the window cut history between it and the head (an old branch that merged the
+# base since; a cut commit lists in .git/shallow) skews commits= and files=: deepen for it as for none.
+mb=$(git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+cut=""
+if [ -n "$mb" ] && [ -f "$repo/.git/shallow" ]; then
+  cut=$({ echo "$mb"; git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
+fi
+if [ -z "$mb" ] || [ -n "$cut" ]; then
+  echo "No merge base in the last 14 days, or history cut inside the pull request; fetching the whole history of the two commits."
+  # --unshallow deepens what the window fetched; a window that fetched nothing left no shallow file.
+  deepen=()
+  if [ -f "$repo/.git/shallow" ]; then deepen=(--unshallow); fi
+  fetch "${deepen[@]}" origin "$BASE_SHA" "$HEAD_SHA" \
+    || fetch "${deepen[@]}" origin "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base"
+fi
+python3 scripts/cmux-next/check-pr-split.py --repo "$repo" --base "$BASE_SHA" --head "$HEAD_SHA" --mode advisory
+'''
+
+# The pull request's own Swift logic growth, as the `swift-logic` line of its status comment
+# (scripts/cmux-next/swift-logic-pr-status.py, swift-logic-delta.py): goal swift-share-falls. Lawrence
+# 2026-11-02: "move as much from swift into rust as possible"; Leo 2026-11-07: "swift to anything but swift".
+# A report, never a gate: growth and a count that cannot be made ("not counted") both pass. A pull request
+# that changes no *.swift file gets no line. The pull request's commits are only fetched and read as data.
+# Cost: one cold count (about a minute) on a pull request's first push, a few seconds after that: the
+# workflow restores the facts cache under $RUNNER_TEMP/swift-logic, kept per pull request.
+[step.swift-logic]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 540
+title = "Swift logic report"
+about = "the pull request's own Swift logic growth, as the swift-logic line of its status comment"
+run = '''
+if [ ! -f scripts/cmux-next/swift-logic-pr-status.py ] || [ ! -f scripts/ci/pr_status.py ]; then
+  echo "::notice title=Swift logic report::the base has no swift-logic-pr-status.py or pr_status.py; skipped"
+  exit 0
+fi
+out="$RUNNER_TEMP/swift-logic.md"
+python3 -I scripts/cmux-next/swift-logic-pr-status.py --url "$URL" --base-ref "$BASE_REF" \
+  --head "$HEAD_SHA" --work "$RUNNER_TEMP/swift-logic" --out "$out" \
+  || echo "Swift logic: not counted (swift-logic-pr-status.py exited $?; see this run)" > "$out"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then cat "$out" >> "$GITHUB_STEP_SUMMARY"; fi
+if [ -s "$out" ]; then
+  python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --body-file "$out"
+else
+  python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --clear
+fi
+'''
+
+# Keep pull requests navigable without publishing internal gallery payloads: the visual evidence stays in the
+# private HQ feed and Actions artifacts, and the pull request gets one stable link to them as the `review`
+# line of its status comment (scripts/ci/pr_status.py), naming the newest head. No link to this run: it only
+# writes the line, and the HQ feed would read an Actions run link here as the pull request's build.
+[step.review-link]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "link"
+about = "the review line of the pull request's status comment: its HQ feed card, gallery runs, checks and app"
+run = '''
+if [ ! -f scripts/ci/pr_status.py ]; then
+  echo "::notice title=link::the base has no scripts/ci/pr_status.py; skipped"
+  exit 0
+fi
+feed_url="${FEED_URL:-https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/}"
+repo_url="$SERVER/$REPOSITORY"
+ref_query=$(jq -rn --arg q "branch:$HEAD_REF" '$q|@uri')
+# The branch keeps reload-build's cache warm; a name that is not shell-safe to paste falls back to the SHA.
+build_ref=$HEAD_SHA
+if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then build_ref=$HEAD_REF; fi
+cat > "$RUNNER_TEMP/review-link.md" <<EOF
+Review [\`${HEAD_SHA:0:7}\`]($repo_url/commit/$HEAD_SHA): [HQ feed card](${feed_url}?pr=${PR}&view=all) · [gallery before/after runs]($repo_url/actions/workflows/gallery-advisory.yml?query=$ref_query) · [checks]($repo_url/pull/$PR/checks?sha=$HEAD_SHA)
+<details><summary>App of this head (app.zip, kept 1 day)</summary>
+
+\`gh workflow run reload-build.yml -R $REPOSITORY --ref feat-cmux-next -f tag=pr$PR -f ref=$build_ref -f platform=macos -f backend_mode=local\`
+</details>
+EOF
+python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
+  --body-file "$RUNNER_TEMP/review-link.md" --legacy "<!-- cmux-gallery-link -->"
 '''
