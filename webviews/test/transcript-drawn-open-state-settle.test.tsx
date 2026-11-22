@@ -81,7 +81,8 @@ dom.window.HTMLElement.prototype.getClientRects = function (this: HTMLElement) {
 const chases: FollowChase[] = [];
 const FOLLOW_CHASE = "../src/agent-session/acpmux/conversation/followChase";
 const realChase = { ...(await import(FOLLOW_CHASE)) };
-const realCreate = realChase.createFollowChase as typeof import("../src/agent-session/acpmux/conversation/followChase").createFollowChase;
+const realCreate =
+  realChase.createFollowChase as typeof import("../src/agent-session/acpmux/conversation/followChase").createFollowChase;
 await mock.module(FOLLOW_CHASE, () => ({
   ...realChase,
   createFollowChase: (...args: Parameters<typeof realCreate>) => {
@@ -98,9 +99,8 @@ const { turnView } = await import("../src/agent-session/acpmux/conversation/turn
 const { layoutConversation } = await import("../src/agent-session/acpmux/model");
 const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
 const { drawnOpenStateHolds, rowOpenState } = await import("../src/agent-session/acpmux/conversation/rowOpenState");
-const { DisclosureSession, callDisclosureKey, useTranscriptDisclosure } = await import(
-  "../src/agent-session/acpmux/conversation/transcriptDisclosureModel"
-);
+const { DisclosureSession, callDisclosureKey, useTranscriptDisclosure } =
+  await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
