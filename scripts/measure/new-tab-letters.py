@@ -140,7 +140,11 @@ of the first new tab when nobody used that view (the first new tab's field is em
 would then be counted as the first new tab's. The record's `journal_after_select` has the same counts as
 `journal`, of the entries after the journal's last number at the last read before the select, to this read: the
 last read of the park, the focus of the pane, the select, the verdict's read of the field and the read of the
-window are in that time, so `after the select` names the read and not each entry. `engine_after_select` is the
+window are in that time, so `after the select` names the read and not each entry. An entry that the app writes
+after this read is not in the counts: the read comes directly after the first read of the field that has a text
+and the read of the window (with a text in the field at the select: at once; with an empty field: 5 s and more
+after the select), so a give that the app makes a short time after the select can be absent from the counts
+(NOT PROVED: that the app writes each entry of a select before the select's reply). `engine_after_select` is the
 last engine word of the first new tab in those entries (None: the tool had the page's id and no such entry
 names it, or no read; the word `not readable for a cmux page in Chromium`: see THE PAGE'S ID). TO READ IT:
 `first_new_tab.chromium_given` of 1 or more says that the app gave the page focus to the Chromium page of that
