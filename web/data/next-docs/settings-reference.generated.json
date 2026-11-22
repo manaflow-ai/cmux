@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 652,
+  "count": 653,
   "sections": [
     {
       "id": "general",
@@ -7028,6 +7028,14 @@
           "key": "experiments.glassToolbarGroups",
           "title": "Glass Toolbar Groups",
           "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
