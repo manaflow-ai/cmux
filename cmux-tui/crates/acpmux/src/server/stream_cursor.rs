@@ -109,7 +109,7 @@ pub(super) async fn catch_up(
                 h.events_page(
                     &sid,
                     after,
-                    Some(through + 1),
+                    Some(through.saturating_add(1)),
                     PAGE_RECORDS,
                     Some(PAGE_BYTES),
                     false,

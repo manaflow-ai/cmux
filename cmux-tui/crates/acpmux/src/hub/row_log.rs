@@ -115,7 +115,7 @@ impl RowLog {
 /// `server::deliver` sends a `session_changed` for.
 pub(super) fn row_change(ev: &HubEvent) -> Option<(RowKey, bool)> {
     let rec = &ev.record;
-    if rec.kind == PEER_LAGGED {
+    if rec.kind == PEER_LAGGED || rec.kind == PEER_ROWS_CHANGED {
         return None;
     }
     if let Some(remote) = &ev.remote {
@@ -157,6 +157,7 @@ pub(super) fn row_event(session: &str) -> HubEvent {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     }
 }
 
@@ -358,6 +359,7 @@ impl Hub {
             update_line: Default::default(),
             row: Default::default(),
             list_seq: 0,
+            peer_batch: false,
         }
     }
 }

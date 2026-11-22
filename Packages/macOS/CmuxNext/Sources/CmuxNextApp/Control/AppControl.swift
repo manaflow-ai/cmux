@@ -122,6 +122,12 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.renderers(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
+            // One cmux page's JS heap after GC, its counters and an optional CPU profile (Usage/PageProfiler.swift),
+            // Release too, off unless the hidden defaults key CMUXPageProfiler is set.
+            .async("renderers.profile") { [engine = services.cache.cef] call in
+                let report = await engine.pageProfileReport(browser: call.params["browser"]?.intValue, seconds: call.params["seconds"]?.intValue)
+                return try JSONValue.parse(CEFPageProfileReport.encoded(report))
+            }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
@@ -213,9 +219,9 @@ final class AppControl {
                 return .value(DebugFocus.report(services: services))
             },
             // Home per window and the local conversation projection (home.md).
-            .mainActor("debug.home") { [weak services] _ in
+            .mainActor("debug.home") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHome.report(services: services))
+                return .value(DebugHome.report(services: services, paths: call.params["paths"]?.boolValue == true))
             },
             // My pending and refused sends with the reason (no screenshot needed).
             .mainActor("debug.home.delivery") { [weak services] _ in
@@ -368,6 +374,11 @@ final class AppControl {
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -445,14 +456,9 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_rows") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_wheel") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarWheel.post(call.params, services: services))
-            },
+            .mainActor("debug.sidebar_rows") { [weak services] call in .value(services.map { DebugSidebarRows.report(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in .value(services.map { DebugSidebarWheel.post(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.text_field") { [weak services] call in .value(DebugFieldEditor.run(call.params, window: services?.windows.active?.window)) },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
