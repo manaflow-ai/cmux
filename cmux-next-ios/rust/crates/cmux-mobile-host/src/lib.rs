@@ -43,6 +43,7 @@ pub mod pairing;
 pub mod path_probe;
 pub mod peer;
 pub mod policy;
+pub mod presence;
 pub mod push_keys;
 pub mod seal;
 pub mod sealed_notify;
