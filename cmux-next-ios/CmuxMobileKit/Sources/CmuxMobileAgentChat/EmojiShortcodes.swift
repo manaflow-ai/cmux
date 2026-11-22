@@ -404,7 +404,7 @@ public enum EmojiShortcodes {
         return table.record(code: inner.lowercased())
     }
 
-    nonisolated(unsafe) private static let pasteCode = try! NSRegularExpression(pattern: #":([A-Za-z0-9_+\-]+):(?::skin-tone-([1-6]):)?"#)
+    private static let pasteCode = try! NSRegularExpression(pattern: #":([A-Za-z0-9_+\-]+):(?::skin-tone-([1-6]):)?"#)
 
     /// Pasted text with each known `:code:` (and Slack's `:code::skin-tone-N:`) written as its
     /// emoji, except inside code spans or fences, URLs, and mid-word (`key:value:`); unknown

@@ -92,7 +92,7 @@ import Testing
 
     @Test func emoticonListsItsFace() {
         #expect(Typing(":)").rows.first?.emoji == "🙂")
-        #expect(Typing("<3").rows.first?.emoji == "❤️")
+        #expect(Typing("<3").rows.first?.emoji == Self.table.record(code: "heart")?.emoji)
         #expect(Typing(";)").rows.first?.emoji == "😉")
         #expect(Typing(":'(").rows.first?.emoji == "😢")
     }

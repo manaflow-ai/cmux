@@ -136,7 +136,8 @@ struct ChatComposerField: UIViewRepresentable {
             guard text == "\n", let view = textView as? ComposerReturnTextView else { return true }
             // The on-screen keyboard's Return writes the highlighted emoji while the list is open.
             if textView.markedTextRange == nil, let emoji = parent.emoji, emoji.isOpen, !view.insertingLineBreak {
-                emoji.accept()
+                // Next turn: never edit the text inside the delegate's own change check.
+                DispatchQueue.main.async { emoji.accept() }
                 return false
             }
             return view.returnShouldInsert(text)

@@ -257,18 +257,20 @@ struct EmojiSuggestionList: View {
         .padding(.horizontal, 12)
     }
 
-    /// `:code:`, the letters the query matched in bold, the rest secondary.
+    /// `:code:`, the letters the query matched in bold and primary, the rest secondary.
     static func code(_ row: EmojiMatch) -> Text {
+        var shown = AttributedString(":\(row.code):")
+        shown.foregroundColor = .secondary
         let code = row.code as NSString
-        guard row.matched.length > 0, NSMaxRange(row.matched) <= code.length else {
-            return Text(verbatim: ":\(row.code):").foregroundStyle(.secondary)
+        if row.matched.length > 0, NSMaxRange(row.matched) <= code.length {
+            let head = AttributedString(":" + code.substring(to: row.matched.location))
+            let hit = AttributedString(code.substring(with: row.matched))
+            let start = shown.index(shown.startIndex, offsetByCharacters: head.characters.count)
+            let end = shown.index(start, offsetByCharacters: hit.characters.count)
+            shown[start..<end].foregroundColor = .primary
+            shown[start..<end].inlinePresentationIntent = .stronglyEmphasized
         }
-        let head = code.substring(to: row.matched.location)
-        let hit = code.substring(with: row.matched)
-        let tail = code.substring(from: NSMaxRange(row.matched))
-        return Text(verbatim: ":\(head)").foregroundStyle(.secondary)
-            + Text(verbatim: hit).bold().foregroundStyle(.primary)
-            + Text(verbatim: "\(tail):").foregroundStyle(.secondary)
+        return Text(shown)
     }
 }
 #endif
