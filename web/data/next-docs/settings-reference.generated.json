@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 656,
+  "count": 657,
   "sections": [
     {
       "id": "general",
@@ -3533,6 +3533,26 @@
           "values": [
             "oneColor",
             "subtleTone"
+          ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "title": "Two-Tone",
+          "help": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Panes",
+          "values": [
+            "off",
+            "auto",
+            "inkSakura",
+            "charcoalRose",
+            "inkMagenta",
+            "creamForest",
+            "navySand",
+            "boneOxblood",
+            "slateMatcha",
+            "plumAmber"
           ]
         },
         {
