@@ -181,23 +181,29 @@ fn require_grant() -> DResult<()> {
 /// `screen_recording` from a fresh `<this executable> permissions`, or None when it could not
 /// be read in time.
 fn fresh_screen_recording() -> Option<bool> {
+    use std::io::Read;
     let exe = std::env::current_exe().ok()?;
-    let child = std::process::Command::new(exe)
+    // Owned here: a probe that outlives PROBE_TIMEOUT is killed and reaped below.
+    let mut child = cmux_process::Command::new(exe)
         .arg("permissions")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         .spawn()
         .ok()?;
-    let (send, recv) = sync_channel(1);
-    let _ = std::thread::Builder::new().name("cmux-cu-grant-probe".into()).spawn(move || {
-        let _ = send.send(child.wait_with_output());
-    });
-    let output = recv.recv_timeout(PROBE_TIMEOUT).ok()?.ok()?;
-    if !output.status.success() {
+    // The snapshot is one short JSON line, far below a pipe's buffer, so waiting first cannot
+    // block the child on a full pipe.
+    let Ok(Some(status)) = child.wait_timeout(PROBE_TIMEOUT) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let mut stdout = Vec::new();
+    child.stdout.take()?.read_to_end(&mut stdout).ok()?;
+    if !status.success() {
         return None;
     }
-    parse_screen_recording(&output.stdout)
+    parse_screen_recording(&stdout)
 }
 
 fn parse_screen_recording(stdout: &[u8]) -> Option<bool> {
@@ -215,6 +221,8 @@ fn restart_for_new_grant() {
         );
         let _ = std::thread::Builder::new().name("cmux-cu-grant-restart".into()).spawn(|| {
             std::thread::sleep(RESTART_AFTER);
+            // Only a fresh process can use the new grant; replies are flushed per line.
+            // crash-allow: a deliberate clean exit the daemon's supervisor restarts from
             std::process::exit(0);
         });
     });
