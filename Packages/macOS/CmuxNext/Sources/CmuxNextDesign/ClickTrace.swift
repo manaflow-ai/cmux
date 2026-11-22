@@ -10,11 +10,10 @@ public import AppKit
 /// (granted, kept for a first-frame hold or a motion, skipped), and the key window and first responder once AppKit
 /// dispatched it. No text, no title, no URL: class names, window numbers, rounded points and tab ids.
 ///
+/// One per cmux window, owned by its ``WindowOverlayHost`` (`clickTrace`); `input.clicks` merges every window's.
 /// Bounded: a ring of ``capacity`` presses; a page grant attaches to the newest press only within ``grantWindow``.
 @MainActor
 public final class ClickTrace {
-    public static let shared = ClickTrace()
-
     /// One press.
     public struct Entry: Codable, Equatable, Sendable {
         public var seq: UInt64
@@ -63,7 +62,14 @@ public final class ClickTrace {
     }
 
     public func report(limit: Int?) -> Report {
-        Report(capacity: Self.capacity, clicks: entries(limit: limit))
+        Self.report([self], limit: limit)
+    }
+
+    /// Several windows' presses as one list, oldest first (by time), the newest `limit` of them.
+    public static func report(_ traces: [ClickTrace], limit: Int?) -> Report {
+        let all = traces.flatMap { $0.entries() }.sorted { ($0.at, $0.seq) < ($1.at, $1.seq) }
+        let clicks = limit.map { $0 >= 0 && $0 < all.count ? Array(all.suffix($0)) : all } ?? all
+        return Report(capacity: Self.capacity, clicks: clicks)
     }
 
     public static let capacity = 200
@@ -86,29 +92,34 @@ public final class ClickTrace {
 
     private var monitor: Any?
 
-    /// Records every press of the app from now on (the first window overlay host starts it; idempotent). The monitor
-    /// sees a press as it is dequeued, before any window or the overlay panel's own monitor handles it, and returns it
-    /// unchanged; where the keyboard went is read on the next main-actor turn, after the press's dispatch and its
-    /// focus changes.
-    public func startMonitoring() {
+    /// Records every press that reaches `window`, one of its child windows (a page, a divider catcher) or its overlay
+    /// panel, from now on (its ``WindowOverlayHost`` starts it; idempotent). The monitor sees a press as it is
+    /// dequeued, before any window or the overlay panel's own monitor handles it, and returns it unchanged; where the
+    /// keyboard went is read on the next main-actor turn, after the press's dispatch and its focus changes.
+    func startMonitoring(window: NSWindow, panel: NSWindow) {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-            nonisolated(unsafe) let event = event // crash-allow: AppKit runs local monitors on the main thread; it never leaves it
-            MainActor.assumeIsolated { // main-proof: AppKit runs local event monitors on the main thread
-                let trace = ClickTrace.shared
-                trace.press(event, window: event.window)
-                let timestamp = event.timestamp
-                Task { @MainActor in trace.settled(timestamp: timestamp, keyWindow: NSApp.keyWindow) }
-            }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) {
+            [weak self, weak window, weak panel] event in
+            guard let self, let window, let source = event.window,
+                  source === window || source.parent === window || source === panel else { return event }
+            self.press(event, window: source)
+            let timestamp = event.timestamp
+            Task { @MainActor [weak self] in self?.settled(timestamp: timestamp, keyWindow: NSApp.keyWindow) }
             return event
         }
+    }
+
+    /// The window closed: no more presses are recorded.
+    func stopMonitoring() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 
     public static func isPress(_ type: NSEvent.EventType) -> Bool {
         type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
     }
 
-    /// A press came (``startMonitoring()``), or the overlay took one before dispatch (``overlayTook(_:from:panel:)``).
+    /// A press came (``startMonitoring(window:panel:)``), or the overlay took one before dispatch (``overlayTook(_:from:panel:)``).
     /// A second report of the same event (same timestamp) adds no line.
     public func press(_ event: NSEvent, window: NSWindow?) {
         guard Self.isPress(event.type) else { return }

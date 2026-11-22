@@ -246,10 +246,19 @@ await requireBrowserLane("composer-click-focus-browser.test.ts", async () => {
         const p = await browser!.newPage({ viewport: { width: 900, height: 900 } });
         const errors: string[] = [];
         p.on("pageerror", (error) => errors.push(String(error)));
+        const consoleLines: string[] = [];
+        p.on("console", (message) => consoleLines.push(`${message.type()}: ${message.text()}`.slice(0, 300)));
         try {
           await installPaintedFrames(p);
           await p.goto(url());
-          await p.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          try {
+            await p.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          } catch (error) {
+            const body = await p.evaluate(() => document.body.innerText.slice(0, 600)).catch(() => "?");
+            throw new Error(
+              `no transcript row: ${String(error).split("\n")[0]}\npage: ${body}\nerrors: ${errors.join("\n")}\nconsole: ${consoleLines.slice(-30).join("\n")}`,
+            );
+          }
           await p.locator(FIELD).waitFor({ timeout: 60_000 });
           if (scenario.subagent) await p.locator(".acpmux-running-tray").waitFor({ timeout: 60_000 });
           await frames(p, 20);

@@ -139,8 +139,7 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
-            ClickTraceControl.method(), // `cmux app clicks`: where the person's last presses went (every build, read-only)
+            }.controlMethod(), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS

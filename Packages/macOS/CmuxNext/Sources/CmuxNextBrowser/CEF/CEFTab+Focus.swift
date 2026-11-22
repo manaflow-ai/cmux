@@ -80,13 +80,13 @@ extension CEFTab {
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
-            ClickTrace.shared.pageGrant(tab: "\(id)", outcome: "kept: first-frame hold")
+            traceGrant("kept: first-frame hold")
             pendingFocus = true
             return
         }
         if hosting.pageTakesFocus() {
             host.lifecycleTrace.record(id, "grant kept: motion")
-            ClickTrace.shared.pageGrant(tab: "\(id)", outcome: "kept: motion")
+            traceGrant("kept: motion")
             pendingFocus = true
             AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
             return
@@ -94,7 +94,7 @@ extension CEFTab {
         // A page with the focus and the keys from its last grant needs none: each SetFocus(true) dropped the keys typed
         // in the next 20 to 50 ms (Cmd-N's drain asked again for the page that had them; cmdn-typing bench, cmux21).
         if pageWindowHasTheKeys {
-            ClickTrace.shared.pageGrant(tab: "\(id)", outcome: "skipped: has the keys")
+            traceGrant("skipped: has the keys")
             return host.lifecycleTrace.record(id, "grant skipped: has the focus and the keys")
         }
         isGrantingFocus = true
@@ -117,11 +117,17 @@ extension CEFTab {
             } else {
                 "granted: another window is key"
             }
-            ClickTrace.shared.pageGrant(tab: "\(id)", outcome: outcome)
+            traceGrant(outcome)
             return
         }
         keyWindows.makeKey(window)
-        ClickTrace.shared.pageGrant(tab: "\(id)", outcome: "granted")
+        traceGrant("granted")
+    }
+
+    /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
+    private func traceGrant(_ outcome: String) {
+        guard let window = pageWindow?.parent ?? container.window else { return }
+        WindowOverlayHost.existingHost(for: window)?.clickTrace.pageGrant(tab: "\(id)", outcome: outcome)
     }
 
     /// Whether this page has the focus of its last grant and its window still has the keys that grant gave it: no blur

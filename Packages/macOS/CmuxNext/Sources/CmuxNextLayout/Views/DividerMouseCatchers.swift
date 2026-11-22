@@ -353,7 +353,7 @@ final class DividerMouseCatcherView: NSView {
               )
         else { return }
         // `cmux app clicks` names the window a press over a divider went on to (its view, never a page under it).
-        ClickTrace.shared.forwarded(event, to: parent)
+        WindowOverlayHost.existingHost(for: parent)?.clickTrace.forwarded(event, to: parent)
         parent.sendEvent(forwarded)
     }
 }
