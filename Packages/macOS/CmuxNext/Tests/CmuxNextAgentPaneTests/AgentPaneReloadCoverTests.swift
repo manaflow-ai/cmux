@@ -173,6 +173,10 @@ struct AgentPaneReloadCoverTests {
         #expect(view.reloadCover.cause == .reload)
         page.documentCommitted()
         #expect(Self.shown(view) == .picture)
+        // The new document draws its first frame (the native probe), then its page reports it: the picture stays
+        // until the report. (A commit with nothing drawn after it is a blank page, and `shown` says so.)
+        page.notePainted()
+        #expect(Self.shown(view) == .picture, "the new document's first frame revealed it before its report")
         await Self.paintReport(view)
         #expect(Self.shown(view) == .page)
         #expect(view.reloadCover.recoveries.last?.cause == .reload)
@@ -189,6 +193,8 @@ struct AgentPaneReloadCoverTests {
         page.documentCommitted()
         #expect(Self.shown(view) == .loading, "the pane showed \(Self.shown(view)) over an unpainted document")
         #expect(!view.reloadCover.showsPicture)
+        page.notePainted() // the new document draws, then reports it
+        #expect(Self.shown(view) == .loading, "the new document's first frame revealed it before its report")
         await Self.paintReport(view)
         #expect(Self.shown(view) == .page)
         let recovery = try #require(view.reloadCover.recoveries.last)
