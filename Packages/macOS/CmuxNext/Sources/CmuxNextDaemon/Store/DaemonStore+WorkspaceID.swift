@@ -7,6 +7,13 @@ extension DaemonStore {
         return index.workspacesByID[id]
     }
 
+    /// The workspace whose public id is `id`, in O(1) from the index. It reads `workspaces` first,
+    /// so a tracked caller (a wait for a reopened workspace) still hears a workspace come or go.
+    public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
+        _ = workspaces
+        return index.workspacesByResource[id]
+    }
+
     /// The first daemon terminal of workspace `id` (never a provisional stand-in): the terminal the keys typed for a new
     /// workspace go into once the window shows it.
     public func firstTerminalTab(ofWorkspace id: String) -> TabModel? {

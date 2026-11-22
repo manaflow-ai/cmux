@@ -6,7 +6,10 @@
 //! and, when the batch holds an [`Class::Ack`] record, syncs it once. Then it moves
 //! [`Journal::durable_lsn`] and calls the daemon's durable listeners, which release the replies
 //! that wait for those records. So a burst of N changes costs one write and one sync per batch,
-//! not N, and no reply leaves before its change is on disk.
+//! not N, and no reply leaves before its change is on disk. An acked batch that comes within
+//! [`Config::ack_group_window`] of the last acked sync waits out the rest of that window, so the
+//! records a turn appends a few hundred microseconds apart share a sync instead of taking one
+//! each; the first acked record after a quiet time is synced at once.
 //!
 //! The contract (the rules every user of this crate keeps):
 //!
@@ -18,6 +21,16 @@
 //! - **Streams.** A [`Class::Stream`] record (terminal output, streamed agent tokens) is written in
 //!   the next batch, so a kill of every process keeps it, and synced with the next acked batch, or
 //!   [`Config::stream_sync_delay`] after its write when no acked batch comes.
+//!   [`Journal::on_written`] reports each batch's write, before its sync: a reply that promises
+//!   only that a kill of every process keeps its change (a daemon's kept class) waits for that,
+//!   and [`Journal::wait_durable`] asks for the sync at once instead of the delay.
+//! - **Kept records.** [`Journal::append_kept`] appends a `Stream` record that a reply has shown
+//!   once written (a daemon's kept change: a draft, a name). The writer syncs it in idle time:
+//!   once no record came for [`Config::kept_sync_quiet`], or with the next acked batch, or after
+//!   the stream sync delay, whichever comes first. So the next acked batch (a prompt) syncs only
+//!   its own records, not a burst of kept ones before it, and a person typing (a key every 100
+//!   to 300 ms, each one a kept record) is synced about once a second (and fully once more within
+//!   `full_sync_interval`), not once per key.
 //!
 //! Sync levels ([`SyncLevel`]): an acked batch is synced with `F_BARRIERFSYNC` on macOS
 //! (`fdatasync` on Linux, `FlushFileBuffers` on Windows), so an acknowledged change survives a
@@ -26,7 +39,8 @@
 //! loss on macOS takes back at most that interval of acked batches, always a suffix. Rotation,
 //! seal and recovery always sync fully.
 //!
-//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer), the segments
+//! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer until a seal
+//! that kept everything or the drop, so the next open after a seal never waits), the segments
 //! (`<segment number, 20 digits>.seg`: a header, then records and sync markers back to back, see
 //! `format.rs`), `quarantine/` for segments recovery could not read past damage that is not a
 //! torn tail (named `<segment>.<n>.<floor>`: no LSN at or below `floor` is used again),
@@ -71,7 +85,7 @@ pub use journal::{AppendError, Journal, JournalStats, OpenError, SealError, Wait
 pub use recovery::{Damage, OpenReport};
 #[cfg(any(test, feature = "sim"))]
 pub use sim::{Crash, SIM_PAGE, SimRng, SimStorage};
-pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel};
+pub use storage::{FsStorage, OpenMode, Storage, StorageFile, StorageLock, SyncLevel, sync_file};
 
 use std::time::Duration;
 
@@ -132,6 +146,17 @@ pub struct Config {
     pub full_sync_interval: Duration,
     /// How long written `Stream` records may stay unsynced when no acked batch comes.
     pub stream_sync_delay: Duration,
+    /// How long the journal must be quiet (no record taken) before written kept records
+    /// ([`Journal::append_kept`]) are synced. Longer than the gap between two keys a person
+    /// types, so typing is synced once a [`Config::stream_sync_delay`], not once per key
+    /// (cmuxterm-hq#11322: 10 ms synced every key, about 24,000 syncs an hour).
+    pub kept_sync_quiet: Duration,
+    /// How long after an acked batch's sync started the next acked batch waits before its own
+    /// sync, so the records that arrive in that time share it. An acked batch after a quiet time
+    /// (no acked sync for this long), and one a waiter asked for ([`Journal::wait_durable`]), is
+    /// synced at once. It bounds the wait an acknowledged change adds to its reply; a reply still
+    /// waits for its record's sync.
+    pub ack_group_window: Duration,
     /// After a failed write or sync, the first and the longest wait before the writer tries again.
     pub retry_min: Duration,
     pub retry_max: Duration,
@@ -144,6 +169,8 @@ impl Default for Config {
             max_pending_bytes: 64 * 1024 * 1024,
             full_sync_interval: Duration::from_secs(1),
             stream_sync_delay: Duration::from_secs(1),
+            kept_sync_quiet: Duration::from_millis(500),
+            ack_group_window: Duration::from_millis(5),
             retry_min: Duration::from_millis(100),
             retry_max: Duration::from_secs(5),
         }
@@ -154,3 +181,7 @@ impl Default for Config {
 mod cmux_journal_tests;
 #[cfg(test)]
 mod crash_sim_tests;
+#[cfg(test)]
+mod page_charge_tests;
+#[cfg(test)]
+mod sync_window_tests;

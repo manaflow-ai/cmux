@@ -37,10 +37,6 @@ for f in "$PKG"/.build/checkouts/*/Package.swift; do
   grep -n -E '\.macOS\("?\.?(v)?1[4-9]|\.macOS\("1[4-9]' "$f" && perl -pi -e "s/\.macOS\(\"1[4-9]\.0\"\)/.macOS(\"$FLOOR.0\")/; s/\.macOS\(\.v1[4-9]\)/.macOS(.v$FLOOR)/" "$f"
 done
 
-# Measurement-only: below 14 the two-parameter onChange is unavailable and this
-# one SwiftUI expression exceeds the solver limit; give the closure explicit types.
-perl -pi -e 's/\.onChange\(of: model\.selection\) \{ _, id in/.onChange(of: model.selection) { (_: String?, id: String?) in/' \
-  "$PKG/Sources/CmuxNextHistory/HistoryPageView.swift"
 echo "pass 1: build with availability checking off"
 swift build --package-path "$PKG" -v -debug-info-format none \
   -Xswiftc -Xfrontend -Xswiftc -disable-availability-checking \

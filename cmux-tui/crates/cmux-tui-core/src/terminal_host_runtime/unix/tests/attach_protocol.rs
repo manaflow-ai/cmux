@@ -18,7 +18,8 @@ fn termination_adoption_does_not_probe_legacy_protocols_for_receipt_hosts() {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     stream.set_nonblocking(false).unwrap();
-                    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+                    cmux_tui_platform::read_timeout_or_ended(&stream, Duration::from_millis(100))
+                        .unwrap();
                     if let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
                         hellos.push((frame.version, frame.flags));
                     }
@@ -98,6 +99,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
     let resolver = {
@@ -216,6 +218,7 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let (output_queued, output_seen) = sync_channel(1);
     let (release_ack, ack_release) = sync_channel(1);
@@ -381,6 +384,7 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let responder = thread::spawn(move || {
         let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -874,7 +878,10 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
     let (host, parser_commands) = exited_host_fixture_with_parser();
     let parser_host = host.clone();
     let parser = thread::spawn(move || {
-        let ParserCommand::Resize {
+        let ParserCommand::Resize(resize) = parser_commands.recv().unwrap() else {
+            panic!("expected resize command");
+        };
+        let ParserResize {
             cols,
             rows,
             cell_pixels,
@@ -883,10 +890,7 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
             targeted_ack,
             response,
             ..
-        } = parser_commands.recv().unwrap()
-        else {
-            panic!("expected resize command");
-        };
+        } = *resize;
         let result = parser_host.apply_parser_resize(
             cols,
             rows,

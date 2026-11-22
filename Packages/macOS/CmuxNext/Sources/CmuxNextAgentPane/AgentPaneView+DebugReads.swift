@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import AppKit
 public import CmuxNextSettings
 import Foundation
 
@@ -6,7 +7,8 @@ import Foundation
 /// builds): its readiness for a still and the ACP Inspector toggle.
 extension AgentPaneView {
     /// `debug.agent_pane readiness`: whether the page drew a transcript and a composer, and (with
-    /// `waitForAnimations`, up to 1 s) whether its menus finished animating.
+    /// `waitForAnimations`, up to 1 s) whether its menus finished animating. `open_waits` is the host's
+    /// count of waits for another process before this open's first paint (``AgentPaneOpenWaits``).
     public func debugReadiness(pane: String, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
@@ -43,6 +45,8 @@ extension AgentPaneView {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
             }
             members["pane"] = .string(pane)
+            members["open_waits"] = .object(["count": .number(Double(model.openWaits.count)),
+                                             "steps": .array(model.openWaits.steps.map { .string($0.rawValue) })])
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
@@ -65,6 +69,24 @@ extension AgentPaneView {
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
+    }
+
+    /// `debug.agent_pane menu_item`: the pane's own right-click menu, as WebKit would ask for it on
+    /// empty space at the pane's centre, with the row titled `title` chosen (a capture can't open a
+    /// real context menu): the rows run what a person's choice runs.
+    public func debugRunMenuItem(title: String, pane: String) -> JSONValue {
+        let menu = NSMenu()
+        editContextMenu(menu)
+        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        guard let item = menu.items.first(where: { $0.title == title }), let action = item.action else {
+            return .object(["pane": .string(pane), "error": .string("no row titled \(title)"), "rows": .array(titles.map(JSONValue.string))])
+        }
+        if let window {
+            let centre = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
+            lastContextMenu = (window.convertPoint(toScreen: centre), ProcessInfo.processInfo.systemUptime)
+        }
+        let ran = NSApp.sendAction(action, to: item.target, from: item)
+        return .object(["pane": .string(pane), "ran": .bool(ran), "rows": .array(titles.map(JSONValue.string))])
     }
 }
 #endif

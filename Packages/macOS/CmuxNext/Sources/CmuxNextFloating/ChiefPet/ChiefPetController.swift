@@ -57,6 +57,8 @@ public final class ChiefPetController {
     /// pass of its row after a turn ends, then `idle`.
     private(set) var chiefState = ChiefPetState.idle
     private(set) var drawnState = ChiefPetState.idle
+    /// The chat the mini stands for (Show in Mini; the Chief by default) and its newest reply.
+    private(set) var home = ChiefPetHome.chief
     /// Ends `done` after one pass of its row (one-shot; cancelled by the next state and when the pet turns off).
     private let doneTimer: DemandTimer
     /// Reduce Motion (the system's, calm mode or the test override) or the motion switches changing.
@@ -69,6 +71,14 @@ public final class ChiefPetController {
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
     /// and goes when its reply box closes; the setting turning on keeps it.
     var transient = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Where `debug.chief_pet`'s drag holds the pointer, in screen points (nil: no press; ChiefPetController+Debug).
+    var debugPointer: CGPoint?
+    /// `debug.chief_pet` `motion`: the frames move as over an active cmux (a capture app is never active); Reduce Motion still stops them.
+    var debugMotion = false
+    /// When `motion` turned on (`CACurrentMediaTime`): a `snapshot`'s `at` counts from here.
+    var debugMotionStart: CFTimeInterval?
+    #endif
 
     /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
     /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
@@ -99,15 +109,19 @@ public final class ChiefPetController {
     /// `ChiefPetMascot` id) and `upload` (the default Chief's worn upload, ``ChiefAvatarUploads``),
     /// read under observation: shows the pet when it turns on, hides it when it turns off, and draws
     /// the upload, else the chosen character.
-    /// `state`: what the Chief is doing now, read under observation too (an animated character draws it).
+    /// `state`: what the mini's chat is doing now, read under observation too (an animated character draws it).
+    /// `home`: the chat the mini stands for (``ChiefPetSubject``), its title and newest reply; the
+    /// App's `upload` and `state` read the same chat.
     public func start(enabled: @escaping @MainActor @Sendable () -> Bool,
                       mascot: @escaping @MainActor @Sendable () -> String = { ChiefPetMascot.initial.rawValue },
                       upload: @escaping @MainActor @Sendable () -> URL? = { nil },
-                      state: @escaping @MainActor @Sendable () -> ChiefPetState = { .idle }) {
+                      state: @escaping @MainActor @Sendable () -> ChiefPetState = { .idle },
+                      home: @escaping @MainActor @Sendable () -> ChiefPetHome = { .chief }) {
         // task-owner: lives as long as the app services; event-driven (Observation)
         watch = Task { [weak self] in
             // The Home motion switch and speed (`Motion.home`) are observed too: a moving upload stops at once.
-            for await (on, id, file, _, now) in ObservationStream({ (enabled(), mascot(), upload(), Motion.home.animatesLoops, state()) }) {
+            for await (on, id, file, _, now, chat) in ObservationStream({ (enabled(), mascot(), upload(), Motion.home.animatesLoops, state(), home()) }) {
+                self?.setHome(chat)
                 self?.setMascot(ChiefPetMascot(rawValue: id) ?? .initial)
                 self?.setUpload(file)
                 self?.panel?.pet.reconcileClip()
@@ -117,6 +131,19 @@ public final class ChiefPetController {
                 self?.sync(on)
             }
         }
+    }
+
+    /// The mini's chat now: an open reply box lists it (keeping a typed message only while its
+    /// target stays) and shows its newest reply.
+    func setHome(_ home: ChiefPetHome) {
+        guard home != self.home else { return }
+        let moved = home.chat != self.home.chat
+        self.home = home
+        panel?.pet.name(ChiefPetReply.title(home.target))
+        guard let replyPanel else { return }
+        if moved { replyPanel.show(targets: ChiefPetReply.targets(feed, home: home.target)) }
+        replyPanel.show(latest: home.latest, of: home.target)
+        placeReply()
     }
 
     /// Draws the upload `file` from now on instead of the character (nil: the character again).
@@ -163,6 +190,9 @@ public final class ChiefPetController {
     /// cmux in the background, or Reduce Motion; then it shows its state's first frame and runs nothing.
     var characterMoves: Bool {
         guard isOn || transient, let panel, panel.isVisible, panel.occlusionState.contains(.visible) else { return false }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugMotion { return !reduceMotion() }
+        #endif
         return appIsActive() && !reduceMotion()
     }
 
@@ -273,7 +303,7 @@ public final class ChiefPetController {
     func render(animated: Bool) {
         panel?.pet.badge = feed.attention
         drawCharacter()
-        replyPanel?.show(targets: ChiefPetReply.targets(feed))
+        replyPanel?.show(targets: ChiefPetReply.targets(feed, home: home.target))
         if feed.notices.isEmpty, expanded {
             expanded = false
             panel?.setExpanded(false)
@@ -322,6 +352,7 @@ public final class ChiefPetController {
         let made = makePanel()
         if mascot != .initial { made.pet.image = mascot.image }
         if let clip { made.pet.play(clip) }
+        made.pet.name(ChiefPetReply.title(home.target))
         made.onVisibilityChange = { [weak self] in self?.drawCharacter() }
         made.onClick = { [weak self] in self?.toggleReply() }
         // The right-click menu: the settings close the reply box first, so they come up alone.
@@ -331,10 +362,10 @@ public final class ChiefPetController {
         }
         made.onHide = { [weak self] in self?.actions.hide() }
         made.hideAllowed = { [weak self] in self?.actions.canHide() ?? false }
-        // With no notices the chevron opens the Chief.
+        // With no notices the chevron opens the mini's chat (the Chief by default).
         made.onExpand = { [weak self] in
             guard let self else { return }
-            guard !self.feed.notices.isEmpty else { return self.actions.open(.chief) }
+            guard !self.feed.notices.isEmpty else { return self.actions.open(self.home.target) }
             self.expanded.toggle()
             self.panel?.setExpanded(self.expanded)
             self.render(animated: false)

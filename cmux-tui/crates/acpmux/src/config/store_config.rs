@@ -25,12 +25,6 @@ pub struct StoreConfig {
     /// Default 14; 0 keeps every log whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_log_days: Option<u32>,
-    /// Every event-log line goes through one append-only journal with group commit
-    /// (R-DURABILITY S2, `store/journal_store.rs`): a line is durable within one sync, and a
-    /// restart after a crash writes again every line the journal holds past its checkpoint.
-    /// Default off.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub journal: bool,
 }
 
 impl StoreConfig {
@@ -53,31 +47,6 @@ impl Default for StoreConfig {
             mode: StoreMode::Local,
             segment_bytes: default_segment_bytes(),
             closed_log_days: None,
-            journal: false,
         }
     }
-}
-
-/// Whether `store.journal` is on in this home's config file, read without loading the rest of the
-/// config (no harness discovery): the daemon's process tier is set before it starts any thread
-/// (`qos::enter_daemon`). A file that is missing or does not read counts as off, the default; the
-/// daemon's own config load then reports the error.
-pub fn store_journal_enabled() -> bool {
-    #[derive(Deserialize)]
-    struct File {
-        #[serde(default)]
-        store: Option<Store>,
-    }
-    #[derive(Deserialize)]
-    struct Store {
-        #[serde(default)]
-        journal: bool,
-    }
-    let path = super::Config::path();
-    let Ok(mut file) = super::private_state_file(&path) else { return false };
-    let mut text = String::new();
-    if std::io::Read::read_to_string(&mut file, &mut text).is_err() {
-        return false;
-    }
-    serde_json::from_str::<File>(&text).ok().and_then(|file| file.store).is_some_and(|s| s.journal)
 }

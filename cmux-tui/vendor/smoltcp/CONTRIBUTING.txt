@@ -1,0 +1,26 @@
+CONTRIBUTIONS and CODE REVIEWS
+
+We love contributions from the community. Please send pull requests and raise
+issues! All code submissions require review. We use GitHub pull requests for
+this purpose.
+
+
+USE OF LARGE LANGUAGE MODELS / "GENERATIVE AI" TOOLS
+
+You are expected to follow the project's LLM policy in all interactions.
+Refer to https://nlnetlabs.nl/llm-policy/ for the full text and motivation.
+
+
+COPYRIGHTS and LICENSE
+
+Smoltcp is licensed under the 0-clause BSD license, which is contained in
+the LICENSE-0BSD.txt file.
+
+All authors retain copyright ownership of their contributions.
+
+
+CONTRIBUTORS
+
+The complete list of contributors is contained within the git repository.
+Tools such as the git log command can be used to see all contributions and
+contributors.

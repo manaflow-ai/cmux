@@ -19,10 +19,34 @@ final class LinkTestClock: Clock, @unchecked Sendable {
     private var instant = Instant(offset: .zero)
     private var sleepers: [Sleeper] = []
     private var stopped = false
+    /// Every deadline a sleep asked for, in call order (also the ones that returned at once).
+    private var calls: [Instant] = []
     var now: Instant { lock.withLock { instant } }
     var minimumResolution: Duration { .zero }
+    /// The earliest deadline a sleeper waits for, if any.
+    var nextDeadline: Instant? {
+        lock.withLock { sleepers.map(\.deadline).min() }
+    }
+    /// The deadlines asked for by the sleeps after the first `from`, and how many sleeps there were.
+    func sleepCalls(from: Int) -> (deadlines: [Instant], count: Int) {
+        lock.withLock { (Array(calls.dropFirst(from)), calls.count) }
+    }
     func isSleeping(until deadline: Instant) -> Bool {
         lock.withLock { sleepers.contains { $0.deadline == deadline } }
+    }
+    /// Every deadline has a sleeper; one listed twice needs two (two timers
+    /// can share a deadline, and the test must wait for both).
+    func isSleeping(untilAll deadlines: [Instant]) -> Bool {
+        lock.withLock {
+            deadlines.allSatisfy { deadline in
+                sleepers.filter { $0.deadline == deadline }.count >= deadlines.filter { $0 == deadline }.count
+            }
+        }
+    }
+
+    /// Some timer waits past now (the heartbeat's next beat once it re-armed).
+    func isSleeping(after instant: Instant) -> Bool {
+        lock.withLock { sleepers.contains { $0.deadline > instant } }
     }
 
     func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
@@ -30,6 +54,7 @@ final class LinkTestClock: Clock, @unchecked Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let waits = lock.withLock {
+                    calls.append(deadline)
                     if stopped || deadline <= instant || Task.isCancelled { return false }
                     sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
                     return true

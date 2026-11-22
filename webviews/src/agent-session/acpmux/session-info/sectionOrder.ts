@@ -21,56 +21,64 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
-  running: ["subagents", "tasks"],
+  running: ["progress", "subagents", "tasks", "alsoHere"],
 };
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
 
-/// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, the
-/// running subagents and background tasks, then Sources (Leo, 2026-11-03: "1. Machines showing up so
-/// I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources"). Usage, a
-/// folded row valued at Context's spend, stays right after Context; the sections he did not name
-/// follow Sources. A person's saved order (a drag) still wins over this one.
+/// The panel's Show more line, kept in the order as an item of its own: the sections above it are in
+/// view, the ones under it fold away behind it until the person opens it. A drag across it pins a
+/// section into view or tucks it away, and the order keeps where the line is (Lucas, 2026-11-05,
+/// Session Info lab "Proposal"). An older pane reading the order drops the id it does not know.
+export const MORE_LINE = "more" satisfies SessionInfoSectionId;
+
+/// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, what
+/// it runs (its plan's Progress first), then Sources and Outputs (Leo, 2026-11-03: "1. Machines
+/// showing up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4.
+/// Sources"). Under the Show more line: pull requests, Usage and Connectors. A person's saved order
+/// (a drag) still wins over this one.
 export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "environment",
   "context",
-  "usage",
+  "progress",
   "subagents",
   "tasks",
   "sources",
-  "changes",
   "outputs",
+  "alsoHere",
+  MORE_LINE,
+  "changes",
+  "usage",
   "connectors",
 ];
 
-/// Leo's four, always in view: the machine, Context, what it runs, Sources (DEFAULT_ORDER above).
-export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = [
-  "environment",
-  "context",
-  "subagents",
-  "tasks",
-  "sources",
-];
+/// Environment heads the panel and never moves: it is what the chat runs on, as ChatGPT's and Codex's
+/// panels start with it, and its rows start with their own icons, so a grip beside it read as a stray
+/// icon (Lucas, 2026-11-06: "the re order icon feels a bit weird here"). No grip; nothing drops above it.
+export const PINNED_TOP: SessionInfoSectionId = "environment";
 
-/// The less-used sections, behind the panel's one Show more until the person opens it (Leo,
-/// 2026-11-03: "i feel like it's a bit too much stuff by default there's a bunch of things there that
-/// can be a bit more hidden under 'show more' or whatnot"). None is ever dropped: Show more lists them
-/// all, a reveal (a running line's count, the header's chip) opens it, and its choice stays.
-export const MORE_SECTIONS: readonly SessionInfoSectionId[] = ["usage", "changes", "outputs", "connectors"];
+/// Whether section `id` has a grip (every one but the pinned head).
+export const movable = (id: SessionInfoSectionId) => id !== PINNED_TOP;
 
-/// The sections of `shown` that the panel's Show more hides while it is closed: every less-used one,
-/// unless the person's own order (a drag) put it above one of Leo's four that it follows by default;
-/// that one stays in view, so a drag still wins. `order` is the panel's whole order (sectionOrder).
+/// The sections in view by default: every one above the Show more line.
+export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = DEFAULT_ORDER.slice(
+  0,
+  DEFAULT_ORDER.indexOf(MORE_LINE),
+);
+
+/// The sections under the Show more line by default.
+export const MORE_SECTIONS: readonly SessionInfoSectionId[] = DEFAULT_ORDER.slice(DEFAULT_ORDER.indexOf(MORE_LINE) + 1);
+
+/// The sections of `shown` that the panel's Show more hides while it is closed: every one under the
+/// Show more line in `order`, the panel's whole order (sectionOrder). None is ever dropped: Show more
+/// lists them all, and a reveal (a running line's count, the header's chip) opens it.
 export function tuckedSections(
   shown: readonly SessionInfoSectionId[],
   order: readonly SessionInfoSectionId[] = shown,
 ): SessionInfoSectionId[] {
-  const placed = (id: SessionInfoSectionId) =>
-    PRIORITY_SECTIONS.some(
-      (priority) =>
-        DEFAULT_ORDER.indexOf(priority) < DEFAULT_ORDER.indexOf(id) && order.indexOf(id) < order.indexOf(priority),
-    );
-  return shown.filter((id) => MORE_SECTIONS.includes(id) && !placed(id));
+  const line = order.indexOf(MORE_LINE);
+  if (line < 0) return [];
+  return shown.filter((id) => id !== MORE_LINE && order.indexOf(id) > line);
 }
 
 /// The block a section belongs to by default.
@@ -183,11 +191,21 @@ export function sectionOrder(
   order: Order = read(),
   apps: readonly SessionInfoSectionId[] = [],
 ): SessionInfoSectionId[] {
+  // An order saved before the Show more line was an item has none: its less-used sections go under
+  // the line, each in the person's order, so they stay folded away as they were.
+  if (order.length > 0 && !order.includes(MORE_LINE))
+    order = [
+      ...order.filter((id) => !MORE_SECTIONS.includes(id)),
+      MORE_LINE,
+      ...order.filter((id) => MORE_SECTIONS.includes(id)),
+    ];
   const defaults = [...DEFAULT_ORDER];
   // Keep the built-in order unchanged. With Show more closed, installed app sections follow
   // Leo's four; with it open they still follow Sources. Saved positions always win.
   defaults.splice(defaults.indexOf("sources") + 1, 0, ...apps.filter(isAppId));
-  return fill(order, defaults);
+  const filled = fill(order, defaults);
+  // An order saved before Environment was pinned may have moved it: it heads the list again.
+  return filled[0] === PINNED_TOP ? filled : [PINNED_TOP, ...filled.filter((id) => id !== PINNED_TOP)];
 }
 
 export function useSectionOrder(apps: readonly SessionInfoSectionId[] = []): SessionInfoSectionId[] {
@@ -201,8 +219,11 @@ export function moveTo(
   id: SessionInfoSectionId,
   to: number,
 ): SessionInfoSectionId[] {
+  if (!movable(id)) return [...shown];
   const next = shown.filter((other) => other !== id);
-  next.splice(Math.max(0, Math.min(to, next.length)), 0, id);
+  // Nothing drops above the pinned head.
+  const floor = next[0] === PINNED_TOP ? 1 : 0;
+  next.splice(Math.max(floor, Math.min(to, next.length)), 0, id);
   return next;
 }
 

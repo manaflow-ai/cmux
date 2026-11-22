@@ -5,7 +5,8 @@
 // then reports each card's height and its parts' (code-handoff-height.test.ts reads it).
 import type { CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
-import { CodeBlock, loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { CodeBlock } from "../../src/agent-session/acpmux/conversation/CodeBlock";
+import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { PlainCode } from "../../src/agent-session/acpmux/conversation/StreamingCode";
 import { REPLY } from "../../src/agent-session/acpmux/conversation/streamingTextFixture";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).

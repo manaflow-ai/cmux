@@ -109,9 +109,14 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let unreadableKept = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
+    /// The prompts no agent took yet, by chat, beside this file: the ones this journal forgets at a
+    /// refusal or another answer stay there until an agent takes them or the person removes them.
+    public let unsentPrompts: AgentPaneUnsentPrompts
+
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
         self.now = now
+        unsentPrompts = AgentPaneUnsentPrompts(directory: url.deletingLastPathComponent(), now: now)
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
@@ -228,27 +233,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
-    /// Connection `owner` ended. `byDaemon`: the daemon's side closed it, and its page was told,
-    /// so the prompts that page sent are the page's again (Retry); the rest are left over. The
-    /// change is made at once (no file read on the caller's thread) and written off it.
-    func connectionEnded(owner: UUID, byDaemon: Bool) {
-        let snapshot = state.withLock { state -> (Int, [Entry], [PendingTrust])? in
+    /// Connection `owner` ended: the prompts it held are left over, for the next connection to
+    /// send again. Nothing on disk changes.
+    func connectionEnded(owner: UUID) {
+        state.withLock { state in
             state.ended.insert(owner)
-            guard state.loaded else { return nil }
-            var changed = false
+            guard state.loaded else { return }
             for (key, holder) in state.holders where holder.owner == owner {
                 state.holders[key] = nil
-                if byDaemon, case .page = holder {
-                    state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
-                    changed = true
-                }
             }
-            guard changed else { return nil }
-            state.generation += 1
-            return (state.generation, state.entries, state.pendingTrust)
         }
-        guard let (generation, entries, pendingTrust) = snapshot else { return }
-        queue.async { [self] in write(entries, pendingTrust: pendingTrust, generation: generation) }
     }
 
     /// The prompts kept now (tests).

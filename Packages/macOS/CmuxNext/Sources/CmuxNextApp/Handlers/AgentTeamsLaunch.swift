@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 /// Launch Claude Teams and Launch Codex Teams: one path behind the palette, the CLI
 /// (`cmux agent launch-claude-teams|launch-codex-teams`) and MCP `action run`.
@@ -9,6 +10,7 @@ import CmuxNextDaemon
 /// `cmux claude-teams` also put each teammate in its own split through a private tmux shim, and
 /// `cmux codex-teams` opened each subagent in a split through a Codex app-server watcher; cmux-next
 /// has neither yet, so the teammates and subagents run inside the one terminal.
+/// The action and the shell line of each are cmux-window-rules `chat::agent::tables` (`teams`).
 enum AgentTeamsLaunch: CaseIterable {
     case claude, codex
 
@@ -18,38 +20,37 @@ enum AgentTeamsLaunch: CaseIterable {
         self = launch
     }
 
-    var actionID: ActionID {
+    private var harness: String {
         switch self {
-        case .claude: "palette.launchClaudeTeams"
-        case .codex: "palette.launchCodexTeams"
+        case .claude: "claude"
+        case .codex: "codex"
         }
     }
 
-    /// The line typed into the new terminal's shell. The environment assignment applies to the
-    /// agent only, so the shell keeps its own environment after the agent exits.
-    var shellLine: String {
-        switch self {
-        case .claude: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --teammate-mode in-process\n"
-        case .codex: "codex -c features.multi_agent=true\n"
-        }
+    private var row: WindowRules.ChatAgentTables.TeamsLaunch? {
+        WindowRules.chatAgentTables?.teams.first { $0.harness == harness }
     }
+
+    /// The action that runs it; nil when the FFI does not answer (it is not bound).
+    var actionID: ActionID? { row.map { ActionID(rawValue: $0.action) } }
+
+    /// The line typed into the new terminal's shell.
+    var shellLine: String? { row?.shellLine }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for launch in allCases {
-            registry.bind(launch.actionID, run: { invocation in try launch.run(invocation, context: context) })
+            guard let id = launch.actionID else { continue }
+            registry.bind(id, run: { invocation in try launch.run(invocation, context: context) })
         }
     }
 
     private func run(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let connection = try context.requireConnection()
         let scope = context.scope(invocation)
-        let line = shellLine
+        guard let line = shellLine else { return }
         let logger = context.daemon.logger
         guard let pane = scope.pane else {
-            // No pane to open a tab in: a new workspace, placed like Cmd-N (cx-caoh).
-            let key = WorkspaceKey.generate()
-            let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+            let key = NewWorkspacePlacements.placedKey(in: context.services.windows) // no pane to open a tab in: a new workspace (cx-caoh)
             let repair = context.services.emptyWorkspaces
             let reveal = invocation.allowsViewChange
             Task {

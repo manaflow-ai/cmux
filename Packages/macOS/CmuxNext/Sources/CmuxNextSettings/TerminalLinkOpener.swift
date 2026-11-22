@@ -24,9 +24,9 @@ public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
     /// The rules, first match wins.
     public var rules: [TerminalLinkOpenerRule]
 
-    public static let fallback = TerminalLinkOpener(defaultTarget: .cmux, rules: [])
-    public static let defaultPath = ["terminal", "linkOpener", "default"]
-    public static let rulesPath = ["terminal", "linkOpener", "rules"]
+    /// The paths and the default target's name are generated from
+    /// schemas/settings/source/terminal.json; the JSON default always parses (`.cmux`).
+    public static let fallback = TerminalLinkOpener(defaultTarget: TerminalLinkOpenerTarget(defaultDefault) ?? .cmux, rules: [])
 
     public init(defaultTarget: TerminalLinkOpenerTarget, rules: [TerminalLinkOpenerRule]) {
         self.defaultTarget = defaultTarget

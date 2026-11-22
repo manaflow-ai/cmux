@@ -3,12 +3,13 @@
 // versions under one More models row, so a new release is always in view.
 import { isDefaultChoice } from "./defaultChoice";
 import { classify } from "./modelTaxonomy";
+import { olderInMenu } from "./relevantModels";
 
 /** `family` is the catalog's ("Opus", "Sol"); without one the name and id decide it. */
 export type SectionModel = { id: string; name: string; family?: string };
 
 /** A model a curated list can name: by its id, or by the catalog release an alias row stands for. */
-export type CuratedModel = { id: string; name: string; release?: string };
+export type CuratedModel = { id: string; name: string; release?: string; family?: string };
 
 /** The version a model's name states before any " · " detail ("Opus 5.5 · 1M context" is [5, 5]);
  *  none for "Opus", "Opus · 1M context" or "Opus plan". */
@@ -59,7 +60,8 @@ export function modelSections<T extends SectionModel>(
 }
 
 /// With a curated list (topModels/): its models first, in its order, each followed by its variants
-/// ("Fable 5.1 · 1M context"), and every other model under More models, newest family first, then
+/// ("Fable 5.1 · 1M context"), less the older versions of a line it also lists at a newer one
+/// (`olderInMenu`), and every other model under More models, newest family first, then
 /// older ones. Without one, or when the harness offers none of it, the catalog's newest family stays
 /// first. The composer's model picker and Retry's model menu both order models this way.
 export function curatedSections<T extends CuratedModel>(
@@ -78,5 +80,9 @@ export function curatedSections<T extends CuratedModel>(
     for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
   }
   if (latest.length === 0) return sections;
-  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
+  // A live menu that names older versions too (Claude Code through a gateway lists Opus 4.8 beside
+  // Opus 5.5) keeps each line's newest on top; the rest fold under More models.
+  const folded = olderInMenu(latest);
+  const shown = latest.filter((choice) => !folded.has(choice));
+  return { latest: shown, older: all.filter((choice) => !shown.includes(choice)) };
 }

@@ -25,7 +25,12 @@ extension MainThreadWatchdog {
     /// per `hangReportInterval`. Watchdog thread only.
     func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
-        logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
+        lastHangUptime.store(now, ordering: .releasing)
+        // Our code or the Mac: main-thread CPU against wall time so far, and the host load (StallVerdict).
+        let cpu = mainThreadCPU(sinceBeat: beat).map { Duration.nanoseconds(Int64(clamping: $0)) }
+        let host = HostLoad.current()
+        let verdict = StallVerdict.classify(wall: duration, mainThreadCPU: cpu, host: host)
+        logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting, \(verdict.rawValue, privacy: .public): main thread cpu \(cpu?.fractionalMilliseconds ?? -1, format: .fixed(precision: 0)) ms, host load \(host?.one ?? -1, format: .fixed(precision: 1)) on \(host?.cores ?? 0) cores")
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes
@@ -82,8 +87,10 @@ extension MainThreadWatchdog {
     func load(beat: UInt64, cpuNanos: UInt64?) -> HangLoad {
         let cpu = cpuNanos.map { Duration.nanoseconds(Int64(clamping: $0)) }
         guard let base = stallEvents.withLock({ $0 }), base.beat == beat, let counts = base.counts else {
-            return HangLoad(mainThreadCPU: cpu)
+            return HangLoad(mainThreadCPU: cpu, host: HostLoad.current())
         }
-        return counts.load(to: TaskEventCounts.current(), cpu: cpu)
+        var load = counts.load(to: TaskEventCounts.current(), cpu: cpu)
+        load.host = HostLoad.current()
+        return load
     }
 }

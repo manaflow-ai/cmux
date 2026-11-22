@@ -85,6 +85,7 @@ public final class PushRegistration {
     /// The APNs device token (app delegate).
     public func didRegister(deviceToken: Data) {
         token = deviceToken.map { String(format: "%02x", $0) }.joined()
+        log.info("APNs token received")
         sync()
     }
 
@@ -159,7 +160,13 @@ public final class PushRegistration {
         // The token and API can arrive during a notification's headless
         // background launch. Its server row already has the user's saved
         // preferences; wait for the foreground Settings owner before PUT.
-        guard let api, let deviceID, let token, let topic, let preferences else { return }
+        guard let api, let deviceID, let token, let topic, let preferences else {
+            // Which part the PUT still waits for: the next failure says it (never the token itself).
+            let missing = [api == nil ? "service" : nil, deviceID == nil ? "device id" : nil, token == nil ? "APNs token" : nil,
+                           topic == nil ? "topic" : nil, preferences == nil ? "preferences" : nil].compactMap { $0 }
+            log.info("push registration waits for: \(missing.joined(separator: ", "), privacy: .public)")
+            return
+        }
         let registration = Registration(api: api, deviceID: deviceID, token: token, environment: Self.environment,
                                         topic: topic, preferences: preferences)
         // A write in flight may replace `sent` on the server. Keep the latest

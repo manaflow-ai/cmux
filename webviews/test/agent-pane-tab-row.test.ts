@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// One row on top (the chrome.tabs.rowTools Debug setting; Leo 2026-10-14, "why is there even a top
+// One row on top (Leo 2026-10-14, "why is there even a top
 // bar"): while the App offers the pane's tab row (`tabRow {height, trailingInset}`), the chat header
 // is that row's height, shows its tools at its right end left of the pane's own "…", and reports
 // their width (`pane.tabRowTools`) so the App narrows the tabs; 0 once the row ends. Without an

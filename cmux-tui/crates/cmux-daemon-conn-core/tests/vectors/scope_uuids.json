@@ -1,0 +1,29 @@
+{
+ "_doc": "DaemonCommandScope.derivedUUID: SHA-256 of cmux-next/<kind>/<ordinal>/<key>, first 16 bytes, UUIDv4 layout, lowercase.",
+ "uuids": [
+  {
+   "key": "retry-1",
+   "kind": "mutation",
+   "ordinal": 1,
+   "uuid": "21f73286-4620-4a83-a715-16177838e7c9"
+  },
+  {
+   "key": "retry-1",
+   "kind": "mutation",
+   "ordinal": 2,
+   "uuid": "e5667600-c9f4-469a-acf7-ebbe58df44e8"
+  },
+  {
+   "key": "retry-1",
+   "kind": "terminal",
+   "ordinal": 1,
+   "uuid": "6d7e599f-73c7-4255-a965-7cfad1657fe4"
+  },
+  {
+   "key": "\u00fcn\u00efcode key",
+   "kind": "workspace",
+   "ordinal": 3,
+   "uuid": "e3b8733f-91ce-43b2-9b73-acf946c1efc7"
+  }
+ ]
+}

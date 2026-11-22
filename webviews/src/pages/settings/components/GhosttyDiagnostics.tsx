@@ -5,6 +5,7 @@
 import { useSettingsState } from "../context";
 import type { GhosttyDiagnostic } from "../ops";
 import { t } from "../strings";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 function reasonText(diagnostic: GhosttyDiagnostic): string {
   switch (diagnostic.reason) {
@@ -29,9 +30,11 @@ function title(diagnostic: GhosttyDiagnostic): string {
 export function GhosttyDiagnostics() {
   const { host } = useSettingsState();
   const diagnostics = host?.ghostty_diagnostics;
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(diagnostics));
   if (!diagnostics) return null;
   return (
-    <section className="group" data-card="ghostty-diagnostics">
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="ghostty-diagnostics">
       <h3 className="group-title">{t("settingsWindow.ghosttyDiagnostics.title")}</h3>
       <div className="row-help">{t("settingsWindow.ghosttyDiagnostics.help")}</div>
       <div className="rows">

@@ -1,6 +1,7 @@
 import { authenticate } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { timingSafeEqual } from "./ingress/verify.ts"
+import { platformCloud } from "./platform-cloud.ts"
 
 /**
  * Operator route: POST /v1/admin/cloud/abandoned/clear {team, machine, reason}.
@@ -41,7 +42,7 @@ export const handleCloudAbandonedClear = async (request: Request, env: Env): Pro
   if (!team || !machine || !reason) return json({ error: "team, machine and reason (8 to 500 characters) are required" }, 400)
   const ns = env.CLOUD_DO
   if (!ns) return json({ error: "no CloudDO binding" }, 503)
-  const stub = ns.get(ns.idFromName(team)) as unknown as { clearAbandoned(entity: string, machine: string, who: { user: string; email: string | null }, reason: string): Promise<{ ok: boolean; code?: string; message?: string; audit?: unknown }> }
+  const stub = platformCloud(ns, team)
   const r = await stub.clearAbandoned(team, machine, { user: person.user, email: person.email }, reason)
   if (r.ok) return json({ cleared: true, audit: r.audit })
   const status = r.code === "vm_present" ? 409 : r.code === "provider_unavailable" ? 503 : 404

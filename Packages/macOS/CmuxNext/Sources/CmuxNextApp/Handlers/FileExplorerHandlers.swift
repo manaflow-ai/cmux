@@ -1,6 +1,7 @@
 import CmuxNextActions
 import Foundation
 import CmuxNextFilesUI
+import CmuxNextWindowRules
 
 /// The tree an explorer action runs on, and what the run needs from its window.
 struct FileExplorerRunTarget {
@@ -51,21 +52,23 @@ enum FileExplorerHandlers {
         command("fileExplorerCopyPath") { try $0.copyPath() }
         command("fileExplorerCopyRelativePath") { try $0.copyRelativePath() }
         work("fileExplorerOpenWith") { invocation, commands, _ in
-            guard let app = invocation["app"]?.stringValue, !app.isEmpty else {
-                // No app (the menu's Other…): the person picks one, for the file the panel was opened for.
-                // A script cannot answer a panel, so its run is refused.
-                guard invocation.origin == .user else { throw FileExplorerError.noSuchApp("") }
-                guard let row = commands.model.selectedRow else { throw FileExplorerError.noSelection }
-                let item = row.url
+            // No app (the menu's Other…): the person picks one; a script cannot answer a panel (`files::open_with`).
+            let row = commands.model.selectedRow
+            let open = WindowRules().openWith(app: invocation["app"]?.stringValue, byPerson: invocation.origin == .user, selection: row != nil)
+            switch open?.decision {
+            case "app"?:
+                if let app = open?.app { try await commands.open(withApp: app) }
+            case "choose"?:
+                guard let item = row?.url else { throw FileExplorerError.noSelection }
                 FileExplorerOpenWithMenu.chooseApp(for: item) { app in
                     // task-owner: one open with the chosen app; ends when the app has the file.
                     Task { @MainActor in
                         do { try await effects.open(item, withApp: app) } catch { registry.refuse(Self.reason(error)) }
                     }
                 }
-                return
+            case "noSelection"?: throw FileExplorerError.noSelection
+            default: throw FileExplorerError.noSuchApp("")
             }
-            try await commands.open(withApp: app)
         }
         work("fileExplorerNewFile") { _, commands, target in target.rename(try await commands.newFile()) }
         work("fileExplorerNewFolder") { _, commands, target in target.rename(try await commands.newFolder()) }

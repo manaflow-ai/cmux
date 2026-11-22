@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextControl
 
 /// `debug.open_panel_bench` (DEBUG builds): one file-picker open as a click runs it (Home's "+", an agent
 /// composer's Attach), timed to the display frame that shows the sheet, then cancelled.

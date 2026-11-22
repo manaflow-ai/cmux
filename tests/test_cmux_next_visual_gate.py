@@ -22,6 +22,7 @@ import zlib
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/cmux-next/visual-gate"
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("visual_gate", GATE / "visual_gate.py")
 gate = importlib.util.module_from_spec(spec)
@@ -1056,10 +1057,12 @@ class CaptureStatesTests(unittest.TestCase):
 
 
 def load_media_runner():
-    spec = importlib.util.spec_from_file_location("media_runner_for_gate", ROOT / "scripts/ci/cmux_next_media_runner.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_media_runner
+    return cmux_next_media_runner
 
 
 def runner(name, *labels, busy=False, status="online"):
@@ -1232,14 +1235,16 @@ class WiringTests(unittest.TestCase):
         self.assertIn("contents: read", perms)
         self.assertIn("actions: read", perms)
         self.assertNotIn("environment:", verdict)
-        self.assertNotIn("secrets.", verdict)
+        self.assertEqual(workflow_jobs.secret_names(verdict), set())
         # Bounded: on attempt 1 at most 10 min past the signed build (5 for a gate still queued); a
         # re-run, which starts the gate beside this job, the queue budget plus the gate's own timeout.
         self.assertIn('budget=(--queue-budget-minutes 5 --hold-minutes 10 --since-job "Verify final nightly DMG")', verdict)
         self.assertIn("budget=(--queue-budget-minutes 15 --gate-timeout-minutes 75)", verdict)
         self.assertIn("GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}", verdict)
         self.assertIn("timeout-minutes: 75", gate)
-        self.assertEqual(int(re.search(r"timeout-minutes: (\d+)", verdict).group(1)), 100)
+        # 100 min, or 220 in one-mini mode (132f7cef: one-mini jobs get 120 more for the capacity wait).
+        self.assertEqual(re.search(r"timeout-minutes: (.+)", verdict).group(1).strip(),
+                         "${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}")
         self.assertIn("persist-credentials: false", verdict)
         self.assertIn("sparse-checkout: |\n            scripts/ci/nightly_next_canary_mode.py\n", verdict)
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)

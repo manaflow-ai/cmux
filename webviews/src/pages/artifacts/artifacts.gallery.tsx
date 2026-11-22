@@ -44,11 +44,11 @@ export default componentEntry<Props>({
   },
   variants: {
     html: {
-      note: "An HTML artifact, shown as its text (rendered previews come in a later slice).",
+      note: "An HTML artifact drawn in a scriptless sandboxed frame, with its one revision.",
       props: { open: "artifacts/release-dashboard/index.html" },
     },
     memory: {
-      note: "A synced memory note as text.",
+      note: "A synced memory note with two revisions: the newest one's change against its parent.",
       props: { open: "memory/claude/artifacts-pane.md" },
     },
     empty: { note: "Nothing saved yet.", props: { kind: "empty" } },

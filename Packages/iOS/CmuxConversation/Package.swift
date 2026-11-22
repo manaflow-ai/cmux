@@ -25,6 +25,8 @@ let package = Package(
     dependencies: [
         // The composer's keyboard dock (MobileKeyboardDock), iOS only.
         .package(path: "../CmuxMobileSupport"),
+        // The spinner every cmux surface draws, on the shared spinner period.
+        .package(path: "../../Shared/CmuxSpinner"),
     ],
     targets: [
         .target(
@@ -41,7 +43,7 @@ let package = Package(
         .target(
             name: "CmuxConversationUI",
             dependencies: [
-                "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation",
+                "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation", .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ],
             resources: [.process("Resources")],
@@ -49,7 +51,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxConversationMacUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation", .product(name: "CmuxSpinner", package: "CmuxSpinner")],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),

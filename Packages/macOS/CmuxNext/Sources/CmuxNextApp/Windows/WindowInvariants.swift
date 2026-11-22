@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloudUI
 import CmuxNextSettings
 import os
 
@@ -20,7 +21,7 @@ enum WindowInvariants {
             }
             if !window.isOpen { problems.append("window \(id) is on screen but closed") }
             if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
-            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window), !(controller.root.content is CloudMachineProgressView) {
+            if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window), !(controller.root.content is CloudProgressHost) {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
@@ -41,6 +42,8 @@ enum WindowInvariants {
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),
                     "workspaces": .array(window.workspaceIDs.map(JSONValue.string)),
+                    "guests": .array(window.guests.sorted().map(JSONValue.string)), // another window's, shown here too
+                    "space": manager.states[window.id].map { .string($0.profileID.rawValue) } ?? .null,
                     "selected": manager.states[window.id]?.workspaceID.map(JSONValue.string) ?? .null,
                     "has_controller": .bool(controller != nil),
                     "visible": .bool(controller?.window?.isVisible ?? false),

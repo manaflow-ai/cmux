@@ -2,7 +2,6 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
-import { ROW_PITCH } from "./model";
 import { threadMinimapWave } from "./wave.experiment";
 
 // The compact rail's hover wave at each shape wave.experiment.ts keeps, side by side in the compare
@@ -31,7 +30,7 @@ async function holdBetween(ctx: PlayContext, index: number, share: number) {
   const list = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
   const box = ctx.find({ selector: tick }).getBoundingClientRect();
   const view = ctx.document.defaultView!;
-  const at = { clientX: box.left + 6, clientY: box.top + ROW_PITCH * share, bubbles: true, pointerType: "mouse" };
+  const at = { clientX: box.left + 6, clientY: box.top + box.height * share, bubbles: true, pointerType: "mouse" };
   list.dispatchEvent(new view.PointerEvent("pointermove", at));
   await ctx.waitFor(() => {
     const rail = ctx.document.querySelector(".acpmux-minimap__rail");

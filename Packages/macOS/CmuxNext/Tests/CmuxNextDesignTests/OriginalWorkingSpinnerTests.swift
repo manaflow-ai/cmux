@@ -44,16 +44,17 @@ import CmuxNextDesignTokens
         #expect(indicator.nativeLayer == nil)
     }
 
-    @Test func itTurnsClockwiseOncePerPointNineSecondsOnTheSharedClock() throws {
+    @Test func itTurnsClockwiseOncePerTwoSecondsOnTheSharedClock() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        #expect(MotionTunables.loopDefaults[.spinner]?.0 == 0.9)
+        #expect(MotionTunables.loopDefaults[.spinner]?.0 == MotionScale.spinnerPeriod)
+        #expect(MotionScale.spinnerPeriod == 2)
         let indicator = Self.drawn(side: 14)
         let spin = try #require(indicator.glyphLayer?.animation(forKey: "spin") as? CABasicAnimation)
         #expect(spin.keyPath == "transform.rotation.z")
-        #expect(spin.duration == 0.9, "period \(spin.duration)")
+        #expect(spin.duration == 2, "period \(spin.duration)")
         #expect(spin.fromValue as? CGFloat == 0 && spin.toValue as? CGFloat == -2 * .pi)
-        // Phase: Unix 1000.45 is 0.55 s into a 0.9 s turn, so the loop began 0.55 s before media 100.
-        #expect(abs(spin.beginTime - 99.45) < 1e-6, "begin \(spin.beginTime)")
+        // Phase: Unix 1000.45 is 0.45 s into a 2 s turn, so the loop began 0.45 s before media 100.
+        #expect(abs(spin.beginTime - 99.55) < 1e-6, "begin \(spin.beginTime)")
     }
 }

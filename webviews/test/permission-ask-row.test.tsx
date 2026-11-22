@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -57,7 +58,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -79,6 +81,12 @@ function visibleText(node: Node): string {
   return [...node.childNodes].map(visibleText).join(" ");
 }
 const count = (text: string, part: string) => text.split(part).length - 1;
+/// A button's name as read aloud: its text without what it hides from assistive tech (a keycap).
+const readName = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent;
+};
 
 const command = "B=1 bun run lint --help";
 const callId = "call-lint";
@@ -176,7 +184,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   const answers = () =>
     [...panel.querySelectorAll<HTMLButtonElement>("button")]
       .filter((button) => !button.hasAttribute("aria-expanded"))
-      .map((button) => button.textContent?.trim());
+      .map((button) => readName(button)?.trim());
   expect(answers()).toEqual(["Allow", "Always", "Deny"]);
 
   // The row opens by a click: the full command and the scope, in plain words.
@@ -191,7 +199,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   expect(details.textContent).not.toMatch(/ACP|Isolation/);
 
   const always = [...panel.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent?.trim() === "Always",
+    (button) => readName(button)?.trim() === "Always",
   )!;
   await act(async () => always.click());
   expect(responses).toEqual(["allow_chat"]);
@@ -210,7 +218,7 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
     ),
   );
   const answered = document.querySelector<HTMLElement>(".acpmux-permission-panel");
-  expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim())).not.toContain(
+  expect([...(answered?.querySelectorAll("button") ?? [])].map((button) => readName(button)?.trim())).not.toContain(
     "Allow",
   );
   await act(async () => root.unmount());
@@ -292,7 +300,7 @@ test("an ask whose allows the daemon refuses offers only Deny and says where to 
   const buttons = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
     (button) => !button.hasAttribute("aria-expanded"),
   );
-  expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Deny"]);
+  expect(buttons.map((button) => readName(button)?.trim())).toEqual(["Deny"]);
   const seen = visibleText(panel).replace(/\s+/g, " ");
   expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
   expect(seen).not.toContain("Always also allows");

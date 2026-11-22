@@ -6,7 +6,7 @@ import {
   presentationOf,
   setPresentation,
 } from "../conversation/presentation";
-import type { ChatMenuChild } from "./ChatHeaderTools";
+import type { ChatMenuChild } from "./chatHeaderToolsModel";
 import { transcriptViewRow } from "./transcriptViewRow";
 
 /** Add presentation to the existing submenu, leaving the top-level chat menu its same height. */

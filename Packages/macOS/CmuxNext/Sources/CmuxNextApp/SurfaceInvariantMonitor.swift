@@ -31,7 +31,7 @@ final class SurfaceInvariantMonitor {
     /// Tab switch timeline marks (category "tab-switch", debug level).
     nonisolated static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 
-    /// Re-checks after any window's occlusion changes (AppServices wiring).
+    /// Re-checks after any window's occlusion changes (AppServices wiring), and hands the flip to the agent flicker log.
     func observeWindowOcclusion() {
         guard occlusionObserver == nil else { return }
         occlusionObserver = NotificationCenter.default.addObserver(
@@ -41,6 +41,7 @@ final class SurfaceInvariantMonitor {
             let window = note.object as? NSWindow
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let window else { return }
+                self?.services?.madeAgentTabs?.paneShared.flickerLog?.recordOcclusion(of: window)
                 let child = window.parent != nil
                 let visible = window.occlusionState.contains(.visible)
                 Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
@@ -66,9 +67,9 @@ final class SurfaceInvariantMonitor {
             let status = row.status
             let surface = status.terminal.map { "\($0)" } ?? "none"
             #if DEBUG
-            logger.fault("blank pane \(status.paneKey, privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public) shown=\(status.shownTab ?? "-", privacy: .public) installed=\(status.contentInstalled) surface=\(surface, privacy: .public)")
+            logger.fault("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public) shown=\(status.shownTab ?? "-", privacy: .public) installed=\(status.contentInstalled) surface=\(surface, privacy: .public)")
             #else
-            logger.error("blank pane \(status.paneKey, privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public)")
+            logger.error("blank pane \(status.paneKey, privacy: .public) reason=\(status.blankReason ?? "-", privacy: .public) selected=\(status.selectedTab ?? "-", privacy: .public)")
             #endif
         }
         #if DEBUG

@@ -102,19 +102,19 @@ export function agentAvatarChanged(sessionId: string): void {
   void refresh(sessionId, false);
 }
 
-/// Set Avatar…: the host's open panel, then every card of the session draws what the host keeps
+/// Set Chat Avatar…: the host's open panel, then every card of the session draws what the host keeps
 /// now. The reply itself is never kept: a slow one could undo a change made after it.
 export async function setAgentAvatar(sessionId: string): Promise<void> {
   if (src(await call("agent.avatar.set", { sessionId }))) await refresh(sessionId, true);
 }
 
-/// Remove Avatar: the session's harness mark again, once the host says it keeps none.
+/// Remove Chat Avatar: the session's harness mark again, once the host says it keeps none.
 export async function removeAgentAvatar(sessionId: string): Promise<void> {
   await call("agent.avatar.remove", { sessionId });
   await refresh(sessionId, true);
 }
 
-/// Whether the session has an avatar the page knows of (the menu offers Remove Avatar then).
+/// Whether the session has an avatar the page knows of (the menu offers Remove Chat Avatar then).
 export function hasAgentAvatar(sessionId: string | undefined): boolean {
   return sessionId !== undefined && typeof avatars.get(sessionId) === "string";
 }

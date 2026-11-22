@@ -51,6 +51,9 @@ EXEMPT = {
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
+    ("cmux-rd-windows.yml", "live-macos-viewer"):
+        "Rust only (the cmux-rd bench, VideoToolbox through the image's SDK); no Swift or xcodebuild",
+    ("gateway-e2e.yml", "mac"): "runs the published cmux CLI and Bun against the inference gateway; builds nothing, no Xcode",
     ("machine-vault-e2e.yml", "e2e"): "runs the published cmux CLI and a disposable user's join; builds nothing, no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
@@ -74,6 +77,8 @@ EXEMPT = {
         "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "codesigns published tree binaries with the OS's /usr/bin/codesign; compiles nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
         "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",

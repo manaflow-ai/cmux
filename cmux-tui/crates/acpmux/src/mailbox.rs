@@ -460,11 +460,11 @@ fn persist_state(
         .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     let tmp = path.with_extension("json.tmp");
     write_private(&tmp, &bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    std::fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+    // Through the folder this daemon holds (`home_fs`), as `write_private` wrote it.
+    crate::home_fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     if let Some(parent) = path.parent() {
         #[cfg(unix)]
-        std::fs::File::open(parent)
-            .and_then(|file| file.sync_all())
+        crate::home_fs::sync_dir(parent)
             .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     }
     Ok(())
@@ -475,10 +475,12 @@ fn persist_state(
 #[cfg(unix)]
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
 
-    let mut file = std::fs::OpenOptions::new()
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
@@ -496,7 +498,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),

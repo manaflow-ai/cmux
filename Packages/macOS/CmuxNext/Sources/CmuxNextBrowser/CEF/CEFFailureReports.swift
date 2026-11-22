@@ -2,7 +2,8 @@ import CmuxNextCompat
 import Darwin
 import Foundation
 
-/// Turns a tab's renderer end and main-frame load failure into a
+/// Turns a tab's renderer end and main-frame load failure, and the end of a
+/// helper with no tab (extension, GPU, utility), into a
 /// ``BrowserEngineFailure`` with the running engine's versions, for the App
 /// (crash reporting). The App sets ``onFailure``; until then this does
 /// nothing. The renderer ends of a closed tab and of quit are not failures.
@@ -31,6 +32,23 @@ final class CEFFailureReports {
         default:
             break
         }
+    }
+
+    /// After `CEFChildProcessMonitor` saw a helper end abnormally while the
+    /// runtime runs. A page renderer's end is left to ``note(_:tab:)``, which
+    /// knows the page; every other helper (an extension renderer included)
+    /// has no tab to report it.
+    /// - Parameters:
+    ///   - processKind: `extension`, `gpu-process`, `utility`, or `renderer`.
+    ///   - subType: Chromium's utility sub type, when it gave one.
+    ///   - reason: Why it ended.
+    ///   - status: The raw `waitpid` status.
+    ///   - runtime: The runtime that started it.
+    func noteHelperExit(processKind: String, subType: String?, reason: BrowserProcessExit.Reason, status: Int32,
+                        runtime: CEFRuntime) {
+        guard onFailure != nil, processKind != "renderer" else { return }
+        send(.helperEnded(processKind: processKind, subType: subType, reason: reason, status: Int(status)),
+             runtime: runtime)
     }
 
     private func send(_ failure: BrowserEngineFailure, runtime: CEFRuntime) {

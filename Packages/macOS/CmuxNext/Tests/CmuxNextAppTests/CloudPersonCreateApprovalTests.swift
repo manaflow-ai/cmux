@@ -7,8 +7,7 @@ import Testing
 
 /// A create the person started (the composer's Cloud send, a menu, the palette) is their
 /// confirmation: when the backend holds it for the G8 approval, the flow answers that request
-/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started goes
-/// through the same way while agents may use Cloud without asking (the default); with asking on it
+/// as the person with no second "Create a Cloud machine?" prompt. A create nobody started still
 /// asks first, and a no sends nothing.
 @MainActor @Suite(.serialized) struct CloudPersonCreateApprovalTests {
     @MainActor final class Calls {
@@ -20,6 +19,7 @@ import Testing
         /// The hold was answered elsewhere: this Mac finds its feed item closed, and the op goes on (or not).
         var closedElsewhere = false
         var answersAfterClose = true
+        var sent: [JSONValue] = []
     }
 
     private nonisolated static let machine: JSONValue = .object(["id": .string("vm_00000000000000000009"), "status": .string("provisioning")])
@@ -54,16 +54,55 @@ import Testing
         #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
     }
 
-    /// While the person lets agents use Cloud without asking (the default), an agent's, the CLI's or a script's
-    /// create goes straight through with no "Create a Cloud machine?" card, the same as their own Send, and the
-    /// backend's hold is answered with no prompt either (Leo, 2026-11-04: "just auto/bypass permissions by default").
-    @Test func aCreateNobodyStartedNeverWaitsOnACardWhileAgentsMayCreate() async throws {
+    @Test func aBackendCapabilityRefusalSendsNoCreateOrApproval() async throws {
         let calls = Calls()
-        let made = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false, askedBy: "agent-1")
-        #expect(made == Self.machine)
-        #expect(calls.prompts.isEmpty, "a create nobody started waited on a card: \(calls.prompts)")
-        #expect(calls.approved == ["apr_1"])
-        #expect(calls.ops == ["cloud.machine.create", "cloud.machine.create"])
+        var create = flow(calls)
+        create.validateOptions = { _ in
+            throw CloudAppOpFailure(code: "validation.invalid", message: "create option unavailable: create.bootstrap")
+        }
+        do {
+            _ = try await create.create(name: "requested", startedByPerson: true)
+            Issue.record("a refused create must not succeed")
+        } catch let error as CloudAppOpFailure {
+            #expect(error.code == "validation.invalid")
+            #expect(error.message == "create option unavailable: create.bootstrap")
+        }
+        #expect(calls.ops.isEmpty)
+        #expect(calls.approved.isEmpty)
+    }
+
+    /// `--repo`, `--size`, `--persistent` and `--machine-config` are applied by this Mac once the machine exists; the
+    /// create op takes only its name and size, and the backend keeps only those in the approval it holds. So they are
+    /// checked against the backend's capabilities, never sent: an approval of what was sent is the one this Mac answers.
+    @Test func optionsThisMacAppliesAreCheckedButNotSentSoTheHeldApprovalMatches() async throws {
+        let calls = Calls()
+        var checked: [JSONValue] = []
+        var answered: [JSONValue] = []
+        var create = CloudMachineCreateFlow(
+            run: { _, args, _, _ in
+                await MainActor.run { calls.sent.append(args) }
+                if await MainActor.run(body: { calls.pending }) {
+                    throw CloudAppOpFailure(code: CloudAppOpFailure.approvalPending, message: "", details: .object(["request": .string("apr_1")]))
+                }
+                return .object(["machine": Self.machine])
+            },
+            confirm: { _ in true },
+            approve: { _, _, params in answered.append(params); calls.pending = false },
+            pause: { _ in })
+        create.validateOptions = { checked.append($0) }
+        var request = CloudMachineRequest(name: "box", size: "medium", memoryMb: 8192, persistent: true, repo: CloudMachineRepo(owner: "o", name: "r"))
+        request.script = CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: request.repo)
+        _ = try await create.create(name: "box", startedByPerson: true, request: request)
+        let sent = calls.sent
+        guard case .object(let options)? = checked.first else { Issue.record("no options were checked"); return }
+        #expect(options["bootstrap"] != nil && options["size_name"] == .string("medium") && options["idle_seconds"] == .number(0))
+        #expect(sent.count == 2)
+        for args in sent {
+            guard case .object(let fields) = args else { Issue.record("\(args)"); continue }
+            #expect(Set(fields.keys) == ["name", "size"], "\(args)")
+        }
+        #expect(sent.first?["size"]?["memory_mb"] == .number(8192))
+        #expect(answered == [sent[0]], "the approval is answered for exactly what was sent")
     }
 
     @Test func aCreateNobodyStartedAsksOnceThenAnswersTheHold() async throws {
@@ -71,6 +110,13 @@ import Testing
         _ = try await flow(calls).create(name: nil, startedByPerson: false, askedBy: "agent-1")
         #expect(calls.prompts.count == 1)
         if case .agentRequest = calls.prompts.first {} else { Issue.record("expected the agent request prompt, got \(calls.prompts)") }
+        #expect(calls.approved == ["apr_1"])
+    }
+
+    @Test func aCreateNobodyStartedMayBypassTheCardWhenPolicyAllows() async throws {
+        let calls = Calls()
+        _ = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false)
+        #expect(calls.prompts.isEmpty)
         #expect(calls.approved == ["apr_1"])
     }
 

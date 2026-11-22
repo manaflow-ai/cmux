@@ -150,3 +150,49 @@ fn restoring_a_queue_publishes_one_snapshot_for_an_early_attach() {
         .unwrap();
     assert_eq!(count, 1);
 }
+
+/// An abort just after a restart: the startup pass found the move's bundle before the abort
+/// removed it, and froze the chat under that move again once the abort had ended it, so the
+/// next begin was refused as "already being moved" (durable_agents
+/// `transfer_authority_survives_restart_and_abort_restores_the_live_root`, journal ON). A bundle
+/// whose move the log says ended freezes nothing; one the log says still runs does.
+#[tokio::test]
+async fn a_bundle_of_a_move_the_log_ended_does_not_freeze_the_chat_again() {
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Arc::new(Hub::new(config, store));
+    let chat = |id: &str| {
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        session
+    };
+    let (ended, running) = (chat("aborted-move"), chat("running-move"));
+    let mut bundles = Vec::new();
+    for (session, aborted) in [(&ended, true), (&running, false)] {
+        let transfer = uuid::Uuid::now_v7().to_string();
+        hub.append(session, "mux", "transfer_out", json!({"transferId": transfer}));
+        if aborted {
+            hub.append(session, "mux", "transfer_aborted", json!({"transferId": transfer}));
+        }
+        let bundle = transfers_dir().join(&transfer);
+        std::fs::create_dir_all(bundle.join(&session.id)).unwrap();
+        bundles.push((bundle, transfer));
+    }
+    hub.restore_transfer_authority(&ended);
+    hub.restore_transfer_authority(&running);
+
+    hub.watch_transfers();
+    let moving = (ended.moving(), running.moving());
+    for (bundle, _) in &bundles {
+        let _ = std::fs::remove_dir_all(bundle);
+    }
+    assert_eq!(moving.0, None, "a move the log ended froze the chat again");
+    assert_eq!(moving.1.as_deref(), Some(bundles[1].1.as_str()), "a running move was not frozen");
+}

@@ -51,7 +51,7 @@ import Testing
         return store
     }
 
-    static var views: Int { SidebarMirror.calls["view"] ?? 0 }
+    static var views: Int { SidebarMirror.calls["project"] ?? 0 }
 
     /// What the store shows equals a projection built fresh over the same live list.
     static func expectMatchesFreshProjection(_ store: SidebarDocStore, live: [SidebarDocWorkspaceRef], _ what: String) {

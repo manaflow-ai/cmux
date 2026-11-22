@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateKeyPair } from "jose";
 import { makeHarness } from "../support/harness.ts";
+import { withCommit } from "../../src/index.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 
@@ -181,5 +182,14 @@ describe("authentication", () => {
     const response = await h.request("/healthz");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it("names the deployed commit on /healthz only when it is a full commit id", async () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const named = withCommit(new Response('{"ok":true}', { status: 200 }), { COMMIT_SHA: sha });
+    expect(named.headers.get("x-cmux-commit")).toBe(sha);
+    expect(await named.json()).toEqual({ ok: true });
+    expect(withCommit(new Response("{}"), { COMMIT_SHA: "main" }).headers.get("x-cmux-commit")).toBeNull();
+    expect(withCommit(new Response("{}"), {}).headers.get("x-cmux-commit")).toBeNull();
   });
 });

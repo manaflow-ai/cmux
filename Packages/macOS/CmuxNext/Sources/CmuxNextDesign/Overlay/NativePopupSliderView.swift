@@ -104,7 +104,6 @@ final class NativePopupSliderView: NSView {
         guard descriptor.stops.indices.contains(index) else { return }
         let stop = descriptor.stops[index]
         currentLabel.stringValue = stop.label
-        currentLabel.themedToolTip = stop.description
         slider.themedToolTip = stop.description
         slider.setAccessibilityValueDescription(stop.accessibilityLabel ?? stop.label)
     }
@@ -192,10 +191,10 @@ private final class NativePopupDiscreteSliderCell: NSSliderCell {
     private func drawTrack(_ rect: NSRect) {
         let track = NSRect(x: rect.minX, y: rect.midY - 1.5, width: rect.width, height: 3)
         Palette.textSecondary.withAlphaComponent(0.2).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
+        NSBezierPath(roundedRect: track, xRadius: Metrics.capsuleRadius(track.size), yRadius: Metrics.capsuleRadius(track.size)).fill()
         let fraction = CGFloat((doubleValue - minValue) / max(1, maxValue - minValue))
         Palette.accentFill.withAlphaComponent(isEnabled ? (minimal ? 0.35 : 0.8) : 0.2).setFill()
-        NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: track.width * fraction, height: track.height), xRadius: 1.5, yRadius: 1.5).fill()
+        NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: track.width * fraction, height: track.height), xRadius: Metrics.capsuleRadius(track.size), yRadius: Metrics.capsuleRadius(track.size)).fill()
         for index in 0..<stopCount {
             let x = track.minX + track.width * CGFloat(index) / CGFloat(max(1, stopCount - 1))
             Palette.textSecondary.setFill()

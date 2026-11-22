@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { setPaneLanguage, translate } from "../src/agent-session/acpmux/i18n";
 import { commandRead } from "../src/agent-session/acpmux/session-info/commandRules";
+import { trimRawCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/session-info/processes";
 import { trayItems } from "../src/agent-session/acpmux/subagents/runningTray";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -20,6 +21,11 @@ const WAIT_FILE =
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 describe("a tray command line says what runs", () => {
+  test("its dim activity keeps the real shell steps while trimming only its width", () => {
+    expect(trimRawCommand("sleep 299; echo t")).toBe("sleep 299; echo t");
+    expect(trimRawCommand("sleep 299; echo t", 12)).toBe("sleep 299;…");
+  });
+
   test("a description of a word or two follows what the command does", () => {
     expect(label("sleep 840; echo t", "hold")).toBe("Waiting 14m · hold");
     expect(label(WAIT_FILE, "review result")).toBe("Waiting for b0luhqojj.output · review result");

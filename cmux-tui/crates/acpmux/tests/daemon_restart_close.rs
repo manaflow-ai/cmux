@@ -125,7 +125,7 @@ async fn daemon_update_and_sigterm_send_1012_but_explicit_stop_is_normal() {
 /// the only status the units prevent).
 const EXIT_REPAIR: i32 = 74;
 
-/// R-DURABILITY S2c, lead rule 2026-11-04 (3). With `store.journal` on, a log sync that fails (a
+/// R-DURABILITY S2c, lead rule 2026-11-04 (3). A log sync that fails (a
 /// debug build's `ACPMUX_TEST_FAIL_LOG_SYNC`) freezes the event journal's checkpoint, and the store
 /// asks the daemon to stop for a restart, whose replay writes the logs again. The daemon exits with
 /// [`EXIT_REPAIR`]; a WebSocket client gets the restart close (1012), and the acpmux client's
@@ -141,8 +141,6 @@ async fn a_failed_log_sync_stops_the_daemon_for_a_restart() {
     };
     private(home, 0o700);
     let socket = home.join("s.sock");
-    std::fs::write(home.join("config.json"), r#"{"store":{"journal":true}}"#).unwrap();
-    private(&home.join("config.json"), 0o600);
     // A chat on disk: a rename of it appends an acknowledged record without starting an agent.
     let id = "01a15903-0000-7000-8000-000000000a01";
     let chat = home.join("sessions").join(id);

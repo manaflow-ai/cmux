@@ -1,13 +1,13 @@
 // The view shell (README.md): one real window per `--size`, each showing the webviews mock app.
 // Thin on purpose: the window, its web view and the URL. The fixture, scripts and every other
-// condition axis are URL keys the web side reads (webviews/src/gallery/app/axes.ts).
+// condition axis are URL keys the web side reads (webviews/src/gallery/mock-app/axes.ts).
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
 struct Options {
-    var base = URL(string: "http://127.0.0.1:4210/gallery/app.html")!
+    var base = URL(string: "http://127.0.0.1:4210/gallery/mock-app.html")!
     var dist: URL?
     var sizes: [CGSize] = []
     var query: [(String, String)] = []
@@ -24,7 +24,7 @@ struct Options {
 
     static let usage = """
     usage: cmux-view-shell [--url URL | --dist DIR] [--size WxH]... [--capture DIR [--quit]] [--KEY VALUE]...
-      --url URL      the mock app page (default: the gallery dev server, http://127.0.0.1:4210/gallery/app.html)
+      --url URL      the mock app page (default: the gallery dev server, http://127.0.0.1:4210/gallery/mock-app.html)
       --dist DIR     a built gallery folder (bun run gallery:build) instead of a server
       --size WxH     a window of that size in points; repeat for several windows (default 1280x800)
       --capture DIR  save each window as DIR/<W>x<H>.png once its panes are ready; --quit then exits
@@ -122,7 +122,7 @@ final class FolderSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         guard let url = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
-        let relative = url.path.isEmpty || url.path == "/" ? "app.html" : String(url.path.dropFirst())
+        let relative = url.path.isEmpty || url.path == "/" ? "mock-app.html" : String(url.path.dropFirst())
         let file = root.appendingPathComponent(relative).standardizedFileURL
         guard file.path.hasPrefix(root.path + "/"), let data = FileManager.default.contents(atPath: file.path) else {
             return task.didFailWithError(URLError(.fileDoesNotExist))
@@ -220,7 +220,7 @@ final class ShellDelegate: NSObject, NSApplicationDelegate {
         let given = Set(options.query.map(\.0))
         let query = configQuery(appearanceIsDark: dark).filter { !given.contains($0.0) } + options.query + [("chrome", "native")]
         let scheme = options.dist.map(FolderSchemeHandler.init(root:))
-        let base = scheme != nil ? URL(string: "\(FolderSchemeHandler.scheme)://app/app.html")! : options.base
+        let base = scheme != nil ? URL(string: "\(FolderSchemeHandler.scheme)://app/mock-app.html")! : options.base
         var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         components.queryItems = (components.queryItems ?? []) + query.map { URLQueryItem(name: $0.0, value: $0.1) }
         let url = components.url!

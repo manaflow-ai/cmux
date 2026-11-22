@@ -14,6 +14,7 @@ extension PageHostPool {
 
     var shouldBuild: Bool {
         isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts && canUseSpare
+            && !projectionIsOpen()
     }
 
     func scheduleBuild() {
@@ -61,7 +62,7 @@ extension PageHostPool {
         host.countsTouches = false
         await Self.nextTurn()
         guard latestClaimOptions == buildOptions, isLikely, canUseSpare(for: buildOptions), spare == nil,
-              let content = target?.contentView else {
+              !projectionIsOpen(), let content = target?.contentView else {
             host.close()
             return
         }
@@ -74,7 +75,8 @@ extension PageHostPool {
         }
         measure("pool.makeSpare.load") { host.startLoading() }
         await host.waitUntilLoaded()
-        guard spare === host, latestClaimOptions == buildOptions, host.loaded, canUseSpare(for: buildOptions) else {
+        guard spare === host, latestClaimOptions == buildOptions, host.loaded, canUseSpare(for: buildOptions),
+              !projectionIsOpen() else {
             if spare === host { dropSpare() }
             return
         }

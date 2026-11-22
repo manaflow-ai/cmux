@@ -2,20 +2,18 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// Where the Chief runs, as a small chip (the Home header beside the Chief's name, the Chief card's
-/// Runs On row): This Mac, cmux Cloud or the host's name, or the running move's step. A click
+/// Where the Chief runs, as a small chip (the Chief card's Runs On row, ``ChiefRunsOnChip``): This
+/// Mac, cmux Cloud or the host's name, or the running move's step. A click
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.
 ///
-/// It follows ``ChiefTeleportModel/location`` and ``ChiefTeleportModel/phase`` and reads the home's
+/// It follows ``ChiefTeleportModel/location``, ``ChiefTeleportModel/shownPhase`` (a move the home's
+/// hold says runs too) and the fork, and reads the home's
 /// marker again each time it joins a window. No animation: each change draws in one frame.
 @MainActor
 public final class ChiefTeleportChip: NSView {
     /// How it draws (``ChiefTeleportChipStyle/plain`` ships).
     public var style: ChiefTeleportChipStyle { didSet { if style != oldValue { show() } } }
-    /// A Chief on another host reads "Chief is on <host>" (Home's header on this Mac's conversation,
-    /// which cannot open the Chief there); off, the host's name alone (the Chief card).
-    public var saysAway = false { didSet { if saysAway != oldValue { show() } } }
     private let model: ChiefTeleportModel
     private let glyph = ThemedImageView()
     private let label = ThemedLabel(labelWithString: "")
@@ -51,7 +49,6 @@ public final class ChiefTeleportChip: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
         setAccessibilityIdentifier("cmux.home.chief.teleport")
-        setAccessibilityHelp(ChiefTeleportStrings.help)
         show()
         startWatching()
     }
@@ -77,7 +74,8 @@ public final class ChiefTeleportChip: NSView {
         // task-owner: this view (cancelled when it leaves its window; it ends at the first change after
         // the view is released); event-driven (Observation).
         watch = Task { [weak self, model] in
-            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.phase) }) {
+            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name,
+                                                                      language: DesignSettings.shared.appLanguage, thisMac: ChiefTeleportStrings.thisMac) }) {
                 self?.show()
             }
         }
@@ -87,7 +85,7 @@ public final class ChiefTeleportChip: NSView {
 
     /// Reads the model and draws the chip for it.
     func show() {
-        let phase = model.phase
+        let phase = model.shownPhase
         let place = Self.placeTitle(model.location, current: model.menu().currentTitle)
         let text: String
         let symbol: String
@@ -102,7 +100,11 @@ public final class ChiefTeleportChip: NSView {
             symbol = "exclamationmark.triangle"
         case .idle, .done, .rolledBack:
             tone = model.location == .thisMac ? .here : .away
-            if saysAway, case .host = model.location { text = ChiefTeleportStrings.awayOn(place) } else { text = place }
+            if model.location == .thisMac, model.marks.fork != nil {
+                text = ChiefTeleportStrings.withFork(place)
+            } else {
+                text = place
+            }
             symbol = Self.placeSymbol(model.location)
         }
         label.stringValue = text
@@ -120,7 +122,9 @@ public final class ChiefTeleportChip: NSView {
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
         setAccessibilityLabel(ChiefTeleportStrings.label(text))
-        themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
+        // With its words shown it needs no tooltip (a1315's cut 2); a glyph alone is named by it.
+        themedToolTip = style.showsText ? nil : text
+        setAccessibilityHelp(ChiefTeleportStrings.help)
         invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true
@@ -203,7 +207,7 @@ public final class ChiefTeleportChip: NSView {
     // MARK: Words and glyphs
 
     /// The place's words: the menu's name for it (a host's group name), else the chip's own.
-    static func placeTitle(_ location: ChiefLocation, current: String?) -> String {
+    nonisolated static func placeTitle(_ location: ChiefLocation, current: String?) -> String {
         if let current { return current }
         return switch location {
         case .thisMac: ChiefTeleportStrings.thisMac
@@ -230,4 +234,10 @@ public final class ChiefTeleportChip: NSView {
 private nonisolated struct ChiefTeleportChipShown: Equatable {
     var location: ChiefLocation
     var phase: ChiefTeleportPhase
+    var fork: String?
+    /// `app.language` and the chip's words in it: the chip draws again in a new language, live (the
+    /// words register the strings bundle's language with Observation; the setting, a change before
+    /// the launch warm-up adopted the bundle).
+    var language: String?
+    var thisMac: String
 }

@@ -42,7 +42,6 @@ await requireBrowserLane("dictation-popup-hover.test.ts", async () => {
   const states = [
     ["idle", ".acpmux-mic"],
     ["listening", ".acpmux-mic"],
-    ["listening", ".acpmux-dictation-finish"],
   ] as const;
   for (const engine of ["chromium", "webkit"])
     for (const theme of ["Catppuccin Mocha", "Catppuccin Latte"])

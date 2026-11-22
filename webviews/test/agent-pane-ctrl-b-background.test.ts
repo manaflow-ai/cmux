@@ -300,8 +300,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
 
   test("a running command's live line says Ctrl-B runs it in the background", async () => {
     const page = await open(CLAUDE);
-    // The command in flight draws no row of its own (Debug toggles agentPane.debug.codexToolRuns
-    // and liveLineBelow, on by default): the live line at the turn's foot names it and offers the
+    // The command in flight draws no row of its own: the live line at the turn's foot names it and offers the
     // hint its row did (Thinking.tsx).
     const line = page.locator(".cv-worked.is-below");
     const hint = line.getByText("⌃B to run in background");

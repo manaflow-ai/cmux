@@ -8,4 +8,6 @@ struct TabStripRowPasses: Equatable {
     var separators = 0
     /// `applyFrames` passes (every cell placed: a relayout, a scroll).
     var frames = 0
+    /// Layout engine runs (`relayout`: the row laid out from its items).
+    var layouts = 0
 }

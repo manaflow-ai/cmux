@@ -51,7 +51,7 @@ describe("VM receiver policy", () => {
     const response = await policy();
     expect(response.status).toBe(200);
     const body = await json(response);
-    expect(body).toMatchObject({ schemaVersion: 1, tenantId: TEAM, vmId: vm, meshId: mesh, aclVersion: 0, peers: [], policyDigest: expect.stringMatching(/^[0-9a-f]{64}$/u) });
+    expect(body).toMatchObject({ schemaVersion: 1, tenantId: TEAM, vmId: vm, meshId: mesh, aclVersion: 0, peers: [], ownerExpiresAt: null, policyDigest: expect.stringMatching(/^[0-9a-f]{64}$/u) });
     expect(Number(body["checkedAt"])).toBeGreaterThanOrEqual(started);
     expect(Number(body["expiresAt"]) - Number(body["checkedAt"])).toBe(30_000);
     expect(h.upstreamRequests.slice(before).every((r) => r.method === "GET")).toBe(true);
@@ -122,6 +122,8 @@ describe("VM receiver policy", () => {
     const body = await json(response);
     expect(body["peers"]).toHaveLength(1);
     expect(body["expiresAt"]).toBe(expiresAt.getTime());
+    // Named separately, so the Cloud owner bounds its longer local admission horizon by it.
+    expect(body["ownerExpiresAt"]).toBe(expiresAt.getTime());
   });
 
   it("does not infer permission from a detached or different VM", async () => {

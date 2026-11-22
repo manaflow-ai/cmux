@@ -15,7 +15,7 @@ build changes nothing. Existing comments are read in batched GraphQL, and
 status writes preserve other sections and settle concurrent writers. Writes
 are paced under GitHub's secondary limit on content writes (about 500 an
 hour). The first rate-limit refusal stops the run and says how many PRs are
-left; a rerun skips the ones already noted. Any other failure on one PR is
+left; a rerun skips the ones already noted without reading or writing them. Any other failure on one PR is
 reported and the rest continue; the script exits 0 so
 a publication is never failed by a comment.
 
@@ -82,6 +82,13 @@ def has_publication_line(comments: list[dict], line: str) -> bool:
                 for c in pr_status.bot_comments(comments, pr_status.MARKER)]
     sections += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
     return any(line in body.splitlines() for body in sections)
+
+
+def already_noted(comments: list[dict], line: str) -> bool:
+    """Whether a PR needs nothing for this build: one status comment holds the line and no legacy comment is left
+    to fold in. Such a PR is skipped with no read or write, so a rerun over a long span costs only the batched read."""
+    return (len(pr_status.bot_comments(comments, pr_status.MARKER)) == 1
+            and not pr_status.bot_comments(comments, MARKER) and has_publication_line(comments, line))
 
 
 def status_api(method: str, path: str, payload: dict | None = None) -> object:
@@ -333,7 +340,9 @@ def main() -> int:
                 return 0
             raise
     numbers = [n for n in numbers if n not in unreadable]
-    posted = skipped = failed = 0
+    noted = [n for n in numbers if already_noted(existing.get(n, []), line)]
+    numbers = [n for n in numbers if n not in noted]
+    posted, skipped, failed = 0, len(noted), 0
     for index, number in enumerate(numbers):
         try:
             if args.dry_run:
@@ -349,7 +358,7 @@ def main() -> int:
                 break
             failed += 1
             print(f"published-in: #{number}: {error.stderr.strip()[:300]}", file=sys.stderr)
-    print(f"published-in: {args.name}: {len(numbers)} PRs, {posted} written, {skipped} already noted, "
+    print(f"published-in: {args.name}: {len(numbers) + len(noted)} PRs, {posted} written, {skipped} already noted, "
           f"{failed} failed, {len(unreadable)} unreadable")
     return 0
 

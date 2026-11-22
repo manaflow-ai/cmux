@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea";
+    public static final String IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -18,9 +18,12 @@ public final class Protocol {
         return switch (event) {
             case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
+            case "agent-cli-frame" -> AgentCliFrameEvent.fromWire(value);
+            case "agent-cli-lean" -> AgentCliLeanEvent.fromWire(value);
             case "agent-inventory-changed" -> AgentInventoryChangedEvent.fromWire(value);
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
+            case "agent-session-share-changed" -> AgentSessionShareChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
@@ -52,7 +55,10 @@ public final class Protocol {
             case "conversation-typing" -> ConversationTypingEvent.fromWire(value);
             case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
+            case "device-setup-step" -> DeviceSetupStepEvent.fromWire(value);
             case "empty" -> EmptyEvent.fromWire(value);
+            case "feed-reports-changed" -> FeedReportsChangedEvent.fromWire(value);
+            case "feed-view-changed" -> FeedViewChangedEvent.fromWire(value);
             case "frame" -> FrameEvent.fromWire(value);
             case "frontend-projection-changed" -> FrontendProjectionChangedEvent.fromWire(value);
             case "graphics-status" -> GraphicsStatusEvent.fromWire(value);
@@ -76,11 +82,13 @@ public final class Protocol {
             case "screen-added" -> ScreenAddedEvent.fromWire(value);
             case "screen-changed" -> ScreenChangedEvent.fromWire(value);
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
+            case "screen-device-changed" -> ScreenDeviceChangedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);
             case "selection-changed" -> SelectionChangedEvent.fromWire(value);
             case "settings-changed" -> SettingsChangedEvent.fromWire(value);
             case "size-state" -> SizeStateEvent.fromWire(value);
+            case "stash-changed" -> StashChangedEvent.fromWire(value);
             case "status" -> StatusEvent.fromWire(value);
             case "surface-exited" -> SurfaceExitedEvent.fromWire(value);
             case "surface-output" -> SurfaceOutputEvent.fromWire(value);

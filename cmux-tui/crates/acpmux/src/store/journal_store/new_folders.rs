@@ -91,6 +91,19 @@ impl NewFolders {
         self.state.lock_or_recover().stop = true;
         self.wake.notify_all();
     }
+
+    /// The seal's last checkpoint succeeded (`Inner::last_checkpoint`): it synced `sessions/`
+    /// after every folder noted here was made (a save made after the seal is refused), so each
+    /// is durable, and the gate passes their records once the journal's are. The journal's
+    /// writer then ends at the handover; without this, a reply held for such a folder would be
+    /// dropped with its connection.
+    pub(super) fn synced_at_seal(&self) {
+        let mut state = self.state.lock_or_recover();
+        state.unsynced.clear();
+        if let Some(durable) = self.durable.upgrade() {
+            state.publish(&durable);
+        }
+    }
 }
 
 impl Inner {
@@ -113,7 +126,9 @@ impl Inner {
             drop(state);
             // Each folder noted through `through` was made before its record was appended, so
             // before this sync starts.
-            let synced = sync_directory(&self.local.root);
+            let synced = self.counted_sync("the sessions folder failed to sync", || {
+                sync_directory(&self.local.root)
+            });
             state = folders.state.lock_or_recover();
             match synced {
                 Ok(()) => {
@@ -122,11 +137,9 @@ impl Inner {
                         state.publish(&durable);
                     }
                 }
+                // `counted_sync` froze the store.
                 Err(error) if error.chain().any(|cause| cause.is::<SyncFailed>()) => {
                     state.failed = true;
-                    drop(state);
-                    self.freeze(format!("the sessions folder failed to sync: {error:#}"));
-                    state = folders.state.lock_or_recover();
                 }
                 Err(error) => {
                     // The folder did not open (no file descriptor left): tried again shortly. A

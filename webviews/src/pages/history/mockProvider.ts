@@ -7,6 +7,7 @@ import {
   ACTION_RUN,
   CLIPBOARD_WRITE,
   HistoryOps,
+  type CookieBackup,
   type HistoryChanged,
   type HistoryEntry,
   type HistoryKind,
@@ -74,8 +75,16 @@ export class MockHistoryProvider implements PageClient {
   private readonly handlers = new Map<string, PageHandler>();
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  /** The kinds the owner has not finished listing: every list reply names them (`pending_kinds`). */
+  pendingKinds: HistoryKind[] = [];
   /** The host's page streams (connection, dispatcher commands). */
   readonly page = new MockPageStreams();
+  /** The app's cookie backups; `confirmDelete` is the person's answer to its dialog. */
+  cookieBackups: CookieBackup[] = [
+    { id: "app:mock1", site: "accounts.example.com", created_at_ms: Date.now() - 3_600_000 },
+    { id: "app:mock2", created_at_ms: Date.now() - 50 * 3_600_000 },
+  ];
+  confirmDelete = true;
 
   constructor(
     entries: HistoryEntry[] = sampleEntries(Date.now()),
@@ -106,6 +115,15 @@ export class MockHistoryProvider implements PageClient {
           (entry) => !cleared.includes(entry.kind) || (start !== undefined && entry.at_ms < start),
           cleared,
         ) as R;
+      }
+      case HistoryOps.cookieBackupsList:
+        return { backups: [...this.cookieBackups] } as R;
+      case HistoryOps.cookieBackupsDelete: {
+        if (!this.confirmDelete) return { confirmed: false } as R;
+        const ids = (params as { ids: string[] }).ids;
+        const before = this.cookieBackups.length;
+        this.cookieBackups = this.cookieBackups.filter((backup) => !ids.includes(backup.id));
+        return { confirmed: true, deleted: before - this.cookieBackups.length } as R;
       }
       case ACTION_RUN:
       case CLIPBOARD_WRITE:
@@ -154,7 +172,11 @@ export class MockHistoryProvider implements PageClient {
         return tokens.every((token) => haystack.includes(token));
       })
       .sort((a, b) => b.at_ms - a.at_ms || (a.id < b.id ? 1 : -1));
-    return { entries: matched.slice(0, params.limit ?? 200), revision: this.revision };
+    return {
+      entries: matched.slice(0, params.limit ?? 200),
+      revision: this.revision,
+      ...(this.pendingKinds.length ? { pending_kinds: [...this.pendingKinds] } : {}),
+    };
   }
 
   private mutate(keep: (entry: HistoryEntry) => boolean, kinds: HistoryChanged["kinds"]): { removed: number } {

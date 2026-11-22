@@ -231,7 +231,7 @@ impl Client {
         self.ok("_acpmux/info", json!({"sessionId": session})).await["respawnPending"].clone()
     }
 
-    /// `respawnPending` of `session`'s row in the session list (`acpmux ls`, a shared snapshot).
+    /// `respawnPending` of `session`'s row in the session list (`acpmux ls`).
     async fn listed_respawn(&mut self, session: &str) -> Value {
         let list = self.ok(method::MUX_SESSIONS, json!({})).await;
         let rows = list["sessions"].as_array().cloned().unwrap_or_default();

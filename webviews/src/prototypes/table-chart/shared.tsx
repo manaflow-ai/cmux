@@ -242,6 +242,7 @@ export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; char
     const originals = [svg, ...svg.querySelectorAll<SVGElement>("*")];
     const copies = [copy, ...copy.querySelectorAll<SVGElement>("*")];
     originals.forEach((node, index) => {
+      // oxlint-disable-next-line cmux-perf/layout-thrash-in-loop -- the writes go to a detached copy, which lays out nothing
       const style = getComputedStyle(node);
       for (const property of [
         "fill",
@@ -273,7 +274,7 @@ export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; char
       <button
         type="button"
         disabled={!chartVisible || !rows.length}
-        title={!chartVisible ? "Show the chart to export SVG" : undefined}
+        aria-description={!chartVisible ? "Show the chart to export SVG" : undefined}
         onClick={exportChart}
       >
         Export SVG

@@ -6,8 +6,6 @@ import CmuxNextDesign
 extension DividerDrag {
     func start(_ kind: DividerHandleView.Kind, at windowPoint: NSPoint) -> DividerDragState? {
         let point = contentPoint(fromWindow: windowPoint, kind: kind)
-        // `motion.frameOwner.sharedEdges` (FRAME OWNER S2B), latched for the whole drag (`DividerDragState.sharedEdges`).
-        let sharedEdges = MotionTunables.frameOwnerSharedEdges.value
         let style = screen.context.style
         let layout = screen.layout
         switch kind {
@@ -20,7 +18,6 @@ extension DividerDrag {
                                         axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
                                         snaps: DividerDragState.snaps(equalShare: tree?.equalizedRatio(for: id)))
             drag.tree = tree
-            drag.sharedEdges = sharedEdges
             // Option pushes only what scrolls: a split across a strip column.
             if divider.axis == .horizontal, screen.scrolls(kind),
                let column = layout.columns.first(where: { $0.trees.contains { $0.node(for: id) != nil } }) {
@@ -44,7 +41,6 @@ extension DividerDrag {
             let band = edge?.isBand == true
             var drag = DividerDragState(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
                                         axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, dockEdge: edge)
-            drag.sharedEdges = sharedEdges
             if edge == nil {
                 let scrolling = DockStripGeometry.docks(layout.columns).scrolling
                 drag.strip = StripStart(columns: scrolling.map { .init(id: $0.id, width: $0.width, minimum: $0.minimumSize(style: style).width) },
@@ -60,7 +56,6 @@ extension DividerDrag {
             })
             var drag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
-            drag.sharedEdges = sharedEdges
             return drag
         }
     }

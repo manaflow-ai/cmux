@@ -1,7 +1,8 @@
 public import CmuxNextDesignTokens
 
 extension ThemeTokens {
-    /// `mark`'s hue in this theme: the system color of the theme's mode, its lightness moved
+    /// `mark`'s hue in this theme: the system color of the theme's mode (for `attention`, the
+    /// theme's own yellow, ``attention``, so the sidebar and the tab strip draw one dot), its lightness moved
     /// (toward white on a dark row, black on a light one) only as far as it takes to reach
     /// ``minimumMarkContrast`` on the bare row and on the selected and pressed rows.
     /// - Parameter mark: The status mark.
@@ -9,7 +10,9 @@ extension ThemeTokens {
     public func statusDot(_ mark: StatusDotHue) -> ThemeRGB {
         let row = windowBackground.withAlpha(1)
         let rows = [row, selectionFill.composited(over: row), pressedFill.composited(over: row)]
-        return readableDot(mark.hue(isDark: isDark), over: rows, toward: row.relativeLuminance < 0.18 ? .white : .black)
+        let start: ThemeRGB
+        if case .attention = mark { start = attention.withAlpha(1) } else { start = mark.hue(isDark: isDark) }
+        return readableDot(start, over: rows, toward: row.relativeLuminance < 0.18 ? .white : .black)
     }
 }
 

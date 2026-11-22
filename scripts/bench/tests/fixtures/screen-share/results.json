@@ -1,0 +1,477 @@
+{
+  "run": {
+    "at": "2026-11-14T10:49:00Z",
+    "cpu": "Apple M4",
+    "display": "1920 x 1080 (1080p FHD - Full High Definition)",
+    "host": "fleet-mini",
+    "link": "loopback: host and viewer on one Mac",
+    "macos": "27.0.1",
+    "rd_input_frame_now": "0",
+    "repeats": "3",
+    "rev": "3e461a27909c32427fa5fcf7f508bc87d8d3534a",
+    "samples": "200"
+  },
+  "scenarios": [
+    "idle",
+    "typing",
+    "scroll",
+    "ocr"
+  ],
+  "schema": "cmux.screen-stream-eval/1",
+  "targets": {
+    "rd": {
+      "errors": [],
+      "extra": {
+        "client_cpu_pct": 0.8442816514370243,
+        "decode_errors": 0,
+        "ended": null,
+        "repeats": [
+          {
+            "fps": {
+              "idle": 0.0,
+              "scroll": 57.1,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 0.1,
+              "scroll": 1617.2,
+              "typing": 192.3
+            },
+            "ocr": {
+              "cer": 0.04823151125401929,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.21251178874567747,
+              "viewer_chars": 3106,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.04823151125401929,
+            "repeat": 1,
+            "typing_decode_ms": 2.11,
+            "typing_encode_ms": 7.93,
+            "window_client_cpu_pct": 0.8442816514370243,
+            "window_decode_errors": 0,
+            "window_ended": null,
+            "window_welcome": {
+              "caps": [],
+              "carrier": "udp",
+              "encoder": "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf from screencapturekit iosurface",
+              "height": 1080,
+              "max_datagram": 1152,
+              "service": "desktop",
+              "t": "welcome",
+              "width": 1920
+            }
+          },
+          {
+            "fps": {
+              "idle": 0.0,
+              "scroll": 56.8,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 0.0,
+              "scroll": 1612.8,
+              "typing": 191.1
+            },
+            "ocr": {
+              "cer": 0.04405144694533762,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.21974221942785288,
+              "viewer_chars": 3052,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.04405144694533762,
+            "repeat": 2,
+            "typing_decode_ms": 2.14,
+            "typing_encode_ms": 7.84,
+            "window_client_cpu_pct": 0.8297604144897361,
+            "window_decode_errors": 0,
+            "window_ended": null,
+            "window_welcome": {
+              "caps": [],
+              "carrier": "udp",
+              "encoder": "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf from screencapturekit iosurface",
+              "height": 1080,
+              "max_datagram": 1152,
+              "service": "desktop",
+              "t": "welcome",
+              "width": 1920
+            }
+          },
+          {
+            "fps": {
+              "idle": 0.0,
+              "scroll": 57.1,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 0.1,
+              "scroll": 1639.0,
+              "typing": 193.7
+            },
+            "ocr": {
+              "cer": 0.041157556270096464,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.20716755737189563,
+              "viewer_chars": 3129,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.041157556270096464,
+            "repeat": 3,
+            "typing_decode_ms": 2.12,
+            "typing_encode_ms": 8.11,
+            "window_client_cpu_pct": 0.8535963469522954,
+            "window_decode_errors": 0,
+            "window_ended": null,
+            "window_welcome": {
+              "caps": [],
+              "carrier": "udp",
+              "encoder": "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf from screencapturekit iosurface",
+              "height": 1080,
+              "max_datagram": 1152,
+              "service": "desktop",
+              "t": "welcome",
+              "width": 1920
+            }
+          }
+        ],
+        "welcome": {
+          "caps": [],
+          "carrier": "udp",
+          "encoder": "videotoolbox h264 high low-latency-rc realtime no-reordering gop=inf from screencapturekit iosurface",
+          "height": 1080,
+          "max_datagram": 1152,
+          "service": "desktop",
+          "t": "welcome",
+          "width": 1920
+        }
+      },
+      "fps": {
+        "idle": 0.0,
+        "scroll": 57.1,
+        "typing": 12.1
+      },
+      "kbps": {
+        "idle": 0.1,
+        "scroll": 1617.2,
+        "typing": 192.3
+      },
+      "latency": {
+        "key": {
+          "lost": 0,
+          "n": 200,
+          "p50_ms": 34.169,
+          "p95_ms": 47.763
+        },
+        "pointer": {
+          "lost": 0,
+          "n": 200,
+          "p50_ms": 34.121,
+          "p95_ms": 46.372
+        }
+      },
+      "ocr": {
+        "cer": 0.0441,
+        "host_cer_vs_truth": 0.2006,
+        "host_chars": 3110,
+        "host_image": {
+          "height": 1080,
+          "width": 1920
+        },
+        "truth_chars": 3181,
+        "viewer_cer_vs_truth": 0.2125,
+        "viewer_chars": 3106,
+        "viewer_image": {
+          "height": 1080,
+          "width": 1920
+        }
+      },
+      "ok": true,
+      "split": {
+        "key": {
+          "decode_ms": 2.12,
+          "encode_ms": 7.97,
+          "input_to_capture_ms": 23.953,
+          "input_to_capture_parts": {
+            "encode_ms": {
+              "n": 200,
+              "p50": 7.559,
+              "p95": 8.024
+            },
+            "gate_ms": {
+              "n": 200,
+              "p50": 0.013,
+              "p95": 0.015
+            },
+            "pickup_ms": {
+              "n": 200,
+              "p50": 0.067,
+              "p95": 0.082
+            },
+            "render_ms": {
+              "n": 200,
+              "p50": 22.412,
+              "p95": 35.662
+            },
+            "sck_ms": {
+              "n": 200,
+              "p50": 0.376,
+              "p95": 1.665
+            }
+          },
+          "method": "rd: transport = same-clock capture-to-decoded p50 minus the host's encode p50 and the viewer's decode p50 (packetize, send, reassemble and queue; a difference of medians, so it can be slightly negative); on two Macs the host's capture times move onto the viewer's clock by the measured offset",
+          "transport_ms": 0.18399999999999928
+        },
+        "pointer": {
+          "decode_ms": 2.117,
+          "encode_ms": 7.97,
+          "input_to_capture_ms": 23.67,
+          "input_to_capture_parts": {
+            "encode_ms": {
+              "n": 200,
+              "p50": 7.554,
+              "p95": 7.976
+            },
+            "gate_ms": {
+              "n": 200,
+              "p50": 0.013,
+              "p95": 0.015
+            },
+            "pickup_ms": {
+              "n": 200,
+              "p50": 0.064,
+              "p95": 0.078
+            },
+            "render_ms": {
+              "n": 199,
+              "p50": 22.431,
+              "p95": 34.919
+            },
+            "sck_ms": {
+              "n": 200,
+              "p50": 0.406,
+              "p95": 1.835
+            }
+          },
+          "method": "rd: transport = same-clock capture-to-decoded p50 minus the host's encode p50 and the viewer's decode p50 (packetize, send, reassemble and queue; a difference of medians, so it can be slightly negative); on two Macs the host's capture times move onto the viewer's clock by the measured offset",
+          "transport_ms": 0.18400000000000105
+        },
+        "typing": {
+          "decode_ms": 2.12,
+          "encode_ms": 7.93
+        }
+      }
+    },
+    "webrtc": {
+      "errors": [],
+      "extra": {
+        "codec": "H264",
+        "decoder": "VideoToolbox",
+        "frames_dropped": 0,
+        "freezes": 16,
+        "packets_lost": 0,
+        "repeats": [
+          {
+            "fps": {
+              "idle": 1.9,
+              "scroll": 56.9,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 84.6,
+              "scroll": 374.5,
+              "typing": 97.5
+            },
+            "ocr": {
+              "cer": 0.967524115755627,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.9676202452059101,
+              "viewer_chars": 122,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.967524115755627,
+            "repeat": 1,
+            "typing_decode_ms": 4.43,
+            "typing_encode_ms": 10.41,
+            "window_codec": "H264",
+            "window_decoder": "VideoToolbox",
+            "window_frames_dropped": 0,
+            "window_freezes": 16,
+            "window_packets_lost": 0
+          },
+          {
+            "fps": {
+              "idle": 1.9,
+              "scroll": 57.0,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 84.8,
+              "scroll": 372.9,
+              "typing": 96.8
+            },
+            "ocr": {
+              "cer": 0.1112540192926045,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.16409933983024205,
+              "viewer_chars": 3262,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.1112540192926045,
+            "repeat": 2,
+            "typing_decode_ms": 4.4,
+            "typing_encode_ms": 10.69,
+            "window_codec": "H264",
+            "window_decoder": "VideoToolbox",
+            "window_frames_dropped": 0,
+            "window_freezes": 17,
+            "window_packets_lost": 0
+          },
+          {
+            "fps": {
+              "idle": 1.9,
+              "scroll": 57.1,
+              "typing": 12.1
+            },
+            "kbps": {
+              "idle": 83.1,
+              "scroll": 372.0,
+              "typing": 95.7
+            },
+            "ocr": {
+              "cer": 0.12218649517684887,
+              "host_cer_vs_truth": 0.20056585979251806,
+              "host_chars": 3110,
+              "host_image": {
+                "height": 1080,
+                "width": 1920
+              },
+              "truth_chars": 3181,
+              "viewer_cer_vs_truth": 0.15026721156868908,
+              "viewer_chars": 3276,
+              "viewer_image": {
+                "height": 1080,
+                "width": 1920
+              }
+            },
+            "ocr_cer": 0.12218649517684887,
+            "repeat": 3,
+            "typing_decode_ms": 4.41,
+            "typing_encode_ms": 10.61,
+            "window_codec": "H264",
+            "window_decoder": "VideoToolbox",
+            "window_frames_dropped": 0,
+            "window_freezes": 16,
+            "window_packets_lost": 0
+          }
+        ]
+      },
+      "fps": {
+        "idle": 1.9,
+        "scroll": 57.0,
+        "typing": 12.1
+      },
+      "kbps": {
+        "idle": 84.6,
+        "scroll": 372.9,
+        "typing": 96.8
+      },
+      "latency": {
+        "key": {
+          "lost": 0,
+          "n": 200,
+          "p50_ms": 41.283791,
+          "p95_ms": 53.652042
+        },
+        "pointer": {
+          "lost": 0,
+          "n": 200,
+          "p50_ms": 41.284792,
+          "p95_ms": 53.842667
+        }
+      },
+      "ocr": {
+        "cer": 0.1222,
+        "host_cer_vs_truth": 0.2006,
+        "host_chars": 3110,
+        "host_image": {
+          "height": 1080,
+          "width": 1920
+        },
+        "truth_chars": 3181,
+        "viewer_cer_vs_truth": 0.1641,
+        "viewer_chars": 3262,
+        "viewer_image": {
+          "height": 1080,
+          "width": 1920
+        }
+      },
+      "ok": true,
+      "split": {
+        "key": {
+          "decode_ms": 4.158681222707424,
+          "encode_ms": 10.5475,
+          "input_to_capture_ms": null,
+          "method": "webrtc: encode = host totalEncodeTime/framesEncoded over the run, transport = rtt/2 + the viewer's jitter buffer (mostly playout delay on loopback), decode = viewer totalDecodeTime/framesDecoded over the run",
+          "transport_ms": 2.7313606557377046
+        },
+        "pointer": {
+          "decode_ms": 4.222314159292035,
+          "encode_ms": 10.590552486187846,
+          "input_to_capture_ms": null,
+          "method": "webrtc: encode = host totalEncodeTime/framesEncoded over the run, transport = rtt/2 + the viewer's jitter buffer (mostly playout delay on loopback), decode = viewer totalDecodeTime/framesDecoded over the run",
+          "transport_ms": 1.829084388185654
+        },
+        "typing": {
+          "decode_ms": 4.41,
+          "encode_ms": 10.61
+        }
+      }
+    }
+  }
+}

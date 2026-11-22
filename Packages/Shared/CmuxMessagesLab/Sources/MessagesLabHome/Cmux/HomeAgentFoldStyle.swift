@@ -439,6 +439,7 @@ private func stateColor(_ state: String) -> NSColor {
     switch state {
     case "reported": NSColor.systemGreen
     case "stopped": NSColor.systemRed
+    case "queued": NSColor.systemGray
     default: NSColor.systemBlue
     }
 }

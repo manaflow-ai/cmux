@@ -228,3 +228,48 @@ describe("Native dial refusal reasons", () => {
     expect(reason(await f.authorize())).toBe("identity")
   })
 })
+
+describe("the desktop link service (the machine creator's view of its agent display)", () => {
+  const OTHER = "user_00000000000000000002"
+  it("is dialable by the machine's creator when CloudDO names it the desktop owner, with no port of its own", async () => {
+    const f = await fixture()
+    const result = await authorizeNativeDial(f.deps, principal, { ...target, desktop_owner: USER }, await f.proof(), ["desktop"])
+    expect(result).toMatchObject({ ok: true, permit: { services: ["desktop"], desktopOwner: USER } })
+    if (!result.ok) throw new Error(result.code)
+    expect(await recheckNativeDial(f.deps, principal, result.permit)).toBe(true)
+    const all = await authorizeNativeDial(f.deps, principal, { ...target, desktop_owner: USER }, await f.proof(), ["daemon", "ssh", "desktop"])
+    expect(all).toMatchObject({ ok: true, permit: { services: ["daemon", "ssh", "desktop"] } })
+  })
+
+  it("is refused when the machine has no desktop (no desktop owner), for its creator too", async () => {
+    const f = await fixture()
+    expect(await authorizeNativeDial(f.deps, principal, target, await f.proof(), ["desktop"]))
+      .toMatchObject({ ok: false, code: "auth.forbidden", details: { reason: "services" } })
+    expect(f.reads()).toBe(0)
+  })
+
+  it("is refused to every other member, a team policy that lists it notwithstanding", async () => {
+    const f = await fixture()
+    expect(await authorizeNativeDial(f.deps, principal, { ...target, desktop_owner: OTHER }, await f.proof(), ["desktop"]))
+      .toMatchObject({ ok: false, code: "auth.forbidden", details: { reason: "services" } })
+    expect(await authorizeNativeDial(f.deps, principal, { ...target, desktop_owner: "" }, await f.proof(), ["desktop"]))
+      .toMatchObject({ ok: false, details: { reason: "services" } })
+  })
+
+  it("is refused to an agent token and a service key principal of the creator", async () => {
+    const f = await fixture(), owned = { ...target, desktop_owner: USER }
+    const agent: Principal = { ...principal, agent: "agent_00000000000000000001" }
+    expect(await authorizeNativeDial(f.deps, agent, owned, await f.proof(), ["desktop"])).toMatchObject({ ok: false, details: { reason: "principal" } })
+    const key: Principal = { ...principal, kind: "service_key" as Principal["kind"] }
+    expect(await authorizeNativeDial(f.deps, key, owned, await f.proof(), ["desktop"])).toMatchObject({ ok: false, details: { reason: "principal" } })
+  })
+
+  it("fails the recheck once the permit's desktop owner is no longer the caller", async () => {
+    const f = await fixture()
+    const result = await authorizeNativeDial(f.deps, principal, { ...target, desktop_owner: USER }, await f.proof(), ["desktop"])
+    if (!result.ok) throw new Error(result.code)
+    expect(await recheckNativeDial(f.deps, principal, { ...result.permit, desktopOwner: OTHER })).toBe(false)
+    const { desktopOwner: _dropped, ...withoutOwner } = result.permit
+    expect(await recheckNativeDial(f.deps, principal, withoutOwner)).toBe(false)
+  })
+})

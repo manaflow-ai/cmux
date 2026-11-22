@@ -96,7 +96,7 @@ pub(super) fn sweep_transfers(moving: &[String]) {
             .and_then(|m| m.modified())
             .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE));
         if old && !moving.contains(&name) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
 }
@@ -216,6 +216,11 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
 
+/// The longest a move that waits for the running turn (`afterTurn`) waits for it to end. The
+/// turn lock is fair, so a prompt queued before the move runs first; the queue's later prompts
+/// move with the chat.
+const AFTER_TURN_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();
@@ -254,7 +259,10 @@ impl Hub {
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, socket, ssh, host, gates).await
+                // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
+                let after_turn =
+                    !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
+                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -305,11 +313,16 @@ impl Hub {
         }
     }
 
-    /// Freezes the chat for its move and makes its bundle.
+    /// Freezes the chat for its move and makes its bundle. With `after_turn`, a running turn is
+    /// neither refused nor stopped: the move first waits (up to [`AFTER_TURN_WAIT`]) for the
+    /// turn lock, unfrozen, so the turn ends on its own and every prompt sent meanwhile queues
+    /// as usual; holding the lock, it freezes the chat and the queue moves with the bundle.
+    #[allow(clippy::too_many_arguments)]
     async fn transfer_begin(
         self: &Arc<Self>,
         session: &Arc<Session>,
         interrupt: bool,
+        after_turn: bool,
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
@@ -326,16 +339,41 @@ impl Hub {
         if let Some(to) = session.meta().moved_to {
             return Err(moved_error(&to));
         }
+        // Taken before the freeze, so nothing is refused while the turn finishes: its
+        // permission answers, steering and new prompts go in as usual.
+        let early = if after_turn {
+            match tokio::time::timeout(AFTER_TURN_WAIT, session.turn_lock.lock()).await {
+                Ok(guard) => Some(guard),
+                Err(_) => {
+                    let why = format!(
+                        "the running turn did not end within {}s; try again, or pass --interrupt",
+                        AFTER_TURN_WAIT.as_secs()
+                    );
+                    return Err(transfer_error("busy", why));
+                }
+            }
+        } else {
+            None
+        };
+        // The wait may have outlasted the chat's stay here (another move took it meanwhile).
+        if let Some(to) = session.meta().moved_to {
+            return Err(moved_error(&to));
+        }
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
-        {
+        // This begin holds the move's watch until it starts it, below: a watch that ran now
+        // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
+        // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
+        let watch = {
             let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
                 let e = transfer_error("moving", "this chat is already being moved");
                 return Err(e.with_data(json!({"transferId": other})));
             }
+            let watch = self.claim_move_watch(&transfer_id);
             *moving = Some(transfer_id.clone());
-        }
+            watch
+        };
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -344,7 +382,7 @@ impl Hub {
         // the turn goes on where the chat lands. A move that does not happen queues it here.
         let mut carried: Option<String> = None;
         let unfreeze = |e: RpcError, carried: Option<&str>| {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             self.end_move(session);
             if let Some(id) = carried {
                 self.queue_carried(session, id);
@@ -387,9 +425,16 @@ impl Hub {
             }
         }
         let carried = carried.as_deref();
-        let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
-        let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
-            return Err(unfreeze(transfer_error("busy", "the running turn did not stop"), carried));
+        let guard = match early {
+            Some(guard) => guard,
+            None => {
+                let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
+                let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
+                    let e = transfer_error("busy", "the running turn did not stop");
+                    return Err(unfreeze(e, carried));
+                };
+                guard
+            }
         };
         // A turn recovered from an agent host runs before its task takes the lock (`hosts.rs`).
         if session.turn().is_some() {
@@ -398,7 +443,7 @@ impl Hub {
         }
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
-        if let Err(error) = std::fs::create_dir_all(&dir) {
+        if let Err(error) = crate::home_fs::create_dirs(&dir) {
             drop(guard);
             return Err(unfreeze(
                 RpcError::internal(format!("transfer: bundle dir: {error}")),
@@ -441,7 +486,7 @@ impl Hub {
             ));
         }
         let epoch = session.bump_ownership_epoch();
-        if let Err(error) = std::fs::write(dir.join("epoch"), epoch.to_string()) {
+        if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
             return Err(unfreeze(
                 RpcError::internal(format!("transfer: epoch marker: {error}")),
@@ -465,20 +510,22 @@ impl Hub {
         }
         drop(guard);
         if let Some(socket) = to {
-            let _ = std::fs::write(dir.join("to"), socket);
+            let _ = crate::home_fs::write(dir.join("to"), socket);
         }
         if let Some(host) = to_ssh {
-            let _ = std::fs::write(dir.join("to-ssh"), host);
+            let _ = crate::home_fs::write(dir.join("to-ssh"), host);
         }
         if let Some(host) = to_host {
-            let _ = std::fs::write(dir.join("to-host"), host);
+            let _ = crate::home_fs::write(dir.join("to-host"), host);
         }
         if let Some(id) = carried {
-            let _ = std::fs::write(dir.join("continues"), id);
+            let _ = crate::home_fs::write(dir.join("continues"), id);
         }
-        let _ = std::fs::write(dir.join("epoch"), epoch.to_string());
+        let _ = crate::home_fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
-        self.watch_transfer(session, &transfer_id);
+        if let Some(watch) = watch {
+            self.watch_claimed(session, watch);
+        }
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let schema = if session.meta().harness == "cmux-harness" {
@@ -622,7 +669,7 @@ impl Hub {
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
         self.kill(session, false).await?;
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 
@@ -633,7 +680,7 @@ impl Hub {
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         self.set_policy_answered(session, policy).await
     }
@@ -678,7 +725,7 @@ impl Hub {
         if let Some(id) = carried.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
             self.queue_carried(session, id);
         }
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = crate::home_fs::remove_dir_all(dir);
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
 
@@ -716,7 +763,7 @@ impl Hub {
             block.set("text", json!(text));
         }
         q.run = Arc::new(run);
-        q.preview = short_text(&text, 200);
+        q.preview = short_text(super::inbox::relay_body(&text), 200);
         let run = &q.run;
         let mut msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).

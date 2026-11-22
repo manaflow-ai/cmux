@@ -103,6 +103,43 @@ import Testing
         #expect(store.readState().active == nil)
     }
 
+    /// The first launch after an app update that shipped newer web: pages get the bundle at once,
+    /// the kept tree goes after, and a check that takes a newer update right away keeps its tree
+    /// (it waits for that removal before it unpacks, so the removal cannot take the new tree).
+    @Test func aLaunchThatDropsTheKeptUpdateRemovesItsTreeAfterTheAnswer() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, old) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let dropped = try await store.install(archive: archive, pointer: old)
+        try store.write(WebUpdateState(active: old, floor: old.committedAt))
+        var newer = old
+        newer.committedAt = old.committedAt + 100
+        newer.publishedAt = newer.committedAt + 60
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(newer)
+        // The new app's web was built after the kept update's commit, before the newer one's.
+        let updater = Self.updater(server, store: store, app: .init(abi: 2, webBuiltAt: old.committedAt + 1))
+        var ready: [URL?] = []
+        updater.onReady = { tree, _ in ready.append(tree) }
+        #expect(await updater.launchTree() == nil)
+        #expect(store.readState().active == nil)
+        await updater.check()
+        #expect(updater.state.active == newer)
+        #expect(ready == [dropped])
+        #expect(store.verifiedTree(newer) == dropped)
+        // The same key went and came back; with nothing kept, the launch prune leaves no tree.
+        let empty = WebUpdateStore(base: root.appending(path: "empty", directoryHint: .isDirectory))
+        let kept = try await empty.install(archive: archive, pointer: old)
+        try empty.write(WebUpdateState(active: old, floor: old.committedAt))
+        let quiet = Self.updater(server, store: empty, app: .init(abi: 2, webBuiltAt: old.committedAt + 1))
+        quiet.follow(.off)
+        #expect(await quiet.launchTree() == nil)
+        await quiet.launchSettled()
+        #expect(!FileManager.default.fileExists(atPath: kept.path))
+    }
+
     @Test func aKeptUpdateFromAnotherChannelIsNotServedAtLaunch() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -317,12 +354,16 @@ import Testing
         server.etag = "\"2\""
         await updater.check()
         // Pages still load the second update's files when it is rolled back.
-        var served: URL? = store.tree(for: second.key).root
+        var served = [store.tree(for: second.key).root]
         updater.served = { served }
         try await updater.rollBack()
         #expect(FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
-        // The safe point swapped the first one in: now the second goes.
-        served = store.tree(for: first.key).root
+        // New pages load the first one while an open page still reads the second: both stay.
+        served = [store.tree(for: first.key).root, store.tree(for: second.key).root]
+        await updater.pruneUnused()
+        #expect(FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
+        // That page reloaded at its safe point: now the second goes.
+        served = [store.tree(for: first.key).root]
         await updater.pruneUnused()
         #expect(!FileManager.default.fileExists(atPath: store.tree(for: second.key).root.path))
         #expect(FileManager.default.fileExists(atPath: store.tree(for: first.key).root.path))

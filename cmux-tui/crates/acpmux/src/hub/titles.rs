@@ -138,18 +138,72 @@ fn prompt_gist(text: &str) -> PromptGist<'_> {
     PromptGist { line, body }
 }
 
-/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
-/// closes leaves nothing: its first line is no title.
+/// `text` without the `<tag>…</tag>` blocks and standing-rules sections it opens
+/// with. A block that never closes leaves nothing: its first line is no title.
 fn strip_leading_blocks(text: &str) -> &str {
     let mut rest = text.trim_start();
-    while let Some(tag) = opening_tag(rest) {
-        let close = format!("</{tag}>");
-        match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
-            None => return "",
+    loop {
+        if let Some(tag) = opening_tag(rest) {
+            let close = format!("</{tag}>");
+            match rest.find(&close) {
+                Some(at) => rest = rest[at + close.len()..].trim_start(),
+                None => return "",
+            }
+        } else if let Some(after) = skip_tagged_section(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
         }
     }
-    rest
+}
+
+/// What follows a standing-rules section `text` opens with, if it opens with one: a
+/// Markdown heading tagged with a kebab-case `[slug]`, the way a fleet brief's
+/// boilerplate starts ("## Restrictions you will hit [session-restrictions]",
+/// 2026-11-20: dozens of chats were titled after it, not their task). The section's
+/// paragraph and list run to the first blank line that a list item or an indented line
+/// does not continue.
+fn skip_tagged_section(text: &str) -> Option<&str> {
+    let (first, _) = text.split_once('\n').unwrap_or((text, ""));
+    if !is_tagged_heading(first.trim()) {
+        return None;
+    }
+    let mut at = first.len() + 1;
+    let (mut seen_text, mut blank) = (false, false);
+    for line in text.get(at..).unwrap_or("").split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() {
+            blank |= seen_text;
+        } else if blank && !continues_section(line) {
+            return Some(&text[at..]);
+        } else {
+            (seen_text, blank) = (true, false);
+        }
+        at += line.len();
+    }
+    Some("")
+}
+
+/// `## Title [kebab-slug]`: a heading whose last word is a bracketed slug with a dash.
+fn is_tagged_heading(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+    let Some(slug) = line.strip_suffix(']').and_then(|l| l.rsplit_once('[')).map(|(_, s)| s) else {
+        return false;
+    };
+    slug.contains('-')
+        && !slug.starts_with('-')
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A list item or an indented line carries a section on past a blank line.
+fn continues_section(line: &str) -> bool {
+    let t = line.trim_start();
+    line.starts_with([' ', '\t'])
+        || t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
 }
 
 /// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
@@ -200,11 +254,19 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("title-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat is asked again, which does
+                    // nothing for one that needs no title (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("title-events", n) {
+                            hub.title_after_turn(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -227,7 +289,10 @@ impl Hub {
     pub(super) fn title_after_prompt(self: &Arc<Self>, session: &Arc<Session>) {
         let request = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
+            // A throwaway session (a Chief compactor node, purged minutes after its one prompt)
+            // is no one's chat: a title for it is one haiku call per node, about 55 a minute on
+            // Leo's laptop (2026-11-15).
+            if m.throwaway || m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
                 return;
             }
             // `title_prompt` is ephemeral. A daemon restart before the request was written can
@@ -256,7 +321,8 @@ impl Hub {
                 && m.title_prompt.is_none()
                 && m.title_failures == 0
                 && !m.title_asking;
-            if m.title_source.as_deref() != Some(ASKED)
+            if m.throwaway
+                || m.title_source.as_deref() != Some(ASKED)
                 || (!thin_retry && !restarted_request)
                 || m.title_asking
                 || m.turn_count == 0
@@ -294,7 +360,7 @@ impl Hub {
 
     /// The command that titles a chat on `harness`, or None (none applies,
     /// or `titles.generate` is off).
-    async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
+    pub(super) async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
         // Never the shared temp dir or the daemon's folder: Claude Code runs
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
@@ -317,7 +383,10 @@ impl Hub {
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
-        let profile = cfg.harnesses.get(harness)?;
+        // A copy: the lock is let go before the login shell's environment is awaited below (up
+        // to a few seconds cold), or a config writer queued behind it would stall every reader,
+        // `_acpmux/status` too (ask-64cfa32e34).
+        let profile = cfg.harnesses.get(harness)?.clone();
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
@@ -344,7 +413,16 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
-        match crate::agent::harness_command(harness, profile, &cwd, Some((program, args)), None) {
+        drop(cfg);
+        match crate::agent::harness_command_ready(
+            harness,
+            &profile,
+            &cwd,
+            Some((program, args)),
+            None,
+        )
+        .await
+        {
             Ok(cmd) => Some(cmd),
             Err(e) => {
                 tracing::debug!("no title command for {harness}: {e}");
@@ -419,7 +497,11 @@ impl Hub {
         title
     }
 
-    fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
+    pub(super) fn apply_generated_title(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+    ) {
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -466,9 +548,20 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
+pub(super) async fn run(cmd: tokio::process::Command, request: &str) -> Option<String> {
+    clean(&run_command(cmd, request, TIMEOUT).await?)
+}
+
+/// Run a one-shot command (in its own process group) with `request` on stdin; its whole
+/// stdout when it exits 0 within `timeout`, else None (the group is killed at the timeout).
+/// Shared with `rolling_summary.rs`.
+pub(super) async fn run_command(
+    mut cmd: tokio::process::Command,
+    request: &str,
+    timeout: Duration,
+) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
+    let mut child = cmd.spawn().map_err(|e| tracing::debug!("one-shot command: {e}")).ok()?;
     let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
@@ -481,7 +574,7 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
+    let Ok(out) = tokio::time::timeout(timeout, answer).await else {
         // The command runs in its own group (a wrapper's children too): end it
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
@@ -493,12 +586,12 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         drop(child);
         return None;
     };
-    clean(&out?)
+    out
 }
 
 /// The title in a model's answer: its first line without quotes, a
 /// `Title:` label or trailing punctuation, at most 6 words and 60 chars.
-fn clean(out: &str) -> Option<String> {
+pub(super) fn clean(out: &str) -> Option<String> {
     let line = out.lines().map(str::trim).find(|l| !l.is_empty())?;
     let line = line.strip_prefix("Title:").unwrap_or(line);
     let quotes: &[char] = &['"', '\'', '`', '*', '“', '”', '‘', '’'];
@@ -695,5 +788,47 @@ mod tests {
     fn a_line_that_only_looks_like_a_tag_still_titles() {
         assert_eq!(prompt_gist("<3 this app, make it faster").line, "<3 this app, make it faster");
         assert_eq!(prompt_gist("a < b: why").line, "a < b: why");
+    }
+
+    /// The standing block a fleet brief opens with (leo-workspace `tools/session_restrictions.py`):
+    /// a heading tagged `[slug]`, a paragraph and a list, then a blank line and the task.
+    const RESTRICTIONS: &str = "## Restrictions you will hit [session-restrictions]\n\nAny of these ends a session mid-work: usage limits, a NIGHTLY install,\nhost drains and reboots.\n- Push a draft PR within 15 minutes of your first edit. Push again\n  at least every 30 minutes.\n- Post a one-line check-in every 30 minutes.\n";
+
+    #[test]
+    fn a_standing_rules_preamble_never_titles_a_chat() {
+        // 2026-11-20: dozens of sessions were titled "Session restrictions and stalled PR batch"
+        // or the preamble's heading itself, from the block every brief opens with.
+        let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
+        let gist = prompt_gist(&text);
+        assert_eq!(gist.line, "Task: rename live sessions after their task.");
+        assert!(
+            !gist.body.contains("Restrictions"),
+            "the title model never reads it: {}",
+            gist.body
+        );
+        assert!(gist.body.contains("More."));
+    }
+
+    #[test]
+    fn several_tagged_blocks_and_context_blocks_are_all_skipped() {
+        let text = format!(
+            "<chat>\nview\n</chat>\n{RESTRICTIONS}\n# Building what Leo asks [build-what-named]\n\n- Build exactly what he named.\n\nFix the sidebar spinner"
+        );
+        assert_eq!(prompt_gist(&text).line, "Fix the sidebar spinner");
+    }
+
+    #[test]
+    fn a_prompt_that_is_only_a_preamble_gives_no_title() {
+        assert_eq!(prompt_gist(RESTRICTIONS).line, "");
+    }
+
+    #[test]
+    fn an_untagged_heading_or_a_mere_mention_still_titles() {
+        assert_eq!(prompt_gist("## Fix the sidebar\n\nIt spins").line, "## Fix the sidebar");
+        assert_eq!(
+            prompt_gist("fix [session-restrictions] parsing").line,
+            "fix [session-restrictions] parsing"
+        );
+        assert_eq!(prompt_gist("## Ship it [wip]\n\nnow").line, "## Ship it [wip]");
     }
 }

@@ -55,11 +55,7 @@ const save = (b: ChiefBrainDO, xs: ReadonlyArray<Sandbox>) => writeConfig(b.sql,
 
 /** The Chief's sandboxes object (one per Chief). */
 export const sandboxesOf = (env: Env, agent: string) =>
-  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`)) as unknown as {
-    ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<Sandbox>, owner: string | null): Promise<Out>
-    ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }>
-    ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }>
-  }
+  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/sandboxes`))
 /** Sandboxes a conversation brain kept before they moved to the Chief's object. */
 export const legacyOf = (b: ChiefBrainDO): Array<Sandbox> => listOf(b)
 

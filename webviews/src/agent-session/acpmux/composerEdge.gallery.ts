@@ -2,6 +2,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
+import { JUMP_LATEST_SHOWN } from "./transcriptSelectors";
 
 const snapshot = chat(
   Array.from({ length: 24 }, (_, index) => [
@@ -19,7 +20,7 @@ const park =
   async (ctx) => {
     await ctx.waitFor(() => (ctx.document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollHeight ?? 0) > 1_000);
     await ctx.scroll({ selector: ".acpmux-scroll" }, 1_200);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+    await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
     if (band !== undefined)
       ctx.document.querySelector<HTMLElement>(".acpmux-scroll")!.style.setProperty("--acpmux-fade-bottom", `${band}px`);
   };
@@ -29,7 +30,7 @@ export default agentPaneEntry({
   title: "Transcript edge above the composer",
   area: "Agent pane",
   height: 700,
-  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript"],
   checks: {
     anchorMovePx: { value: 0, reason: "Changing an alpha mask must not move transcript or composer geometry." },
   },

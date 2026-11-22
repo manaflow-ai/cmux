@@ -12,7 +12,7 @@
 set -euo pipefail
 feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-  feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+  feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
 mkdir -p recovered
 newer_stapled_pending=false
@@ -35,7 +35,7 @@ while IFS=$'\t' read -r run_id artifact; do
     echo "::notice title=Recovery refused::run $run_id: build $BUILD: $verdict; skipping"
     echo "::endgroup::"; continue
   fi
-  if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" "${feeds[@]}"; then
+  if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" ${feeds[@]+"${feeds[@]}"}; then
     echo "::notice::run $run_id: build $BUILD is no longer above both feeds; skipping"
     echo "::endgroup::"; continue
   fi

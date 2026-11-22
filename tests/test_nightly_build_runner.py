@@ -20,6 +20,7 @@ import datetime as dt
 import gzip
 import io
 import json
+import re
 import os
 import itertools
 import sys
@@ -35,6 +36,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import nightly_build_runner as picker  # noqa: E402
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import DOC, evaluate  # noqa: E402
+import workflow_jobs  # noqa: E402
+
+
+def runs_on_text(job: dict, name: str) -> str:
+    """The job's runs-on as its one cell; a matrix nothing resolves, or more than one cell, fails."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None or len(cells) != 1:
+        raise AssertionError(f"{name}: runs-on does not resolve to one value: {cells!r}")
+    return cells[0]
 
 NOW = dt.datetime(2026, 10, 27, 6, 0, tzinfo=dt.timezone.utc)
 SIDE = "glaeda-side-std-xcode-26.6"
@@ -620,68 +630,6 @@ class Main(unittest.TestCase):
         step = step[:step.index("nightly_build_runner.py verify")]
         self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
 
-    def test_the_verify_jobs_keep_off_a_mini_whose_signing_runner_claims_the_whole_mac(self) -> None:
-        # Run 41896773873 (2026-11-04): Verify final nightly DMG waited 35 min on cmux15-glaeda-nightly-only-5,
-        # whose hook yields to the whole-Mac claim while a newer run signed on cmux15-glaeda-1, and was then
-        # cancelled. Each verify job gets its own nightly-only runner on a mini with no signing runner.
-        plain = picker.NIGHTLY_ONLY_LABEL
-        sign = "glaeda-trusted-next-signing"
-        reserved = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_ONLY_LABEL": plain, "SIGN_RUNNER_LABEL": sign}
-
-        def named(name: str, *labels: str, busy: bool = False, status: str = "online") -> dict:
-            return {"name": name, **runner(*labels, busy=busy, status=status)}
-
-        def only(host: str, n: int, **kwargs) -> dict:
-            return named(f"{host}-glaeda-nightly-only-{n}", plain, f"glaeda-runner-{host}-nightly-only-{n}", **kwargs)
-
-        signing = named("cmux15-glaeda-1", "glaeda-trusted", sign, busy=True)
-        fleet = [signing, only("cmux15", 3), only("cmux15", 4), only("cmux7s-mac-mini", 3, busy=True),
-                 only("cmux7s-mac-mini", 4), only("cmux7s-mac-mini", 5), only("cmux7s-mac-mini", 6, status="offline")]
-        out = self.run_main(reserved, argv=("verify",), read_runners=lambda t, r: fleet)
-        self.assertEqual(out, {"owned": plain, "verify_signed": "glaeda-runner-cmux7s-mac-mini-nightly-only-4",
-                               "verify_dmg": "glaeda-runner-cmux7s-mac-mini-nightly-only-5"})
-        # A busy runner off the signing mini still beats an idle one on it: a light nightly job frees it in
-        # minutes, while the claim holds the signing mini for a whole sign (and the pick is made before the sign).
-        out = self.run_main(reserved, argv=("verify",), read_runners=lambda t, r: [
-            signing, only("cmux15", 3), only("cmux7s-mac-mini", 3, busy=True)])
-        self.assertEqual(out, {"owned": plain, "verify_signed": "glaeda-runner-cmux7s-mac-mini-nightly-only-3",
-                               "verify_dmg": "glaeda-runner-cmux7s-mac-mini-nightly-only-3"})
-
-        def broken(token: str, repo: str):
-            raise OSError("HTTP 403: API rate limit exceeded for installation")
-        # No runner off the signing mini, or an unread list: the verify jobs keep the reservation (`owned`).
-        for env, read in ((reserved, lambda t, r: [signing, only("cmux15", 3)]), (reserved, broken),
-                          ({**reserved, "ROUTE_TOKEN": ""}, lambda t, r: fleet)):
-            with self.subTest(env=env, read=read):
-                out = self.run_main(env, argv=("verify",), read_runners=read, read_snapshot=broken)
-                self.assertEqual(out, {"owned": plain, "verify_signed": "", "verify_dmg": ""})
-
-    def test_each_verify_job_takes_its_own_pick_for_this_attempt_else_the_owned_route(self) -> None:
-        pick, plain, chosen = "pick-nightly-sign-runner", picker.NIGHTLY_ONLY_LABEL, "glaeda-runner-cmux7s-mac-mini-nightly-only-4"
-        step = next(step for step in DOC["jobs"][pick]["steps"] if step.get("id") == "owned")
-        self.assertEqual(step["env"]["SIGN_RUNNER_LABEL"], "${{ vars.CI_NIGHTLY_SIGN_RUNNER }}")
-        outputs = DOC["jobs"][pick]["outputs"]
-        for job, key in (("verify-signed-nightly", "verify_signed"), ("verify-final-dmg-nightly", "verify_dmg")):
-            output = outputs[key].removeprefix("${{").removesuffix("}}")
-            for event, attempt, marker in itertools.product(("push", "workflow_dispatch"), (1, 2), ("success", "")):
-                context = {"github.event_name": event, "github.run_attempt": attempt,
-                           "steps.upload-marker.outcome": marker, f"steps.owned.outputs.{key}": chosen}
-                with self.subTest(output=key, event=event, attempt=attempt, marker=marker):
-                    stands = event == "push" and attempt == 1 or marker == "success"
-                    self.assertEqual(evaluate(parse_nightly_expression(output), context) or "", chosen if stands else "")
-            source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
-            for attempt, picked_for, verify in itertools.product((1, 2), ("1", "2"), ("", chosen)):
-                context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
-                           "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": DEV, "vars.CI_SIDE_LANE_RUNNER": SIDE,
-                           f"needs.{pick}.outputs.attempt": picked_for, f"needs.{pick}.outputs.owned": plain,
-                           f"needs.{pick}.outputs.{key}": verify}
-                with self.subTest(job=job, attempt=attempt, picked_for=picked_for, verify=verify):
-                    label = evaluate(parse_nightly_expression(source), context)
-                    if picked_for != str(attempt):
-                        self.assertEqual(label, DEV)
-                    else:
-                        self.assertEqual(label, verify or plain)
-
     def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
         # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
         # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
@@ -811,7 +759,7 @@ class Workflow(unittest.TestCase):
     def test_no_guarded_job_reads_a_single_label_variable(self) -> None:
         for job in GUARDED:
             with self.subTest(job=job):
-                runs_on = DOC["jobs"][job]["runs-on"]
+                runs_on = runs_on_text(DOC["jobs"][job], job)
                 self.assertNotIn("CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 self.assertIn(f"needs.{GUARDED[job]}.outputs.owned", runs_on)
                 self.assertNotIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
@@ -821,7 +769,7 @@ class Workflow(unittest.TestCase):
         # failed jobs that kept an earlier attempt's pick included) is our plain nightly-only pool,
         # never Blacksmith (nightlies never use Blacksmith), whatever vars.MACOS_RUNNER_26 holds.
         for job, pick in GUARDED.items():
-            source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
+            source = runs_on_text(DOC["jobs"][job], job).removeprefix("${{").removesuffix("}}")
             for event, attempt, picked_for, owned, blacksmith, owned_on, variable in itertools.product(
                     ("push", "workflow_dispatch"), (1, 2, 3), ("1", "2", ""), ("", SIDE), ("", SMALL), ("1", "0"),
                     ("macos-26", "macos-15", SIDE, LARGE, "")):
@@ -845,7 +793,7 @@ class Workflow(unittest.TestCase):
         # builder's hook admits only build-nightly-app, so the helper never takes it.
         job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
         self.assertIn("pick-nightly-build-runner", job["needs"])
-        source = job["runs-on"].removeprefix("${{").removesuffix("}}")
+        source = runs_on_text(job, "build-nightly-ghostty-cli-helper").removeprefix("${{").removesuffix("}}")
         pick = "pick-nightly-build-runner"
         for event, attempt, picked_for, helper, dedicated, blacksmith in itertools.product(
                 ("push", "workflow_dispatch"), (1, 2), ("1", "2"), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
@@ -888,7 +836,11 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(step["env"]["DEDICATED_LABEL"], "${{ vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL }}")
                 # The wait for a busy dedicated builder fits in the step and the job.
                 self.assertGreaterEqual(step["timeout-minutes"] * 60, picker.DEDICATED_WAIT_SECONDS + 120)
-                self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
+                # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py):
+                # the smaller limit, the mode off, is the one that must hold.
+                limit = definition["timeout-minutes"]
+                limit = min(int(n) for n in re.findall(r"\b\d+\b", limit)) if isinstance(limit, str) else limit
+                self.assertGreater(limit, step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
                 self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
                 # The helper's pick stands on the same terms as `owned`.
@@ -942,7 +894,7 @@ class Workflow(unittest.TestCase):
                                "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                                "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
-                    source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
+                    source = runs_on_text(DOC["jobs"][job], job).removeprefix("${{").removesuffix("}}")
                     self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
                     # A re-run of failed jobs that kept the previous attempt's pick takes our nightly-only
                     # pool (never the warm builder label), so a refused owned label is never taken again, and never Blacksmith.

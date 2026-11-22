@@ -12,6 +12,7 @@ enum IntentUndo: Equatable {
     case screenColor(screen: ScreenID, color: String?)
     case screenIcon(screen: ScreenID, icon: String?)
     case screenPinned(screen: ScreenID, pinned: Bool)
+    case dividerVisible(screen: ScreenID, split: SplitID, visible: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
     case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
@@ -37,13 +38,17 @@ enum IntentUndo: Equatable {
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
-    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
     /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
     /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
     /// hidden once the records hold it.
     indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
+    /// The pane the screen showed zoomed before the apply (nil: none).
+    case screenZoom(screen: ScreenID, pane: PaneID?)
+    /// The two panes a swap exchanged in the screen's tree; the same exchange again is its inverse.
+    case swappedPanes(screen: ScreenID, first: PaneID, second: PaneID)
 }
 
 struct PendingIntent {
@@ -88,6 +93,11 @@ struct PendingIntent {
     /// A script batch's intent held back by its ``StoreStage``: in the log (ordered with the rest)
     /// but not shown, and never due, until the stage commits.
     var held = false
+    /// The slow request log's clock when the intent was shown (``SlowRequestLog/uptime``); 0: no log.
+    var shownAt: UInt64 = 0
+    /// A tab move's place by the tabs beside it, read after its first apply: each later apply puts the tab there
+    /// again, so the move's index is not used on a list that changed meanwhile (``TabMovePlace``).
+    var movePlace: TabMovePlace?
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -117,10 +127,11 @@ struct IntentLog {
 
     /// Appends a new intent. False when the transaction is already pending
     /// or already settled (an id is never reused).
-    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false) -> Bool {
+    mutating func append(_ intent: Intent, transaction: ClientTransactionID, held: Bool = false, shownAt: UInt64 = 0) -> Bool {
         guard !contains(transaction), !wasSettled(transaction) else { return false }
         var entry = PendingIntent(transaction: transaction, kind: intent)
         entry.held = held
+        entry.shownAt = shownAt
         entries.append(entry)
         return true
     }
@@ -195,7 +206,7 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
-        replacedStandIns.removeAll() // another daemon may reuse their surfaces
+        replacedStandIns.removeAll(); closedTabs.removeAll() // another daemon may reuse their surfaces
         entries = entries.map { entry in
             var entry = entry
             if entry.settleSequence != nil {
@@ -233,6 +244,52 @@ struct IntentLog {
     private static let replacedStandInLimit = 64
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+
+    /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
+    /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).
+    private(set) var closedTabs: [(id: String, surface: SurfaceID)] = []
+
+    /// Notes `tabs` closed; the overlay applies a close again on every restore, so each is listed once.
+    mutating func noteClosed(_ tabs: [(id: String, surface: SurfaceID)]) {
+        for tab in tabs where !closedTabs.contains(where: { $0.id == tab.id }) { closedTabs.append(tab) }
+        if closedTabs.count > Self.replacedStandInLimit { closedTabs.removeFirst(closedTabs.count - Self.replacedStandInLimit) }
+    }
+
+    /// The tabs on `surfaces` are not closed after all (their close was rejected).
+    mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
+        closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
+
+    /// The created tabs still to report to the app, oldest first: the stand-in's tab id, whether it is a page tab
+    /// (the store has one report for each kind) and the daemon's tab. The daemon's tab of a creation arrives while
+    /// the pending intents are lifted, so the app hears of it when that apply ends (``OverlayReports``).
+    private var createdToReport: [(id: String, page: Bool, tab: TabModel)] = []
+
+    mutating func noteCreatedToReport(_ id: String, page: Bool, tab: TabModel) { createdToReport.append((id, page, tab)) }
+
+    /// The created tabs to report now; none is left to report after this call.
+    mutating func takeCreatedToReport() -> [(id: String, page: Bool, tab: TabModel)] {
+        defer { createdToReport = [] }
+        return createdToReport
+    }
+
+    /// Whether daemon surface `surface` took a recently created stand-in's place.
+    func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
+
+    /// The terminal host id each recently settled stand-in tab minted (bounded), by the stand-in's tab id: a dock's fresh
+    /// tab, which no reply names, is still known as its stand-in's after the dock left the log in the step before a strip
+    /// shows it (review F1 on #38108).
+    private var settledTerminals: [(standIn: String, terminal: TerminalID)] = []
+
+    func settled(standIn id: String, minted terminal: TerminalID) -> Bool { settledTerminals.contains { $0.standIn == id && $0.terminal == terminal } }
+
+    /// `entry` left the log unrefused: a terminal stand-in the person kept is remembered by the host id it minted.
+    mutating func noteStandInSettled(_ entry: PendingIntent) {
+        guard !entry.closeWhenCreated, !entry.standInClosed, let tab = entry.kind.standInTab,
+              let id = tab.tabResourceID?.rawValue, let terminal = tab.terminalID else { return }
+        settledTerminals.append((id, terminal))
+        if settledTerminals.count > Self.replacedStandInLimit { settledTerminals.removeFirst(settledTerminals.count - Self.replacedStandInLimit) }
+    }
 
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
@@ -279,8 +336,9 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
-        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
-           let standIn = provisional.tabResourceID?.rawValue {
+        // A closed stand-in became nothing the person sees: its daemon tab is hidden and closed (``CancelledCreation``).
+        if let entry = entries.first(where: { $0.transaction == transaction }), !entry.closeWhenCreated, !entry.standInClosed,
+           let standIn = entry.kind.standInTab?.tabResourceID?.rawValue {
             replacedStandIns.removeAll { $0.standIn == standIn }
             replacedStandIns.append((standIn, surface))
             if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }
@@ -297,6 +355,14 @@ struct IntentLog {
     @discardableResult
     mutating func setUndo(_ undo: IntentUndo?, at index: Int) -> Bool {
         entries.modify(checked: index) { $0.undo = undo }
+    }
+
+    /// What an apply of entry `index` left (``IntentOverlay/show(_:in:)``): its inverse, and a tab move's place.
+    mutating func setShown(_ shown: (undo: IntentUndo?, place: TabMovePlace?), at index: Int) -> Bool {
+        entries.modify(checked: index) { entry in
+            entry.undo = shown.undo
+            entry.movePlace = shown.place
+        }
     }
 
     private mutating func noteSettled(_ transaction: ClientTransactionID) {

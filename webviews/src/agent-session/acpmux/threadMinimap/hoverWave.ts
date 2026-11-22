@@ -53,6 +53,7 @@ export class HoverWave {
     private readonly rail: () => HTMLElement | null,
     private readonly list: () => HTMLElement | null,
     private readonly rows: () => number,
+    private readonly pitch = ROW_PITCH,
   ) {}
 
   /// The pointer is over the ticks at `clientY`: the bump eases toward its row.
@@ -67,7 +68,7 @@ export class HoverWave {
     // enter, which comes after this): the stepped fisheye, which switches at once, draws instead.
     if (!this.active && reducedMotion()) return;
     const box = list.getBoundingClientRect();
-    const row = (clientY - box.top + list.scrollTop) / ROW_PITCH;
+    const row = (clientY - box.top + list.scrollTop) / this.pitch;
     this.target = Math.max(0, Math.min(this.rows(), row));
     const now = performance.now();
     if (!this.active) {
@@ -177,6 +178,7 @@ export class ZipperWave {
     private readonly rail: () => HTMLElement | null,
     private readonly list: () => HTMLElement | null,
     private readonly rows: () => number,
+    private readonly pitch = ROW_PITCH,
   ) {}
 
   /// The pointer is over the ticks at `clientY`: the row under it becomes the hovered one.
@@ -191,7 +193,7 @@ export class ZipperWave {
     const rows = this.rows();
     if (rows <= 0) return;
     const box = list.getBoundingClientRect();
-    const row = Math.max(0, Math.min(rows - 1, Math.floor((clientY - box.top + list.scrollTop) / ROW_PITCH)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((clientY - box.top + list.scrollTop) / this.pitch)));
     if (!this.on) {
       this.on = true;
       rail.setAttribute(WAVE_ATTRIBUTE, "");

@@ -1,7 +1,7 @@
-// A completed turn keeps its final answer in sight and folds the earlier transcript, including
+// A completed turn keeps its answers in sight and folds earlier work narration, including
 // received reports, under one stable Worked-for disclosure. A running turn keeps the existing
 // step-by-step rows so the reader can follow work as it arrives.
-import { expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   openViewTurnFold,
@@ -12,6 +12,26 @@ import {
   turnView,
   WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -39,13 +59,17 @@ const received = (id: string) =>
     },
   });
 
+/// The ids a view draws, each row a run of messages folds (conversation/messageRuns.ts) included.
+const shownIds = (view: readonly AcpmuxRow[]) =>
+  view.flatMap((entry) => (entry.messageRun ? [entry.id, ...entry.messageRun.rows] : [entry.id]));
+
 const completedTurn = () => {
   at = 0;
   const prompt = row("prompt", "user", { text: "Ship the retry fix" });
   return [
     prompt,
     tool("read"),
-    answer("progress", "I found the retry race and am checking the two call sites."),
+    answer("progress", "Checking the two call sites."),
     tool("test"),
     received("report"),
     answer("final", "The retry fix is shipped."),
@@ -54,6 +78,7 @@ const completedTurn = () => {
 };
 
 test("a completed turn folds all pre-answer work and received reports under one stable line", () => {
+  oneFoldPerTurn();
   const rows = completedTurn();
   const folded = turnView(rows, new Set());
   expect(folded.filter((entry) => entry.kind !== "date").map((entry) => `${entry.kind}:${entry.id}`)).toEqual([
@@ -66,7 +91,10 @@ test("a completed turn folds all pre-answer work and received reports under one 
   const opened = turnView(rows, new Set([`${WORKED}-prompt`]))
     .filter((entry) => entry.kind !== "date")
     .map((entry) => entry.id);
-  expect(opened).toEqual(["prompt", "worked-prompt", "read", "progress", "test", "report", "final", "summary"]);
+  // Commentary ends the first run; the later command and received report share their own line.
+  expect(opened).toEqual(["prompt", "worked-prompt", "read", "progress", "messageRun-test", "final", "summary"]);
+  const run = turnView(rows, new Set([`${WORKED}-prompt`])).find((entry) => entry.messageRun);
+  expect(new Set(run?.messageRun?.rows)).toEqual(new Set(["test", "report"]));
   expect(
     turnFoldFor(
       rows,
@@ -79,7 +107,7 @@ test("a running turn keeps intermediate prose, tools, and received reports visib
   const rows = completedTurn().slice(0, -1);
   const live = turnView(rows, new Set(), { working: true });
   expect(live.some((entry) => entry.kind === WORKED)).toBe(false);
-  const ids = live.map((entry) => entry.id);
+  const ids = shownIds(live);
   for (const id of ["prompt", "read", "progress", "test", "report", "final"]) expect(ids).toContain(id);
 });
 
@@ -92,6 +120,7 @@ test("a received prompt without a continuation relation stays a separate turn", 
 });
 
 test("the completed disclosure state is keyed by the turn prompt, so a later snapshot reopens it", () => {
+  oneFoldPerTurn();
   const rows = completedTurn();
   const expanded = new Set([`${WORKED}-prompt`]);
   const first = turnView(rows, expanded);
@@ -100,7 +129,7 @@ test("the completed disclosure state is keyed by the turn prompt, so a later sna
     expanded,
   );
   expect(first.map((entry) => entry.id)).toEqual(next.map((entry) => entry.id));
-  expect(next).toContainEqual(expect.objectContaining({ id: "report" }));
+  expect(shownIds(next)).toContain("report");
 });
 
 test("Find resolves a completed fold when history starts at a landed steer", () => {
@@ -119,11 +148,11 @@ test("an expanded provisional steer fold stays open when its older prompt arrive
   const partial = [full[reportAt]!, tool("late-test"), ...full.slice(reportAt + 1)];
   const expanded = new Set([`${WORKED}-report`]);
 
-  expect(turnView(partial, expanded)).toContainEqual(expect.objectContaining({ id: "late-test" }));
+  expect(shownIds(turnView(partial, expanded))).toContain("late-test");
 
   const loaded = turnView(full, expanded);
   expect(loaded).toContainEqual(expect.objectContaining({ id: `${WORKED}-prompt` }));
-  expect(loaded).toContainEqual(expect.objectContaining({ id: "report" }));
+  expect(shownIds(loaded)).toContain("report");
 });
 
 test("App's toggle call shape (raw snapshot rows) closes a fold a provisional steer key opened", () => {
@@ -137,7 +166,7 @@ test("App's toggle call shape (raw snapshot rows) closes a fold a provisional st
   expect(full.some((entry) => entry.kind === WORKED)).toBe(false);
 
   const closed = toggleTurnFold(full, expanded, `${WORKED}-prompt`);
-  expect([...closed]).toEqual([]);
+  expect(closed.has(`${WORKED}-report`)).toBe(false);
   expect(isOpen(closed)).toBe(false);
   expect(turnView(full, closed)).not.toContainEqual(expect.objectContaining({ id: "read" }));
 
@@ -161,9 +190,13 @@ test("a completed fold keeps asks, refusals, and turn context available without 
     "backgroundTask",
     "subagents",
   ];
+  // A background command that failed stays in sight; one that finished is work (the next test).
+  const extra: Record<string, Partial<AcpmuxRow>> = {
+    backgroundTask: { backgroundTask: { toolCallId: "bg", command: "bun test", state: "failed" } },
+  };
   for (const kind of kinds) {
     const rows = completedTurn();
-    const context = row(`${kind}-context`, kind);
+    const context = row(`${kind}-context`, kind, extra[kind]);
     rows.splice(2, 0, context);
     for (const expanded of [new Set<string>(), new Set([`${WORKED}-prompt`])]) {
       const shown = turnView(rows, expanded);
@@ -173,6 +206,22 @@ test("a completed fold keeps asks, refusals, and turn context available without 
         shown.findIndex((entry) => entry.id === "final"),
       );
     }
+  }
+});
+
+// Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing works for?"
+test("a completed fold holds a background command that finished or stopped, in its place when opened", () => {
+  for (const state of ["completed", "stopped"] as const) {
+    const rows = completedTurn();
+    const note = row(`bg-${state}`, "backgroundTask", {
+      backgroundTask: { toolCallId: "bg", command: "bun test", state },
+    });
+    rows.splice(2, 0, note);
+    expect(turnView(rows, new Set()).some((entry) => entry.id === note.id)).toBe(false);
+    const opened = turnView(rows, new Set([`${WORKED}-prompt`]));
+    expect(opened.findIndex((entry) => entry.id === note.id)).toBeGreaterThan(
+      opened.findIndex((entry) => entry.id === `${WORKED}-prompt`),
+    );
   }
 });
 

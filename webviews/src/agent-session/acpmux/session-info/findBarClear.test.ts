@@ -11,16 +11,16 @@ import {
   pushedWidth,
   sessionInfoClear,
   sessionInfoStage,
-} from "./SessionInfo";
+} from "./sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
 
-const column = { min: 720, max: 800, share: 0.625, prose: Infinity };
+const column = { min: 720, max: 800 };
 const width = SESSION_INFO_WIDTH.fallback;
 
 /// The panel's left edge and the bar's right edge, in px from the pane's left, as the page lays them out:
 /// the panel `FLOAT_MARGIN` from the pane's right edge, the chat the pane less a push's room.
-function place(pane: number) {
-  const stage = sessionInfoStage("overlay", { width: pane, height: 900 }, width, column);
+function place(pane: number, height = 900) {
+  const stage = sessionInfoStage("overlay", { width: pane, height }, width, column);
   const panel = stage === "push" ? pushedWidth(pane, width) : width;
   const room = stage === "push" ? pushedRoom(pane, panel, column) : 0;
   const clear = sessionInfoClear(panel, room);
@@ -37,8 +37,11 @@ function place(pane: number) {
 describe("Find in Chat's bar beside Session Info", () => {
   test("floating in the gutter, pushing and over the chat, the bar ends the inset left of the panel", () => {
     const stages = new Set<string>();
-    for (const pane of [1600, 1400, 1200, 1100, 900, 740]) {
-      const at = place(pane);
+    // A wide pane pushes the chat to center it beside the panel (Lucas, 2026-11-06); a short wide pane's
+    // panel still floats in the gutter, so all three stages are read.
+    const panes: [number, number?][] = [[1600], [1600, 400], [1400], [1200], [1100], [900], [740]];
+    for (const [pane, height] of panes) {
+      const at = place(pane, height);
       stages.add(at.stage);
       expect(at.barRight).toBe(at.panelLeft - FIND_BAR_INSET);
       expect(at.cramped).toBe(false);

@@ -248,7 +248,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                     LinearGradient(colors: [theme.colors.overviewTop, theme.colors.overviewTop.opacity(0.6), .clear],
                                    startPoint: .top, endPoint: .bottom)
                 }
-                .frame(height: layout.safeTop + 52)
+                // Down to the grid's first row, under the top controls.
+                .frame(height: layout.safeTop + 12 + theme.metrics.overviewTopControl)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -286,6 +287,9 @@ struct TabOverview<Source: TabsDataSource>: View {
         }
         .onChange(of: isVisible, initial: true) { _, visible in residency.setVisible(visible) }
         .onChange(of: isSettled, initial: true) { _, settled in residency.setSettled(settled) }
+        .onChange(of: selecting) { _, selecting in source.overviewSelectingChanged(selecting) }
+        // The grid can go while selecting (a tab opened from elsewhere): the header comes back.
+        .onDisappear { if selecting { source.overviewSelectingChanged(false) } }
         // The grid rests (settled, still for a few frames, nothing left to build):
         // the source may draw costly cards now, never in a frame the grid
         // itself needs.
@@ -515,7 +519,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold))
+                    Image(systemName: "ellipsis").font(.system(size: theme.metrics.toolbarGlyph, weight: .medium))
                         .frame(width: d, height: d).contentShape(.rect)
                 }
                 .disabled(selection.isEmpty)
@@ -525,9 +529,11 @@ struct TabOverview<Source: TabsDataSource>: View {
             .padding(.horizontal, 6)
             .glassEffect(.regular.interactive(), in: .capsule)
             .fixedSize()
-            .position(x: 20 + 70, y: y)
+            // Leading edge 20 pt in, whatever the group's width at this size.
+            .frame(width: layout.size.width - 40, alignment: .leading)
+            .position(x: layout.size.width / 2, y: y)
             Button { endSelecting() } label: {
-                Image(systemName: "checkmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                Image(systemName: "checkmark").font(.system(size: theme.metrics.doneGlyph, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: d, height: d).contentShape(.circle)
             }
             .buttonStyle(.plain)
@@ -552,7 +558,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 Button("Close All Tabs", systemImage: "xmark", role: .destructive, action: onCloseAll)
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: theme.metrics.toolbarGlyph, weight: .medium))
                     .foregroundStyle(theme.colors.label)
                     .frame(width: d, height: d)
                     .contentShape(.circle)
@@ -618,7 +624,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(theme.colors.label)
                 .padding(.horizontal, 22)
-                .frame(height: 48)
+                .frame(height: theme.metrics.overviewTopControl)
                 .glassEffect(.regular, in: .capsule)
                 .position(x: layout.size.width / 2, y: bar.midY)
                 // Safari swaps the count at once (no crossfade).
@@ -627,9 +633,9 @@ struct TabOverview<Source: TabsDataSource>: View {
 
             if !selecting {
             Button(action: onDone) {
-                Image(systemName: "checkmark").font(.system(size: 20, weight: .semibold))
+                Image(systemName: "checkmark").font(.system(size: theme.metrics.doneGlyph, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 48).contentShape(.circle)
+                    .frame(width: theme.metrics.overviewTopControl, height: theme.metrics.overviewTopControl).contentShape(.circle)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.tint(theme.colors.accent).interactive(), in: .circle)
@@ -644,7 +650,7 @@ struct TabOverview<Source: TabsDataSource>: View {
     private var plusGlyph: some View {
         Image(systemName: "plus").font(.system(size: 22, weight: .regular))
             .foregroundStyle(theme.colors.label)
-            .frame(width: 48, height: 48).contentShape(.circle)
+            .frame(width: theme.metrics.overviewTopControl, height: theme.metrics.overviewTopControl).contentShape(.circle)
     }
 }
 

@@ -45,8 +45,15 @@ pub(super) fn descriptor() -> Value {
     })
 }
 
-pub(super) fn call<B: Backend>(backend: &B, arguments: &Map<String, Value>) -> Value {
-    let request = match request(arguments) {
+/// Runs one `cmux_workflow` call. `meta` is what the call passes on of its caller's `_meta`
+/// (`upstream::passed_meta`: Claude Code's tool use id): a start sends it, so acpmux runs the
+/// workflow as the subagent that made the call (`subagent_call.rs`).
+pub(super) fn call<B: Backend>(
+    backend: &B,
+    arguments: &Map<String, Value>,
+    meta: Option<Value>,
+) -> Value {
+    let mut request = match request(arguments) {
         Ok(request) => request,
         Err(message) => {
             return tool_error(envelope(v2_tools::invalid(message), "not_run", None));
@@ -60,6 +67,11 @@ pub(super) fn call<B: Backend>(backend: &B, arguments: &Map<String, Value>) -> V
         ));
     };
     let mutation = action != "status";
+    if action == "start"
+        && let Some(meta) = meta
+    {
+        request.insert("_meta".into(), meta);
+    }
     let key = arguments.get("idempotency_key").and_then(Value::as_str);
     match backend.acpmux(METHOD, Value::Object(request), Duration::from_secs(60), key, mutation) {
         Ok(value) => success(value, mutation),
@@ -143,37 +155,5 @@ fn text(arguments: &Map<String, Value>, name: &str) -> Result<Option<String>, St
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn descriptor_requires_only_action_and_rejects_extra_fields() {
-        let schema = descriptor()["inputSchema"].clone();
-        assert_eq!(schema["required"], json!(["action"]));
-        assert_eq!(schema["additionalProperties"], false);
-        let mut args = Map::new();
-        args.insert("action".into(), json!("status"));
-        args.insert("extra".into(), json!(true));
-        assert!(request(&args).is_err());
-    }
-
-    #[test]
-    fn start_pins_source_and_defaults_args_without_accepting_file_paths() {
-        let mut args = Map::new();
-        args.insert("action".into(), json!("start"));
-        args.insert("name".into(), json!("nightly"));
-        args.insert("source".into(), json!("return await pipeline([], async x => x);"));
-        let request = request(&args).unwrap();
-        assert_eq!(request["args"], json!([]));
-        assert!(request.get("file").is_none());
-    }
-
-    #[test]
-    fn pause_and_resume_require_a_run_id() {
-        for action in ["pause", "resume"] {
-            let mut args = Map::new();
-            args.insert("action".into(), json!(action));
-            assert!(request(&args).is_err());
-        }
-    }
-}
+#[path = "workflow_tools_tests.rs"]
+mod tests;

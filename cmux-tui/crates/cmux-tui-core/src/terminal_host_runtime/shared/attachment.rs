@@ -44,7 +44,11 @@ use super::renderer_grant::ControlRequestUnanswered;
 mod connect;
 pub(crate) mod launch;
 mod pending_control;
+#[cfg(unix)]
+mod room_check;
 pub(crate) use pending_control::PendingControlResponse;
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) use room_check::room_check_queues;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -119,6 +123,31 @@ impl Drop for InputAckReceipt {
     }
 }
 
+/// The process of a host that a launch started, with the host's seat among
+/// the session's terminals (`diagnostics/terminal_seats.rs`).
+///
+/// The seat is never held without the process: it ends before the process
+/// is given to the reaper or is waited for. The system keeps the process id
+/// of an ended child until its parent waits for it, so the host's process
+/// id names this host for as long as its seat is there (a daemon for which
+/// the system does not keep it takes no seat, `HostSeating::seat`).
+pub(crate) struct LaunchedHost {
+    seat: crate::diagnostics::HostSeat,
+    process: SpawnedHostProcess,
+}
+
+impl LaunchedHost {
+    pub(crate) fn new(process: SpawnedHostProcess, seat: crate::diagnostics::HostSeat) -> Self {
+        Self { seat, process }
+    }
+
+    /// The host's process, after its seat ended.
+    fn into_process(self) -> SpawnedHostProcess {
+        drop(self.seat);
+        self.process
+    }
+}
+
 pub struct HostAttachment {
     pub record: TerminalHostRecord,
     pub record_path: PathBuf,
@@ -136,7 +165,7 @@ pub struct HostAttachment {
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
-    pub(crate) launch_process: Option<SpawnedHostProcess>,
+    pub(crate) launch_process: Option<LaunchedHost>,
     /// The first authenticated admin attachment may inherit a protocol-v4
     /// launch barrier. A launcher releases it after committing topology;
     /// an adopter releases an abandoned barrier after validating the host.
@@ -146,6 +175,9 @@ pub struct HostAttachment {
     /// The terminal's input port order (R-DAEMON-STATE S1.6b): every other frame this attachment writes waits until
     /// the port wrote the keys it took before, so no frame passes a key. Set by the terminal that owns the attachment.
     pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
+    /// The room check of this connection's inline keys, shared by every route of the connection.
+    #[cfg(unix)]
+    pub(crate) input_room: Arc<room_check::RoomCheck>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -165,6 +197,9 @@ impl std::fmt::Debug for HostAttachment {
 pub(crate) struct HostInputRoute {
     writer: Arc<Mutex<HostStream>>,
     protocol_version: u16,
+    /// The connection's room check for its inline keys (`room_check.rs`); every clone of the route shares it.
+    #[cfg(unix)]
+    room: Arc<room_check::RoomCheck>,
 }
 
 impl HostInputRoute {
@@ -191,33 +226,27 @@ impl HostInputRoute {
             Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => return false,
         };
-        // Room first. On macOS a send with MSG_DONTWAIT still waits for room on a stream socket (XNU honours only
-        // the socket's own non-blocking mode there, and this socket must block: its reader shares it), so a key to a
-        // host that stopped reading waited here, holding this turn, the writer and the port lock (#35872: the
-        // stalled-host test). POLLOUT means room for at least the send low-water mark (2048 bytes on macOS, more
-        // than any inline frame; Linux reports it while under a quarter of the send buffer is used). The writer held
-        // here is the socket's only writer, so nothing takes that room before the send.
-        if !has_room_now(writer.as_raw_fd()) {
+        // Room first, where a send cannot be trusted to return at once (macOS: room_check.rs). The writer held here is
+        // the socket's only writer, so nothing takes that room before the send.
+        let Ok(payload_len) = u32::try_from(payload.len()) else { return false };
+        let Some(total) = crate::terminal_host_protocol::HEADER_LEN.checked_add(payload.len())
+        else {
+            return false;
+        };
+        if !self.room.has_room(writer.as_raw_fd(), total) {
             return false;
         }
-        let mut frame = Frame::new(kind, payload.to_vec());
-        frame.version = self.protocol_version;
-        let Ok(bytes) = crate::terminal_host_protocol::encode_frame(&frame) else { return false };
-        // MSG_DONTWAIT as well, where it is honoured. With room for the whole frame, a Unix stream socket takes it
-        // whole: a partial write cannot happen, and if one ever did the stream would be corrupt, so the connection
-        // is shut down as `send_host_frame` does after a failed write (the port's writer then sends the frame on the
-        // reconnected host).
-        // SAFETY: the descriptor is the connection's open socket, kept alive by the writer guard; `bytes` is a live
-        // buffer of the given length.
-        let sent = unsafe {
-            libc::send(
-                writer.as_raw_fd(),
-                bytes.as_ptr().cast(),
-                bytes.len(),
-                libc::MSG_DONTWAIT | SEND_NO_SIGNAL,
-            )
-        };
-        if sent == bytes.len() as isize {
+        let header = crate::terminal_host_protocol::input_frame_header(
+            self.protocol_version,
+            kind,
+            payload_len,
+        );
+        // One send of the header (on the stack) and the payload (in place): no heap copy of the key. MSG_DONTWAIT as
+        // well, where it is honoured. With room for the whole frame, a Unix stream socket takes it whole: a partial
+        // write cannot happen, and if one ever did the stream would be corrupt, so the connection is shut down as
+        // `send_host_frame` does after a failed write (the port's writer then sends the frame on the reconnected host).
+        let sent = send_frame_now(writer.as_raw_fd(), &header, payload);
+        if usize::try_from(sent).is_ok_and(|sent| sent == total) {
             return true;
         }
         if sent > 0 {
@@ -229,30 +258,32 @@ impl HostInputRoute {
 
 /// The largest frame payload [`HostInputRoute::try_send_now`] writes on the caller's turn: a person's key (a few
 /// bytes, a short paste of a word). Larger input goes through the port's writer. With its 32-byte header the frame
-/// stays under the 2048-byte send low-water mark that `has_room_now`'s POLLOUT promises on macOS.
+/// stays under the 2048-byte send low-water mark that the macOS room check promises (`room_check.rs`).
 #[cfg(unix)]
 pub(crate) const INLINE_FRAME_MAX: usize = 1024;
 
-// The room POLLOUT promises on macOS (the default 2048-byte send low-water mark) must hold a whole inline frame, or
+// The room the macOS room check promises (the default 2048-byte send low-water mark) must hold a whole inline frame, or
 // a send after it could still wait or write part of the frame.
 #[cfg(unix)]
 const _: () = assert!(
     INLINE_FRAME_MAX + crate::terminal_host_protocol::HEADER_LEN < 2048,
-    "an inline frame must fit the room POLLOUT promises"
+    "an inline frame must fit the room the room check promises"
 );
 
-/// Whether the socket `fd` can take a small write now (POLLOUT, no error or hang-up). It never waits for room or for
-/// the host. On Linux the zero-timeout poll returns at once. On macOS it returns at once when there is room; with no
-/// room, XNU's poll sleeps on its timer, which is already due (about 10 us, then one wake), before it reports none
-/// (#35872 review). XNU's poll also makes and frees a kqueue on each call, a few us per key.
+/// Sends `header` and `payload` as one message with MSG_DONTWAIT (and no SIGPIPE): the bytes the socket took, or -1.
 #[cfg(unix)]
-fn has_room_now(fd: std::os::fd::RawFd) -> bool {
-    let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-    // SAFETY: one valid pollfd for a count of 1; the zero timeout keeps poll from waiting for room.
-    let count = unsafe { libc::poll(&mut ready, 1, 0) };
-    count == 1
-        && ready.revents & libc::POLLOUT != 0
-        && ready.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) == 0
+fn send_frame_now(fd: std::os::fd::RawFd, header: &[u8], payload: &[u8]) -> isize {
+    let mut parts = [
+        libc::iovec { iov_base: header.as_ptr().cast_mut().cast(), iov_len: header.len() },
+        libc::iovec { iov_base: payload.as_ptr().cast_mut().cast(), iov_len: payload.len() },
+    ];
+    // SAFETY: zeroed msghdr is a valid empty message.
+    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
+    message.msg_iov = parts.as_mut_ptr();
+    message.msg_iovlen = 2;
+    // SAFETY: the descriptor is the connection's open socket, kept alive by the caller's writer guard; both parts are
+    // live buffers of their given lengths, and sendmsg only reads them.
+    unsafe { libc::sendmsg(fd, &message, libc::MSG_DONTWAIT | SEND_NO_SIGNAL) }
 }
 
 /// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std
@@ -338,7 +369,12 @@ impl HostAttachment {
 
     /// The route the terminal's input port writes this connection's interactive input on.
     pub(crate) fn input_route(&self) -> HostInputRoute {
-        HostInputRoute { writer: self.writer.clone(), protocol_version: self.protocol_version }
+        HostInputRoute {
+            writer: self.writer.clone(),
+            protocol_version: self.protocol_version,
+            #[cfg(unix)]
+            room: Arc::clone(&self.input_room),
+        }
     }
 
     pub(crate) fn begin_input_confirmed(
@@ -653,8 +689,7 @@ impl HostAttachment {
                         !remaining.is_zero(),
                         "terminal host did not apply Kitty graphics limits before adoption"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                    set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                         .context("set terminal-host Kitty quota adoption timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
@@ -687,8 +722,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = set_link_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after Kitty quota adoption");
             response.and(restored)
         })();
@@ -769,15 +803,15 @@ impl HostAttachment {
     /// setup step succeeds. Until then, dropping this attachment exact-
     /// kills and waits the child process through SpawnedHostProcess.
     pub(crate) fn commit_launched_host(&mut self) {
-        if let Some(process) = self.launch_process.take() {
-            process.commit();
+        if let Some(launched) = self.launch_process.take() {
+            launched.into_process().commit();
         }
     }
 
     /// The uncommitted launched host runs inside the daemon's kill-on-close
     /// job (Windows, breakaway denied): its terminal ends with that job.
     pub(crate) fn launch_ends_with_daemon_job(&self) -> bool {
-        self.launch_process.as_ref().is_some_and(SpawnedHostProcess::ends_with_daemon_job)
+        self.launch_process.as_ref().is_some_and(|host| host.process.ends_with_daemon_job())
     }
 
     /// Release a newly launched protocol-v4 host only after its public
@@ -871,7 +905,8 @@ impl HostAttachment {
 
 impl Drop for HostAttachment {
     fn drop(&mut self) {
-        let Some(mut process) = self.launch_process.take() else { return };
+        let Some(launched) = self.launch_process.take() else { return };
+        let mut process = launched.into_process();
         // Surface setup failed after an authenticated launch. Ask the
         // still-live host to perform its bounded PTY group shutdown and
         // record cleanup, then wait on the exact owned host process. Only
@@ -893,5 +928,18 @@ impl Drop for HostAttachment {
         {
             let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
         }
+    }
+}
+
+/// Sets the read timeout of a host link, where a link the host already closed
+/// counts as set. macOS fails setsockopt with EINVAL (or ENOTCONN) once both
+/// directions of the socket are shut down, as after the host ended. A read on
+/// that link returns its queued frames and then EOF without a wait, so no
+/// timeout is needed: the queued response (an exit frame, a terminate or
+/// Kitty limits acknowledgement) or the end of the stream decides the result.
+fn set_link_read_timeout(link: &HostStream, timeout: Option<Duration>) -> std::io::Result<()> {
+    match link.set_read_timeout(timeout) {
+        Err(error) if matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTCONN)) => Ok(()),
+        result => result,
     }
 }

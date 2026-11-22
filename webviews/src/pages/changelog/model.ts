@@ -23,6 +23,7 @@ import {
   titleTail,
   withoutWorkCodes,
 } from "./readableChange";
+import { intl } from "../../ui/intl";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -32,6 +33,9 @@ export interface MediaRef {
   dark: string;
   alt: string;
   video: boolean;
+  /** The same view before the change, when the highlight carries a before/after pair; the
+      main picture is then the after. Only the What's New page shows it (ReleaseParts Media). */
+  before?: { src: string; alt: string };
 }
 
 export interface ReleaseItem {
@@ -130,15 +134,31 @@ function entryId(id: string): string {
   return normalized || id;
 }
 
+/** A highlight's picture: its `after` (else the first that is not a `before`), with the pair's
+    `before` when both are pictures. A `before` alone shows nothing: it is not what changed. */
+export function highlightMedia(media: Highlight["media"]): MediaRef | undefined {
+  const shown = (media ?? []).filter((m) => admissibleSource(m.url));
+  const main = shown.find((m) => m.role === "after") ?? shown.find((m) => m.role !== "before");
+  if (!main) return undefined;
+  const src = admissibleSource(main.url)!;
+  const video = main.kind === "video";
+  const before = video ? undefined : shown.find((m) => m.role === "before" && m.kind !== "video");
+  return {
+    light: src,
+    dark: src,
+    alt: main.alt,
+    video,
+    ...(before ? { before: { src: admissibleSource(before.url)!, alt: before.alt } } : {}),
+  };
+}
+
 function fromHighlight(highlight: Highlight): ReleaseItem {
-  const media = highlight.media?.find((m) => admissibleSource(m.url));
-  const src = media ? admissibleSource(media.url)! : undefined;
   return {
     id: highlight.id,
     category: highlight.category ?? "new",
     title: highlight.title,
     summary: highlight.body,
-    media: media && src ? { light: src, dark: src, alt: media.alt, video: media.kind === "video" } : undefined,
+    media: highlightMedia(highlight.media),
     action: highlight.action ? { id: highlight.action.id, title: highlight.action.title } : undefined,
   };
 }
@@ -294,7 +314,7 @@ export function rowKind(title: string): WhatsNewCategory {
 }
 
 /** A line as two lines compare when one repeats the other: case and a leading article aside. */
-function echoKey(text: string): string {
+export function echoKey(text: string): string {
   return stemOf(text).replace(/^(?:the|a|an)\s+/u, "");
 }
 
@@ -545,7 +565,7 @@ export function dayLabel(date: string, language: string, now: Date = new Date())
   const diff = Math.round((day - today) / 86_400_000);
   if (diff === 0 || diff === -1) {
     try {
-      const text = new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(diff, "day");
+      const text = intl.RelativeTimeFormat(language, { numeric: "auto" }).format(diff, "day");
       return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
     } catch {
       return formatReleaseDate(date, language, now);
@@ -561,12 +581,14 @@ export function formatReleaseDate(date: string, language: string, now: Date = ne
   const value = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   const sameYear = value.getUTCFullYear() === now.getUTCFullYear();
   try {
-    return new Intl.DateTimeFormat(language, {
-      month: "short",
-      day: "numeric",
-      year: sameYear ? undefined : "numeric",
-      timeZone: "UTC",
-    }).format(value);
+    return intl
+      .DateTimeFormat(language, {
+        month: "short",
+        day: "numeric",
+        year: sameYear ? undefined : "numeric",
+        timeZone: "UTC",
+      })
+      .format(value);
   } catch {
     return date;
   }

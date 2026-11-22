@@ -12,7 +12,6 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
 import { nextStepAsk } from "../src/agent-session/acpmux/conversation/nextStepAsk";
-import { recapFrom } from "../src/agent-session/acpmux/recap";
 
 const ANSWER =
   "The lane ran about 40 slow commands in the foreground.\n\n[outward] Add a hook that pushes them to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first";
@@ -68,17 +67,14 @@ describe("a tagged ask in the transcript", () => {
     expect(answerText(turnView(turn(ANSWER, "cancelled"), new Set()))).toBe(ANSWER);
   });
 
-  test("another agent's notice after the turn leaves the ask in the prose", () => {
+  // Leo, 2026-11-06: another agent's message answers nothing; the question stays the person's.
+  test("another agent's notice after the turn keeps the card waiting", () => {
     const drawn = turnView(
       [...turn(ANSWER), user("Report from the timer helper", 1, { incoming: { kind: "notice", text: "Timer fixed" } })],
       new Set(),
     );
-    expect(nextSteps(drawn)).toHaveLength(0);
-  });
-
-  test("the recap card steps aside for a tagged ask", () => {
-    expect(recapFrom(turn("[outward] Should I post the release notes?"))).toBeNull();
-    expect(recapFrom(turn("Done. Should I open a PR?"))?.question).toBe("Should I open a PR?");
+    expect(nextSteps(drawn)[0]?.nextStep?.ask.question).toBe("Add a hook that pushes them to the background?");
+    expect(nextSteps(drawn)[0]?.nextStep?.answer).toBeUndefined();
   });
 });
 

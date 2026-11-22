@@ -199,6 +199,10 @@ async fn a_path_switch_sends_a_path_event() {
     for _ in 0..3 {
         control.on_probe(direct, ProbeOutcome::Lost).unwrap();
     }
+    // The first loss makes the direct path suspect: datagrams go on every
+    // path at once, so the fallback carries them before the path is dead.
+    let event = events.recv().await.unwrap();
+    assert_eq!((event.path, event.kind), (None, Some(PathKind::DirectLan)), "every path");
     let event = events.recv().await.unwrap();
     assert_eq!(event.path, Some(relay), "the event follows the fallback");
     client.shutdown().await;

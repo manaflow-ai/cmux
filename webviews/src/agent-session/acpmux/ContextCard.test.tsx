@@ -8,8 +8,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
-import { cacheTimeLeft, contextSegments } from "./ContextCard";
+import { ShortcutsContext } from "./shortcuts";
+import { cacheTimeLeft, contextSegments } from "./contextCardModel";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -56,6 +58,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -389,4 +392,22 @@ test("time left reads minutes and seconds, rounded up", () => {
   expect(cacheTimeLeft(191_001)).toBe("3:12");
   expect(cacheTimeLeft(3_130_000)).toBe("52:10");
   expect(cacheTimeLeft(-5)).toBe("0:00");
+});
+
+test("the usage card names the ring's key once usage is known", async () => {
+  // Fleet check 2026-11-20: with usage known the ring shows this card in place of its tooltip, so
+  // the card is where Show Context Usage's key (agentPane.composer.showContextUsage) has to show.
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShortcutsContext.Provider value={{ "agentPane.composer.showContextUsage": "⌃⌥⌘U" }}>
+        <ContextRing used={111_000} size={475_000} />
+      </ShortcutsContext.Provider>,
+    );
+  });
+  const ring = container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘U");
 });

@@ -1,9 +1,10 @@
+import "./imessage.css";
+
 import { memo } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { imessageError, type IMessageView } from "./imessage";
-import "./imessage.css";
 
 export type IMessageLook = "list" | "grouped" | "details";
 
@@ -79,7 +80,7 @@ export const IMessageConnector = memo(function IMessageConnector({
           <p className="acpmux-imessage-heading">{t("imessage.contactsGroups")}</p>
           <ul className="acpmux-session-info-list">
             {threads.map((thread) => (
-              <li key={thread.chat_id} className="acpmux-imessage-thread" title={thread.participants.join(", ")}>
+              <li key={thread.chat_id} className="acpmux-imessage-thread">
                 <Icon
                   name={thread.is_group ? "agent.chat.list" : "browser.toolbar.profile"}
                   size={rowIconSize(12)}

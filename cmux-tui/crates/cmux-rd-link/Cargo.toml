@@ -12,9 +12,10 @@ workspace = true
 
 [features]
 # The UDP driver (a thread, one socket, STUN candidates) for the host and the viewer.
-net = ["dep:libc"]
+net = ["dep:cmux-rd-proto", "dep:libc", "cmux-transport/local-networks"]
 
 [dependencies]
+cmux-rd-proto = { path = "../cmux-rd-proto", optional = true }
 libc = { version = "0.2", optional = true }
 snow.workspace = true
 cmux-transport = { path = "../cmux-transport" }
@@ -29,4 +30,8 @@ required-features = ["net"]
 
 [[test]]
 name = "turn"
+required-features = ["net"]
+
+[[test]]
+name = "dlink_turn"
 required-features = ["net"]

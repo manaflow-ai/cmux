@@ -8,7 +8,7 @@ import Testing
 
 /// Leo 2026-10-21 (sidebar organization, item A): every row carries its pull request badge, not only
 /// with the session tree on. The tree's nesting, guide line and keycaps stay opt-in
-/// (`sidebar.sessionTree`); the badge follows `sidebar.pullRequestBadges` (on by default).
+/// (`sidebar.sessionTree`); the badge has no switch of its own.
 /// Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row follows
 /// `sidebar.workspaceRow.pullRequest`, off by default.
 @MainActor @Suite(.serialized) struct SidebarPullRequestBadgeTests {

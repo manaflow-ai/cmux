@@ -35,12 +35,20 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
         "session/prompt": ["promptId"],
+        "chat.fix_from_link": ["url"],
         // A Cloud send reserves its native Send gesture before waiting for the speculative
         // machine lease; the hand-off redeems the ticket once that lease settles.
         "cloud.startChat": ["key"],
         // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
         // for another daemon run.
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
+        // The person's Build pick on a plan approval: which ask, and here, worktree or compare.
+        "_acpmux/plan/build": ["permissionId", "target"],
+    ]
+
+    /// Optional scalar launch selections still participate in exact ticket matching.
+    public static let optionalKeys: [String: Set<String>] = [
+        "chat.fix_from_link": ["cwd", "harness", "model"],
     ]
 
     /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
@@ -55,13 +63,14 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// and only a prompt to that chat redeems it.
     public static let bindingKeys: [String: Set<String>] = [
         "session/prompt": ["sessionId"],
+        "_acpmux/plan/build": ["sessionId"],
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
         switch method {
-        case "session/prompt": return AgentPaneUserGestures.heldPromptLifetime
+        case "session/prompt", "chat.fix_from_link": return AgentPaneUserGestures.heldPromptLifetime
         case "cloud.startChat": return AgentPaneUserGestures.cloudStartTicketLifetime
         default: return AgentPaneUserGestures.ticketLifetime
         }
@@ -76,26 +85,63 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// unknown method, an unknown or missing intent param, a value that is not a scalar, or any
     /// other top-level key): `transport.intent_invalid`.
     public init?(gestureParams: [String: Any]?) {
-        guard let gestureParams, Set(gestureParams.keys) == ["intent"],
-              let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
-              let method = intent["method"] as? String, let keys = Self.methods[method],
-              let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
-              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
-        else { return nil }
+        var refusal: String?
+        self.init(gestureParams: gestureParams, refusal: &refusal)
+    }
+
+    /// Why `transport.gesture`'s params break the contract, in a few words naming fields, never a
+    /// value (the app log's cause, ``AgentPaneRefusalLog``); nil when they make an intent.
+    public static func refusal(gestureParams: [String: Any]?) -> String? {
+        var refusal: String?
+        _ = Self(gestureParams: gestureParams, refusal: &refusal)
+        return refusal
+    }
+
+    /// The intent's method when it is a string (the app log names it), else nil.
+    public static func method(gestureParams: [String: Any]?) -> String? {
+        (gestureParams?["intent"] as? [String: Any])?["method"] as? String
+    }
+
+    /// The parse, with ``refusal(gestureParams:)``'s cause when it fails.
+    init?(gestureParams: [String: Any]?, refusal: inout String?) {
+        func refuse(_ cause: String) { refusal = cause }
+        guard let gestureParams else { refuse("no params"); return nil }
+        guard Set(gestureParams.keys) == ["intent"] else {
+            refuse("params keys \(AgentPaneRefusalLog.names(gestureParams.keys)) are not [intent]"); return nil
+        }
+        guard let intent = gestureParams["intent"] as? [String: Any] else { refuse("intent not an object"); return nil }
+        guard Set(intent.keys) == ["method", "params"] else {
+            refuse("intent keys \(AgentPaneRefusalLog.names(intent.keys)) are not [method, params]"); return nil
+        }
+        guard let method = intent["method"] as? String else { refuse("intent method not a string"); return nil }
+        guard let keys = Self.methods[method] else { refuse("intent method not one a gesture proves"); return nil }
+        guard let raw = intent["params"] as? [String: Any] else { refuse("intent params not an object"); return nil }
+        guard keys.isSubset(of: raw.keys) else {
+            refuse("intent params missing \(AgentPaneRefusalLog.names(keys.subtracting(raw.keys)))"); return nil
+        }
+        let allowed = keys.union(Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []).union(Self.optionalKeys[method] ?? [])
+        let unknown = Set(raw.keys).subtracting(allowed)
+        guard unknown.isEmpty else { refuse("intent params unknown \(AgentPaneRefusalLog.names(unknown))"); return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
             if Self.bindingKeys[method]?.contains(key) == true {
-                guard let session = value as? String, !session.isEmpty else { return nil }
+                guard let session = value as? String, !session.isEmpty else {
+                    refuse("intent param \(AgentPaneRefusalLog.names([key])) not a session id"); return nil
+                }
                 sessionId = session
                 continue
             }
-            if !keys.contains(key) {
+            if !keys.contains(key) && Self.optionalKeys[method]?.contains(key) != true {
                 // A question's answers or annotations: an object, by its canonical digest.
-                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
+                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else {
+                    refuse("intent param \(AgentPaneRefusalLog.names([key])) not an object"); return nil
+                }
                 params[key] = .string(digest)
                 continue
             }
-            guard let scalar = AgentPaneJSONScalar(value) else { return nil }
+            guard let scalar = AgentPaneJSONScalar(value) else {
+                refuse("intent param \(AgentPaneRefusalLog.names([key])) not a scalar"); return nil
+            }
             params[key] = scalar
         }
         // A Cloud hand-off labels the same prompt `handoff-<turn>-<id>` on the wire. Keep the
@@ -117,7 +163,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         switch (method, params["configId"], params["promptId"], params["permissionId"]) {
         case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
         case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
-        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?),
+             ("_acpmux/plan/build", _, _, .string(let permissionId)?): return method + "#" + permissionId
         default: return method
         }
     }

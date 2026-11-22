@@ -167,7 +167,15 @@ public final class MobileKeyboardDock: NSObject {
         view.setNeedsLayout()
         // UIKit posts these inside the keyboard's animation; a nested animation
         // inherits its remaining duration and curve, so the composer rides it.
-        let remaining = UIView.inheritedAnimationDuration
+        var remaining = UIView.inheritedAnimationDuration
+        var options: UIView.AnimationOptions = [.beginFromCurrentState, .allowUserInteraction]
+        if remaining <= 0, let cut = keyboard.interruptedAnimation, !UIAccessibility.isReduceMotionEnabled {
+            // A transition that reverses a moving keyboard with no animation of
+            // its own: carry the stack on from where it is drawn over the cut
+            // transition's duration and curve, instead of one frame.
+            remaining = cut.duration
+            options.insert(UIView.AnimationOptions(rawValue: UInt(cut.curve.rawValue) << 16))
+        }
         guard remaining > 0 else {
             view.layoutIfNeeded()
             return
@@ -177,8 +185,8 @@ public final class MobileKeyboardDock: NSObject {
         // keyboard key tap followed by a terminal tap waited instead of
         // reversing the keyboard mid-flight. `.beginFromCurrentState` makes the
         // reversal start from where the stack is on screen.
-        // motion: allow inherits the system keyboard's own animation; it adds no animation of its own.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+        // motion: allow inherits the system keyboard's own animation (or, for a reversal UIKit posts unanimated, the cut one's; Reduce Motion lays it out at once).
+        UIView.animate(withDuration: remaining, delay: 0, options: options) {
             view.layoutIfNeeded()
         }
     }

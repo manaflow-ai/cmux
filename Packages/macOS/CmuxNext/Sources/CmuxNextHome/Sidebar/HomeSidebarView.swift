@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 import MessagesLabSidebar
 import Observation
 
@@ -54,7 +55,9 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
     public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
-    let list = CmuxSidebarView()
+    /// Made on first use, after `init` installs the host hooks (`HomeReduceMotion.install()`): the list sets its
+    /// controls' tooltips while it is made, so a list made before the hooks would draw AppKit's stock tooltip.
+    private(set) lazy var list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
@@ -67,13 +70,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
-    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
     /// the Unread toggle; a click opens the search over the band, as ⌘F does.
     let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
                                         identifier: "cmux.home.sidebar.searchIcon", glass: true)
     /// The search circle's glass, under it in the header.
-    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
@@ -125,8 +128,6 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
-        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
-        list.avatarLoopGate = { Motion.home.animatesLoops }
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -214,7 +215,6 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func reshow() {
-        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
@@ -258,19 +258,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
-                         avatarMotion: item.chiefAvatar == nil ? nil : avatarState(item))
-    }
-
-    /// The state a Chief's avatar shows (the Codex status dot's states): a failed send first, then its
-    /// turn running in a tool or the model, then a question or approval waiting on the person, then an
-    /// unread reply (done), else idle.
-    static func avatarState(_ item: HomeSidebarItem) -> CmuxSidebarEntry.AvatarMotion {
-        if item.chiefSendFailed { return .failed }
-        if item.chiefIsInTool { return .tool }
-        if item.chiefIsWorking { return .thinking }
-        if item.chiefWaitsOnYou { return .waiting }
-        return item.unread ? .done : .idle
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -377,14 +365,14 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
-    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    /// The traffic lights' row over the header's band at its last layout (`homeLightsRow`).
     private var windowControls: CGRect?
 
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     public func updateWindowControlsAvoidance() {
-        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
         // the next frame on screen would still have the search field under the lights.
@@ -393,7 +381,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        // One header, lights over the list or not: the lights' row (`homeLightsRow`) is the top row
+        // either way and the same in both, so a toggle of the window's sidebar moves Home sideways
+        // only. A list clear of the lights keeps their row with nothing on it; full screen, with
+        // no lights, has the one-row band.
+        let controls = list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band)
         windowControls = controls
         var chipRow = unreadOnly, chipFill = false, chipCentered = false
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -479,6 +471,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         performWithTheme {
             let text = Palette.textPrimary
             searchCapsule.layer?.backgroundColor = nil
+            searchCapsule.glass.tintColor = Self.searchCapsuleTintInScope()
             searchCapsule.layer?.borderColor = text.withAlphaComponent(editing ? 0.36 : 0).cgColor
             searchCapsule.layer?.borderWidth = editing ? 1 / max(1, window?.backingScaleFactor ?? 2) : 0
             field.textColor = text
@@ -491,6 +484,17 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                 editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
             }
         }
+    }
+
+    /// The search capsule's tint. Over a see-through Home fill the clear capsule showed the art under
+    /// its placeholder (2.05:1 on the Great Wave in dark); there it takes the fill every field takes
+    /// (the web composer's surface, `HomeThemePalette.composerSurfaceOverGlass`, the Chief field's
+    /// `composeFillOverGlass`). An opaque Home fill keeps the clear glass (nil).
+    static func searchCapsuleTintInScope() -> NSColor? { // theme-scoped
+        let fill = Palette.fill(for: .home, default: Palette.paneFill).usingColorSpace(.sRGB)
+        guard (fill?.alphaComponent ?? 1) < 1 else { return nil }
+        let surface = HomeThemePalette.composerSurfaceOverGlass(HomeThemePalette.baseThemeInScope())
+        return surface.nsColor
     }
 
     @objc func toggleUnread() { unreadOnly.toggle() }
@@ -633,7 +637,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 final class HomeSearchCapsule: NSView {
     var onClick: () -> Void = {}
     /// The capsule's glass, edge to edge, its corners half its height.
-    let glass = GlassPanelView(style: .regular)
+    let glass = GlassPanelView(style: .regular) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
 
     init() {
         super.init(frame: .zero)

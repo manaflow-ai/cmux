@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import { FileSearch } from "./FileSearch";
 import type { FileSearchSource } from "./fileSearchModel";
-import { MentionMenu, type MentionState } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import type { MentionState } from "./mentionMenuModel";
 import { mentionItems } from "./mentionItems";
 
 type Props = { surface: "files" | "mentions"; state: "pending" | "loaded" | "empty" | "failed"; many?: boolean };

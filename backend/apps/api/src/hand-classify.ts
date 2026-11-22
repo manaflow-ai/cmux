@@ -132,7 +132,7 @@ export const classify = async (env: Env, hand: string, owner: string, agent: str
   // Too long to show whole: a part the classifier cannot see is never allowed.
   if (!summary.whole) return { verdict: "ask", reason: "the request is too long to classify whole", model: "none", ms: 0 }
   if (CREDENTIAL_PATH.test(summary.text)) return { verdict: "ask", reason: "it names a credential or key location: the person decides", model: "rule", ms: 0 }
-  const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
+  const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER))
   const models = brainModels(env, `hand:${hand}`, {
     claude: { auth: () => claudeAuthFor(env, () => holder), refused: () => (forgetClaudeAuth(), holder.claudeInvalidate()) },
     effort: () => "low",

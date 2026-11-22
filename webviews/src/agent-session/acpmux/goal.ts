@@ -34,6 +34,9 @@ export type TaskGoal = {
   schedule?: string;
 };
 
+/** A Claude Code loop sentinel standing in for a prompt: `<<word>>`, nothing else. */
+const SENTINEL = /^<<[\w.-]+>>$/;
+
 const STATES = new Set([
   "running",
   "stalled",
@@ -62,7 +65,11 @@ export function taskGoal(value: unknown): TaskGoal | undefined {
   if (!value || typeof value !== "object") return undefined;
   const goal = value as Record<string, unknown>;
   const loop = goal.kind === "loop";
-  const autonomous = loop && goal.autonomous === true;
+  // An autonomous /loop passes Claude Code's sentinel (`<<autonomous-loop-dynamic>>`, `<<loop.md>>`)
+  // as its prompt, never the person's words; acpmux marks the ones it knows, and any other sentinel
+  // reads the same way rather than as a prompt.
+  const autonomous =
+    loop && (goal.autonomous === true || (typeof goal.objective === "string" && SENTINEL.test(goal.objective.trim())));
   if (typeof goal.objective !== "string" || !STATES.has(String(goal.status))) return undefined;
   if (!goal.objective.trim() && !autonomous) return undefined;
   const count = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -91,7 +98,7 @@ export function taskGoal(value: unknown): TaskGoal | undefined {
   const text = (value: unknown) => typeof value === "string" && value.trim() !== "";
   return {
     ...(loop ? { kind: "loop" as const } : {}),
-    objective: goal.objective,
+    objective: autonomous ? "" : goal.objective,
     // Claude loops retain their scheduling status (`active`) for the loop strip;
     // provider-owned goals use the shared running/stalled/done vocabulary.
     status: loop

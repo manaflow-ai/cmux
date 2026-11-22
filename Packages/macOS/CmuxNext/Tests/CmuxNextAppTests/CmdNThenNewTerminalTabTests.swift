@@ -70,6 +70,84 @@ struct CmdNThenNewTerminalTabTests {
         }
     }
 
+    /// P0 STATUS 13438 (r3-after-switch-traced on cd6a94aa; the same frames in r3-e2-reattach on 742dc06b, STATUS 13556):
+    /// Cmd-N, then Ctrl-`. Cmd-N's stand-in pane took the Ctrl-` (it selected and showed the stand-in terminal); then the
+    /// daemon's pane took the stand-in over under another layout id, so the window made it a new pane controller. That
+    /// controller started from the daemon's default tab, the New Tab page: the person's terminal showed only if the focus
+    /// expectation landed later, and the stand-in's controller, out of the layout, still ran the create's end and showed its
+    /// own New Tab page, taking that page's view from the daemon's pane (the terminal tab selected over an empty pane for
+    /// 20 s). The order here is fixed: the Ctrl-`'s create waits for a gate this test opens only after the daemon's pane
+    /// mounted, so no daemon terminal and no focus expectation can show the terminal there before the hand-over is read.
+    @Test func theDaemonsPaneThatTakesCmdNsStandInOverShowsTheTerminalTheStandInShowed() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-cmdn-ctrlbt-handover")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let pid = try #require(services.daemon.identity?.pid)
+            let store = services.daemon.store
+            let before = Set(store.workspaces.map(\.id))
+
+            // Cmd-N with the daemon stopped: the window shows its stand-in workspace and pane.
+            #expect(kill(pid, SIGSTOP) == 0)
+            var resumed = false
+            defer { if !resumed { kill(pid, SIGCONT) } }
+            var work = services.registry.capturingWork {
+                _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+            }
+            let key = try #require(store.workspaces.first { !before.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
+            try await PasswordManagerRouteTests.until({
+                services.windows.active?.workspaceContent?.workspace.id == key
+                    && services.windows.active?.workspaceContent?.focusedPane != nil
+            }, within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
+            let content = try #require(services.windows.active?.workspaceContent)
+            let standIn = try #require(content.focusedPane, "Cmd-N's workspace has no focused pane")
+            try #require(ProvisionalPane.isStandIn(standIn.pane.handle), "Cmd-N's pane already confirmed: the hand-over was not reached")
+
+            // The Ctrl-` on the stand-in: its create sends only once this gate opens.
+            let (gate, open) = AsyncStream<Void>.makeStream()
+            content.pendingCreate = Task { () -> ActionWorkFailure? in
+                for await _ in gate {}
+                return nil
+            }
+            work += services.registry.capturingWork {
+                _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
+            }
+            // The stand-in took the show: its stand-in terminal is selected and shown there.
+            let terminal = try #require(standIn.stripModel.selectedID?.rawValue, "the Ctrl-` selected nothing on the stand-in")
+            #expect(ProvisionalTab.isProvisional(terminal) && standIn.pane.tabs.first { $0.id == terminal }?.kind == .pty,
+                    "the stand-in selected \(terminal), not the Ctrl-`'s stand-in terminal")
+            #expect(standIn.currentTabKey == terminal, "the stand-in shows \(String(describing: standIn.currentTabKey)), not its stand-in terminal")
+
+            // The daemon makes Cmd-N's workspace; its pane takes the stand-in over and mounts.
+            #expect(kill(pid, SIGCONT) == 0)
+            resumed = true
+            try await PasswordManagerRouteTests.until({ content.panes.values.contains { !ProvisionalPane.isStandIn($0.pane.handle) } }, report: {
+                "the daemon's pane never took Cmd-N's stand-in over: panes \(content.panes.values.map(\.paneKey))"
+            })
+            let daemonPane = try #require(content.panes.values.first { !ProvisionalPane.isStandIn($0.pane.handle) })
+            // From the turn it mounted (the create is still held, so nothing later could have shown it): the person's terminal.
+            #expect(daemonPane.stripModel.selectedID?.rawValue == terminal,
+                    "the daemon's pane took the stand-in over selecting \(String(describing: daemonPane.stripModel.selectedID?.rawValue)), not the terminal \(terminal) the person had there")
+            #expect(daemonPane.currentTabKey == terminal,
+                    "the daemon's pane took the stand-in over showing \(String(describing: daemonPane.currentTabKey)), not the terminal \(terminal) the stand-in showed")
+
+            // The create goes on: the daemon's terminal takes the stand-in terminal's place, shown in the daemon's pane, and
+            // the stand-in's controller, out of the layout, shows nothing more.
+            open.finish()
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            #expect(failures.isEmpty, "the person's Cmd-N or Ctrl-` failed: \(failures)")
+            @MainActor func shownTerminal() -> TabModel? {
+                daemonPane.currentTabKey.flatMap { key in daemonPane.pane.tabs.first { $0.id == key && $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
+            }
+            try await PasswordManagerRouteTests.until({ shownTerminal() != nil }, within: .seconds(5), report: {
+                "the daemon's pane shows \(String(describing: daemonPane.currentTabKey)), selected \(String(describing: daemonPane.stripModel.selectedID?.rawValue)), "
+                    + "not the daemon's terminal; tabs \(daemonPane.pane.tabs.map { "\($0.id) \($0.kind)" })"
+            })
+            #expect(standIn.currentTabKey == nil,
+                    "the stand-in's controller, out of the layout, showed \(String(describing: standIn.currentTabKey)) after the hand-over")
+        }
+    }
+
     /// The second refusal kind (the desync owner's probe, 16 of 20 lost presses; p0cb-head s4): the Ctrl-` reaches a
     /// pane controller that still shows Cmd-N's stand-in after the daemon's workspace took it over (a window one frame
     /// behind the store). It named nothing and failed as "the daemon refused the new tab" with no request sent; it must

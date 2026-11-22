@@ -25,20 +25,30 @@ mod automation_tools;
 mod browser_tools;
 mod caller_scope;
 mod chat_tools;
+mod cloud_connect_tools;
 mod cloud_repo_tools;
 mod code_mode;
-mod computer_use_gate;
 mod config;
+mod customize_library_tool;
+mod customize_tools;
+mod device_tools;
 mod keybinding_tools;
+mod keys_tools;
+mod live_code_tools;
+mod live_file;
 mod messages;
+mod off;
 mod open_tool;
 mod placement;
+mod pptx_view;
+mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
@@ -59,6 +69,7 @@ use super::cloud_workspaces;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
+use code_mode::computer_use::TERMINAL_AGENT_ENV;
 use transport::Prefix;
 pub(super) use transport::{CallFailure, FailureKind};
 
@@ -177,6 +188,14 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -208,6 +227,16 @@ pub(super) trait Backend {
         ))
     }
 
+    /// One `cmux customize WORDS…` verb, run by the CLI's own code
+    /// (`customize_tools`).
+    fn customize(&self, _words: &[String]) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "customize.unavailable",
+            "this server cannot reach the customization files",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -217,10 +246,9 @@ pub(super) trait Backend {
         ))
     }
 
-    /// App calls that may run on another thread: a computer use call's
-    /// setup card waits with the call, not on this server's thread
-    /// (`computer_use_gate`). `None`: the call runs without the card.
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+    /// Daemon requests from another thread: `open {live}` reloads a changed file's
+    /// tab from its watch thread (`live_file`). `None`: no live files.
+    fn resource_sender(&self) -> Option<live_file::Sender> {
         None
     }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
@@ -344,6 +372,24 @@ impl Backend for LiveBackend {
         })
     }
 
+    #[cfg(unix)]
+    fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
+        super::customize::run_json(&self.global, words, "mcp").map_err(|error| CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
+        })
+    }
+
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(1));
+        }
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -357,11 +403,9 @@ impl Backend for LiveBackend {
         placement::app_identity(&self.global)
     }
 
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+    fn resource_sender(&self) -> Option<live_file::Sender> {
         let global = self.global.clone();
-        Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
-            transport::app_method(&global, method, params, timeout, None, false)
-        }))
+        Some(std::sync::Arc::new(move |plan| transport::resource(&global, plan, &[])))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -447,10 +491,12 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         [command] if command == "serve" => serve(global, true),
         [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
-        _ => {
-            eprintln!("cmux: {usage}");
-            2
-        }
+        _ => super::scope_usage_failure(
+            global.output,
+            "mcp",
+            &super::unknown_words("mcp", args),
+            usage.strip_prefix("usage: ").unwrap_or(usage),
+        ),
     }
 }
 
@@ -478,15 +524,85 @@ fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> 
     )
 }
 
+/// Who started this `serve`, by the env acpmux gives the server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Caller {
+    /// A client outside cmux's agent chats (a terminal agent, another app).
+    Outside,
+    /// An agent chat cmux started (`CMUX_AGENT_SESSION` set): also a server a
+    /// `cmux` entry in the person's own agent config starts inside a chat,
+    /// which inherits the chat's env or gets these keys from the chat's launch
+    /// (`acpmux::agent_tools::person_entry_env`), and one a Codex started in a
+    /// cmux terminal starts, which the shim gives `CMUX_AGENT_TOOLS_ANSWER`.
+    AgentChat,
+    /// A Chief turn: an agent chat whose preset names its cmux tools
+    /// (`CMUX_MCP_TOOLS`).
+    ChiefTurn,
+}
+
 /// Why `serve` must not run with the settings file at `path`, or `None`
-/// when cmux.json turns the server on. An agent chat that cmux started
-/// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
-/// (cx-wx93i, Lawrence 2026-10-14: every agent chat gets the cmux MCP tools
-/// by default); any other client needs `"mcp": {"enabled": true}`. The env
-/// is no security boundary: the same process can run the cmux CLI.
+/// when it is on for this caller. The caller is told by the env: acpmux puts
+/// `CMUX_AGENT_SESSION` (and the Chief's `CMUX_MCP_TOOLS`) in the `cmux`
+/// server's own `env` (`agent_tools::for_session`), so it arrives whatever
+/// env the harness passes a stdio server (Codex passes only an allowlist and
+/// the server's own); a server a person's own entry starts in a Claude chat
+/// inherits the chat's. The env is no security boundary: the same process
+/// can run the cmux CLI. The answer is a consent gate for the person's
+/// agents, not a sandbox.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
-    let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
-    refusal_for(path, agent_chat)
+    let set = |key: &str| std::env::var_os(key).is_some_and(|v| !v.is_empty());
+    // An agent cmux started: a chat (`CMUX_AGENT_SESSION`), or a Codex cmux started whose
+    // person's own `cmux` entry it told the answer (`CMUX_AGENT_TOOLS_ANSWER`; the terminal shim).
+    let chat = set(AGENT_SESSION_ENV);
+    let caller = match (chat, std::env::var_os(ALLOWED_TOOLS_ENV).is_some()) {
+        (true, true) => Caller::ChiefTurn,
+        (true, false) => Caller::AgentChat,
+        _ if set(acpmux::agent_tools::TOOLS_ANSWER_ENV) => Caller::AgentChat,
+        _ => Caller::Outside,
+    };
+    let started_with = match std::env::var(acpmux::agent_tools::TOOLS_ANSWER_ENV).as_deref() {
+        Ok("on") => Some(true),
+        Ok("off") => Some(false),
+        _ => None,
+    };
+    refusal_for(path, caller, started_with)
+}
+
+/// [`refusal`] for `caller`. `"mcp": {"enabled": false}` turns it off for
+/// everyone. An agent chat follows the person's answer to "should agents you
+/// start in cmux get cmux's tools?" (`agents.cmuxMcp` `on`; Aziz,
+/// 2026-11-14), whatever else the file says, so a `cmux` entry an older cmux
+/// wrote into the person's own config is the off server in every chat while
+/// the answer is not on. A chat cmux-next started from another Mac (a peer
+/// link, a Cloud VM, a headless daemon) follows that Mac's answer,
+/// `started_with` (`acpmux::agent_tools::TOOLS_ANSWER_ENV`), over this
+/// machine's file (decided 2026-11-14). A Chief turn, cmux's own
+/// orchestrator, is served unless the file says `false`. Any other client
+/// needs `mcp.enabled` true or the person's yes.
+fn refusal_for(
+    path: &std::path::Path,
+    caller: Caller,
+    started_with: Option<bool>,
+) -> Option<String> {
+    let messages = messages::messages();
+    let shown = path.display().to_string();
+    let setting = match config::setting(path) {
+        Ok(setting) => setting,
+        Err(error) => return Some(messages.config_invalid.replace("{error}", &error)),
+    };
+    if setting == Some(false) {
+        return Some(messages.switched_off.replace("{path}", &shown));
+    }
+    let yes = started_with.unwrap_or_else(|| {
+        cmux_tui_core::user_settings::AgentsCmuxMcp::from_config_file(path)
+            == cmux_tui_core::user_settings::AgentsCmuxMcp::On
+    });
+    match caller {
+        Caller::ChiefTurn => None,
+        Caller::AgentChat if yes => None,
+        Caller::Outside if setting == Some(true) => None,
+        Caller::AgentChat | Caller::Outside => Some(messages.disabled.replace("{path}", &shown)),
+    }
 }
 
 /// The settings file, and whether it turns `serve` on for a client outside
@@ -498,35 +614,46 @@ pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
     (path, on)
 }
 
-fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
-    let messages = messages::messages();
-    match config::setting(path) {
-        Ok(Some(true)) => None,
-        Ok(None) if agent_chat => None,
-        Ok(_) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
-        Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
-    }
-}
-
 fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
+    let terminal_agent = std::env::var_os(TERMINAL_AGENT_ENV).is_some_and(|v| v == "1");
+    let mut config = Some(path.clone());
+    let mut computer_use_only = false;
     if let Some(message) = refusal(&path) {
-        eprintln!("cmux: {message}");
-        return 1;
+        if !terminal_agent {
+            // Still complete the handshake and say why, so the agent shows the
+            // reason instead of a closed connection; no cmux tool runs (`off`).
+            eprintln!("cmux: {message}");
+            let _ = crate::restore_default_termination_signals();
+            acpmux::parent_watch::exit_with_parent();
+            let output = watch::Output::new(io::stdout());
+            return off::Off::new(message).run(io::stdin().lock(), &output);
+        }
+        // A terminal agent with the cmux tools off: Computer Use only.
+        computer_use_only = true;
+        config = None;
     }
-    // The client ends the server by closing stdin, then by SIGTERM; the
-    // blocking stdin read must not hide that signal.
+    // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
+    acpmux::parent_watch::exit_with_parent();
     let output = watch::Output::new(io::stdout());
-    watch::spawn(global.clone(), output.clone());
-    let mut server = Server::new(LiveBackend { global }, Some(path));
-    server.list_changed = true;
+    if !computer_use_only {
+        watch::spawn(global.clone(), output.clone());
+    }
+    let mut server = Server::new(LiveBackend { global }, config);
+    server.list_changed = !computer_use_only;
     server.code_mode = code_mode;
+    server.computer_use_only = computer_use_only;
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
         .into_iter()
         .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
+    // An idle chat's other servers end (`upstream::IDLE_STOP`) while the harness keeps this one.
+    let idle = server.upstreams.iter().map(|p| std::sync::Arc::downgrade(&p.inner)).collect();
+    if let Err(error) = upstream::stop_idle(idle, upstream::IDLE_STOP) {
+        eprintln!("cmux mcp: idle servers keep running: no thread: {error}");
+    }
     server.run(io::stdin().lock(), &output)
 }
 
@@ -633,11 +760,15 @@ pub(super) struct Server<B> {
     workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
+    /// Only cmux Computer Use (`cu_*`, plus `cmux_exec` and `cmux_docs` to
+    /// script it): a terminal agent while the cmux tools are off
+    /// ([`TERMINAL_AGENT_ENV`]).
+    computer_use_only: bool,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
     /// proxied call it makes (the script holds this thread).
     call_cap: Option<Duration>,
-    /// While a `cmux_exec` script runs: when its time limit ends.
-    call_deadline: Option<Instant>,
+    /// While a `cmux_exec` script runs: the `_meta` its calls pass on (`upstream::passed_meta`).
+    call_meta: Option<Value>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -645,6 +776,10 @@ pub(super) struct Server<B> {
     /// The last text `terminal_input_write` typed into each terminal (by the session and
     /// terminal the call named), for [`Self::wait_past_typed`].
     typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
+    /// The files `open {live}` reloads on change, started with the first.
+    live_files: std::cell::RefCell<Option<live_file::Watches>>,
+    /// The decks `open` previews, served on loopback, started with the first.
+    decks: std::cell::RefCell<Option<pptx_view::Decks>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -662,9 +797,12 @@ impl<B: Backend> Server<B> {
             allowed: None,
             workflow_activity: None,
             upstreams: Vec::new(),
+            computer_use_only: false,
             call_cap: None,
-            call_deadline: None,
+            call_meta: None,
             typed: std::cell::RefCell::default(),
+            live_files: std::cell::RefCell::default(),
+            decks: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -729,21 +867,25 @@ impl<B: Backend> Server<B> {
         let result = match method {
             "initialize" => {
                 chat_tools::remember_client(&params);
+                // Codex keeps its own Computer Use first: the folded cu_* tools say so.
+                let defer = acpmux::computer_use::mcp::defers_to_own_computer_use(&params);
+                for proxied in &mut self.upstreams {
+                    proxied.set_defer(defer);
+                }
+                if self.computer_use_only {
+                    return Some(json!({"jsonrpc": "2.0", "id": id,
+                        "result": code_mode::computer_use::initialize(&params, defer, self.code_mode)}));
+                }
                 let code_mode = self.code_mode && self.allowed.is_none();
-                let wrap_up = code_mode
-                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
-                Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
+                Ok(initialize(&params, self.list_changed, code_mode))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
-                let tools = self.list();
-                let mut exposed = code_mode::descriptors(&tools);
-                if let Some(workflow) =
-                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
-                {
-                    exposed.push(workflow.clone());
-                }
-                Ok(json!({ "tools": exposed }))
+                // cmux_workflow is not listed on its own: no chat called it in 172 NEXT
+                // transcripts while its schema cost every Claude chat about 450 tokens of
+                // deferred listing (2026-11-09 audit). A script still reaches it as
+                // `cmux.cmux_workflow`, and `cmux workflow` calls it directly.
+                Ok(json!({ "tools": code_mode::descriptors(&self.list(), self.computer_use_only) }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -772,7 +914,9 @@ impl<B: Backend> Server<B> {
     /// `window_list`, `agents_snapshot`, `agents_doctor`, `render`, and the app's CLI actions
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
-        self.refresh_actions();
+        if !self.computer_use_only {
+            self.refresh_actions();
+        }
         for proxied in &mut self.upstreams {
             proxied.refresh();
         }
@@ -782,30 +926,7 @@ impl<B: Backend> Server<B> {
     /// [`Self::list`] from the actions and proxied tools as last read,
     /// asking nothing again.
     fn listed(&self) -> Vec<Value> {
-        let mut tools =
-            v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
-        tools
-            .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
-        tools.push(action_tools::window_list_tool());
-        tools.push(super::agents::snapshot_tool());
-        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
-        tools.extend(agent_dispatch_tools::descriptors());
-        tools.push(workflow_tools::descriptor());
-        tools.extend(cloud_repo_tools::descriptors());
-        tools.extend(chat_tools::descriptors());
-        tools.push(super::agents_doctor::mcp_tool());
-        tools.push(agent_wait_tool::descriptor());
-        tools.push(agent_events_tool::descriptor());
-        tools.extend(terminal_talk_tools::descriptors());
-        tools.push(render_tool::descriptor());
-        tools.push(open_tool::descriptor());
-        tools.extend(video_tools::descriptors());
-        tools
-            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
-        tools.extend(automation_tools::descriptors());
-        tools.extend(
-            keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
-        );
+        let mut tools = tool_list::first_party();
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         for proxied in &self.upstreams {
             let taken = tools
@@ -822,6 +943,10 @@ impl<B: Backend> Server<B> {
         }
         if let Some(allowed) = &self.allowed {
             tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
+        }
+        if self.computer_use_only {
+            tools
+                .retain(|tool| tool["name"].as_str().is_some_and(code_mode::computer_use::is_tool));
         }
         tools
     }
@@ -862,6 +987,11 @@ impl<B: Backend> Server<B> {
             });
             return Some(tool_error(envelope(error, "not_run", None)));
         }
+        if self.computer_use_only
+            && let Some(error) = code_mode::computer_use::out_of_scope(name)
+        {
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
         None
     }
 
@@ -883,7 +1013,9 @@ impl<B: Backend> Server<B> {
             return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == workflow_tools::NAME {
-            return Ok(workflow_tools::call(&self.backend, &arguments));
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            let meta = upstream::passed_meta(params).or_else(|| self.call_meta.clone());
+            return Ok(workflow_tools::call(&self.backend, &arguments, meta));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -900,24 +1032,27 @@ impl<B: Backend> Server<B> {
             let mut tools = None;
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
-            self.call_deadline = Some(Instant::now() + self.script_limits.total);
+            self.call_meta = upstream::passed_meta(params);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
-            self.call_deadline = None;
+            self.call_meta = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
-            if let Some(content) = result["content"].as_array_mut() {
-                content.extend(images);
-            }
+            code_mode::computer_use::attach_images(&mut result, images);
             return Ok(result);
         }
-        if let Some(job) = self.proxied_tool(name, &arguments) {
+        if let Some(mut job) = self.proxied_tool(name, &arguments) {
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            job.meta = upstream::passed_meta(params).or(job.meta);
             return Ok(job.run(self.call_cap));
         }
         if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = live_code_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
@@ -1035,6 +1170,9 @@ impl<B: Backend> Server<B> {
         if let Some(result) = self.call_video(name, &arguments) {
             return Ok(result);
         }
+        if keys_tools::owns(name) {
+            return Ok(self.call_keys(name, &arguments));
+        }
         if name == open_tool::NAME {
             if !self.actions_loaded {
                 self.refresh_actions();
@@ -1052,6 +1190,21 @@ impl<B: Backend> Server<B> {
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
+        }
+        if let Some(result) = customize_library_tool::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_connect_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = device_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(tool) = remote_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
@@ -1244,7 +1397,8 @@ impl<B: Backend> Server<B> {
                     images,
                 )
             }
-            code_mode::Request::Call { name, arguments } => {
+            code_mode::Request::Call { name, mut arguments } => {
+                code_mode::computer_use::script_arguments(&name, &mut arguments);
                 let mut result = self.call(&json!({"name": name, "arguments": arguments}));
                 // A guessed name (`context`, `terminal_send`) gets the tools
                 // a docs search for it finds, so the next call can be right
@@ -1259,7 +1413,7 @@ impl<B: Backend> Server<B> {
                         message.push_str(&format!("; did you mean {}?", near.join(", ")));
                     }
                 }
-                code_mode::script_answer(result, images)
+                code_mode::computer_use::script_answer(&name, result, images)
             }
             code_mode::Request::Docs { query } => {
                 let tools = match tools {
@@ -1330,7 +1484,15 @@ impl<B: Backend> Server<B> {
             })
             .flatten();
         let call_session = call.session.clone();
-        match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+        // A terminal wait that ran out of time says `timed_out`, as the CLI's does.
+        let wait = super::wire::wait_timeout::Wait::of(&call.plan);
+        let answer = self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes);
+        match answer.map(|mut value| {
+            if let Some(wait) = &wait {
+                wait.mark(&mut value);
+            }
+            value
+        }) {
             Ok(value) if typed.is_some() => success(
                 {
                     let mut value = value;
@@ -1434,7 +1596,7 @@ impl<B: Backend> Server<B> {
         }
         // On screen the typed line follows the prompt, so an output line is the one
         // that starts with the match.
-        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+        if !cmux_tui_core::wait_pattern::compile(&pattern).ok()?.is_match(&typed) {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");
@@ -1472,18 +1634,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
-/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]).
-fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool) -> Value {
+/// In code mode the wrap-up and suggested-session steers are only in `cmux_exec`'s description,
+/// which Claude Code always loads (`anthropic/alwaysLoad`), so the instructions do not repeat
+/// them.
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}{}",
+            "{} {}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
             acpmux::agent_tools::ASKING_RULE,
-            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" }
         ),
     })
 }
@@ -1578,15 +1740,19 @@ fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
 
 pub(super) fn failure_result(failure: CallFailure) -> Value {
     // An owner that says whether the run started (the app's `busy` and
-    // `timeout`) decides the state.
+    // `timeout`) decides the state. So does one that says it decided the refusal
+    // itself (`rejected`: a pane that cannot split): the app marks that `not_run`
+    // too (nothing applied), and `not_run` alone would tell the agent to send it again.
     let data = failure.error.get("data").or_else(|| failure.error.get("details"));
     let owner_state = data.and_then(|data| {
+        let said = data.get("state").and_then(Value::as_str);
+        if said == Some("rejected") {
+            return Some("rejected");
+        }
         if data.get("not_run") == Some(&Value::Bool(true)) {
             return Some("not_run");
         }
-        data.get("state")
-            .and_then(Value::as_str)
-            .filter(|state| matches!(*state, "not_run" | "in_progress"))
+        said.filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.

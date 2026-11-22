@@ -18,7 +18,7 @@ import { type CpNote, type CpRun, decodeNote } from "./contract.ts"
 const DELTA_FLUSH_MS = 40
 /** One send on the chain waits at most this long, so a hung RPC never holds back later frames. */
 const SEND_MS = 10_000
-const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as { agentFrame(entity: string, agent: string, f: { live: LiveFrame }): Promise<void> }
+const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id))
 
 export interface Live {
   readonly run: string

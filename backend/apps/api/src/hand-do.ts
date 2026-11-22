@@ -1,5 +1,6 @@
+import { envForObject } from "./build-space.ts"
 import { DurableObject } from "cloudflare:workers"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { authorizeDefaultMachine, defaultHandId, defaultHandScope, type DefaultHandScope } from "./chief-default-hand.ts"
 import { PROVIDERS } from "./hand-providers.ts"
 import { LEGACY_HAND_PROVIDER } from "./providers/index.ts"
@@ -72,7 +73,8 @@ export class HandDO extends DurableObject<Env> {
   private readonly helloWaiters = new Set<() => void>()
   private inserts = 0
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS hand (id INTEGER PRIMARY KEY CHECK (id = 1), hand TEXT NOT NULL, owner TEXT NOT NULL, name TEXT NOT NULL, minted_by TEXT NOT NULL, created_at INTEGER NOT NULL, code_sha TEXT, key_sha TEXT, paired_at INTEGER, revoked_at INTEGER, profile TEXT, hello TEXT, last_seen INTEGER)`)
@@ -615,7 +617,7 @@ export class HandDO extends DurableObject<Env> {
 
   /** An ephemeral frame to the owner's own sockets (UserDO.handFrame); best effort. */
   private ownerFrame(owner: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" | "hand-presence-key" } & Record<string, unknown>) {
-    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner)) as unknown as { handFrame(entity: string, f: typeof frame): Promise<void> }
+    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner))
     this.ctx.waitUntil(user.handFrame(owner, frame).catch(() => undefined))
   }
 
@@ -658,7 +660,7 @@ export class HandDO extends DurableObject<Env> {
     const due = sql.exec<{ key: string; target: string; body: string; tries: number; first_at: number }>(`SELECT key, target, body, tries, first_at FROM hand_outcome WHERE next_at <= ? ORDER BY next_at LIMIT 50`, now).toArray()
     await Promise.all(
       due.map(async (r) => {
-        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(r.target)) as unknown as { agentOutcome(o: unknown): Promise<unknown> }
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(r.target))
         if (await brain.agentOutcome(JSON.parse(r.body)).then(() => true, () => false)) return void sql.exec(`DELETE FROM hand_outcome WHERE key = ?`, r.key)
         if (now - r.first_at > OUTCOME_GIVE_UP_MS) {
           console.error(JSON.stringify({ msg: "hand.agent_outcome_dropped", key: r.key, tries: r.tries + 1 }))

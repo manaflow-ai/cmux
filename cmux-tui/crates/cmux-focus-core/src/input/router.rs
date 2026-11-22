@@ -22,6 +22,11 @@ use crate::window::WindowFocus;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+/// Whether `new` lists the same tabs as `old`, in the same order: then the tab index built from either is the same.
+fn lists_same_tabs(old: &Topology, new: &Topology) -> bool {
+    old.panes.iter().flat_map(|pane| &pane.tabs).eq(new.panes.iter().flat_map(|pane| &pane.tabs))
+}
+
 /// A tab of a window's topology, as the router needs it.
 pub(super) struct TabInfo {
     kind: Kind,
@@ -397,6 +402,18 @@ impl InputRouter {
             }
             _ => false,
         };
+        // The tab index holds each tab's id, surface, kind and host terminal, never the selection: a report that lists
+        // the same tabs (a selection change: Cmd-1, a tab click) keeps it, and only one that adds, drops or moves a tab
+        // rebuilds it (an `Arc<str>` per tab id, surface and host terminal).
+        let keeps_index = match &focus {
+            FocusInput::Topology(topology) => {
+                lists_same_tabs(&input.window.state().topology, topology)
+            }
+            FocusInput::Event(FocusEvent::Topology { topology }) => {
+                lists_same_tabs(&input.window.state().topology, topology)
+            }
+            FocusInput::Event(_) => true,
+        };
         // The app's focus handle's reduction: a topology takes the fast path,
         // and the address bar memory notes every reduction.
         let (reduction, topology) = match focus {
@@ -420,7 +437,7 @@ impl InputRouter {
         // Every topology report judges the sinks that ended (`track_gone`); an equal one did not run the
         // reducer, so the tabs it shows, and their index, are the same.
         if topology {
-            if reduction.ran {
+            if reduction.ran && !keeps_index {
                 input.reindex();
             }
             self.track_gone();

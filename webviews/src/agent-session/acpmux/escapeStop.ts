@@ -2,9 +2,7 @@
 // 2026-10-19: "when we want to cancel chats with escape, I think we want to do a double tap"): the
 // first arms the stop, and the composer's Stop keeps its glyph, takes the accent and is named
 // "Press Esc again to stop"; a second inside the window stops the turn. Any other key, a click, focus moving or the
-// window ending disarms it and puts Stop back. Debug Settings' "Esc stops a turn on a double press"
-// (Swift AgentPaneTunables.escapeStopDoublePress, the `composer` event's `escapeDoublePress`) turns
-// it off, and one press stops the turn again.
+// window ending disarms it and puts Stop back.
 import { useEffect, useRef, useState } from "react";
 
 /// How long after the first Esc a second one still stops the turn: browser focus mode's Esc Esc
@@ -18,10 +16,8 @@ export type EscapeStopPress = {
   armedAt?: number;
 };
 
-/// One Esc while a turn runs. `armedAt` is the previous press that armed the stop, if any;
-/// `double` is the Debug Settings choice.
-export function escapeStopPress(armedAt: number | undefined, now: number, double: boolean): EscapeStopPress {
-  if (!double) return { stop: true };
+/// One Esc while a turn runs. `armedAt` is the previous press that armed the stop, if any.
+export function escapeStopPress(armedAt: number | undefined, now: number): EscapeStopPress {
   if (armedAt !== undefined && now - armedAt >= 0 && now - armedAt <= ESCAPE_STOP_WINDOW_MS) return { stop: true };
   return { stop: false, armedAt: now };
 }
@@ -63,20 +59,18 @@ export type EscapeStop = {
 export function useEscapeStop({
   stoppable,
   session,
-  double,
   pageEscape,
   onStop,
 }: {
   stoppable: boolean;
   session: string | undefined;
-  double: boolean;
   pageEscape: boolean;
   onStop(): void;
 }): EscapeStop {
   const armedAt = useRef<number | undefined>(undefined);
   const [armed, setArmed] = useState<number | undefined>(undefined);
-  const latest = useRef({ stoppable, double, onStop });
-  latest.current = { stoppable, double, onStop };
+  const latest = useRef({ stoppable, onStop });
+  latest.current = { stoppable, onStop };
 
   const disarm = () => {
     if (armedAt.current === undefined) return;
@@ -85,7 +79,7 @@ export function useEscapeStop({
   };
   const press = (repeat: boolean) => {
     if (repeat || !latest.current.stoppable) return;
-    const result = escapeStopPress(armedAt.current, Date.now(), latest.current.double);
+    const result = escapeStopPress(armedAt.current, Date.now());
     armedAt.current = result.armedAt;
     setArmed(result.armedAt);
     if (result.stop) latest.current.onStop();

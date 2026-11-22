@@ -87,8 +87,8 @@ import Testing
         await Self.drainMain()
         try #require(content.panes.count == 1, "fixture: one pane")
         let ready = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
-        // Out of every window: a pane's content installed before its host joins the window enters the window once (WindowEntryHandoff).
-        try #require(ready.view.window == nil, "the views made ahead are in a window: a page installed there would leave it again")
+        // Parked in the window inside the host made with them (item 4), hidden: the key's turn moves no view out of or into it.
+        try #require(ready.view.window === window && ready.view.isHiddenOrHasHiddenAncestor, "the views made ahead are not parked hidden in the window")
 
         // The key's turn of New Column (`WorkspaceContentController.newColumn` -> `createInKeysTurn`): the stand-in pane in
         // the store, then laid out and mounted before the key's frame.

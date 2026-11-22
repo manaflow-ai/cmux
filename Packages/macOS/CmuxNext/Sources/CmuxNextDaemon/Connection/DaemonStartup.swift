@@ -93,6 +93,7 @@ public struct DaemonStartup: Sendable {
         }
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
+            let mark = wake.eventMark
             let connection = makeConnection()
             // The tuple is built after the do/catch: Swift -O drops tuple elements returned
             // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
@@ -119,7 +120,7 @@ public struct DaemonStartup: Sendable {
                 if failure.isBusyRefusal { pacer.refusedBusy() }
             }
             if let identity { return (connection, identity) }
-            guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
+            guard await pacer.waitAfterFailure(wake: wake, clock: clock, since: mark) else { return nil }
         }
         return nil
     }

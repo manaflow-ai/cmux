@@ -5,7 +5,9 @@ import {
   docsChannelUrl,
   docsNavPath,
   docsPathAvailableInChannel,
+  docsZoneSelfRewrites,
 } from "../app/lib/docs-channel";
+import { nextDocHref, nextDocPages } from "../data/next-docs/pages";
 import {
   flatNavItems,
   navItemsForLocale,
@@ -69,4 +71,43 @@ test("nightly docs canonically point to the release channel", () => {
   process.env.CMUX_DOCS_CHANNEL = "nightly";
   expect(docsChannel()).toBe("nightly");
   expect(docsCanonicalOrigin()).toBe("https://cmux.com");
+});
+
+/** Where a docs zone's own rewrites send `path`, as Next matches `:name` and `:name*`. */
+function zoneRoute(path: string, rewrites: { source: string; destination: string }[]): string {
+  for (const { source, destination } of rewrites) {
+    const names: string[] = [];
+    const pattern = source.replace(/\/:(\w+)(\*)?/g, (_, name: string, star?: string) => {
+      names.push(name);
+      return star ? "(?:/(.*))?" : "/([^/]+)";
+    });
+    const match = new RegExp(`^${pattern}$`).exec(path);
+    if (!match) continue;
+    return destination.replace(/:(\w+)\*?/g, (_, name: string) => match[names.indexOf(name) + 1] ?? "")
+      .replace(/\/$/, "");
+  }
+  return path;
+}
+
+// The nightly zone renders each docs link as /docs/nightly/... (docsChannelUrl), the public
+// path cmux.com rewrites to the zone's /docs/.... On the zone's own host every sidebar entry
+// and every cmux-next page link 404'd: nothing mapped /docs/nightly there.
+test("every nightly docs link opens on the nightly zone's own host", () => {
+  const rewrites = docsZoneSelfRewrites("nightly");
+  const hrefs = [
+    ...flatNavItems(navItemsForLocale("en", "nightly")).map((item) => item.href),
+    ...nextDocPages.flatMap((page) => (page.links ?? []).map(nextDocHref)),
+  ];
+  expect(hrefs.length).toBeGreaterThan(20);
+  for (const href of hrefs) {
+    const rendered = docsChannelUrl("nightly", href);
+    expect(rendered.startsWith("/docs/nightly")).toBe(true);
+    expect(zoneRoute(rendered, rewrites)).toBe(href);
+    expect(zoneRoute(`/en${rendered}`, rewrites)).toBe(`/en${href}`);
+  }
+  expect(zoneRoute("/docs/nightly", rewrites)).toBe("/docs/getting-started");
+  expect(zoneRoute("/ja/docs/nightly/ssh", rewrites)).toBe("/ja/docs/ssh");
+  expect(zoneRoute("/ja/docs/nightly", rewrites)).toBe("/ja/docs/getting-started");
+  // The release zone's links have no /nightly prefix and need no rewrite.
+  expect(docsZoneSelfRewrites("release")).toEqual([]);
 });

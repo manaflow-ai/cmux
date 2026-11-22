@@ -1,0 +1,83 @@
+{
+  "title": "Chief panel: Cmd-I floats the Chief chat over the workspace",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "app: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'app: the workspace on the stage'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open app",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Cmd-I in app: the Chief floats over the workspace",
+      "cmux": [
+        "action",
+        "run",
+        "home.openChiefDock"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "System",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only",
+      "shot": false
+    }
+  ]
+}

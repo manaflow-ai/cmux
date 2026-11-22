@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// FRAME OWNER REFACTOR S2B, rule D: a drag that starts while its edge springs holds the edge where it is drawn.
 extension DividerDrag {
-    /// The press of a drag that latched `motion.frameOwner.sharedEdges`, while the screen moves: the drag's value (a
+    /// The press of a drag that moves edges (`DividerDragState.sharedEdges`), while the screen moves: the drag's value (a
     /// split's ratio, a column's width) goes to the value that rests its line on the pixel it is drawn on, in the drag's
     /// own transaction, and the window lays that out now in a pass that moves nothing on screen (every frame keeps where
     /// it shows and its velocity). Each edge then gets its share of the change of speed and place that stops the line on
@@ -38,7 +38,7 @@ extension DividerDrag {
         // No pane may show a negative size later in this drag (rule D keeps each edge's spring leftover): checked on
         // every pane, after the catch this press makes, along its spring's whole path, also without its share of a
         // clamp's spring (the line's leftover from where the layout rests it: the pointer can take it off).
-        let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)
+        let spring = Motion.panes.policy.spring(ScreenContentView.frameSpring)
         if SharedEdgeMotion.mayShowNegativeSize(screen.paneFrames, targets: caught.catches ? caughtGeometry.panes : nil,
                                                 influence: caught.catches ? influence : nil, speedChange: caught.speedChange,
                                                 clampLeftover: caught.catches ? caught.held - rested : 0,
@@ -79,7 +79,9 @@ extension DividerDrag {
             fresh.grabOffset += rest - caught.held
             fresh.pressAt += rest - caught.held
         }
-        fresh.clampHold = SharedEdgeClamp(kind, axis: caught.axis, held: caught.held, on: screen, influence: influence)
+        if !fresh.modifiers.push, !fresh.modifiers.all {
+            fresh.clampHold = SharedEdgeClamp(kind, axis: caught.axis, held: caught.held, base: caught.base, on: screen, influence: influence)
+        }
         screen.activeDrag = fresh
     }
 
