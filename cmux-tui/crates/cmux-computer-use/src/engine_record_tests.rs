@@ -198,11 +198,11 @@ fn denied_apps_are_out_of_every_frame_as_in_a_display_screenshot() {
     assert_eq!(out.body["redacted_windows"], 1);
     assert_eq!(out.body["left_out_apps"], 0);
     for s in &track(&out).samples {
-        let black = synthetic::stats(&s.data).unwrap().black;
+        let painted = synthetic::stats(&s.data).unwrap().painted;
         // 600x400 px of the 2000x1600 capture, scaled by 0.96 each way.
-        assert!((200_000..240_000).contains(&black), "{black}");
+        assert!((200_000..240_000).contains(&painted), "{painted}");
     }
-    // Nothing denied: no black in the picture.
+    // Nothing denied: nothing painted out.
     let (_d, e) = {
         let d = Arc::new(FakeDesktop::standard());
         let e = engine(d.clone(), PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
@@ -210,7 +210,7 @@ fn denied_apps_are_out_of_every_frame_as_in_a_display_screenshot() {
     };
     let out = e.call(&ctx(), "record", &json!({"seconds": 0.2, "fps": 20}));
     assert_eq!(out.body["redacted_windows"], 0);
-    assert!(track(&out).samples.iter().all(|s| synthetic::stats(&s.data).unwrap().black == 0));
+    assert!(track(&out).samples.iter().all(|s| synthetic::stats(&s.data).unwrap().painted == 0));
     // Where the capture leaves processes out (macOS), it does, per frame.
     let mut desktop = FakeDesktop::standard();
     desktop.excludes_apps = true;
@@ -235,7 +235,7 @@ fn an_app_denied_during_a_recording_leaves_the_frames_after_it() {
     std::thread::sleep(Duration::from_millis(250));
     let out = e.call(&ctx(), "record", &json!({"action": "stop"}));
     let blacks: Vec<u32> =
-        track(&out).samples.iter().map(|s| synthetic::stats(&s.data).unwrap().black).collect();
+        track(&out).samples.iter().map(|s| synthetic::stats(&s.data).unwrap().painted).collect();
     assert_eq!(blacks[0], 0, "{blacks:?}");
     assert!(*blacks.last().unwrap() > 200_000, "{blacks:?}");
     // Once painted out, never back in.

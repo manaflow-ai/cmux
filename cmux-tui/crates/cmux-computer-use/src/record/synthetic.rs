@@ -16,8 +16,9 @@ pub struct Stats {
     pub index: u32,
     pub width: u32,
     pub height: u32,
-    /// Pixels that are pure black (what a painted-out window is).
-    pub black: u32,
+    /// Pixels in the colour a denied window is painted out with
+    /// ([`crate::frame::redact`]).
+    pub painted: u32,
     /// The top-left pixel.
     pub first: [u8; 3],
 }
@@ -34,6 +35,8 @@ impl SyntheticEncoder {
     }
 }
 
+/// The colour [`crate::frame::redact`] paints a denied window with.
+const PAINT: [u8; 3] = [24, 24, 28];
 const START: [u8; 4] = [0, 0, 0, 1];
 /// Baseline profile, level 3.1, in the three bytes a file's header copies.
 const SPS: [u8; 6] = [0x67, 0x42, 0xc0, 0x1f, 0x95, 0xa8];
@@ -61,8 +64,7 @@ impl FrameEncoder for SyntheticEncoder {
                 frame.width, frame.height, self.width, self.height
             ));
         }
-        let black =
-            frame.rgba.chunks_exact(4).filter(|p| p[0] == 0 && p[1] == 0 && p[2] == 0).count();
+        let painted = frame.rgba.chunks_exact(4).filter(|p| p[..3] == PAINT).count();
         let first = frame.rgba.get(..3).unwrap_or(&[0, 0, 0]);
         let mut unit = Vec::with_capacity(64);
         let key = force_key || self.index == 0;
@@ -77,7 +79,7 @@ impl FrameEncoder for SyntheticEncoder {
         put(&mut unit, &self.index.to_be_bytes());
         put(&mut unit, &frame.width.to_be_bytes());
         put(&mut unit, &frame.height.to_be_bytes());
-        put(&mut unit, &(black as u32).to_be_bytes());
+        put(&mut unit, &(painted as u32).to_be_bytes());
         put(&mut unit, first);
         self.index += 1;
         Ok(unit)
@@ -103,7 +105,7 @@ pub fn stats(sample: &[u8]) -> Option<Stats> {
         index: word(0)?,
         width: word(4)?,
         height: word(8)?,
-        black: word(12)?,
+        painted: word(12)?,
         first: bytes.get(16..19)?.try_into().ok()?,
     })
 }
