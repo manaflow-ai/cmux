@@ -1,7 +1,8 @@
 # Broadsheet
 
-A design-system proposal (Broadsheet v0.1) as a drop-in look. What agents produce is writing, so
-the hierarchy is built from type, measure and rhythm, not from boxes.
+Broadsheet v0.2 (`0.2.0`), the reading preset, as a drop-in look. What agents produce is writing, so
+the hierarchy is built from type, measure and rhythm, not from boxes. It started as a design-system
+proposal (RFD 0037); the system that was chosen is another, and this stays as a look.
 
 | File | What it does |
 | --- | --- |
@@ -14,5 +15,40 @@ the hierarchy is built from type, measure and rhythm, not from boxes.
 It changes no default. Remove it and everything you had comes back.
 
 ```sh
+cmux setup install examples/looks/broadsheet
 cmux settings set appearance.themeFile broadsheet-dark   # broadsheet (Light) is the default
 ```
+
+## What the captures measure
+
+From `screenshots/broadsheet-light.png` and `broadsheet-dark.png` (the test window, 1280 px wide):
+
+| | Light | Dark |
+| --- | --- | --- |
+| Reading text | 16 px on 24 px, 72 characters a line (63 to 79) | the same |
+| Margin against page | 1.07:1, with a hairline | 1.09:1, with a hairline |
+| Tool rows against page | 4.54:1 | 5.55:1 |
+| Sidebar section header | 5.27:1 | 6.59:1 |
+
+## What this look does not set
+
+A look reaches settings, theme files and eleven chat paint tokens. These are outside it, so the look
+does not claim them:
+
+- **The measure holds code too.** The 560 px column is one width for reading text, code blocks and
+  diffs. A long diff line wraps where the default's 800 px column would not, and a code line fades
+  at the column edge. Giving code its own wider column needs a change in the chat's own styles.
+- **Inline code can break across lines.** A token such as `Retry-After` can split at its hyphen at
+  the end of a line. That is the chat's own wrapping rule, the same with or without this look; the
+  narrow column makes it show more often.
+- **Tool rows are the reading size.** Tool rows draw at 16 px on a 20 px line, not smaller than the
+  reading text: every chat size follows the one font size.
+- **Not on the 4 px line grid:** code lines (21.67 px) and headings (27.43 and 25.14 px).
+- **Card and composer corners** draw at the default's 8 px. The 2 px corner applies to your prompt.
+- **The session panel.** In a 1280 px window the narrow column leaves room for the session panel, so
+  it opens beside the chat, as the Light and Dark captures show.
+- **Type in the chrome:** the sidebar's, tab strip's and Settings' fonts, sizes and tracking.
+- **Not checked in the Mac app:** every number above is from the test window, which does not draw
+  the neutral selection or the margin tone behind the tab strip.
+- 59 of 252 text runs in the Light capture and 46 in Dark are under 4.5:1 (the lowest 2.65:1, the
+  "Waiting for you" label); they are the default's own and this look does not repaint them.

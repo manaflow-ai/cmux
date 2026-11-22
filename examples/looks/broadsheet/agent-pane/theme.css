@@ -1,7 +1,7 @@
 /* Broadsheet's chat: voices, not boxes. Your prompt is a faint wash of the ink with a 2 px corner
    (a marked passage, not a bubble); tool output, edits and plans sit inside a hairline with no
    fill, so the page stays one sheet; secondary ink is the second and third steps of a fixed
-   ladder (the ink at 72% and 66%, both over 4.5:1 on the page, the margin and a card); links are
+   ladder (the ink at 72% and 66%; tool rows measure 4.54:1 in Light and 5.55:1 in Dark); links are
    the theme's accent ink; a long code line fades at the edge in place of a hard cut.
    Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
    nothing in the transcript moves when this applies or reloads. Every color is made from the
