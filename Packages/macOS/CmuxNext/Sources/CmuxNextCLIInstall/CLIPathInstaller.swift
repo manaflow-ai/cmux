@@ -88,13 +88,14 @@ public nonisolated struct CLIPathInstaller: Sendable {
     /// - Parameter destination: The link's path; `cmux` in `/usr/local/bin` by default.
     /// - Parameter source: The CLI to link to; this app's bundled CLI by default.
     /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused;
-    ///   tests pass a stand-in.
+    ///   tests pass a stand-in. Nil is ``runAsAdministrator``, chosen in the body: the Xcode 26.3
+    ///   compiler crashes (signal 11) checking that function as a default argument's isolation.
     public init(destination: URL = Name.cmux.destination,
                 source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
-                privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
+                privileged: Privileged? = nil) {
         self.destination = destination
         self.source = source.standardizedFileURL
-        self.privileged = privileged
+        self.privileged = privileged ?? { try await CLIPathInstaller.runAsAdministrator($0) }
     }
 
     /// Links the destination to this app's CLI. Anything there that is not
