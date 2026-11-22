@@ -3057,6 +3057,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-web-pieces"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-weft"
 version = "0.1.0"
 dependencies = [
