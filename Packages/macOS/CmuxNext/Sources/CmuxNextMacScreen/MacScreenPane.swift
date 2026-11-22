@@ -46,6 +46,10 @@ public final class MacScreenPaneModel {
         get { viewerLookOverride ?? MacScreenTunables.viewerLook.value }
         set { viewerLookOverride = newValue }
     }
+    /// A readout fixed for this pane (the gallery draws each); nil follows Debug Settings `macScreen.qualityReadout`.
+    var qualityReadoutOverride: MacScreenQualityReadout?
+    /// Where the stream's rate and quality show, read live like ``viewerLook``.
+    var qualityReadout: MacScreenQualityReadout { qualityReadoutOverride ?? MacScreenTunables.qualityReadout.value }
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session

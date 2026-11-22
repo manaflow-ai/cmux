@@ -72,6 +72,14 @@ public nonisolated struct MacScreenTunables {
         help: "How the screen-share viewer draws its toolbar, the area around the picture and its state cards. Applies at once.",
         default: .a, code: "MacScreenTunables.viewerLook")
 
+    /// Where the viewer shows the stream's rate and quality (D10: an ultra session shows the link it spends).
+    public static let qualityReadout = Tunable<MacScreenQualityReadout>.choice(
+        "macScreen.qualityReadout", section, "Screen viewer quality readout",
+        help: "Where the screen-share viewer shows the stream's rate, frames, round trip, loss and encode time. Applies at once.",
+        default: .inline, code: "MacScreenTunables.qualityReadout")
+
     /// Every Mac Screen tunable, for Debug Settings.
-    public static var all: [TunableDescriptor] { [sharingLook.descriptor, devicesLook.descriptor, viewerLook.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [sharingLook.descriptor, devicesLook.descriptor, viewerLook.descriptor, qualityReadout.descriptor]
+    }
 }

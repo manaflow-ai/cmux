@@ -27,6 +27,26 @@ struct AAMacScreenViewerGalleryTests {
         var linkConnected = false
         var hasFrame = false
         var capturesKeyboard = false
+        /// A quality readout state: the readout drawn, over an ultra session's numbers.
+        var readout: MacScreenQualityReadout?
+    }
+
+    /// An ultra session (D10): the host streams at 148 Mbps, 120 of 120 fps, direct, 3 ms.
+    static var ultraStats: MacScreenSession.LiveStats {
+        var stats = MacScreenSession.LiveStats()
+        stats.fps = 119.6
+        stats.targetFps = 120
+        stats.latencyMs = 3
+        stats.encoding = "HEVC"
+        stats.hostKbps = 148_000
+        stats.lossPercent = 0.1
+        stats.encodeMsP50 = 2.4
+        return stats
+    }
+
+    /// The `macScreen.qualityReadout` variants (R1 inline, R2 chip, R3 stats panel), each live with the ultra numbers.
+    static let readoutStates: [State] = MacScreenQualityReadout.allCases.map {
+        State(name: "readout-\($0.rawValue)", scope: .full, phase: .connected, hasFrame: true, readout: $0)
     }
 
     static let states: [State] = [
@@ -97,8 +117,12 @@ struct AAMacScreenViewerGalleryTests {
         let pane = MacScreenPane(hubDevice: viewer, name: "Studio MacBook Pro", preferences: ScreenPreferences(), viewerLook: look)
         defer { pane.close() }
         pane.model.hasFrame = state.hasFrame
+        pane.model.qualityReadoutOverride = state.readout
+        // The readout states show the host's numbers; the stats panel is the one Show Stats turns on.
+        if state.readout == .hud { pane.session?.preferences.showStats = true }
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
-                                       frameSize: state.hasFrame ? remotePixels : .zero)
+                                       frameSize: state.hasFrame ? remotePixels : .zero,
+                                       stats: state.readout == nil ? nil : ultraStats, path: state.readout == nil ? nil : "Direct")
         pane.view.frame = root.bounds
         pane.view.autoresizingMask = [.width, .height]
         root.addSubview(pane.view)
@@ -196,6 +220,20 @@ struct AAMacScreenViewerGalleryTests {
                 try AAGroupHeaderDensityGalleryTests.write(narrow, to: out.appending(path: "\(look.rawValue)-\(state.name)-narrow-dark.png"))
             }
             try AAGroupHeaderDensityGalleryTests.write(try Self.sheet(pairs), to: out.appending(path: "\(look.rawValue)-all.png"))
+        }
+        // The quality readouts, in the default look and the bar look (where the bar has room for the full line).
+        for look in [MacScreenViewerLook.a, .current] {
+            var pairs: [(light: CGImage, dark: CGImage)] = []
+            for state in Self.readoutStates {
+                var pair: [CGImage] = []
+                for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                    let image = try await Self.render(look: look, state: state, size: Self.wide, theme: theme, dark: dark)
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "\(look.rawValue)-\(state.name)-\(mode).png"))
+                    pair.append(image)
+                }
+                pairs.append((pair[0], pair[1]))
+            }
+            try AAGroupHeaderDensityGalleryTests.write(try Self.sheet(pairs), to: out.appending(path: "\(look.rawValue)-readouts.png"))
         }
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")

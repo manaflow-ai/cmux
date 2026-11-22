@@ -34,6 +34,11 @@ public final class MacScreenSession {
         public var framesReceived: Double = 0
         public var framesDecoded: Double = 0
         public var framesDropped: Double = 0
+        /// The host's own once-a-second counters (cmux.rd/1 `stats`), nil until the first one or from a host that
+        /// sends none: the rate it streams at, the share of packets it resent or lost, its median encode time.
+        public var hostKbps: Double?
+        public var lossPercent: Double?
+        public var encodeMsP50: Double?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
@@ -383,6 +388,16 @@ public final class MacScreenSession {
                 }
             }
         })
+        let hostStats = transport.hostStatsUpdates()
+        tasks.append(Task { [weak self] in
+            for await report in hostStats {
+                guard let self, self.transport === transport, !Task.isCancelled else { return }
+                stats.hostKbps = Double(report.kbps)
+                stats.kilobytesPerSecond = Double(report.kbps) / 8
+                stats.lossPercent = report.lossPercent
+                stats.encodeMsP50 = report.encodeMsP50
+            }
+        })
         transport.connect()
     }
 
@@ -574,8 +589,10 @@ extension MacScreenSession {
     /// A fixture state for the viewer gallery (`AAMacScreenViewerGalleryTests`): the session reads as `phase` with
     /// no process or network, so the pane draws the card or the picture that state shows.
     func showPreviewState(phase: Phase, failureCause: FailureCause? = nil, linkConnected: Bool = false,
-                          frameSize: CGSize = .zero, stalled: Bool = false) {
+                          frameSize: CGSize = .zero, stalled: Bool = false, stats: LiveStats? = nil, path: String? = nil) {
         self.phase = phase
+        if let stats { self.stats = stats }
+        if let path { streamPath = path }
         self.failureCause = failureCause
         self.linkConnected = linkConnected
         self.frameSize = frameSize
