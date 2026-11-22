@@ -91,13 +91,14 @@ afterEach(() => {
 const mcp = (name: string, args: unknown) =>
   mcpCall(call("other", { title: name, inputSummary: JSON.stringify(args) }).tool!)!;
 
-test("tool-row-words: today's words by default, plain verbs on its plain arm", () => {
+test("tool-row-words: plain verbs by default, Claude Code's words on its now arm", () => {
   const grep = mcp("mcp__repo__repo_grep", { pattern: "retry" });
   const blame = mcp("mcp__repo__repo_blame", { path: "src/App.tsx" });
   const bare = mcp("mcp__linear__linear", {});
   const send = mcp("mcp__slack__send_message", { to: "Leo" });
+  globalThis.cmuxExperiments = { "tool-row-words": "now" };
   expect(mcpLabel(t, [grep], new Map())).toBe("Used repo: repo grep");
-  globalThis.cmuxExperiments = { "tool-row-words": "plain" };
+  globalThis.cmuxExperiments = {};
   expect(mcpLabel(t, [grep], new Map())).toBe("Searched repo for “retry”");
   expect(mcpLabel(t, [grep, grep], new Map())).toBe("Searched repo for “retry” ×2");
   expect(mcpLabel(t, [blame], new Map())).toBe("Used repo: blame src/App.tsx");
@@ -109,7 +110,7 @@ test("tool-row-words: today's words by default, plain verbs on its plain arm", (
 
 function mcpLabelOff(call: NonNullable<ReturnType<typeof mcpCall>>): string {
   const arms = globalThis.cmuxExperiments;
-  globalThis.cmuxExperiments = {};
+  globalThis.cmuxExperiments = { "tool-row-words": "now" };
   const line = mcpLabel(t, [call], new Map());
   globalThis.cmuxExperiments = arms;
   return line;

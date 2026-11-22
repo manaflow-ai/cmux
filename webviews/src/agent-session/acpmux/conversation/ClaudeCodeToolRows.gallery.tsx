@@ -132,7 +132,13 @@ function ClaudeCodeToolRows({ look, mode }: Props) {
   // The split arm of `live-line-tokens`, for this stage only (its own frame).
   useState(() => {
     globalThis.cmuxExperiments =
-      look === "split" ? { "live-line-tokens": "split" } : look === "words-plain" ? { "tool-row-words": "plain" } : {};
+      look === "split"
+        ? { "live-line-tokens": "split" }
+        : look === "words-now"
+          ? { "tool-row-words": "now" }
+          : look === "words-plain"
+            ? { "tool-row-words": "plain" }
+            : {};
     return 0;
   });
   useEffect(() => resetTranscriptDisclosure("gallery-claude-code-tool-rows"), []);
@@ -218,12 +224,12 @@ export default componentEntry<Props>({
     "words-now": variant(
       "words-now",
       "light",
-      "Now, three MCP calls with no verb of their own: Used repo: repo grep, the server then the tool's name.",
+      "Before, three MCP calls with no verb of their own: Used repo: repo grep, the server then the tool's name.",
     ),
     "words-plain": variant(
       "words-plain",
       "light",
-      "tool-row-words plain (off by default): a plain verb and what it acted on, the server named once: Searched repo for “cv-tool__icon”.",
+      "Shipped, tool-row-words plain: a plain verb and what it acted on, the server named once: Searched repo for “cv-tool__icon”.",
     ),
   },
 });
