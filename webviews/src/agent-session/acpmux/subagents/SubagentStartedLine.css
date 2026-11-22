@@ -8,3 +8,88 @@
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__lead.is-plain {
   margin-inline-start: calc(-1 * var(--cv-disclosure-gap));
 }
+
+/* Every name whole (startedLine.experiment.ts; Leo, 2026-11-22, on seven chips cut to "M…", "iO…",
+   "i…": "this is so fucking awkward as ui"). A subagent's icon, chip and the list's words after it
+   ("," or ", and") are one unit; the sentence wraps between units, never inside one, and a comma
+   sits right after its name instead of a gap apart. A name wider than the whole row ends in an
+   ellipsis (its hover card names it). Detector: webviews/test/no-hard-clip-browser.test.ts. */
+.cv-subagent-started.is-whole {
+  align-items: flex-start;
+  height: auto;
+}
+.cv-subagent-started.is-whole > .cv-agent-activity__sentence {
+  flex-wrap: wrap;
+  row-gap: var(--ds-space-1);
+  overflow: visible;
+  white-space: normal;
+}
+.cv-subagent-started.is-whole > .cv-agent-activity__sentence > * {
+  overflow: visible;
+}
+.cv-subagent-started__unit {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--cv-glyph-line);
+  white-space: nowrap;
+}
+.cv-subagent-started.is-whole > .cv-agent-activity__sentence > .cv-subagent-started__unit {
+  overflow: hidden;
+}
+.cv-subagent-started__unit > .cv-agent-tag,
+.cv-subagent-started__item .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.cv-subagent-started__icon {
+  display: inline-flex;
+  flex: none;
+  margin-inline-end: var(--cv-tool-gap);
+  line-height: 0;
+}
+.cv-subagent-started__sep {
+  flex: none;
+}
+.cv-subagent-started__before,
+.cv-subagent-started__after {
+  flex: 0 1 auto;
+  min-height: var(--cv-glyph-line);
+  line-height: var(--cv-glyph-line);
+}
+
+/* Three or more: their icons after the count, overlapping a little, each ringed in the row's
+   backdrop so it reads as its own; the chevron opens one line per subagent under it. */
+.cv-subagent-started__count {
+  flex: 0 1 auto;
+}
+.cv-subagent-started__stack {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  line-height: 0;
+}
+.cv-subagent-started__face {
+  display: inline-flex;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px var(--agent-bg, Canvas);
+}
+.cv-subagent-started__face + .cv-subagent-started__face {
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+}
+.cv-subagent-started__names {
+  display: flex;
+  flex-direction: column;
+}
+.cv-subagent-started__item {
+  min-width: 0;
+}
+.cv-subagent-started__item > .cv-agent-activity__sentence {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+}

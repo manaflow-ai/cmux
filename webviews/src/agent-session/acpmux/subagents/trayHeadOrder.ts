@@ -8,6 +8,11 @@
 // its clock is the time since the run began, the earliest start seen since the hat last had nothing
 // running. A new item never moves the lead or the marks, and an item ending never moves the clock
 // back; only the count changes. O(items) per change of the list, never per tick.
+//
+// The clock shows only in a lone item's header now: over several items the header shows no time
+// (Leo, 2026-11-22, on "5 stc 1h 23m 25s": "i have no idea what the point of putting time ... what
+// the fuck are you timing man"). `runSince` still keeps the run's start, so the one left after a
+// longer one ends reads the run's time, never its own shorter one.
 import { itemStart, type TrayItem } from "./runningTray";
 
 /// The items longest-running first: by start, oldest first; an item with no start time last, in its

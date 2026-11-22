@@ -41,6 +41,15 @@
 .cv-agentmsg__sentence > :not(.cv-agentmsg__toggle, .cv-agentmsg__preview) {
   flex: none;
 }
+/* With the first line gone (the toggle's basis is 0, so it gives way first), the name and the words
+   around it give way next, each ending in an ellipsis, never cut mid-word at the row's edge (Leo,
+   2026-11-22: "we basically never want that kinda shit"; test/no-hard-clip-browser.test.ts). */
+.cv-agentmsg__sentence > :is(.cv-agentmsg__name, .cv-agentmsg__words) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A delivery word the call gives in lower case ("queued") reads as the status column's word does
    ("Queued"). */
 .cv-row-status {
@@ -539,4 +548,10 @@ button.cv-agentmsg__name:focus-visible {
   .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
     transition: none;
   }
+}
+/* The unverified mark's `word` look (unverifiedMark.experiment.ts): the muted word, a step smaller
+   than the row's. */
+.cv-unverified__word {
+  font-size: var(--text-caption, 0.9em);
+  white-space: nowrap;
 }

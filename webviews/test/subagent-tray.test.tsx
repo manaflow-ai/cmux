@@ -476,9 +476,12 @@ describe("the tray", () => {
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 server");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
-      // The header's time is its own, not a fourth line's.
+      // Each line keeps its own time; the header over several items times nothing (Leo, 2026-11-22, on
+      // "5 stc 1h 23m 25s": "i have no idea what the point of putting time ... what the fuck are you
+      // timing man"): its time's slot stays, empty, and no clock is drawn in it.
       expect(shown.root.querySelectorAll(".acpmux-agent-line__time").length).toBe(3);
-      expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toMatch(/^[56]s$/);
+      expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toBe("");
+      expect(head.querySelector(".ui-clock")).toBeNull();
       await act(async () => head.click());
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
     } finally {
@@ -680,7 +683,9 @@ describe("the tray", () => {
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
-      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
+      // The header's time slot is reserved, empty: it heads two items, and several items show no time
+      // (Leo, 2026-11-22: "what the fuck are you timing man").
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")?.textContent).toBe("");
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines).toHaveLength(2);

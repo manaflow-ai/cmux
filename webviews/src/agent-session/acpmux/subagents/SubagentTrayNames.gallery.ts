@@ -99,7 +99,7 @@ export default agentPaneEntry({
   },
   variants: {
     "one-plus-one": {
-      note: "One subagent and one command, folded: the command's description, then the subagent's task, newest first, then the time and the chevron.",
+      note: "One subagent and one command, folded: the command's description, then the subagent's task, newest first, then the chevron (no time: several items).",
       play: folded,
       snapshot: onePlusOne,
     },

@@ -52,13 +52,13 @@ export const composerHatHeadScript = [
     run: async (ctx: PlayContext) => {
       await ctx.click(stage("command"));
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__more")?.textContent === "+2 more");
-      // Its "+" sits on the figures' centre, and the time keeps one width as it ticks (Typography.tsx).
+      // Its "+" sits on the figures' centre (Typography.tsx). Several items: the header times nothing,
+      // its time's slot empty (Leo, 2026-11-22: "what the fuck are you timing man").
       await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-running-tray__more .ui-sign")));
-      await ctx.waitFor(() =>
-        Boolean(
-          ctx.document.querySelector(".acpmux-running-tray__time.ui-clock, .acpmux-running-tray__time > .ui-clock"),
-        ),
-      );
+      await ctx.waitFor(() => {
+        const time = ctx.document.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time");
+        return Boolean(time) && time?.textContent === "" && !head(ctx)?.querySelector(".ui-clock");
+      });
     },
   },
 ];
@@ -73,7 +73,7 @@ const variants = {
     props: { start: "done" as const },
   },
   two: {
-    note: "Two run: the newest by name, then +1 more and the time since the first started.",
+    note: "Two run: the newest by name, then +1 more; no time, since several items have no one time to show.",
     props: { start: "two" as const },
   },
   play: {

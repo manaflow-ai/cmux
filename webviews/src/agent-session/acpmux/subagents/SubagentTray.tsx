@@ -14,8 +14,8 @@
 // Every tray gets a header first, one item too (Leo, 2026-11-07: a lone line that opened its subagent
 // on the first click "instead of expanding it"; folded, a lone item's header names it, what it does
 // now and its time, `loneHeadOf`), as the Codex and Claude desktop apps head their running agents: a still running-work mark (never the spinner, which stays on each
-// working line, #27103), "2 subagents running · 1 command", the time since the first started as
-// quiet meta right after the counts (never a column of its own far from them), and the chevron in
+// working line, #27103), "2 subagents running · 1 command" (no clock for several items: Leo,
+// 2026-11-22, "what the fuck are you timing man"; a lone item's own time ends its header), and the chevron in
 // the trailing column every line's chevron ends in; between turns it says "Running in background ·
 // 2 subagents · 1 command". The
 // header counts what runs or waits on the person kind by kind, then what ended in the list ("1
@@ -64,7 +64,6 @@
 import {
   type CSSProperties,
   type FocusEvent,
-  Fragment,
   memo,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -908,10 +907,12 @@ export const SubagentTray = memo(function SubagentTray({
                 </>
               )}
             </span>
-          ) : // The clock is the time element itself, so a range over it holds only its text.
-          since !== undefined ? (
-            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={since} />
           ) : (
+            // Several items: no clock. It counted from the earliest start among everything still
+            // running (trayHeadOrder.ts `runSince`): with 53 subagents, waits and commands that is a
+            // number nobody can read a meaning into, and it took the counts' room (Leo, 2026-11-22, on
+            // "5 stc 1h 23m 25s": "i have no idea what the point of putting time ... what the fuck are
+            // you timing man"). Each line keeps its own time, open; a lone item's header keeps its own.
             <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
@@ -1458,11 +1459,15 @@ function HeadKinds({
           <span className="acpmux-running-tray__kind-text">{plan}</span>
         </span>
       )}
+      {/* Each kind with the separator before it is one unit: a kind with no room left drops whole,
+          separator and all, onto the strip's hidden second line (subagents.css), never cut mid-word
+          (Leo, 2026-11-22, on "5 stc": "this should not be cutting off so harshly like this"). The
+          kinds come in priority order (trayHeadKinds.ts), so what drops is what matters least. */}
       {parts.map((part, index) => (
-        <Fragment key={part.key}>
+        <span key={part.key} className="acpmux-running-tray__kind-unit">
           {(plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
           <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} />
-        </Fragment>
+        </span>
       ))}
     </span>
   );

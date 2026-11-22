@@ -4,9 +4,11 @@
 // chips were cut to a letter or two: "there's no hover preview on these".
 //
 // In gallery entry agent-pane.subagent-chip-preview, variant `grouped` (nine subagents in a 560px
-// pane, and a finished line under them):
-// - the second chip is cut (its label overflows), and pointing at it shows the card with the
-//   subagent's whole name and its task; no row moves; the pointer leaving puts it away;
+// pane, and a finished line under them). Nine read as a count that opens to one line per subagent
+// (startedLine.experiment.ts; Leo, 2026-11-22, on the cut chips: "literally anything else would be a
+// motherfucking improvement"), so the test opens it first:
+// - the second name is whole (its label does not overflow), and pointing at it shows the card with
+//   the subagent's whole name and its task; no row moves; the pointer leaving puts it away;
 // - Tab onto the third chip shows its card too;
 // - the finished line's chip shows its card, which says it is done.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -18,7 +20,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
   setDefaultTimeout(120_000);
   const ENTRY = "agent-pane.subagent-chip-preview";
-  const CHIPS = ".cv-subagent-started button.cv-agent-tag";
+  const CHIPS = ".cv-subagent-started__names button.cv-agent-tag";
   // The open card: a card that just closed fades out beside the next one (data-closed).
   const PREVIEW = ".acpmux-subagent-preview[data-open]";
   const { createServer } = await import("vite");
@@ -43,20 +45,21 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
     await page.goto(`${base}${galleryFrame(ENTRY, { variant: "grouped" })}`);
+    await page.locator(".cv-subagent-started.is-count").click();
     await page.locator(CHIPS).nth(8).waitFor();
     await page.mouse.move(0, 0);
     return page;
   };
 
-  test("pointing at a cut chip in a grouped row shows its whole name and task, moving nothing", async () => {
+  test("pointing at a name in an opened group shows its whole name and task, moving nothing", async () => {
     const page = await open();
     try {
       const chip = page.locator(CHIPS).nth(1);
-      // Leo's row: the chip shows only a letter or two of its name.
+      // Opened, every name is whole: never Leo's letter or two.
       const cut = await chip
         .locator(".cv-agent-tag__label")
         .evaluate((label) => label.scrollWidth > label.clientWidth + 1);
-      expect(cut).toBe(true);
+      expect(cut).toBe(false);
       const rows = page.locator("[data-subagent-preview-gallery] > .acpmux-row");
       const before = await rows.evaluateAll((all) => all.map((row) => row.getBoundingClientRect().toJSON()));
       expect(await page.locator(PREVIEW).count()).toBe(0);

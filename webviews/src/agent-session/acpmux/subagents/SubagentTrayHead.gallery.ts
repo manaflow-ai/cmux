@@ -3,9 +3,9 @@
 // header said "Running in background · N subagents · M commands" behind a chat bubble, with the
 // elapsed time floating in a column of its own far from the words, and the open tray's Stop buttons
 // hung below and right of their lines, off their centre, with the chevrons in two columns. Here the
-// header's mark (four arms, trayHead.experiment.ts; view Compare arms), its time
-// follows the counts as quiet meta, every Stop sits in its line on the line's centre, and the
-// header's and every line's chevrons end on one x.
+// header's mark (four arms, trayHead.experiment.ts; view Compare arms) and its counts, with no time
+// for several items (Leo, 2026-11-22: "what the fuck are you timing man"), every Stop sits in its
+// line on the line's centre, and the header's and every line's chevrons end on one x.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -86,7 +86,7 @@ export default agentPaneEntry({
   },
   variants: {
     folded: {
-      note: "Between turns, folded: the header's mark, its counts, the elapsed time right after them as quiet meta, and the chevron in the lines' trailing column.",
+      note: "Between turns, folded: the header's mark, its counts (no time: several items have no one time to show), and the chevron in the lines' trailing column.",
       play: async (ctx) => {
         await ctx.waitFor(() => head(ctx));
       },

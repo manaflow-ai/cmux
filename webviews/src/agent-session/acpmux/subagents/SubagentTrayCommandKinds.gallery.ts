@@ -101,7 +101,7 @@ export default agentPaneEntry({
   },
   variants: {
     "every-kind": {
-      note: "Eleven things run, folded: two subagents, then a message to another chat, a review, a test run, a build, three waits (a PR's checks, a run and a log), a server and a command, each counted apart; the oldest one's time after them.",
+      note: "Eleven things run, folded: two subagents, then a message to another chat, a review, a test run, a build, three waits (a PR's checks, a run and a log), a server and a command, each counted apart; no time after them: several items have no one time to show.",
       play: folded,
       snapshot: everyKind,
     },
@@ -111,7 +111,7 @@ export default agentPaneEntry({
       snapshot: everyKind,
     },
     "two-kinds": {
-      note: "A subagent and a CI wait: `1 subagent running · 1 wait`, then the time.",
+      note: "A subagent and a CI wait: `1 subagent running · 1 wait`, and no time.",
       play: folded,
       snapshot: twoKinds,
     },

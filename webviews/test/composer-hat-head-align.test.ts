@@ -9,9 +9,11 @@
 // (`--acpmux-tray-head-height`) and centres the button on it.
 //
 // Real Chromium (Playwright), the gallery's `agent-pane.composer-hat-head-align`: at 420px (a half
-// split) and 900px, in each header height, every kind's mark, the time, the panel button's icon and the
-// chevron centre on the counts' line box within 0.5px; then, as the running subagent finishes and the
-// next starts, the header's height and the panel button and chevron hold still on every frame.
+// split) and 900px, in each header height, every kind's mark, the panel button's icon and the chevron
+// centre on the counts' line box within 0.5px; then, as the running subagent finishes and the next
+// starts, the header's height and the panel button and chevron hold still on every frame. The header
+// heads several items, so it shows no time (Leo, 2026-11-22, on that "17h 4m 46s": "what the fuck are
+// you timing man"): its time's slot stays empty through the hand-over.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -68,9 +70,12 @@ await requireBrowserLane("composer-hat-head-align.test.ts", async () => {
       const icons: Record<string, Element | null> = {
         panel: document.querySelector(".acpmux-running-tray__open > svg"),
         chevron: head.querySelector(".acpmux-running-tray__chevron svg"),
-        time: head.querySelector(".acpmux-running-tray__time:not(:empty)"),
       };
+      // Only the kinds the strip draws: one with no room drops whole, with its separator
+      // (`__kind-unit`), onto the strip's hidden second line (subagents.css), so it has no centre to keep.
+      const strip = head.querySelector(".acpmux-running-tray__kinds")?.getBoundingClientRect();
       head.querySelectorAll(".acpmux-running-tray__kind").forEach((kind, index) => {
+        if (strip && kind.getBoundingClientRect().top >= strip.bottom - 0.5) return;
         icons[`kind ${index} (${(kind as HTMLElement).dataset.kind})`] = kind.querySelector(
           ":scope > svg, :scope > .acpmux-running-tray__stack-mark",
         );
@@ -79,6 +84,8 @@ await requireBrowserLane("composer-hat-head-align.test.ts", async () => {
       return {
         head: head.getBoundingClientRect().height,
         text: head.textContent,
+        // Several items: no clock in the header, its time's slot empty.
+        timed: Boolean(head.querySelector(".acpmux-running-tray__time:not(:empty), .ui-clock")),
         off: Object.fromEntries(
           Object.entries(icons).flatMap(([name, node]) => (node ? [[name, middle(node) - line]] : [])),
         ) as Record<string, number>,
@@ -89,6 +96,7 @@ await requireBrowserLane("composer-hat-head-align.test.ts", async () => {
     const report = `${at}: ${JSON.stringify(read)}`;
     expect(read.off.panel, report).toBeDefined();
     expect(read.off.chevron, report).toBeDefined();
+    expect(read.timed, `the header over several items shows a time: ${report}`).toBe(false);
     for (const [name, off] of Object.entries(read.off))
       expect(Math.abs(off), `${name} ${report}`).toBeLessThanOrEqual(0.5);
   };

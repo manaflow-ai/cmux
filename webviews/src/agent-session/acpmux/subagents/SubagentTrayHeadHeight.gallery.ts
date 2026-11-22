@@ -109,7 +109,7 @@ export default agentPaneEntry({
       snapshot: leoTray,
     },
     "leo-tray": {
-      note: "Leo's coordinator tray, folded: \"1 message · 1 wait\", each count after its kind's mark (the message's chat bubble, the wait's clock), then the time and the chevron. Hovering the wait names it.",
+      note: "Leo's coordinator tray, folded: \"1 message · 1 wait\", each count after its kind's mark (the message's chat bubble, the wait's clock), then the chevron (no time: several items). Hovering the wait names it.",
       play: async (ctx) => {
         await folded(ctx);
         const read = kinds(ctx).join(" · ");

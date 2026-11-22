@@ -10,8 +10,11 @@
 // A sender that only named itself (`--from`, a notice's sender) says that name is its claim:
 // "Claimed to be ci-watch, not proven". One of our own tools proves its name with the host's
 // sender token (acpmux sender_token.rs) and draws no mark at all.
+import { useState } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { unverifiedMarkLook } from "./unverifiedMark.experiment";
 import type { SenderProgram } from "./incomingMessage";
 
 /// The program mark's accessible name, and its tooltip's lines (the path last, when acpmux read one).
@@ -35,6 +38,9 @@ export function UnverifiedMark({
   claimed?: string;
 }) {
   const t = useT();
+  // Leo, 2026-11-22, on the 12px question bubble: "too small/weird/not really representative"
+  // (unverifiedMark.experiment.ts): the catalog's Warning / unverified glyph at the row's icon size.
+  const [look] = useState(() => experimentArm(unverifiedMarkLook));
   const checked = program && programMarkText(t, program);
   const name = claimed?.trim();
   const label = checked
@@ -51,8 +57,19 @@ export function UnverifiedMark({
       aria-label={label}
       title={checked ? checked.title : label}
       data-find-skip=""
+      data-look={checked ? undefined : look}
     >
-      <Icon name={checked ? "terminal.prompt" : "agent.question"} size={12} />
+      {checked ? (
+        <Icon name="terminal.prompt" size={12} />
+      ) : look === "word" ? (
+        <span className="cv-unverified__word" aria-hidden="true">
+          {t("header.liveTreeUnknown")}
+        </span>
+      ) : look === "warning" ? (
+        <Icon name="status.warning" size={14} />
+      ) : (
+        <Icon name="agent.question" size={12} />
+      )}
     </span>
   );
 }

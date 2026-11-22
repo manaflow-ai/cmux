@@ -75,6 +75,8 @@ import { trayHeadHeightLook } from "../agent-session/acpmux/subagents/trayHeadHe
 import { trayHeadKindsLook } from "../agent-session/acpmux/subagents/trayHeadKinds.experiment";
 import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { failedLineLook } from "../agent-session/acpmux/subagents/failedLine.experiment";
+import { startedLineLook } from "../agent-session/acpmux/subagents/startedLine.experiment";
+import { unverifiedMarkLook } from "../agent-session/acpmux/conversation/unverifiedMark.experiment";
 import { trayLatestLook } from "../agent-session/acpmux/subagents/trayLatest.experiment";
 import { doneReportLook } from "../agent-session/acpmux/subagents/doneReport.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
@@ -193,6 +195,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayHeadHeightLook,
   trayOpenLook,
   failedLineLook,
+  startedLineLook,
+  unverifiedMarkLook,
   trayLatestLook,
   doneReportLook,
   traySurfaceLook,

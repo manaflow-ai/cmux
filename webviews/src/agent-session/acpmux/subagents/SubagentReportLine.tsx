@@ -77,9 +77,10 @@ export function SubagentReportLine({
           </span>
         )}
         <span className="cv-subagent-report__sentence">
-          {before}
+          {/* Its words in their own boxes, so they end in an ellipsis rather than a cut (SubagentReportLine.css). */}
+          {before.trim() && <span className="cv-subagent-report__words">{before}</span>}
           <AgentTag name={name} />
-          {after}
+          {after.trim() && <span className="cv-subagent-report__words">{after}</span>}
         </span>
         <span className="cv-subagent-report__chevron" aria-hidden="true">
           <ChevronRight size={12} className={`cv-rotor${expanded ? " is-open" : ""}`} />

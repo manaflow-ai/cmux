@@ -55,6 +55,15 @@
 .cv-subagent-report__sentence > :not(.cv-agent-tag) {
   flex: none;
 }
+/* The words around the name give way after it, with an ellipsis, never cut mid-word at the line's
+   edge (Leo, 2026-11-22: "we basically never want that kinda shit"). */
+.cv-subagent-report__sentence > .cv-subagent-report__words {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
 /* The name takes the room the line has and is cut only at its edge, the chevron right after it
    (the chip's 40% cap is a share of a row that fills the line; this line fits its words). */
 .cv-subagent-report__sentence > .cv-agent-tag {

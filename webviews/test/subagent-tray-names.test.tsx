@@ -175,14 +175,17 @@ describe("the folded running bar names what runs", () => {
 
 describe("the folded running bar's clock is the run's", () => {
   // Review of cmux#41078: a lone item's header showed its own time, so the 100-minute lead ending
-  // left a 10-minute one, and the clock went back by 90 minutes.
+  // left a 10-minute one, and the clock went back by 90 minutes. Over several items the header shows
+  // no time at all (Leo, 2026-11-22, on "5 stc 1h 23m 25s": "i have no idea what the point of putting
+  // time ... what the fuck are you timing man"), but the run's start is still kept, so the lone one
+  // left reads the run's time, never its own shorter one.
   test("the longest-running item ends and one is left: the clock keeps the run's start", async () => {
     const long = agent("a1", "Review the tray", 100 * 60_000);
     const short = command("c1", "bun run dev", 10 * 60_000, "Run the dev server");
     const bar = await head([long], [short]);
     try {
-      const before = bar.time();
-      expect(before).toContain("1h 40m");
+      expect(bar.time()).toBe("");
+      expect(bar.button.querySelector(".ui-clock")).toBeNull();
       await bar.rerender([], [short]);
       expect(bar.time()).toContain("1h 40m");
     } finally {

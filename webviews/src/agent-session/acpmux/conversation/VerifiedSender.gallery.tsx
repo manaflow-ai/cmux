@@ -7,6 +7,7 @@
 // name now saying what is wrong: "Claimed to be outbox-relay, not proven". The same two in the
 // inbox's notice card, whose thread's sender record acpmux wrote. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
+import { unverifiedMarkLook } from "./unverifiedMark.experiment";
 
 type Case = "token" | "claimed" | "inbox-token" | "inbox-claimed";
 type Props = { case: Case };
@@ -25,7 +26,11 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/conversation/UnverifiedMark.tsx",
     "agent-session/acpmux/conversation/senderIdentity.ts",
+    "agent-session/acpmux/conversation/unverifiedMark.experiment.ts",
   ],
+  // Leo, 2026-11-22, on the 12px question bubble after a sender's name: "this stupid tiny question mark
+  // symbol is too small/weird/not really representative". Compare the marks on the `claimed` line.
+  experiment: { definition: unverifiedMarkLook, script: [{ name: "a claimed sender's mark", run: async () => {} }] },
   load: async () => {
     const { IncomingMessageLine } = await import("./IncomingMessageCard");
     const { InboxNoticeCard } = await import("./InboxNoticeCard");

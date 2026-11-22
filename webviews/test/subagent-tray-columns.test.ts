@@ -133,12 +133,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           // A headed tray starts folded; open it.
           await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
-          // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
+          // advances from 12h 59m 59s to the much shorter 13h during a slow capture. The long check's
+          // line holds it; the header over several items shows no time (Leo, 2026-11-22, on "5 stc 1h
+          // 23m 25s": "i have no idea what the point of putting time ... what the fuck are you timing
+          // man").
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
-          await page.waitForFunction(
-            () =>
-              document.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")?.textContent?.trim() ===
-              "12h 59m 59s",
+          await page.waitForFunction(() =>
+            [...document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line__time")].some(
+              (time) => time.textContent?.trim() === "12h 59m 59s",
+            ),
           );
           const pinned = await page.evaluate(() => {
             const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -159,16 +162,22 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               head: bounds(head),
               // No View all under the list: every line is in it, and it scrolls (Leo, 2026-11-01).
               more: tray.querySelector(".acpmux-running-tray__finished") !== null,
+              time: head.querySelector(".acpmux-running-tray__time")?.textContent ?? null,
+              clocks: head.querySelectorAll(".ui-clock").length,
             };
           });
-          // One row at every width: the header's time follows its counts, never a second line.
+          // One row at every width, and no time in it: it heads several items.
           expect(pinned.head.height).toBeCloseTo(28 * interfaceScale, 1);
+          expect(pinned.time).toBe("");
+          expect(pinned.clocks).toBe(0);
           expect(pinned.more).toBe(false);
           expect(pinned.head.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
           expect(pinned.head.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
           expect(pinned.head.hit).toBe(true);
+          // The longest time, on its own line, keeps one row inside its box.
           const duration = await page
-            .locator(".acpmux-running-tray__head .acpmux-running-tray__time")
+            .locator(".acpmux-running-tray .acpmux-agent-line__time", { hasText: "12h 59m 59s" })
+            .first()
             .evaluate((node) => {
               const range = document.createRange();
               range.selectNodeContents(node);
@@ -244,10 +253,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head");
         await head.waitFor();
+        // Folded over several items, the header's time slot is there and empty: no clock (Leo,
+        // 2026-11-22, on "5 stc 1h 23m 25s": "i have no idea what the point of putting time ... what
+        // the fuck are you timing man").
         const collapsedTime = head.locator(".acpmux-running-tray__time");
         expect(await collapsedTime.count()).toBe(1);
-        const collapsedHeaderText = (await collapsedTime.textContent())?.trim() ?? "";
-        expect(collapsedHeaderText).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
+        expect((await collapsedTime.textContent()) ?? "").toBe("");
+        expect(await head.locator(".ui-clock").count()).toBe(0);
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
         await page.locator(RUNNING_TRAY_LIST_LINE).first().waitFor();
         await page.evaluate(() => {
@@ -307,7 +319,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 : undefined,
               head: {
                 title: rect(".acpmux-running-tray__title", head),
-                time: rect(".acpmux-running-tray__time", head),
                 chevron: rect(".acpmux-running-tray__status svg", head),
               },
             };
@@ -328,9 +339,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.trail.timeToState).toBeLessThanOrEqual(8);
           }
         }
-        // The header's time is quiet meta right after its counts (one 8px gap), never a column of
-        // its own far from them.
-        expect(Math.abs(columns.head.time.left - columns.head.title.right - 8)).toBeLessThanOrEqual(1);
         // One trailing track (Leo, 2026-10-29: "There's this right indent for no reason."): the
         // header's, every line's and View all's chevrons end on one x.
         expect(rest.every((row) => Math.abs(row.chevron.right - first!.chevron.right) <= 0.5)).toBe(true);
@@ -402,15 +410,12 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                     })(),
                   };
                 }),
-                head: (() => {
-                  const time = head.querySelector<HTMLElement>(".acpmux-running-tray__time");
-                  if (!time) throw new Error("missing header time");
-                  return {
-                    title: rect(".acpmux-running-tray__title", head),
-                    time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
-                    chevron: rect(".acpmux-running-tray__status svg", head),
-                  };
-                })(),
+                head: {
+                  title: rect(".acpmux-running-tray__title", head),
+                  // Several items: the slot's text, which stays empty (no header clock).
+                  timeText: head.querySelector<HTMLElement>(".acpmux-running-tray__time")?.textContent ?? null,
+                  chevron: rect(".acpmux-running-tray__status svg", head),
+                },
               };
             },
             { RUNNING_TRAY_LIST_LINE },
@@ -420,8 +425,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         const [initialFirst, ...initialRest] = initial.rows;
         expect(initialRest.every((row) => row.status.left === initialFirst!.status.left)).toBe(true);
         expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
-        expect(initial.head.time.left).toBeGreaterThanOrEqual(initial.head.title.right - 0.5);
-        expect(initial.head.time.left - initial.head.title.right).toBeLessThanOrEqual(8.5);
+        expect(initial.head.timeText).toBe("");
         expect(
           initial.rows.every((row) => !row.chevron || Math.abs(row.chevron.right - initial.head.chevron.right) <= 0.5),
         ).toBe(true);
@@ -443,22 +447,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.every((row) => row.time.whiteSpace === "nowrap")).toBe(true);
         expect(initial.rows.every((row) => row.time.fontVariantNumeric.includes("tabular-nums"))).toBe(true);
         expect(initial.rows.every((row) => row.stop.right <= initial.tray.right + 0.5)).toBe(true);
-        const headerDuration = page.locator(".acpmux-running-tray__head .acpmux-running-tray__time");
-        expect(await headerDuration.count()).toBe(1);
-        expect(initial.head.time.text).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
-        const durationMs = (value: string) => {
-          if (!value) return 0;
-          return value.split(" ").reduce((total, unit) => {
-            const amount = Number.parseInt(unit, 10);
-            return (
-              total + (unit.endsWith("h") ? amount * 3_600_000 : unit.endsWith("m") ? amount * 60_000 : amount * 1_000)
-            );
-          }, 0);
-        };
-        expect(durationMs(initial.head.time.text)).toBe(
-          Math.max(...initial.rows.map((row) => durationMs(row.time.text))),
-        );
-        expect(initial.rows.map((row) => row.time.text)).toContain(initial.head.time.text);
+        // The header no longer repeats the longest line's time (it timed from the earliest start among
+        // everything running): open, each line keeps its own and the header none.
+        expect(await page.locator(".acpmux-running-tray__head .acpmux-running-tray__time").count()).toBe(1);
+        expect(await page.locator(".acpmux-running-tray__head .ui-clock").count()).toBe(0);
 
         const beforeTick = await measure();
         const beforeTexts = beforeTick.rows.map((row) => row.time.text);
@@ -517,8 +509,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.hasStop || row.status.left >= row.time.right - 0.5)).toBe(true);
-          expect(narrow.head.time.left).toBeGreaterThanOrEqual(narrow.head.title.right - 0.5);
-          expect(narrow.head.time.right).toBeLessThanOrEqual(narrow.head.chevron.left + 0.5);
+          expect(narrow.head.timeText).toBe("");
+          expect(narrow.head.title.right).toBeLessThanOrEqual(narrow.head.chevron.left + 0.5);
           expect(
             narrow.rows.every((row) => !row.chevron || Math.abs(row.chevron.right - narrow.head.chevron.right) <= 0.5),
           ).toBe(true);

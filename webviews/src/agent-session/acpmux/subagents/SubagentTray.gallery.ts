@@ -931,7 +931,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "plan-and-commands": {
-      note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
+      note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command and "+2 more" (no time for several items); the transcript holds no list while the turn runs.',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
@@ -970,7 +970,7 @@ export default agentPaneEntry({
       snapshot: planChat(),
     },
     "several-running": {
-      note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
+      note: "Two subagents and a background command: a header with the counts (no time for several items), a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
       play: trayLines(3),
       snapshot: chat(
         [

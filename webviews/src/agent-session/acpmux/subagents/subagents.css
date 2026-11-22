@@ -631,19 +631,35 @@ button.cv-subagent > :last-child {
   --acpmux-tray-head-height: calc(10 * var(--grid-base));
 }
 /* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
-   lines' icon column, the kinds apart by the counts' separator. They give way before the time and the
-   chevron. */
+   lines' icon column, the kinds apart by the counts' separator. They give way before the chevron.
+   Never cut mid-word (Leo, 2026-11-22, on "53 subagents running · … · 8 done · 5 stc": "this should not
+   be cutting off so harshly like this. we basically never want that kinda shit"): the strip wraps, one
+   line tall, so a kind with no room left (its separator with it, `__kind-unit`) drops whole onto a
+   hidden second line; the kinds come most important first (trayHeadKinds.ts), so the least goes first.
+   A kind alone on its line too wide for it ends in an ellipsis. Detector: webviews/test/
+   no-hard-clip-browser.test.ts. */
 .acpmux-running-tray__kinds {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   min-width: 0;
+  height: 1lh;
   overflow: hidden;
   white-space: nowrap;
 }
-.acpmux-running-tray__kind {
-  flex: none;
+.acpmux-running-tray__kind-unit {
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
+  min-width: 0;
+  height: 1lh;
+}
+.acpmux-running-tray__kind {
+  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
   gap: var(--ds-space-1, 4px);
   color: var(--agent-text);
 }
@@ -653,6 +669,9 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
 }
 .acpmux-running-tray__kind-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
 /* The separator between kinds (trayKindLine.experiment.ts), quiet, as the counts' was. */
@@ -694,8 +713,10 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
   flex: none;
-  max-width: var(--acpmux-tray-time-width);
-  overflow: hidden;
+  /* At least the column's width, never a cap: a cap cut a run past the column's widest form
+     mid-digit ("1h 12m 5"), as the hat's strip cut "5 stopped" (Leo, 2026-11-22: "this should not be
+     cutting off so harshly like this"). The state word gives way first. */
+  min-width: min(var(--acpmux-tray-time-width), max-content);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -844,7 +865,8 @@ button.cv-subagent > :last-child {
   text-align: left;
   white-space: nowrap;
 }
-/* The header's time keeps room for any time under an hour ("59m 59s", tabular figures), so a tick
+/* Only a lone item's header has a time (several items have none; Leo, 2026-11-22: "what the fuck are
+   you timing man"). It keeps room for any time under an hour ("59m 59s", tabular figures), so a tick
    into a wider form ("59s" to "1m 1s") changes its text alone: the names, the count and the marks
    before it never cut shorter or step aside (a DEV-build capture, 2026-11-09; Leo: "im still
    sometimes seeing a flicker on the composer/composer hat when scrolling and things are running in

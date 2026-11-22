@@ -119,6 +119,15 @@ const hoverChip =
     await ctx.waitFor(() => shown(ctx));
   };
 
+/// A group of three or more reads as a count that opens to one line per subagent
+/// (startedLine.experiment.ts): open it, as a reader would, before pointing at a name.
+const COUNT = ".cv-subagent-started.is-count";
+const ITEM_CHIP = (n: number) => `.cv-subagent-started__item:nth-child(${n}) button.cv-agent-tag`;
+const openCount: Play = async (ctx) => {
+  await ctx.click({ selector: COUNT });
+  await ctx.waitFor(() => ctx.document.querySelector(ITEM_CHIP(1)) !== null);
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.subagent-chip-preview",
   title: "Subagent chip hover preview",
@@ -205,13 +214,16 @@ export default componentEntry<Props>({
       props: { count: 9, pane: 560, look: "name-only" },
     },
     grouped: {
-      note: "Leo's row at rest: nine chips cut to a letter or two, and a finished line (the browser test hovers these).",
+      note: "Nine subagents at rest: their icons and a count, never nine chips cut to a letter or two (Leo, 2026-11-22), and a finished line (the browser test opens the count and hovers the names).",
       props: { count: 9, pane: 560, done: true },
     },
     "grouped-hover": {
-      note: "Leo's row: nine chips cut to a letter or two; pointing at the second shows its card above it, and no row moves.",
+      note: "Nine subagents, opened: one line each, every name whole; pointing at the second shows its card, and no row moves.",
       props: { count: 9, pane: 560, done: true },
-      play: hoverChip(`${CHIP}:nth-of-type(2)`),
+      play: async (ctx) => {
+        await openCount(ctx);
+        await hoverChip(ITEM_CHIP(2))(ctx);
+      },
     },
     "single-hover": {
       note: "One subagent's start line: its chip has the same card.",
@@ -227,7 +239,8 @@ export default componentEntry<Props>({
       note: "Tab onto a chip: the card shows for keyboard focus too; Enter still opens the subagent.",
       props: { count: 9, pane: 560 },
       play: async (ctx) => {
-        await ctx.focus({ selector: `${CHIP}:nth-of-type(3)` });
+        await openCount(ctx);
+        await ctx.focus({ selector: ITEM_CHIP(3) });
         await ctx.waitFor(() => shown(ctx));
       },
     },

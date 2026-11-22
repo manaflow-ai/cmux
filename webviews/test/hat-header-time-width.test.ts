@@ -7,6 +7,12 @@
 // The time's slot keeps room for any time under an hour, so a tick changes one text node and
 // nothing beside it moves. Real Chromium from Playwright; the tick is the text change Elapsed.tsx
 // makes in place.
+//
+// A header over several items no longer shows a time at all (Leo, 2026-11-22, on "5 stc 1h 23m 25s":
+// "i have no idea what the point of putting time ... what the fuck are you timing man"), so the clock
+// that ticks in a header is now a LONE running item's: its time ends the row (`[data-lone]`), right
+// after its task and what it does now. This file holds that one still as it ticks, and checks the
+// several-items header shows no time.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -20,7 +26,8 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
   let server: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const entry = "agent-pane.subagent-tray";
-  const variant = "several-running";
+  // One subagent runs: the header names its task, what it does now and its time.
+  const variant = "one-running";
 
   beforeAll(async () => {
     server = await createServer({
@@ -32,6 +39,7 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
     await server.listen();
     browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(server, entry, { browser, params: { variant } });
+    await warmGalleryFrame(server, entry, { browser, params: { variant: "several-running" } });
   });
 
   afterAll(async () => {
@@ -39,9 +47,33 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
     await server?.close();
   });
 
+  test("a folded header over several items shows no time", async () => {
+    const port = (server.httpServer!.address() as { port: number }).port;
+    const page = await browser.newPage({ viewport: { width: 760, height: 560 }, reducedMotion: "reduce" });
+    try {
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "several-running" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const head = page.locator(".acpmux-running-tray__head").first();
+      await head.waitFor();
+      if ((await head.getAttribute("aria-expanded")) === "true") await head.click();
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") === "false",
+      );
+      const shown = await head.evaluate((node) => ({
+        lone: node.hasAttribute("data-lone"),
+        time: node.querySelector(":scope > .acpmux-running-tray__time")?.textContent ?? null,
+        clocks: node.querySelectorAll(".ui-clock").length,
+      }));
+      // Leo, 2026-11-22: "what the fuck are you timing man". The slot stays, empty.
+      expect(shown).toEqual({ lone: false, time: "", clocks: 0 });
+    } finally {
+      await page.close();
+    }
+  });
+
   // The capture's header cut its names; the fixture's are short, so they cut only in a narrow pane (280, 300).
   for (const width of [280, 300, 420, 760])
-    test(`the folded header's names and counts hold still as its time grows (${width} px)`, async () => {
+    test(`a lone running item's folded header holds its task and marks still as its time grows (${width} px)`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
       const page = await browser.newPage({ viewport: { width, height: 560 }, reducedMotion: "reduce" });
       try {
@@ -49,12 +81,15 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head").first();
         await head.waitFor();
-        // The stage opens the hat; the capture's header was folded, naming what runs and "+N more".
+        // The stage opens the hat; the capture's header was folded.
         if ((await head.getAttribute("aria-expanded")) === "true") await head.click();
         await page.waitForFunction(
           () => document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") === "false",
         );
-        const time = page.locator(".acpmux-running-tray__head > .acpmux-running-tray__time").first();
+        // A lone running item's time is the run's Elapsed text straight in its slot (SubagentTray.tsx), no Clock.
+        const time = page
+          .locator(".acpmux-running-tray__head[data-lone] > .acpmux-running-tray__time[data-lone]")
+          .first();
         await time.waitFor();
         // The header's counts slide in once (trayMotion.tsx `Tick`): measure after its row has painted
         // the same for ten frames.
@@ -97,7 +132,7 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
               time: box(node),
               title: box(head.querySelector(".acpmux-running-tray__title")),
               stack: box(head.querySelector(".acpmux-running-tray__stack")),
-              more: box(head.querySelector(".acpmux-running-tray__more")),
+              latest: box(head.querySelector(".acpmux-running-tray__latest")),
               timeCut: node.scrollWidth > node.clientWidth + 1,
             };
           }, text);
@@ -105,16 +140,16 @@ await requireBrowserLane("hat-header-time-width.test.ts", async () => {
         const shown: Awaited<ReturnType<typeof at>>[] = [];
         for (const text of ticks) shown.push(await at(text));
         const first = shown[0]!;
-        // The folded header names what runs and counts the rest: both are measured, never absent.
-        expect(first.title, "the folded header shows no names").toBeDefined();
-        expect(first.more, "the folded header shows no +N more").toBeDefined();
+        // The folded lone header names its task and draws its mark: both are measured, never absent.
+        expect(first.title, "the folded header shows no task").toBeDefined();
+        expect(first.stack, "the folded header shows no mark").toBeDefined();
         for (const [index, step] of shown.entries()) {
           expect(step.text).toBe(ticks[index]!);
           expect(step.timeCut, `the time was cut at ${step.text}`).toBe(false);
           expect(step.time!.left, `the time moved at ${step.text}`).toBe(first.time!.left);
           expect(step.title, `the names moved or resized at ${step.text}`).toEqual(first.title);
           expect(step.stack, `the marks moved or resized at ${step.text}`).toEqual(first.stack);
-          expect(step.more, `the count moved at ${step.text}`).toEqual(first.more);
+          expect(step.latest, `what it does now moved at ${step.text}`).toEqual(first.latest);
         }
       } finally {
         await page.close();

@@ -2,10 +2,12 @@
 // The running tray's trailing column in real Chromium (Playwright; CI fails the file when it cannot
 // launch, requireBrowserLane). Leo's open tray (2026-10-31) hung each line's Stop below and right of
 // the line, outside its box and off its centre, and put the header's chevron and the lines' in two
-// columns; his folded header floated its elapsed time far from its counts. Running lines carry a
-// Stop square in the fixed Stop track, while ended lines keep the slot empty; every line's Stop
-// track is inside its line and on the line's centre (on its controls' row when the line is narrow), every chevron
-// (the header's, each line's, View all's) ends on one x, and the header's time follows its counts.
+// columns. Running lines carry a Stop square in the fixed Stop track, while ended lines keep the slot
+// empty; every line's Stop track is inside its line and on the line's centre (on its controls' row
+// when the line is narrow), and every chevron (the header's, each line's, View all's) ends on one x.
+// A header over several items shows no time at all (Leo, 2026-11-22, on "5 stc 1h 23m 25s": "i have
+// no idea what the point of putting time ... what the fuck are you timing man"); it once floated far
+// from its counts, then followed them, and now it is gone.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -60,7 +62,9 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           head: {
             row: box(head)!,
             title: box(head.querySelector(".acpmux-running-tray__title"))!,
-            time: box(head.querySelector(".acpmux-running-tray__time"))!,
+            // Several items: the time's slot stays, empty (SubagentTray.tsx), and no clock is in the head.
+            timeText: head.querySelector(".acpmux-running-tray__time")?.textContent ?? null,
+            clocks: head.querySelectorAll(".ui-clock").length,
             chevron: box(head.querySelector(".acpmux-running-tray__status svg"))!,
           },
           more: box(tray.querySelector(".acpmux-running-tray__finished > svg")),
@@ -146,11 +150,11 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           expect(chevrons.length).toBeGreaterThanOrEqual(2);
           for (const right of chevrons) expect(Math.abs(right - geometry.head.chevron.right)).toBeLessThanOrEqual(0.5);
           expect(geometry.head.chevron.right).toBeLessThanOrEqual(geometry.tray.right + 0.5);
-          // The header is one row; its time follows its counts one 8px gap later.
+          // The header is one row, and over several items it times nothing (Leo, 2026-11-22: "what the
+          // fuck are you timing man"): its time's slot is empty and no clock is drawn in it.
           expect(geometry.head.row.bottom - geometry.head.row.top).toBeLessThanOrEqual(28.5);
-          expect(geometry.head.time.left - geometry.head.title.right).toBeGreaterThanOrEqual(7.5);
-          expect(geometry.head.time.left - geometry.head.title.right).toBeLessThanOrEqual(8.5);
-          expect(Math.abs(middle(geometry.head.time) - middle(geometry.head.title))).toBeLessThanOrEqual(1);
+          expect(geometry.head.timeText).toBe("");
+          expect(geometry.head.clocks).toBe(0);
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {
             await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
             const tone = theme.endsWith("Light") ? "light" : "dark";

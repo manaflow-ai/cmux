@@ -1,13 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // The composer hat's folded header on one centre line (SubagentTray.tsx, subagents.css): each kind's
-// mark, the counts, the time, the Background tasks button and the chevron. Leo, 2026-11-22, on "1
+// mark, the counts, the Background tasks button and the chevron. Leo, 2026-11-22, on "1
 // subagent · 1 subagent done · 1 stopped   17h 4m 46s" over the composer: "now some of the icons are
 // misaligned. chief among them is the little sidebar button. it's misaligned. well it's the background
 // tasks." The header had grown to 34px (trayHeadHeight.experiment.ts `roomy`) while the panel button
 // over it kept the lines' 28px row from the top, so its icon sat 3px above the row's centre. Then:
 // "idk tho that might just be the switch over from one completing subagent to another": the header's
-// counts change in place as one subagent finishes and the next starts; the time, the panel button and
-// the chevron never move. Compare at 420px (a half split) and 900px with the width presets.
+// counts change in place as one subagent finishes and the next starts; the panel button and the
+// chevron never move. The header heads several items, so it shows no time (Leo, 2026-11-22, on that
+// "17h 4m 46s": "what the fuck are you timing man"). Compare at 420px (a half split) and 900px with the width presets.
 // test/composer-hat-head-align.test.ts measures every centre.
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
@@ -42,7 +43,7 @@ export default componentEntry<Props>({
   keywords: ["composer hat", "running tray", "background tasks", "alignment"],
   variants: {
     mixed: {
-      note: "Leo's hat: one subagent runs, one is done, one was stopped; its kinds, the time, the Background tasks button and the chevron on the row's centre line.",
+      note: "Leo's hat: one subagent runs, one is done, one was stopped; its kinds (no time: several items), the Background tasks button and the chevron on the row's centre line.",
       props: { start: "mixed" },
       play: headReady,
     },
