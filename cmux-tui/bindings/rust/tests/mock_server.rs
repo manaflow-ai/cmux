@@ -1608,8 +1608,7 @@ fn invalid_cancel_responses_close_and_never_send_a_second_cancel() {
                             "item":{
                                 "kind":"snapshot",
                                 "cursor":{"generation":"g","revision":"1"},
-                                "snapshot":resource_snapshot(),
-                                "future":true,
+                                "snapshot":7,
                             },
                         })
                     )

@@ -134,7 +134,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
-    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id"];
+    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id", "preset"];
 
 /// What machine this daemon takes chats on, as the binary reads it at start
 /// (never from a request).
@@ -439,6 +439,11 @@ impl Verb {
         if params.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
+            return None;
+        }
+        // Other unknown fields are ignored, but a receive abort never names a move:
+        // the move is the receive's own.
+        if cmd == "agent-transfer-receive-abort" && params.contains_key("transfer_id") {
             return None;
         }
         let params = Value::Object(params);
