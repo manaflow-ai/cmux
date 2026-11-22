@@ -1261,11 +1261,16 @@ def host_last_seen(state, host):
     return parse_iso(info.get("last_part_at") or info.get("at") or info.get("absent_since") or None)
 
 
-def host_gone(state, host, t):
-    """host left the fleet (pure): the controller said it has no such worker (gone_at, a host_gone result), or it ran
-    no part for HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+def host_retired(state, host):
+    """The controller said it has no such worker (gone_at, a host_gone result), and the host ran no part since (pure)."""
     info = host_info(state, host)
-    if info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]):
+    return bool(info.get("gone_at") and not (info.get("last_part_at") and info["last_part_at"] > info["gone_at"]))
+
+
+def host_gone(state, host, t):
+    """host left the fleet (pure): the controller said it has no such worker (host_retired), or it ran no part for
+    HOST_GONE_HOURS (the caller checks that Mac parts ran elsewhere meanwhile)."""
+    if host_retired(state, host):
         return True
     seen = host_last_seen(state, host)
     return seen is not None and hours_between(seen, t) > HOST_GONE_HOURS
@@ -1498,8 +1503,12 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     # at every tick, and no Mac part ran while the bench host could have taken each one.
     # A bench host the measurement gave up for its silence (give_up_host) is still asked here: the give-up is for
     # trying another host, and this rule leaves none. 2026-11-15 00:54Z to 02:54Z: no Mac part was asked for.
+    # Only the controller's word retires the bench host here (host_retired), never its silence: host_gone's
+    # HOST_GONE_HOURS clause assumes Mac parts ran elsewhere meanwhile, and with the bench host the only measure host
+    # none did. From 2026-11-18 cmux20-bench refused every claim (not isolated) for 3.5 days; once repaired, it was
+    # "gone" by silence, so every tick a nightly waited for a Mac held its parts back and no Mac row could refresh.
     bench_only = bool(github_busy and fleet and cur.get("host") in (None, BENCH_WORKER)
-                      and not host_unreachable(state, BENCH_WORKER, t) and not host_gone(state, BENCH_WORKER, t))
+                      and not host_unreachable(state, BENCH_WORKER, t) and not host_retired(state, BENCH_WORKER))
     if github_busy and fleet and not bench_only:
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
