@@ -98,6 +98,10 @@ pub(super) async fn route(
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
