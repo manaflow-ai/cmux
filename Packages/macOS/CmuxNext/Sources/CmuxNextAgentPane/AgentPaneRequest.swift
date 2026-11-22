@@ -335,6 +335,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
     case painted(fromKeptTail: Bool, settled: Bool)
+    /// `pane.inputEchoed`: the page drew the first key the person typed into its composer
+    /// (webviews inputEchoMark.ts, once per page life), the launch mark `agent_pane.input_echoed`:
+    /// the chat's first input in scripts/ci/launch_tti_check.py beside the terminal's `terminal_echo`.
+    case inputEchoed
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready

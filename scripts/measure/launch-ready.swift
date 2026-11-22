@@ -525,6 +525,7 @@ let launchStages: [(stage: String, marks: [String])] = [
     ("first_frame", ["first_window_frame_committed"]),
     ("webview_ready", ["cef.ready"]),
     ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+    ("first_browser_paint", ["browser_pane.first_paint"]),
     ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
 ]
 var stages: [String: Double] = [:]

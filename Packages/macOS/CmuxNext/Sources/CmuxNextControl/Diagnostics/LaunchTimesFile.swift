@@ -238,7 +238,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
-        "cef.ready", "agent_pane.view_created", "agent_pane.transport_open",
+        "cef.ready", "agent_pane.view_created", "agent_pane.transport_open", "browser_pane.first_paint", "browser_pane.input_ready",
         "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
     ]
 }
@@ -259,6 +259,8 @@ public nonisolated struct LaunchStages {
         ("first_frame", ["first_window_frame_committed"]),
         ("webview_ready", ["cef.ready"]),
         ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+        // The front Chromium tab a person opened presented its first frame (CEFLaunchMarks, CmuxNextBrowser).
+        ("first_browser_paint", ["browser_pane.first_paint"]),
         // A terminal echoed a typed key, a chat composer drew one, or Home's composer has the keyboard in the key window.
         ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
     ]

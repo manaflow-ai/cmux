@@ -876,6 +876,7 @@ import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { startInputEchoMark } from "./inputEchoMark";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
@@ -7640,6 +7641,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }, 0),
     );
   }, [showsWhatItIs, drewKeptTail, settledSession]);
+  // The chat's first-input launch mark (inputEchoMark.ts): once per page life, the frame after the
+  // composer drew the first key the person typed; the app marks it `agent_pane.input_echoed`.
+  useEffect(() => {
+    startInputEchoMark(() => void callNative("pane.inputEchoed").catch(() => undefined));
+  }, []);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
