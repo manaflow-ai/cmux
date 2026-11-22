@@ -27,6 +27,7 @@
 pub mod project;
 pub mod style;
 pub mod terminal;
+pub mod unicode;
 
 pub use project::{Paint, View};
 pub use terminal::Terminal;

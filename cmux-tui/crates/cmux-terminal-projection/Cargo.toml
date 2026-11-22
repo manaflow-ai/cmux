@@ -11,6 +11,7 @@ description = "A phone's own view of a terminal it does not size: a VT model at 
 workspace = true
 
 [dependencies]
+unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
