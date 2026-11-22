@@ -331,7 +331,6 @@ fn try_of(words: &[String]) -> Result<Request, String> {
     Ok(Request::Try { source, duration_ms: (minutes * 60_000.0).round() as u64 })
 }
 
-/// `schema [PART] [--typescript|--rust]`.
 /// `checklist [--has NAME]...`: each NAME one of the checklist's connections.
 fn checklist_of(words: &[String]) -> Result<Request, String> {
     let mut connected = Vec::new();
@@ -352,6 +351,7 @@ fn checklist_of(words: &[String]) -> Result<Request, String> {
     Ok(Request::Checklist { connected })
 }
 
+/// `schema [PART] [--typescript|--rust]`.
 fn schema_of(words: &[String]) -> Result<Request, String> {
     let (mut section, mut format) = (None, SchemaFormat::Schema);
     for word in words {
