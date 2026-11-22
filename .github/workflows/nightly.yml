@@ -5242,6 +5242,8 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: read
+      actions: read # the previous nightly's visual-gate artifact (desktop_visual_diff.py)
+      pull-requests: read # the Visual-change lines of the pull requests since it
     outputs:
       verdict: ${{ steps.verdict.outputs.verdict }}
       blocks: ${{ steps.verdict.outputs.blocks }}
@@ -5319,6 +5321,15 @@ jobs:
           VISUAL_GATE_REQUIRE_2X: ${{ vars.NIGHTLY_NEXT_VISUAL_GATE_REQUIRE_2X }}
           CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
         run: bash scripts/ci/nightly-steps/visual-gate-verdict.sh
+
+      # Warn only: states whose pixels changed since the previous nightly with no Visual-change line.
+      - name: Diff the states against the previous nightly
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: perl -e 'alarm shift; exec @ARGV' 480 python3 -I scripts/ci/desktop_visual_diff.py --head-root "$RUNNER_TEMP/visual-gate" --head-sha "$BUILD_SHA" --fetch-baseline --work "$RUNNER_TEMP/desktop-visual-baseline" --out "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the stills and the report
         id: upload-keep-the-stills-and-the-report
@@ -7146,8 +7157,10 @@ jobs:
         continue-on-error: true
         env: {GH_TOKEN: "${{ github.token }}", GH_BUDGET_WAIT_MAX_SECONDS: "0"}
         run: bash .publish-tooling/scripts/ci/timeout.sh 60 gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
-      # As build-sign-notarize-nightly's step: app ticket, staple, the DMG around the stapled app, its ticket and
-      # staple. Apple gets 40 minutes; a slower build fails this job and the loop's retry builds again (no hand-off).
+      # One Apple round: the DMG's ticket, stapled to the DMG. The app inside carries no ticket of its own
+      # (CMUX_STAPLE_APP_IN_DMG=false); Gatekeeper finds its ticket online, and the verify step below requires
+      # Gatekeeper to call it notarized. Apple gets 40 minutes; a slower build fails this job and the loop's
+      # retry builds again (no hand-off).
       - name: Notarize app ticket through final DMG
         if: ${{ !env.LEFT_SLOT }}
         id: notarize-nightly
@@ -7160,7 +7173,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          CMUX_STAPLE_APP_IN_DMG: "true"
+          CMUX_STAPLE_APP_IN_DMG: "false"
           CMUX_NOTARY_PENDING_ON_TIMEOUT: "false"
           CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
           CMUX_DEFER_LAUNCH_SMOKES: "true"
@@ -7192,6 +7205,9 @@ jobs:
       - *x79
       - name: Verify final DMG artifact
         if: ${{ !env.LEFT_SLOT }}
+        env:
+          # As the notarize step: the app has no ticket of its own (verify-dmg-artifact.sh --app-ticket-online).
+          CMUX_STAPLE_APP_IN_DMG: "false"
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final-dmg && bash "$PUBLISH_TOOLING/ci/nightly-steps/verify-final-dmg.sh"
       - name: Launch smoke from a fresh home
         if: ${{ !env.LEFT_SLOT }}

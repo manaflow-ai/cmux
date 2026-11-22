@@ -25,6 +25,8 @@ extension SettingsSchema {
         "agents.chats.sessionRecap": .userOnly,
         // Whether a chat writes into the person's own terminal session (its harness runs with that terminal's permissions): theirs to turn on or off.
         "agents.chats.terminalChatWritable": .userOnly,
+        // Machine cleanup removes worktrees and build caches from this Mac's disk: only the person turns it on or off.
+        "worktrees.autoCleanup": .destructive, "worktrees.cleanBuildCaches": .destructive,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
