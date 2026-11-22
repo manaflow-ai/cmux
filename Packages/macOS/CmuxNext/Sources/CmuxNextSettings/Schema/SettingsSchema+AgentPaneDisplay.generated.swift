@@ -7,6 +7,7 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let widthDefault: Double = 800
     nonisolated static let widthRange: ClosedRange<Double> = 480...4000
     nonisolated static let widthPlaceholder: Double = 800
+    nonisolated static let widthValues = ["narrow", "medium", "wide"]
     /// `agentPane.display.fullWidth`.
     nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
     nonisolated static let fullWidthDefault = false
@@ -127,6 +128,13 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
     nonisolated static let railSideDefault = "left"
     nonisolated static let railSideValues = ["left", "right"]
+    /// `agentPane.display.rail.show`: What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: "why cant you see an agents'? why cant you filter it? customize it immediately?"). The rail's right-click menu and its head control write it too, so every rail changes at once.
+    nonisolated static let railShowPath = ["agentPane", "display", "rail", "show"]
+    nonisolated static let railShowDefault = "prompts"
+    nonisolated static let railShowValues = ["prompts", "mine", "received", "replies", "everything", "errors", "edits", "tools", "subagents"]
+    /// `agentPane.display.rail.control`: A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.
+    nonisolated static let railControlPath = ["agentPane", "display", "rail", "control"]
+    nonisolated static let railControlDefault = false
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
