@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -74,9 +75,6 @@ NOT_LINTED = "refused; nothing was linted"
 AUTOFIX, REVERT, NONE = "autofix", "revert", "none"
 BOT = ("cmux-next lint heal", "41898282+github-actions[bot]@users.noreply.github.com")
 
-Lint = Callable[[str, str | None, Path | None, bool], bool]
-
-
 def git(*argv: str, cwd: Path | None = None, check: bool = True) -> str:
     out = subprocess.run(["git", *argv], cwd=cwd or ROOT, capture_output=True, text=True)
     if check and out.returncode:
@@ -84,21 +82,62 @@ def git(*argv: str, cwd: Path | None = None, check: bool = True) -> str:
     return out.stdout
 
 
-def lint(base: str, head: str | None, repo: Path | None = None, fix: bool = False) -> bool:
-    """web_lint_prepush.py over base..head (head None: the working tree of repo). True when it passed. Its
-    output goes to this job's log as it runs, so a red's errors are read there."""
+# A diagnostic line of the webviews check (Oxlint and the type check print `x rule(code): message`; ESLint for web/
+# prints `line:col  error  message  rule`), and web_lint_prepush's closing line naming the pieces that failed.
+DIAGNOSTIC = re.compile(r"^\s*x (\S+\(\S+\): .+?)\s*$|^\s*\d+:\d+\s+error\s+(.+?)\s*$")
+FAILED_PIECES = re.compile(r"web lint failed in [\d.]+s: (.+)$")
+
+
+@dataclass(frozen=True)
+class Lint:
+    """One lint run: green, else the reds it printed (each diagnostic's text, with no line number, which moves; and
+    `piece: <check>` for each check that failed)."""
+    ok: bool
+    reds: frozenset = frozenset()
+
+    @classmethod
+    def of(cls, run) -> "Lint":
+        """A run_lint answer: a Lint, or a bare bool (a red with no detail)."""
+        return run if isinstance(run, Lint) else cls(bool(run), frozenset() if run else frozenset({"red"}))
+
+    def signature(self) -> frozenset:
+        """What makes this red its own: its diagnostics, else (a source check prints its own way) its failed pieces."""
+        found = frozenset(r for r in self.reds if not r.startswith("piece: "))
+        return found or self.reds
+
+
+def reds_of(text: str) -> frozenset:
+    reds = set()
+    for line in text.splitlines():
+        if match := DIAGNOSTIC.match(line):
+            reds.add(match.group(1) or match.group(2))
+        elif match := FAILED_PIECES.search(line):
+            reds.update(f"piece: {piece.strip()}" for piece in match.group(1).split(", "))
+    return frozenset(reds)
+
+
+def lint(base: str, head: str | None, repo: Path | None = None, fix: bool = False) -> Lint:
+    """web_lint_prepush.py over base..head (head None: the working tree of repo, after its fixers). Its output goes to
+    this job's log, so a red's errors are read there too."""
     argv = [sys.executable, str(LINT), "--repo", str(repo or ROOT), "--base", base]
     argv += ["--fix"] if fix else ["--head", head or "HEAD"]
     print(f"::group::lint {base[:12]}..{(head or 'working tree')[:12]}{' --fix' if fix else ''}", flush=True)
     try:
-        done = subprocess.run(argv, cwd=repo or ROOT, stderr=subprocess.PIPE, text=True)
-        sys.stderr.write(done.stderr)
+        done = subprocess.run(argv, cwd=repo or ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        sys.stdout.write(done.stdout)
     finally:
         print("::endgroup::", flush=True)
-    refused = next((line for line in done.stderr.splitlines() if NOT_LINTED in line), "")
+    refused = next((line for line in done.stdout.splitlines() if NOT_LINTED in line), "")
     if refused:
         raise NotLinted(refused)
-    return done.returncode == 0
+    return Lint(done.returncode == 0, reds_of(done.stdout) if done.returncode else frozenset())
+
+
+def clears(culprit: Lint, tip: Lint, after: Lint) -> bool:
+    """A fix or revert is the culprit's answer when the culprit's own reds are gone and it brings no red the tip did
+    not already have. Other commits' reds at the tip stay theirs: on the #49052 incident the tip also failed
+    check:fixed-waits, check:design-tokens, check:type-scale and an Oxlint rule, none of them #49052's."""
+    return after.ok or (not (culprit.signature() & after.reds) and after.reds <= tip.reds)
 
 
 class NotLinted(RuntimeError):
@@ -140,33 +179,38 @@ def revert_commit(tree: Path, culprit: str) -> bool:
     return True
 
 
-def judge(before: str, sha: str, tip: str, *, run_lint: Lint = lint, work: Path | None = None) -> Verdict:
+def judge(before: str, sha: str, tip: str, *, run_lint: Callable = lint, work: Path | None = None) -> Verdict:
     try:
         return judge_range(before, sha, tip, run_lint=run_lint, work=work)
     except NotLinted as error:
         return Verdict(NONE, f"the lint could not run, so nothing is judged: {error}")
 
 
-def judge_range(before: str, sha: str, tip: str, *, run_lint: Lint, work: Path | None) -> Verdict:
+def judge_range(before: str, sha: str, tip: str, *, run_lint: Callable, work: Path | None) -> Verdict:
     commits = first_parent_range(before, sha, cwd=ROOT)
     if not commits:
         return Verdict(NONE, f"no first-parent commits in {before[:12]}..{sha[:12]}")
     if len(commits) > MAX_PROBES:
         return Verdict(NONE, f"{len(commits)} commits in {before[:12]}..{sha[:12]}, more than {MAX_PROBES} to probe")
-    culprit = next((c for c in commits if not run_lint(parent(c), c, None, False)), "")
+    culprit, red = "", Lint(True)
+    for commit in commits:
+        red = Lint.of(run_lint(parent(commit), commit, None, False))
+        if not red.ok:
+            culprit = commit
+            break
     if not culprit:
         return Verdict(NONE, f"no commit of {before[:12]}..{sha[:12]} is red linted alone: the push's red did not repeat")
     good = parent(culprit)
-    if run_lint(good, tip, None, False):
-        return Verdict(NONE, f"`{culprit[:12]}`'s change lints green at the tip `{tip[:12]}`: fixed already",
-                       culprit, good)
+    at_tip = Lint.of(run_lint(good, tip, None, False))
+    if at_tip.ok or not (red.signature() & at_tip.reds):
+        return Verdict(NONE, f"`{culprit[:12]}`'s reds are gone at the tip `{tip[:12]}`: fixed already", culprit, good)
     work = work or Path(tempfile.mkdtemp(prefix="lint-heal-"))
     tree = tree_at(tip, work)
     try:
-        if run_lint(good, None, tree, True):
+        if clears(red, at_tip, Lint.of(run_lint(good, None, tree, True))):
             patch = git("diff", "--binary", cwd=tree)
             if patch.strip():
-                return Verdict(AUTOFIX, f"the lint's fixers make `{culprit[:12]}`'s change green at the tip", culprit, good, patch)
+                return Verdict(AUTOFIX, f"the lint's fixers clear `{culprit[:12]}`'s reds at the tip and add none", culprit, good, patch)
     finally:
         drop_tree(tree)
     tree = tree_at(tip, work)
@@ -175,8 +219,9 @@ def judge_range(before: str, sha: str, tip: str, *, run_lint: Lint, work: Path |
             return Verdict(NONE, f"reverting `{culprit[:12]}` conflicts with the tip `{tip[:12]}`; left to its owner",
                            culprit, good)
         reverted = git("rev-parse", "HEAD", cwd=tree).strip()
-        if run_lint(good, reverted, None, False):
-            return Verdict(REVERT, f"`{culprit[:12]}` is the first red commit, and the tip lints green without it",
+        if clears(red, at_tip, Lint.of(run_lint(good, reverted, None, False))):
+            return Verdict(REVERT, f"`{culprit[:12]}` is the first red commit, and reverting it on the tip clears its "
+                                   f"reds and adds none",
                            culprit, good)
         return Verdict(NONE, f"the tip stays red with `{culprit[:12]}` reverted: the red is not its alone", culprit, good)
     finally:

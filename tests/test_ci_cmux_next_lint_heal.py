@@ -145,6 +145,34 @@ class Judge(unittest.TestCase):
         self.assertEqual(verdict.action, heal.NONE)
         self.assertIn("conflicts", verdict.reason)
 
+    def files_lint(self, base, head, repo, fix):
+        """Each RED* file in the linted tree is its own red, named by the file."""
+        tree = sh(self.h.repo, "ls-tree", "--name-only", head).split() if head else []
+        reds = frozenset(f"typescript(TS2304): {name}" for name in tree if name.startswith("RED"))
+        return heal.Lint(not reds, reds)
+
+    def test_other_commits_reds_at_the_tip_do_not_stop_the_culprits_revert(self):
+        # The #49052 incident: the tip also failed checks other commits broke, so it never lints green.
+        good = sh(self.h.repo, "rev-parse", "HEAD")
+        bad = self.h.commit("Agent chat: a turn holds its header (#49052)", {"RED_folds": "x\n"})
+        tip = self.h.commit("design tokens (#49061)", {"RED_tokens": "y\n"})
+        verdict = self.judge(good, bad, tip, self.files_lint)
+        self.assertEqual((verdict.action, verdict.culprit), (heal.REVERT, bad), verdict.reason)
+
+    def test_a_revert_that_brings_a_new_red_opens_nothing(self):
+        good = sh(self.h.repo, "rev-parse", "HEAD")
+        bad = self.h.commit("web: broke (#15)", {"RED_a": "x\n"})
+        tip = self.h.commit("web: builds on it (#16)", {"b.ts": "uses a\n"})
+
+        def lint(base, head, repo, fix):
+            if head and sh(self.h.repo, "rev-parse", f"{head}^") == tip:  # the revert, on the tip
+                return heal.Lint(False, frozenset({"typescript(TS2304): b.ts lost a"}))
+            return self.files_lint(base, head, repo, fix)
+
+        verdict = self.judge(good, bad, tip, lint)
+        self.assertEqual(verdict.action, heal.NONE)
+        self.assertIn("not its alone", verdict.reason)
+
     def test_a_lint_that_refused_to_run_is_no_red(self):
         good = sh(self.h.repo, "rev-parse", "HEAD")
         bad = self.h.commit("web: broke (#14)", {"RED": "type error\n"})
@@ -193,6 +221,29 @@ class PullRequest(unittest.TestCase):
                                  branch="feat-cmux-next")
         self.assertEqual(made["head"], "heal/web-lint-" + "6" * 12)
         self.assertTrue(made["body"].startswith("Fixes base red: cmux-next web lint / web lint (fast)."))
+
+
+class Reds(unittest.TestCase):
+    INCIDENT = """
+  ! eslint(no-unused-vars): Parameter 'foldsPrompt' is declared but never used.
+  x typescript(TS2304): Cannot find name 'foldsPrompt'.
+      ,-[src/agent-session/acpmux/conversation/turns.ts:3019:8]
+  x jsx-a11y(aria-props): Invalid ARIA prop.
+web-lint: web lint failed in 62.3s: webviews: bun run check:fixed-waits, webviews: vp lint
+"""
+
+    def test_the_incidents_output_reads_as_its_diagnostics_and_pieces(self):
+        self.assertEqual(heal.reds_of(self.INCIDENT), {
+            "typescript(TS2304): Cannot find name 'foldsPrompt'.", "jsx-a11y(aria-props): Invalid ARIA prop.",
+            "piece: webviews: bun run check:fixed-waits", "piece: webviews: vp lint"})
+
+    def test_a_revert_clears_when_only_other_reds_stay(self):
+        culprit = heal.Lint(False, frozenset({"typescript(TS2304): foldsPrompt", "piece: webviews: vp lint"}))
+        tip = heal.Lint(False, culprit.reds | {"piece: webviews: bun run check:fixed-waits", "piece: webviews: vp lint"})
+        after = heal.Lint(False, frozenset({"piece: webviews: bun run check:fixed-waits", "piece: webviews: vp lint"}))
+        self.assertTrue(heal.clears(culprit, tip, after))
+        self.assertFalse(heal.clears(culprit, tip, heal.Lint(False, after.reds | {"typescript(TS2304): foldsPrompt"})))
+        self.assertFalse(heal.clears(culprit, tip, heal.Lint(False, after.reds | {"typescript(TS2345): new"})))
 
 
 class DirectPush(unittest.TestCase):
