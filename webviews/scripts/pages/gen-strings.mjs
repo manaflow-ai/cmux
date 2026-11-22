@@ -261,6 +261,12 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // App health's web gallery entries (ui.app-health, ui.app-health.footer-row) draw the indicator with the
+  // words its own table carries; the shipped line and card are native (CmuxNextAppHealth).
+  "app-health": {
+    out: "webviews/src/app-health/generated/strings.json",
+    catalogs: [{ file: "webviews/src/app-health/Localizable.xcstrings" }],
+  },
   // The Cloud progress page (cmux-page://cmux.cloud-progress/): a Cloud machine on its way to its terminal.
   // Its table lives next to it; the words are the retired AppKit view's (Cloud.xcstrings `cloud.progress.`).
   "cloud-progress": {

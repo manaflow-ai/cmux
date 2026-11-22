@@ -96,7 +96,7 @@ export default componentEntry<Props>({
       import("./AppHealth"),
       import("./model"),
       import("../pages/shared/i18n"),
-      import("../pages/server-cards/generated/strings.json"),
+      import("./generated/strings.json"),
     ]);
     const strings = createStrings(table.default);
     // The row as the native footer lays it out (SidebarFooterBand): the avatar at the leading inset, the

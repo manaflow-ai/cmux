@@ -180,7 +180,7 @@ export default componentEntry<Props>({
     const [views, { createStrings }, table] = await Promise.all([
       import("./AppHealth"),
       import("../pages/shared/i18n"),
-      import("../pages/server-cards/generated/strings.json"),
+      import("./generated/strings.json"),
     ]);
     const strings = createStrings(table.default);
     const actions = { open: () => {}, repair: () => {} };
