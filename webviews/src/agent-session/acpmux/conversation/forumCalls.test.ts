@@ -22,7 +22,7 @@ test("a running post reads the thread from its arguments", () => {
   const call = read(postCall("in_progress"))!;
   expect(call.status).toBe("running");
   expect(call.thread).toMatchObject({ space: "fleet" });
-  expect(call.thread?.title).toContain("Swift Linux pool");
+  expect(call.thread?.title).toContain("Compile pool");
 });
 
 test("a reply names the thread with its reply count", () => {

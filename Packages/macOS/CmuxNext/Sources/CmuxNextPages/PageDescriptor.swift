@@ -246,11 +246,12 @@ public extension PageDescriptor {
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
-    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13).
+    /// runs the registry action `app.open` (a host verb, cx-hnmbt.13); the Customize cmux… card runs
+    /// `openSettings` on Settings > Customize (`setting: card.customizeChecklist`).
     /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open", "openSettings"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -341,6 +342,9 @@ public extension PageDescriptor {
         id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: ["feed.openItem", "feed.githubAction", "openSettings"])
+    /// The Forum page (`experiments.forum`, a top page): the daemon's forum threads through the
+    /// page relay (`cmux.forum.` -> `forum.*`, page-router `forum`).
+    static let forum = PageDescriptor(id: "cmux.forum", resource: "forum", namespaces: ["cmux.forum."])
     /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
     /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
     static let stash = PageDescriptor(

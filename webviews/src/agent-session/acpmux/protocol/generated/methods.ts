@@ -29,6 +29,7 @@ export interface AcpmuxRequests {
   "_acpmux/tailnet/start": { params: unknown; result: unknown };
   "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: StatusParams; result: unknown };
+  "_acpmux/perf": { params: unknown; result: unknown };
   "_acpmux/context": { params: unknown; result: unknown };
   "_acpmux/context_override": { params: unknown; result: unknown };
   "agent-session-turn-prepare": { params: unknown; result: unknown };
@@ -68,7 +69,10 @@ export interface AcpmuxRequests {
   "_acpmux/race/stats": { params: unknown; result: unknown };
   "_acpmux/forum/ack": { params: unknown; result: unknown };
   "_acpmux/forum/announce": { params: unknown; result: unknown };
+  "_acpmux/forum/post": { params: unknown; result: unknown };
+  "_acpmux/forum/reply": { params: unknown; result: unknown };
   "_acpmux/forum/rules": { params: ForumRulesParams; result: unknown };
+  "_acpmux/forum/search": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: SetToolsParams; result: unknown };
   "_acpmux/set_directories": { params: unknown; result: unknown };
   "_acpmux/project_new": { params: unknown; result: unknown };
@@ -127,6 +131,8 @@ export interface AcpmuxRequests {
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/cold_archive": { params: unknown; result: unknown };
   "_acpmux/kill": { params: KillParams; result: unknown };
+  "_acpmux/pause": { params: unknown; result: unknown };
+  "_acpmux/wake": { params: unknown; result: unknown };
   "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: WatchTakeOverParams; result: unknown };
   "_acpmux/release_to_watch": { params: ReleaseToWatchParams; result: unknown };
@@ -428,6 +434,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/perf", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context", kind: "request", acp: false, typed: false },
   { name: "_acpmux/context_override", kind: "request", acp: false, typed: false },
   { name: "agent-session-turn-prepare", kind: "request", acp: false, typed: false },
@@ -467,7 +474,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/race/stats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/announce", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/forum/post", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/forum/reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/forum/search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
   { name: "_acpmux/project_new", kind: "request", acp: false, typed: false },
@@ -527,6 +537,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/cold_archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/pause", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/wake", kind: "request", acp: false, typed: false },
   { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: true },
   { name: "_acpmux/release_to_watch", kind: "request", acp: false, typed: true },

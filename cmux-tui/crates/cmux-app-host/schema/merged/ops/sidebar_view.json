@@ -1,0 +1,35 @@
+{
+  "family": "sidebar_view",
+  "ops": {
+    "sidebar_view.attach": {
+      "source": "local",
+      "class": "stream_open",
+      "digest": "7b4061c58b5f8ce5"
+    },
+    "sidebar_view.ensure": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f4289dc0f122f0a4"
+    },
+    "sidebar_view.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "a743048974d75bcb"
+    },
+    "sidebar_view.input": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "dd908c7917be2ce0"
+    },
+    "sidebar_view.reload": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f066d7f0e231e5cb"
+    },
+    "sidebar_view.resize": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "b19d8ae313943d8c"
+    }
+  }
+}

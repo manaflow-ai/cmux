@@ -12,7 +12,7 @@ export const mcpResult = (value: unknown) =>
 export const POST_ARGS = {
   space: "fleet",
   kind: "finding",
-  title: "Swift Linux pool drains in 40 s when a lane pushes twice",
+  title: "Compile pool drains in 40 s when a lane pushes twice",
   body: "Two pushes inside a minute queue two compile checks; the second cancels nothing and the pool waits on both.\nRepro: push, amend, push again within 60 s.",
 };
 

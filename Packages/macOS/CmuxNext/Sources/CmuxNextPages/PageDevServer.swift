@@ -41,6 +41,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.diff",
         "cmux.editor",
         "cmux.feed",
+        "cmux.forum",
         "cmux.files",
         "cmux.github",
         "cmux.glass-parity",
