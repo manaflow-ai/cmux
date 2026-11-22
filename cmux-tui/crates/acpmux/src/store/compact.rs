@@ -98,8 +98,11 @@ pub enum CompactMode<'a> {
     /// other line as it is (no long string is cut): the one pass a log written before the tap
     /// left them out needs (`acpmux daemon retention --unread-only`). The staged log must fold
     /// into the same chat rows as the old one (`rows::RowTable`), or the pass fails and nothing
-    /// is replaced. `archive` as for [`Self::Write`].
+    /// is replaced. `archive` as for [`Self::Write`]. Its commit leaves the compaction's record
+    /// as it was, so a later retention pass still compacts the chat.
     Unread { archive: Option<&'a Path> },
+    /// Only measure what [`Self::Unread`] would remove.
+    UnreadDryRun,
 }
 
 /// A log's compacted segments, written beside the old ones and not yet in place. Dropping it
@@ -109,6 +112,8 @@ pub struct Staged {
     last_seq: u64,
     /// A truncation's (`CompactMode::Truncate`): its commit does not count as a compaction.
     cut: Option<u64>,
+    /// An unread-only pass's (`CompactMode::Unread`): its commit leaves the compaction's record.
+    unread_only: bool,
     /// An unread-only pass's (`CompactMode::Unread`): the chat both logs fold into.
     pub read_back: Option<ChatDigest>,
     segments: Vec<StagedSegment>,
@@ -218,16 +223,16 @@ impl LocalStore {
             return Ok(None);
         }
         let (write, archive, cut) = match mode {
-            CompactMode::DryRun => (false, None, None),
+            CompactMode::DryRun | CompactMode::UnreadDryRun => (false, None, None),
             CompactMode::Write { archive } | CompactMode::Unread { archive } => {
                 (true, archive, None)
             }
             CompactMode::Truncate { after } => (true, None, Some(after)),
         };
-        let unread_only = matches!(mode, CompactMode::Unread { .. });
-        // What the old log folds into, for an unread-only pass; the staged one is folded from its
-        // files after it, so only one chat's rows are held at a time.
-        let mut before = unread_only.then(ReadBack::default);
+        let unread_only = matches!(mode, CompactMode::Unread { .. } | CompactMode::UnreadDryRun);
+        // What the old log folds into, for an unread-only pass that writes; the staged one is
+        // folded from its files after it, so only one chat's rows are held at a time.
+        let mut before = (unread_only && write).then(ReadBack::default);
         let archive = match archive {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
@@ -244,6 +249,7 @@ impl LocalStore {
             stats: Compaction::default(),
             last_seq: 0,
             cut,
+            unread_only,
             read_back: None,
             segments: Vec::new(),
         };
@@ -352,8 +358,11 @@ impl LocalStore {
         }
         // A truncation compacted nothing: the marker keeps the last compaction's end (at most
         // where the log ends now), so retention still compacts what came since.
+        // An unread-only pass trimmed no long string: the marker keeps the last compaction's end
+        // too, or retention would take the chat for compacted.
         let last_seq = match staged.cut {
             Some(after) => self.compacted_seq(id).unwrap_or(0).min(after),
+            None if staged.unread_only => self.compacted_seq(id).unwrap_or(0),
             None => staged.last_seq,
         };
         let mut marker = Marker { last_seq, at: now_ms(), complete: false, stats: staged.stats };

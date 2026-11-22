@@ -438,6 +438,7 @@ fn compaction_drops_the_records_no_reader_takes_back() {
     let seqs: Vec<u64> = after.iter().map(|r| r.seq).collect();
     assert_eq!(seqs, [1, 2, 4, 9, 10], "{stats:?}");
     let answer = &after[1].msg["params"]["result"]["thread"];
-    assert_eq!(answer, &json!({"id": "th", "_acpmux": {"turnsLeftOut": 40}}));
+    // The shape the tap logs since #47457 (`codex_app_server::logged`).
+    assert_eq!(answer, &json!({"id": "th", "preview": text, "turnsOmitted": 40}));
     assert!(stats.bytes_after * 10 < stats.bytes_before, "{stats:?}");
 }

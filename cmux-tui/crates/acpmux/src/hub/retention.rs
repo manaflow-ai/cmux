@@ -164,7 +164,9 @@ impl Hub {
         crate::agent_host::load_records(&crate::agent_host::hosts_dir())
             .map_err(|e| RpcError::internal(format!("agent host records: {e:#}")))?;
         let hosted = Self::live_host_sessions();
-        let mode = if req.dry_run {
+        let mode = if req.dry_run && req.unread_only {
+            CompactMode::UnreadDryRun
+        } else if req.dry_run {
             CompactMode::DryRun
         } else if req.unread_only {
             CompactMode::Unread { archive: req.archive.as_deref() }
@@ -277,7 +279,8 @@ impl Hub {
         if meta.cold.is_some() || self.store.is_cold(&session.id) {
             return Err("archived");
         }
-        if self.age(session, &meta) > cutoff && !unread_only {
+        // An unread-only pass takes chats of any age unless it is given one (`cutoff` is now then).
+        if self.age(session, &meta) > cutoff {
             return Err("recent");
         }
         // A chat whose agent is being started holds this lock: it counts as running.
@@ -337,7 +340,7 @@ impl Hub {
         (meta.status == SessionStatus::Closed || unread_only)
             && meta.updated_at == seen
             && session.status_writes.load(Ordering::SeqCst) == 0
-            && (unread_only || self.age(session, &meta) <= cutoff)
+            && self.age(session, &meta) <= cutoff
             && session.turn().is_none()
             && session.queued() == 0
             && session.child.try_lock().is_ok_and(|child| child.is_none())
