@@ -1696,6 +1696,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
 
+      - name: Validate a pull request head that changes no cmux-tui tree input builds no artifacts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_branch_inputs.py
+
       - name: Validate the Team-signed tree signs only on nightly-next and holds no merge
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_team_sign.py

@@ -2650,7 +2650,7 @@
       "type" : "boolean"
     },
     "browser.omnibar.maxRows" : {
-      "default" : 8,
+      "default" : 6,
       "description" : "browser.omnibar.maxRows",
       "maximum" : 15,
       "minimum" : 3,
