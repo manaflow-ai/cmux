@@ -48,6 +48,19 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Paper: a tonal theme
+
+Every color from one sage-teal seed, in tonal steps: the sidebar and tab strip a few tones off
+the page, opaque surfaces with no glass or blur, the work in one rounded card, and the primary
+color for selection, focus and Send. It brings Paper Dark too
+(`cmux settings set appearance.themeFile paper-dark`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/paper.json
+```
+
+Or ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass"
+
 ## Layout
 
 ### A compact sidebar
