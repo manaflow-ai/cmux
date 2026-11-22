@@ -240,13 +240,15 @@ fn target_admits_only_with_its_owners_signed_in_machines_consent() {
 
 /// The iPhone's tap (hq#18912 cut 1): the approval the phone builds with the shared asker half
 /// (`ShareApproval::asked`, cmux-mobile-link-ffi `share_approval`), signed by its device key and
-/// read back from the wire, is admitted under the owner's paired device grant with no consent on
-/// this Mac. Unsigned (no tap), it never is.
+/// read back from the wire, is admitted by this Mac. Unsigned (no tap), it never is. The grant
+/// here is the one on base today; with #50721 (cut 3) it becomes `OwnerPairedDevice`, so no
+/// consent on this Mac is needed.
 #[test]
-fn target_admits_the_iphones_tapped_approval_under_owner_paired_device() {
+fn target_admits_the_iphones_tapped_approval() {
     let phone = DeviceKey::new();
     let keys = Keys(vec![(ASKER, phone.public())]);
-    let owner = OwnerPairedDevice { account: ACCOUNT };
+    let consent = serde_json::json!({"consent": {"signedInMachines": "granted", "signedInMachinesUser": ACCOUNT}});
+    let owner = SignedInMachinesConsent::from_status(&consent, Some(ACCOUNT));
     let asked = ShareApproval::asked(
         Device { id: TARGET, name: "Studio" },
         Device { id: ASKER, name: "iPhone" },

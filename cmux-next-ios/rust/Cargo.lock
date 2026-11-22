@@ -570,14 +570,17 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
  "cmux-rd-proto",
+ "cmux-share-approval",
  "cmux-terminal-prediction",
  "cmux-window-rules",
+ "ring",
  "serde_json",
  "sha2",
  "tempfile",
@@ -625,6 +628,14 @@ dependencies = [
 
 [[package]]
 name = "cmux-remote-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-share-approval"
 version = "0.1.0"
 dependencies = [
  "serde",
