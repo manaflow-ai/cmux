@@ -237,7 +237,10 @@ mod tests {
     #[test]
     fn a_custom_url_gets_no_real_key_without_the_opt_in() {
         let env = |k: &str| (k == "ANTHROPIC_API_KEY").then(|| "sk-real".to_string());
-        assert_eq!(api_key("http://typo.example:8080", env), crate::config::SUBROUTER_KEY);
+        assert_eq!(
+            api_key("http://typo.example:8080", env),
+            crate::config::SUBROUTER_KEY
+        );
         assert_eq!(api_key(crate::config::DEFAULT_BASE_URL, env), "sk-real");
         assert_eq!(api_key("https://api.anthropic.com/", env), "sk-real");
         let explicit = |k: &str| (k == crate::config::API_KEY_ENV).then(|| "sk-for-gw".to_string());
