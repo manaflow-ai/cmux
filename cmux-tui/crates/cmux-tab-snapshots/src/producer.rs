@@ -1,0 +1,266 @@
+//! The Mac side's tab state. The host feeds it what each tab shows now
+//! ([`Observation`]) and which tabs closed. The producer bumps `rev` only
+//! when a row's content changed, keeps blobs in its [`BlobStore`], and keeps
+//! a bounded history so a reconnecting phone gets one delta from its rev.
+//!
+//! `rev` starts at the value the host passes. A host that restarts should
+//! start above any rev it handed out before (for example the wall clock in
+//! ms), so a phone's remembered rev from an earlier run reads as unknown
+//! rather than as current.
+
+use crate::hash::{BlobHash, Mime};
+use crate::row::{Kind, Row, RowPatch};
+use crate::store::BlobStore;
+use crate::wire::{Delta, Manifest};
+use std::collections::{HashMap, VecDeque};
+
+/// A favicon's bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FaviconInput {
+    pub mime: Mime,
+    pub bytes: Vec<u8>,
+}
+
+/// An image (a card thumbnail or a full frame).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageInput {
+    pub mime: Mime,
+    pub bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A terminal's screen as text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreenInput {
+    pub text: String,
+    pub cols: u32,
+    pub rows: u32,
+}
+
+/// What one tab shows now. A `None` part means the tab has none.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Observation {
+    pub tab_id: String,
+    pub title: String,
+    pub kind: Kind,
+    pub favicon: Option<FaviconInput>,
+    pub thumb: Option<ImageInput>,
+    pub screen: Option<ScreenInput>,
+    pub frame: Option<ImageInput>,
+    pub captured_at_ms: i64,
+}
+
+#[derive(Debug)]
+struct Change {
+    rev: u64,
+    changed: Vec<RowPatch>,
+    removed: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct Producer {
+    rows: Vec<Row>,
+    rev: u64,
+    /// The oldest rev a delta can start from.
+    oldest_base: u64,
+    history: VecDeque<Change>,
+    history_cap: usize,
+    store: BlobStore,
+}
+
+impl Producer {
+    /// `first_rev`: the rev of the empty state. `history_cap`: how many revs
+    /// a resume can reach back. `recent_blob_cap`: see [`BlobStore::new`].
+    pub fn new(first_rev: u64, history_cap: usize, recent_blob_cap: usize) -> Self {
+        Self {
+            rows: Vec::new(),
+            rev: first_rev,
+            oldest_base: first_rev,
+            history: VecDeque::new(),
+            history_cap,
+            store: BlobStore::new(recent_blob_cap),
+        }
+    }
+
+    pub fn rev(&self) -> u64 {
+        self.rev
+    }
+
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    pub fn store(&self) -> &BlobStore {
+        &self.store
+    }
+
+    pub fn manifest(&self) -> Manifest {
+        Manifest { rev: self.rev, rows: self.rows.clone() }
+    }
+
+    /// Records what a tab shows. Returns true when that is a change (a new
+    /// rev). The same content again changes nothing, even with a newer
+    /// `capturedAtMs`.
+    pub fn observe(&mut self, obs: Observation) -> bool {
+        let index = self.rows.iter().position(|r| r.tab_id == obs.tab_id);
+        let old = index.and_then(|i| self.rows.get(i)).cloned();
+        let old = old.as_ref();
+        let new = self.row_for(old, obs);
+        let patch = match old {
+            Some(old) => RowPatch::diff(old, &new.row),
+            None => Some(RowPatch::full(&new.row)),
+        };
+        let Some(patch) = patch else {
+            // Unchanged content: give back the references `row_for` took.
+            for hash in new.taken {
+                self.store.release(hash);
+            }
+            return false;
+        };
+        let old_hashes: Vec<_> = old.map(|r| r.hashes().collect()).unwrap_or_default();
+        match index.and_then(|i| self.rows.get_mut(i)) {
+            Some(slot) => *slot = new.row,
+            None => self.rows.push(new.row),
+        }
+        for hash in old_hashes {
+            self.store.release(hash);
+        }
+        self.record(vec![patch], Vec::new());
+        true
+    }
+
+    /// Closes a tab. Returns false when no such tab is known.
+    pub fn remove(&mut self, tab_id: &str) -> bool {
+        let Some(index) = self.rows.iter().position(|r| r.tab_id == tab_id) else {
+            return false;
+        };
+        let row = self.rows.remove(index);
+        for hash in row.hashes() {
+            self.store.release(hash);
+        }
+        self.record(Vec::new(), vec![row.tab_id]);
+        true
+    }
+
+    /// One delta from `base_rev` to now, or `None` when `base_rev` is older
+    /// than the history reaches or is not a rev this producer handed out.
+    /// At the current rev it is an empty delta.
+    pub fn delta_since(&self, base_rev: u64) -> Option<Delta> {
+        if base_rev < self.oldest_base || base_rev > self.rev {
+            return None;
+        }
+        let mut changed: Vec<RowPatch> = Vec::new();
+        let mut at: HashMap<String, usize> = HashMap::new();
+        let mut removed: Vec<String> = Vec::new();
+        for change in self.history.iter().filter(|c| c.rev > base_rev) {
+            for id in &change.removed {
+                if let Some(i) = at.remove(id) {
+                    // Keep the slot so other indexes stay valid; it is
+                    // dropped below.
+                    if let Some(p) = changed.get_mut(i) {
+                        p.tab_id.clear();
+                    }
+                }
+                if !removed.contains(id) {
+                    removed.push(id.clone());
+                }
+            }
+            for patch in &change.changed {
+                removed.retain(|id| *id != patch.tab_id);
+                match at.get(&patch.tab_id).and_then(|&i| changed.get_mut(i)) {
+                    Some(existing) => existing.merge(patch.clone()),
+                    None => {
+                        at.insert(patch.tab_id.clone(), changed.len());
+                        changed.push(patch.clone());
+                    }
+                }
+            }
+        }
+        changed.retain(|p| !p.tab_id.is_empty());
+        Some(Delta { rev: self.rev, base_rev, changed, removed })
+    }
+
+    fn record(&mut self, changed: Vec<RowPatch>, removed: Vec<String>) {
+        self.rev += 1;
+        self.history.push_back(Change { rev: self.rev, changed, removed });
+        while self.history.len() > self.history_cap {
+            match self.history.pop_front() {
+                Some(dropped) => self.oldest_base = dropped.rev,
+                None => break,
+            }
+        }
+        if self.history_cap == 0 {
+            self.oldest_base = self.rev;
+        }
+    }
+
+    /// Builds the row for `obs`, storing any part whose bytes are new to the
+    /// row. Each stored part holds one store reference, listed in `taken`.
+    fn row_for(&mut self, old: Option<&Row>, obs: Observation) -> NewRow {
+        let mut taken = Vec::new();
+        // A part whose bytes the row already shows takes one more reference
+        // without counting as a dedupe hit; new bytes go through the store.
+        let mut put = |store: &mut BlobStore, had: Option<BlobHash>, mime: Mime, bytes: &[u8]| {
+            let hash = BlobHash::of(bytes);
+            if had == Some(hash) && store.acquire(hash) {
+                taken.push(hash);
+                return hash;
+            }
+            store.insert_hashed(hash, mime, bytes);
+            taken.push(hash);
+            hash
+        };
+        let store = &mut self.store;
+        let favicon_hash = obs
+            .favicon
+            .as_ref()
+            .map(|f| put(store, old.and_then(|o| o.favicon_hash), f.mime, &f.bytes));
+        let thumb_hash = obs
+            .thumb
+            .as_ref()
+            .map(|t| put(store, old.and_then(|o| o.thumb_hash), t.mime, &t.bytes));
+        let screen_hash = obs.screen.as_ref().map(|s| {
+            put(store, old.and_then(|o| o.screen_hash), Mime::ScreenText, s.text.as_bytes())
+        });
+        let frame_hash = obs
+            .frame
+            .as_ref()
+            .map(|f| put(store, old.and_then(|o| o.frame_hash), f.mime, &f.bytes));
+        let thumb = obs.thumb.as_ref();
+        let screen = obs.screen.as_ref();
+        let row = Row {
+            tab_id: obs.tab_id,
+            title: obs.title,
+            kind: obs.kind,
+            favicon_hash,
+            thumb_hash,
+            thumb_w: thumb.map_or(0, |t| t.width),
+            thumb_h: thumb.map_or(0, |t| t.height),
+            thumb_mime: thumb.map_or(Mime::OctetStream, |t| t.mime),
+            screen_hash,
+            screen_cols: screen.map_or(0, |s| s.cols),
+            screen_rows: screen.map_or(0, |s| s.rows),
+            frame_hash,
+            captured_at_ms: obs.captured_at_ms,
+        };
+        let row = match old {
+            // An unchanged row keeps its capture time, so the manifest and
+            // the deltas a phone applied agree.
+            Some(old) if old.same_content(&row) => {
+                Row { captured_at_ms: old.captured_at_ms, ..row }
+            }
+            _ => row,
+        };
+        NewRow { row, taken }
+    }
+}
+
+struct NewRow {
+    row: Row,
+    taken: Vec<BlobHash>,
+}
+
+#[cfg(test)]
+#[path = "producer_tests.rs"]
+mod tests;

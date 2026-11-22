@@ -1,0 +1,177 @@
+//! The Mac side of one connected phone. Frames from the phone go in through
+//! [`Session::on_frame`]; the host pulls frames to write with
+//! [`Session::next_frame`] whenever the link can take one, so nothing is
+//! buffered beyond the queue of wanted hashes.
+//!
+//! Rules:
+//! - The session opens on the phone's first frame. A reconnecting phone
+//!   sends `resume` first, so the opening frame is a delta from its rev; a
+//!   phone without one gets the manifest. The host may also open the
+//!   session itself ([`Session::open`]) if the phone stays silent.
+//! - A producer change since the last manifest or delta goes out as one
+//!   delta before any blob; changes made between two pulls coalesce.
+//! - Blobs go out in the order of the phone's last `want`; a new `want`
+//!   replaces the queue. A hash the phone listed in `have`, one this session
+//!   already sent, or one the store no longer holds is skipped.
+
+use crate::hash::BlobHash;
+use crate::producer::Producer;
+use crate::wire::{Message, Viewport, WireError, encode_blob};
+use std::collections::{HashSet, VecDeque};
+use std::fmt;
+
+/// Why a phone frame was refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionError {
+    Wire(WireError),
+    /// A Mac-to-phone kind arrived from the phone.
+    WrongDirection(u8),
+}
+
+impl fmt::Display for SessionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Wire(err) => err.fmt(f),
+            Self::WrongDirection(kind) => write!(f, "frame kind 0x{kind:02x} is Mac to phone"),
+        }
+    }
+}
+
+impl std::error::Error for SessionError {}
+
+/// Counters for reports and the bench.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SessionStats {
+    pub manifests: u64,
+    pub deltas: u64,
+    pub blobs: u64,
+    pub blob_bytes: u64,
+    /// Wanted hashes skipped because the phone has them or they were sent.
+    pub skipped_held: u64,
+    /// Wanted hashes skipped because the store no longer holds them.
+    pub skipped_gone: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct Session {
+    opened: bool,
+    /// The rev the phone holds (or will once the frames already pulled
+    /// arrive). `None` until a manifest went out or the phone resumed.
+    phone_rev: Option<u64>,
+    /// The phone resumed and has not been answered yet.
+    answer_resume: bool,
+    phone_has: HashSet<BlobHash>,
+    sent: HashSet<BlobHash>,
+    queue: VecDeque<BlobHash>,
+    viewport: Option<Viewport>,
+    stats: SessionStats,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens the session without waiting for the phone's first frame.
+    pub fn open(&mut self) {
+        self.opened = true;
+    }
+
+    pub fn viewport(&self) -> Option<&Viewport> {
+        self.viewport.as_ref()
+    }
+
+    pub fn stats(&self) -> SessionStats {
+        self.stats
+    }
+
+    /// Wanted hashes still queued (some may be skipped when pulled).
+    pub fn queued(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn on_frame(&mut self, frame: &[u8]) -> Result<(), SessionError> {
+        let msg = Message::decode(frame).map_err(SessionError::Wire)?;
+        self.on_message(msg)
+    }
+
+    pub fn on_message(&mut self, msg: Message) -> Result<(), SessionError> {
+        match msg {
+            Message::Viewport(v) => self.viewport = Some(v),
+            Message::Want(hashes) => {
+                let mut seen = HashSet::new();
+                self.queue =
+                    hashes.into_iter().filter(|h| seen.insert(*h) && !self.held(h)).collect();
+            }
+            Message::Have(hashes) => {
+                self.phone_has.extend(hashes);
+                let has = &self.phone_has;
+                self.queue.retain(|h| !has.contains(h));
+            }
+            Message::Resume(r) => {
+                self.phone_rev = Some(r.rev);
+                self.answer_resume = true;
+            }
+            other @ (Message::Manifest(_) | Message::Delta(_) | Message::Blob(_)) => {
+                return Err(SessionError::WrongDirection(other.kind()));
+            }
+        }
+        self.opened = true;
+        Ok(())
+    }
+
+    fn held(&self, hash: &BlobHash) -> bool {
+        self.phone_has.contains(hash) || self.sent.contains(hash)
+    }
+
+    /// The next frame to write, or `None` when there is nothing to send now.
+    pub fn next_frame(&mut self, producer: &Producer) -> Option<Vec<u8>> {
+        if !self.opened {
+            return None;
+        }
+        if let Some(frame) = self.rows_frame(producer) {
+            return Some(frame);
+        }
+        while let Some(hash) = self.queue.pop_front() {
+            if self.held(&hash) {
+                self.stats.skipped_held += 1;
+                continue;
+            }
+            let Some(blob) = producer.store().get(&hash) else {
+                self.stats.skipped_gone += 1;
+                continue;
+            };
+            self.sent.insert(hash);
+            self.stats.blobs += 1;
+            self.stats.blob_bytes += blob.bytes.len() as u64;
+            return Some(encode_blob(hash, blob.mime, &blob.bytes));
+        }
+        None
+    }
+
+    /// A manifest or delta when the phone's rev is not the producer's.
+    fn rows_frame(&mut self, producer: &Producer) -> Option<Vec<u8>> {
+        let rev = producer.rev();
+        let delta = match self.phone_rev {
+            Some(have) if have == rev && !self.answer_resume => return None,
+            Some(have) => producer.delta_since(have),
+            None => None,
+        };
+        self.answer_resume = false;
+        self.phone_rev = Some(rev);
+        Some(match delta {
+            Some(delta) => {
+                self.stats.deltas += 1;
+                Message::Delta(delta).encode()
+            }
+            None => {
+                self.stats.manifests += 1;
+                Message::Manifest(producer.manifest()).encode()
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod tests;
