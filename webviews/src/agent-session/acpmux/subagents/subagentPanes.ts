@@ -80,15 +80,15 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> |
   return task || fallback;
 }
 
-/// What a pane's header names: in a subagent's own pane, that subagent (its tab title, no rename and
-/// no summary), never the chat it came from; else the chat, renamable, with its rolling summary.
-/// Leo, 2026-11-22: "i notice there's differing layouts among it and normal chats. like the metadata
-/// about provenance or whatever like subagent of something. we shouldn't have those."
+/// A pane's header: a chat's names the chat, renamable, with its rolling summary; a subagent's own
+/// pane names the subagent and says whose it is (`of`, "Subagent of <chat>") in the line the
+/// summary takes, so it has the chat's two lines and the same height (Leo, 2026-11-22: "it is prob ok
+/// to somehow denote the \"subagent of\"... at the top i feel like"; SubagentHeaderOf.gallery.tsx).
 export function paneHeading<Summary>(
-  subagentTitle: string | undefined,
+  subagent: { title: string; of: string } | undefined,
   chat: { title: string; summary?: Summary },
-): { title: string; summary?: Summary; renamable: boolean } {
-  if (subagentTitle !== undefined) return { title: subagentTitle, renamable: false };
+): { title: string; summary?: Summary | { text: string }; renamable: boolean } {
+  if (subagent !== undefined) return { title: subagent.title, summary: { text: subagent.of }, renamable: false };
   return { title: chat.title, summary: chat.summary, renamable: true };
 }
 
