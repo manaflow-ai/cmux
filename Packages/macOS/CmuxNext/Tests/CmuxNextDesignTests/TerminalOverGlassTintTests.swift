@@ -68,14 +68,19 @@ import Testing
         #expect(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault)).isOpaque)
     }
 
-    /// The chrome's quieter inks hold their contrast over the glass tint on the worst desktop.
+    /// The chrome's quieter inks are derived over the glass tint on the worst desktop, as a translucent
+    /// window's are: secondary text is muted no further than 4.5:1 there, or not at all where the primary
+    /// itself reads less. Before, glass at Opacity 1 derived them as opaque, muted over the theme fill alone.
     @Test(arguments: [true, false])
-    func inksReadOverTheGlassTint(dark: Bool) {
+    func quieterInksAreDerivedOverTheGlassTint(dark: Bool) {
         let tokens = Self.tokens(dark ? Self.dark : Self.light, blur: -1)
         let bg = tokens.windowBackground.withAlpha(1)
         let tint = bg.withAlpha(tokens.glassTintCeiling).composited(over: tokens.isDark ? .white : .black)
-        #expect(tokens.textSecondary.contrast(with: tint) >= ThemeTokens.minimumTextContrast
-                || tokens.textSecondary == tokens.textPrimary,
-                "secondary text reads \(tokens.textSecondary.contrast(with: tint)) on the glass tint")
+        let floor = min(ThemeTokens.minimumTextContrast, tokens.textPrimary.contrast(with: tint))
+        #expect(tokens.textSecondary.contrast(with: tint) >= floor - 0.05,
+                "secondary text reads \(tokens.textSecondary.contrast(with: tint)) on the glass tint, under \(floor)")
+        let opaque = Self.tokens(dark ? Self.dark : Self.light, blur: 0)
+        #expect(tokens.textSecondary.contrast(with: tint) >= opaque.textSecondary.contrast(with: tint) - 0.05,
+                "glass mutes secondary text further than an opaque window")
     }
 }
