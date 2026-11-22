@@ -1287,6 +1287,7 @@
               "agents.chats.sessionRecap",
               "agents.chats.coldArchive",
               "agents.chats.coldArchiveAfterDays",
+              "agents.chats.archiveInactive",
               "chat.on"
             ],
             "title" : {
@@ -2250,7 +2251,9 @@
             "key" : "settings.group.experiments",
             "rows" : [
               "experiments.glassToolbarGroups",
-              "experiments.composerV2"
+              "experiments.composerV2",
+              "experiments.agentBadges",
+              "experiments.agentBadgesBeam"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -24205,6 +24208,185 @@
     },
     {
       "accepts" : [
+        "never",
+        "1d",
+        "3d",
+        "7d",
+        "30d"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveOneDay",
+            "text" : "After 1 Day"
+          },
+          "value" : "1d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveThreeDays",
+            "text" : "After 3 Days"
+          },
+          "value" : "3d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveSevenDays",
+            "text" : "After 7 Days"
+          },
+          "value" : "7d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveThirtyDays",
+            "text" : "After 30 Days"
+          },
+          "value" : "30d"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "never",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.archiveInactive.help",
+        "text" : "Archives chats after a period of no activity. Chats that are running or have background work never are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.archiveInactive",
+      "keywords" : [
+        "agents",
+        "chats",
+        "archive",
+        "archived",
+        "settled",
+        "inactive",
+        "idle",
+        "auto archive",
+        "days"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "archiveInactive"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.archiveInactive"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.archiveInactive",
+        "text" : "Archive Inactive Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -35024,181 +35206,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "flush",
-        "flush-tight",
-        "flush-goo"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.off",
-            "text" : "Pill"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.flush",
-            "text" : "Flush"
-          },
-          "value" : "flush"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.tight",
-            "text" : "Flush, Tight to the Sidebar"
-          },
-          "value" : "flush-tight"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.goo",
-            "text" : "Goo"
-          },
-          "value" : "flush-goo"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "flush",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.panes",
-        "text" : "Panes"
-      },
-      "help" : {
-        "key" : "settings.appearance.cornerFlush.help",
-        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.cornerFlush",
-      "keywords" : [
-        "corner",
-        "flush",
-        "goo",
-        "gooey",
-        "folder tab",
-        "fillet",
-        "pill",
-        "selected tab",
-        "tab shape",
-        "card",
-        "material"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "cornerFlush"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.cornerFlush.summary",
-        "text" : "Pill, flush or goo for the selected tab"
-      },
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:appearance.cornerFlush"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.appearance.cornerFlush",
-        "text" : "Selected Tab Shape"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -39708,6 +39715,181 @@
       "title" : {
         "key" : "settings.appearance.twoTone",
         "text" : "Two-Tone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
       },
       "validation" : "portable"
     },
@@ -79171,6 +79353,612 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          [
+            "icon",
+            "name",
+            "branch"
+          ],
+          [
+            "agentStatus"
+          ]
+        ],
+        [
+          [
+            "name",
+            "directory"
+          ],
+          [
+            "process"
+          ],
+          [
+            "ports",
+            "lastActivity"
+          ]
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.lines.help",
+        "text" : "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.lines",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "lines"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "name",
+        1,
+        {
+
+        },
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "items" : {
+          "items" : {
+            "enum" : [
+              "icon",
+              "name",
+              "working",
+              "progress",
+              "notification",
+              "directory",
+              "branch",
+              "process",
+              "agentStatus",
+              "tabCount",
+              "ports",
+              "lastActivity",
+              "pullRequest",
+              "log"
+            ]
+          },
+          "maxItems" : 10,
+          "minItems" : 1,
+          "type" : "array",
+          "uniqueItems" : true
+        },
+        "maxItems" : 3,
+        "type" : "array"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.lines",
+        "text" : "Row Layout"
+      },
+      "validation" : "domain:sidebar_row_lines"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "agent" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "agentStatus"
+            ]
+          ],
+          "terminal" : [
+            [
+              "icon",
+              "name"
+            ],
+            [
+              "process",
+              "directory"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByKind.help",
+        "text" : "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByKind",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "kind",
+        "terminal",
+        "agent",
+        "browser"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByKind"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "agent",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "propertyNames" : {
+          "enum" : [
+            "terminal",
+            "agent",
+            "browser",
+            "mixed"
+          ]
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByKind",
+        "text" : "Row Layout by Kind"
+      },
+      "validation" : "domain:sidebar_row_lines_by_kind"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "claude" : [
+            [
+              "icon",
+              "name",
+              "working"
+            ],
+            [
+              "lastActivity"
+            ]
+          ],
+          "codex" : [
+            [
+              "name",
+              "branch"
+            ]
+          ]
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.lines.default",
+        "text" : "Item switches"
+      },
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.linesByAgent.help",
+        "text" : "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.linesByAgent",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "layout",
+        "lines",
+        "customize",
+        "tokens",
+        "agent",
+        "claude",
+        "codex"
+      ],
+      "kind" : "json",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "linesByAgent"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        [
+
+        ],
+        "claude",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "shape" : {
+        "additionalProperties" : {
+          "items" : {
+            "items" : {
+              "enum" : [
+                "icon",
+                "name",
+                "working",
+                "progress",
+                "notification",
+                "directory",
+                "branch",
+                "process",
+                "agentStatus",
+                "tabCount",
+                "ports",
+                "lastActivity",
+                "pullRequest",
+                "log"
+              ]
+            },
+            "maxItems" : 10,
+            "minItems" : 1,
+            "type" : "array",
+            "uniqueItems" : true
+          },
+          "maxItems" : 3,
+          "type" : "array"
+        },
+        "maxProperties" : 32,
+        "propertyNames" : {
+          "maxLength" : 64,
+          "minLength" : 1,
+          "type" : "string"
+        },
+        "type" : "object"
+      },
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "The Sidebar page's row layout editor edits it (CMUX-383); cmux settings set and the file keep working.",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceRow.linesByAgent",
+        "text" : "Row Layout by Agent"
+      },
+      "validation" : "domain:sidebar_row_lines_by_agent"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -107529,6 +108317,287 @@
       "title" : {
         "key" : "settings.experiments.composerV2",
         "text" : "Composer Refresh"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.agentBadges.help",
+        "text" : "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.agentBadges",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "agent",
+        "badge",
+        "badges",
+        "count",
+        "unread",
+        "approval",
+        "status",
+        "pill",
+        "running",
+        "done"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "agentBadges"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.agentBadges"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.agentBadges",
+        "text" : "Agent Badges"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.agentBadgesBeam.help",
+        "text" : "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.agentBadgesBeam",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "agent",
+        "badges",
+        "beam",
+        "light",
+        "running",
+        "border",
+        "edge"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "agentBadgesBeam"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.agentBadgesBeam"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.agentBadgesBeam",
+        "text" : "Agent Badges: Running Beam"
       },
       "validation" : "portable"
     },

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 656,
+  "count": 660,
   "sections": [
     {
       "id": "general",
@@ -247,6 +247,21 @@
             "max": 95,
             "unit": "count"
           }
+        },
+        {
+          "key": "agents.chats.archiveInactive",
+          "title": "Archive Inactive Chats",
+          "help": "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+          "kind": "choice",
+          "default": "never",
+          "group": "Chats",
+          "values": [
+            "never",
+            "1d",
+            "3d",
+            "7d",
+            "30d"
+          ]
         },
         {
           "key": "agents.chats.coldArchive",
@@ -3533,6 +3548,26 @@
           "values": [
             "oneColor",
             "subtleTone"
+          ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "title": "Two-Tone",
+          "help": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Panes",
+          "values": [
+            "off",
+            "auto",
+            "inkSakura",
+            "charcoalRose",
+            "inkMagenta",
+            "creamForest",
+            "navySand",
+            "boneOxblood",
+            "slateMatcha",
+            "plumAmber"
           ]
         },
         {
@@ -7085,6 +7120,22 @@
           "kind": "toggle",
           "default": true,
           "group": "Developer Tools"
+        },
+        {
+          "key": "experiments.agentBadges",
+          "title": "Agent Badges",
+          "help": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.agentBadgesBeam",
+          "title": "Agent Badges: Running Beam",
+          "help": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
         },
         {
           "key": "experiments.composerV2",
