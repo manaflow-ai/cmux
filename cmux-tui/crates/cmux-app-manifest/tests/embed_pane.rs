@@ -19,6 +19,7 @@ mod apps {
             "name": "Figma",
             "version": "1.0.0",
             "description": "d",
+            "repository": "https://github.com/octo/figma",
             "icon": "icon.png",
             "engines": { "cmux": "^2.0" },
             "presentation": { "tab": true },
