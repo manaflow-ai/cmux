@@ -26,6 +26,8 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// Reloads the served views each at its own safe point (``reloadPages(live:hosting:pages:served:watcher:)``).
+    let gracefulReload = WebBundleGracefulReload()
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -105,7 +107,9 @@ public final class WebDevOverrideWatcher {
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
-        served.reloadServed()
+        // Each served view reloads at its own safe point under a picture of itself, keeping the
+        // composer's draft and keyboard (``WebBundleGracefulReload``), not all of them blank at once.
+        watcher.gracefulReload.reload(served.shown, to: WebBundleOverlay.shared.activeTree, served: served)
         let pages = pages ?? PageRegistry.pages()
         defer { watcher.chromiumServedLive = chromiumLive }
         // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
