@@ -440,7 +440,7 @@ final class WindowManager {
         } else {
             awaitingContent[window.id] = false
         }
-        if controllers.count == 1 { onFirstWindow?(controller) }
+        if controllers.count == 1 { onFirstWindow?(controller); if ordersWindowsIn, !restored { FirstWindowFrame.commit(controller.window) { DebugTimings.markLaunch($0) } } } // the launch window's frame now, not after the daemon's first tree
         return controller
     }
 
