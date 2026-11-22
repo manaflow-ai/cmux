@@ -12,7 +12,7 @@ import { Icon } from "../icons/Icon";
  * (a) today: a row with no harness draws the sparkle (`task.ai`) alone in its tone; a sender with one draws
  *     its family's mark with the sparkle as a badge (senderIconLook.ts, the default).
  * (b) the harness's own mark everywhere; the tone stays on the name.
- * (c) the harness's mark, and a child of this chat wears a small branch badge in its tone.
+ * (c) the harness's mark, and a child of this chat wears the fork mark as a badge in its tone.
  * (d) the harness's mark, and a child of this chat hangs under its parent on a hook, as Claude Code nests a
  *     tool's output under its call (⎿); a message from elsewhere sits at the left edge like any sender.
  */
@@ -40,7 +40,7 @@ const ROWS: Row[] = [
 const LOOKS: { look: Look; title: string; note: string }[] = [
   { look: "a", title: "(a) Today", note: "sparkle alone, or the mark with a sparkle badge" },
   { look: "b", title: "(b) Harness mark", note: "Claude or Codex, nothing else" },
-  { look: "c", title: "(c) Mark + branch badge", note: "a child wears a small branch" },
+  { look: "c", title: "(c) Mark + fork badge", note: "a child wears the fork mark" },
   { look: "d", title: "(d) Mark + hook (pick)", note: "a child hangs under its parent" },
 ];
 
@@ -48,13 +48,18 @@ const SIZE = 16;
 /// A row's harness: a subagent with none of its own runs on its chat's (this chat is Claude).
 const CHAT_HARNESS = "claude";
 
-/// A small branch, filled shapes for 7 px: two dots joined by a curve, in the child's tone.
+/// The fork mark (`agent.fork`, #50275) at badge size: the same arrow splitting in two, heavier so it reads at 8 px.
 function BranchBadge() {
   return (
-    <svg className="session-mark__badge" viewBox="0 0 16 16" width={8} height={8} aria-hidden="true">
-      <circle cx="4" cy="3.5" r="2.5" fill="currentColor" />
-      <circle cx="12" cy="12.5" r="2.5" fill="currentColor" />
-      <path d="M4 5v2.5a5 5 0 0 0 5 5h1" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
+    <svg className="session-mark__badge" viewBox="2 1.5 20 21" width={8} height={8} aria-hidden="true">
+      <path
+        d="M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
