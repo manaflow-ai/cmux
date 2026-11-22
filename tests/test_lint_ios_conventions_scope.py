@@ -30,7 +30,10 @@ public final class Store: Sendable {
 
 class FilesFromScope(unittest.TestCase):
     def lint(self, files):
-        """The real lint over `files` in a scratch tree that has both an iOS and a macOS package."""
+        """The real lint over `files` in a scratch tree shaped like the repository.
+
+        The iOS package directory always exists, whether or not a listed file is in it: the lint
+        builds its roots (SCOPES) from the directories it finds, as it does in a checkout."""
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         (tmp / "scripts").mkdir()
@@ -40,6 +43,8 @@ class FilesFromScope(unittest.TestCase):
         for name in ("lint-ios-package-conventions-baseline.txt",
                      "lint-namespace-types-baseline.txt", "lint-namespace-types-ratchet.txt"):
             (tmp / "scripts" / name).write_text("")
+        ios_package = tmp / "Packages/iOS/CmuxMobileCore/Sources/CmuxMobileCore"
+        ios_package.mkdir(parents=True)
         for path, text in files.items():
             target = tmp / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -48,21 +53,23 @@ class FilesFromScope(unittest.TestCase):
         listing.write_text("".join(f"{path}\n" for path in files))
         done = subprocess.run(["bash", LINT, "--files-from", str(listing)],
                               cwd=tmp, capture_output=True, text=True)
-        return done.stdout + done.stderr
+        return done.returncode, done.stdout + done.stderr
 
     def test_a_macos_package_file_is_not_graded_by_ios_conventions(self):
-        out = self.lint({"Packages/iOS/CmuxMobileCore/Sources/CmuxMobileCore/Keep.swift": "",
-                         "Packages/macOS/CmuxNext/Sources/CmuxNextTunables/Store.swift": VIOLATING_SOURCE})
+        _, out = self.lint({"Packages/iOS/CmuxMobileCore/Sources/CmuxMobileCore/Keep.swift": "",
+                            "Packages/macOS/CmuxNext/Sources/CmuxNextTunables/Store.swift": VIOLATING_SOURCE})
         self.assertNotIn("ERROR   singleton", out, out)
         self.assertNotIn("ERROR   lock", out, out)
 
     def test_the_same_declarations_in_an_ios_package_still_fail(self):
-        out = self.lint({"Packages/iOS/CmuxMobileCore/Sources/CmuxMobileCore/Store.swift": VIOLATING_SOURCE})
+        code, out = self.lint({"Packages/iOS/CmuxMobileCore/Sources/CmuxMobileCore/Store.swift": VIOLATING_SOURCE})
         self.assertIn("ERROR   singleton", out, out)
         self.assertIn("ERROR   lock", out, out)
+        self.assertEqual(code, 1, out)
 
-    def test_a_list_with_nothing_in_scope_is_clean(self):
-        out = self.lint({"Packages/macOS/CmuxNext/Sources/CmuxNextTunables/Store.swift": VIOLATING_SOURCE})
+    def test_a_list_with_nothing_in_scope_passes(self):
+        code, out = self.lint({"Packages/macOS/CmuxNext/Sources/CmuxNextTunables/Store.swift": VIOLATING_SOURCE})
+        self.assertEqual(code, 0, out)
         self.assertNotIn("FAIL:", out, out)
 
 
