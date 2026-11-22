@@ -2624,7 +2624,13 @@ function TranscriptView({
       const before = rows.getBoundingClientRect().top;
       take();
       const delta = before - rows.getBoundingClientRect().top;
-      const ms = Math.abs(delta) < 0.5 ? 0 : foldMs(rows);
+      // The composer emptying as the reader sends gives its room back on the send's own clock, not the
+      // fold's: on the product's 0 (MOTION_SEND_MS) the rows are where the room puts them in the frame
+      // the composer empties. On the fold's clock a multi-line draft's send drew the whole thread up by
+      // the draft's height (249 px for a capped draft in a 360 px pane) and glided it home over 180 ms
+      // after the bubble had landed (hq#18554; agent-pane-send-lines-motion-browser.test.ts).
+      const sending = delta < 0 && performance.now() < sendRiseUntil.current;
+      const ms = Math.abs(delta) < 0.5 ? 0 : sending ? sendClockMs(rows) : foldMs(rows);
       if (!(ms > 0)) return;
       const move = rows.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
         duration: ms,
