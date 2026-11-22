@@ -81,11 +81,14 @@
 //   ATTACH_DELAY_MS=N   the attach answers N ms after it was asked (a slow daemon);
 //   PRESS=key|click|wheel  one input (Shift, a click in the transcript, a wheel up) 100 ms after first content,
 //                       while the copy shows: a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
+// Each round also notes `composerLiveMs` (when the live composer first showed through the copy: liveComposer.ts);
+// HOLE_PIXELS=1 (Chromium) screencasts each relaunch and counts the pixels that differ between the frames either side.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { PNG } from "pngjs";
 import { chromium, webkit } from "./browsers";
 import type { Browser, Page } from "playwright";
 import {
@@ -282,6 +285,33 @@ if (!Number.isFinite(ATTACH_DELAY_MS) || ATTACH_DELAY_MS < 0) throw new Error("A
 const PRESS = process.env.PRESS ?? "";
 if (PRESS && !["key", "click", "wheel"].includes(PRESS)) throw new Error("PRESS must be key, click or wheel");
 const PRESS_AFTER_MS = 100;
+/// HOLE_PIXELS=1 (Chromium): a screencast of each relaunch, and the pixels that differ between the last frame before the
+/// live composer showed through the copy (chatSnapshot/liveComposer.ts, `composer_live_ms`) and the first after it.
+const HOLE_PIXELS = process.env.HOLE_PIXELS === "1";
+/// The pixels that differ between two screencast PNGs (any channel), and their bounding box.
+function pixelDiff(a: string, b: string): { changed: number; box: number[] | null } {
+  const one = PNG.sync.read(Buffer.from(a, "base64"));
+  const two = PNG.sync.read(Buffer.from(b, "base64"));
+  if (one.width !== two.width || one.height !== two.height) return { changed: -1, box: null };
+  let changed = 0;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
+  for (let y = 0; y < one.height; y += 1)
+    for (let x = 0; x < one.width; x += 1) {
+      const at = (y * one.width + x) * 4;
+      if (
+        one.data[at] === two.data[at] &&
+        one.data[at + 1] === two.data[at + 1] &&
+        one.data[at + 2] === two.data[at + 2]
+      )
+        continue;
+      changed += 1;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+  return { changed, box: changed ? [x0, y0, x1 - x0 + 1, y1 - y0 + 1] : null };
+}
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
@@ -340,14 +370,16 @@ type Painted = FrameRecord & {
   bottomText: string;
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
-  /// The composer's chips the layer on top drew (`readChips` in recordFrames).
+  /// The composer's chips the layer on top drew (`readChips` in recordFrames), and which layer drew them: the
+  /// copy, the live composer through the copy's hole (`hole`, chatSnapshot/liveComposer.ts), the live page.
   chips: Chip[];
+  chipLayer: Layer;
 };
 /// One composer chip as painted: its slot (access, model, effort, harness, location:KIND) and its visible words.
 type Chip = { slot: string; label: string };
 /// The layer a frame was read from: the copy, the live page, or nothing (the live root held clear, no copy).
-type Layer = "copy" | "live" | "hidden";
-const layerOf = (frame: Painted): Layer => (frame.copyShown ? "copy" : frame.rootHidden ? "hidden" : "live");
+type Layer = "copy" | "hole" | "live" | "hidden";
+const layerOf = (frame: Painted): Layer => frame.chipLayer;
 /// A chip label painted after first content and then absent from a later frame (Leo, 2026-11-22: "the bypass
 /// permissions appears then disappears after it loaded in"): when it first showed, when it went and came back
 /// (null: it never did), the layer of each of those frames, and what its slot showed instead (null: nothing).
@@ -438,7 +470,7 @@ type BenchWindow = {
   __firstLoad: Recording;
   __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
   __cmuxChatSnapshotMiss?: string;
-  __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
+  __cmuxChatSnapshotShown?: { at: number; composerAt?: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
   captureMiss: () => string;
 };
@@ -576,6 +608,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     bottomText: string;
     rootHidden: boolean;
     chips: Chip[];
+    chipLayer: string;
   };
   let stopped = false;
   /// Painted: a box, and no ancestor up to the layer's root hidden or clear.
@@ -595,8 +628,8 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   /// fit shows (`data-fit-part`, a short form drawn from its `data-label`), the harness's mark, the location chips.
   const readChips = (scope: ParentNode): Chip[] => {
     const chips: Chip[] = [];
-    const row = Array.from(scope.querySelectorAll(".acpmux-chips")).find(painted);
-    if (row) {
+    // The row is `display: contents` in the composer's foot (composerLocation.css): it has no box of its own.
+    for (const row of Array.from(scope.querySelectorAll(".acpmux-chips"))) {
       for (const mode of Array.from(row.querySelectorAll(".acpmux-mode")).filter(painted)) {
         const text = Array.from(mode.querySelectorAll(".acpmux-mode-text")).filter(painted).map(words).join(" ");
         if (text) chips.push({ slot: "access", label: text });
@@ -705,7 +738,10 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
-      chips: rootHidden ? [] : readChips(scope),
+      // While the copy shows, its composer may be a hole the live composer shows through (liveComposer.ts):
+      // then the chips drawn are the live page's.
+      chips: rootHidden ? [] : readChips(host?.style.clipPath ? document : scope),
+      chipLayer: rootHidden ? "hidden" : host ? (host.style.clipPath ? "hole" : "copy") : "live",
     };
   };
   window.cmuxAfterPaint(() => {
@@ -816,6 +852,10 @@ type Round = {
   /// were answered with none sent first (the page asked for no list on that socket).
   earlyChangeMs: number | null;
   earlyChangeMissed: number;
+  /// When the live composer first showed through the copy (`chatSnapshotTimes().composer_live_ms`), else null.
+  composerLiveMs: number | null;
+  /// HOLE_PIXELS: the screencast frames either side of it (ms from navigation) and the pixels that differ.
+  hole: { beforeMs: number; afterMs: number; changed: number; box: number[] | null } | null;
   frames: Painted[];
   /// When the live page, with no copy over it, first showed the newest answer (ms from navigation),
   /// else null: a round whose copy never gave way to the read chat has not loaded.
@@ -1401,6 +1441,8 @@ try {
         press: null,
         earlyChangeMs: null,
         earlyChangeMissed: 0,
+        composerLiveMs: null,
+        hole: null,
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
@@ -1465,6 +1507,23 @@ try {
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
       wireT0 = Date.now();
+      // HOLE_PIXELS: every frame the compositor draws, with its time (epoch ms).
+      let cast: { at: number; data: string }[] | null = null;
+      const castCdp = HOLE_PIXELS && ENGINE === "chromium" ? await context.newCDPSession(page) : null;
+      if (castCdp) {
+        const frames: { at: number; data: string }[] = [];
+        cast = frames;
+        castCdp.on("Page.screencastFrame", (event: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
+          frames.push({ at: (event.metadata.timestamp ?? Date.now() / 1000) * 1000, data: event.data });
+          void castCdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
+        });
+        await castCdp.send("Page.startScreencast", {
+          format: "png",
+          everyNthFrame: 1,
+          maxWidth: RELAUNCH_VIEWPORT.width,
+          maxHeight: RELAUNCH_VIEWPORT.height,
+        });
+      }
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       // PRESS: one input PRESS_AFTER_MS after the first frame with content, as a person's would be.
       let press: Round["press"] = null;
@@ -1492,6 +1551,7 @@ try {
         timeout: windowMs + 60_000,
         polling: 250,
       });
+      if (castCdp) await castCdp.send("Page.stopScreencast").catch(() => undefined);
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
         // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
@@ -1533,6 +1593,20 @@ try {
         press,
         earlyChangeMs: since(load.earlyChangeAt),
         earlyChangeMissed: load.earlyChangeMissed,
+        composerLiveMs: got.shown?.composerAt ?? null,
+        hole: (() => {
+          const at = got.shown?.composerAt;
+          if (!cast || at === undefined) return null;
+          const epoch = got.origin + at;
+          const before = cast.filter((frame) => frame.at <= epoch).at(-1);
+          const after = cast.find((frame) => frame.at > epoch);
+          if (!before || !after) return null;
+          return {
+            beforeMs: Math.round(before.at - got.origin),
+            afterMs: Math.round(after.at - got.origin),
+            ...pixelDiff(before.data, after.data),
+          };
+        })(),
         frames: got.frames,
         liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
@@ -1744,6 +1818,8 @@ try {
         attachMs: r.attachAnsweredMs === null ? null : Math.round(r.attachAnsweredMs),
         earlyChangeMs: r.earlyChangeMs === null ? null : Math.round(r.earlyChangeMs),
         earlyChangeMissed: r.earlyChangeMissed,
+        composerLiveMs: r.composerLiveMs === null ? null : Math.round(r.composerLiveMs),
+        hole: r.hole,
         press: r.press,
         firstChips: r.frames.find((frame) => frame.rows.length > 0)?.chips ?? [],
         lastChips: r.frames.at(-1)?.chips ?? [],
@@ -1789,7 +1865,7 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
-              `chips ${frame.chips.map((chip) => `${chip.slot}=${chip.label}`).join(", ") || "-"}`,
+              `chips[${frame.chipLayer}] ${frame.chips.map((chip) => `${chip.slot}=${chip.label}`).join(", ") || "-"}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );

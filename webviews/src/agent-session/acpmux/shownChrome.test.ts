@@ -76,3 +76,19 @@ test("the model list the page showed stays while the client has none", () => {
   const drawn = shownChrome().keep({ ...kept, catalog }, frame("connected", { sessionId: "chat" }));
   expect(drawn.catalog).toBe(catalog);
 });
+
+test("a read chat whose detail came without its modes keeps the ones it named, on the same harness", () => {
+  const chrome = shownChrome();
+  // acpmux dropped `modes` from a reply too big to send: the chip stays, on this frame and the next.
+  const bare = frame("attached", { sessionId: "chat", harness: "claude", modes: null } as unknown as Partial<Summary>);
+  const drawn = chrome.keep(kept, bare);
+  expect(drawn.summary?.modes).toBe(modes);
+  expect(drawn.summary?.harness).toBe("claude");
+  const again = chrome.keep(drawn, { ...bare, isWorking: true });
+  expect(again.summary).toBe(drawn.summary);
+  // The chat names its modes: those are drawn, and kept from then on.
+  const other = { ...modes, currentModeId: "default" };
+  const told = frame("session changed", { sessionId: "chat", harness: "claude", modes: other });
+  expect(chrome.keep(again, told)).toBe(told);
+  expect(chrome.keep(told, { ...bare, connection: "session changed" }).summary?.modes).toBe(other);
+});

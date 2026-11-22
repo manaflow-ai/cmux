@@ -51,6 +51,32 @@ export function shownChrome(): ShownChrome {
   // The last frame made, so the same two summaries give the same object (the pane compares the
   // summary by identity: direct.ts `publishedSummary`).
   let last: { from: Summary; onto: Summary | undefined; value: Summary } | undefined;
+  // The permission modes each chat last named, and the harness that named them. A read chat's detail
+  // can come without them (acpmux drops `modes` first from a reply too big to send: hub/paging.rs),
+  // and the chip then went for good; a chat's modes are its own until it names others, so the frame
+  // keeps the ones it named while the chat runs the same harness.
+  const named = new Map<string, { harness: Summary["harness"]; modes: NonNullable<Summary["modes"]> }>();
+  const withModes = new WeakMap<Summary, Summary>();
+  const note = (summary: Summary | undefined) => {
+    if (summary?.sessionId && summary.modes)
+      named.set(summary.sessionId, { harness: summary.harness, modes: summary.modes });
+  };
+  const read = (sessionId: string, next: AcpmuxSnapshot): AcpmuxSnapshot => {
+    const summary = next.summary;
+    if (!summary || summary.sessionId !== sessionId) return next;
+    if (summary.modes) {
+      note(summary);
+      return next;
+    }
+    const was = named.get(sessionId);
+    if (!was || was.harness !== summary.harness) return next;
+    let value = withModes.get(summary);
+    if (!value || value.modes !== was.modes) {
+      value = { ...summary, modes: was.modes };
+      withModes.set(summary, value);
+    }
+    return { ...next, summary: value };
+  };
   return {
     clientLost() {
       attached.clear();
@@ -58,11 +84,16 @@ export function shownChrome(): ShownChrome {
     keep(previous, next) {
       const sessionId = next.sessionId ?? next.summary?.sessionId;
       if (!sessionId) return next;
-      if (next.connection === ATTACHED || ENDED.has(next.connection)) {
+      if (!named.has(sessionId) && previous?.summary?.sessionId === sessionId) note(previous.summary);
+      if (ENDED.has(next.connection)) {
         attached.add(sessionId);
         return next;
       }
-      if (attached.has(sessionId)) return next;
+      if (next.connection === ATTACHED) {
+        attached.add(sessionId);
+        return read(sessionId, next);
+      }
+      if (attached.has(sessionId)) return read(sessionId, next);
       const shown = previous?.summary;
       if (!shown || shown.sessionId !== sessionId) return next;
       const onto = next.summary;
