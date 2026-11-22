@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextWakeups
+import AppKit
 import Foundation
 
 /// Keeps one overlay sync observer registered; removing it (or releasing
