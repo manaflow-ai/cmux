@@ -2,7 +2,7 @@
 //! session it names, here, on a peer and as `HOST/NAME`; several are refused with each one
 //! (Leo, 2026-11-05: "stuff like that should work better yes").
 
-use super::tests::{list, named, test_hub};
+use super::tests::{list, list_with_alias, named, test_hub};
 use super::*;
 
 fn uses(e: &RpcError) -> Vec<String> {
@@ -35,6 +35,50 @@ async fn a_name_in_another_case_finds_the_one_session_here() {
     named(&hub, "td2-B").await;
     assert_eq!(hub.key_route("td2-a").unwrap().as_deref(), Some(a.id.as_str()));
     assert_eq!(hub.key_route("TD2_a").unwrap().as_deref(), Some(a.id.as_str()));
+}
+
+#[tokio::test]
+async fn session_alias_routes_with_the_same_case_prefix_and_separator_rules() {
+    let hub = test_hub();
+    list_with_alias(
+        &hub,
+        "lanevm-7",
+        "0199aaaa-1111",
+        "ruby-long",
+        "idle",
+        Some("Ruby dot startup-speedups"),
+    );
+    assert_eq!(
+        hub.key_route("Ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    assert_eq!(
+        hub.key_route("ruby dot startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+    // A prefix of a peer's alias names nothing, as a prefix of a peer's name never did
+    // (`key_candidates`): a short key never reaches another machine's chat nobody named.
+    assert_eq!(hub.key_route("ruby").unwrap(), None);
+    assert_eq!(
+        hub.key_route("ruby_dot_startup-speedups").unwrap().as_deref(),
+        Some("lanevm-7/0199aaaa-1111")
+    );
+}
+
+#[tokio::test]
+async fn session_aliases_collide_with_names_and_generic_alias_tags_do_not_route() {
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("shared"));
+    list(&hub, "lanevm-8", "0199bbbb-2222", "shared", "idle");
+    let e = hub.key_route("shared").unwrap_err();
+    assert_eq!(uses(&e).len(), 2, "{e:?}");
+
+    let hub = test_hub();
+    list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("friendly"));
+    let remote_sessions = hub.remote_sessions.read();
+    let row = remote_sessions.get("lanevm-7/0199aaaa-1111").unwrap();
+    assert_eq!(row.summary.alias(), Some("friendly"));
+    assert_eq!(hub.key_route("alias").unwrap(), None);
 }
 
 #[tokio::test]

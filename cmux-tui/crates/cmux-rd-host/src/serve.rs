@@ -11,7 +11,9 @@
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
 //! `capture_backend::CaptureBackend` (`--capture`, else portal in a Wayland session).
-//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}
+//! stdin, later: {"candidate":"host 192.168.1.4:51000"} or {"stop":true}, and
+//!   {"exclude_windows":[123,456]}: the app's window ids (CGWindowID) the capture leaves out,
+//!   the whole list each time, sent before the capture starts and on every change (macOS)
 //! stdout: {"key":"<this side's session key>"} first (the app signs it for the
 //!   viewer), then {"candidate":".."}, {"candidates_done":true} (sent once this side's host
 //!   candidates are known, the app answers then; reflexive and relayed candidates may follow it),
@@ -24,8 +26,8 @@
 
 use crate::args::Opts;
 use crate::capture_backend::CaptureBackend;
-use crate::carrier::{Carrier, Incoming, LinkCarrier};
-use crate::stream::{MediaSession, SessionCfg};
+use crate::carrier::{Carrier, Incoming, LinkCarrier, MediaQueueStats};
+use crate::stream::{MediaSession, OpenedDesktop, SessionCfg};
 use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
@@ -75,6 +77,9 @@ struct Setup {
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The person sharing turned clipboard text sync on for this session (default off).
+    #[serde(default)]
+    clipboard: bool,
 }
 
 #[derive(Deserialize)]
@@ -83,13 +88,24 @@ struct Later {
     candidate: Option<String>,
     #[serde(default)]
     stop: bool,
+    /// SECURITY: the app windows only the person at this Mac may see (the join consent ask, a
+    /// revealed password), which the capture must leave out; the whole list, replacing the last.
+    #[serde(default)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    exclude_windows: Option<Vec<u32>>,
 }
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
 fn say(line: AppLine) {
-    let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{}", line.to_json());
-    let _ = out.flush();
+    let _ = write_line(&mut io::stdout().lock(), &line);
+}
+
+/// One app line on `out`, then a flush: the app reads stdout through a pipe, where nothing
+/// else flushes it, so each line must reach the pipe whole before the next stage waits on
+/// the app (cmuxterm-hq#13721: the answer waits for every candidate line).
+fn write_line(out: &mut impl Write, line: &AppLine) -> io::Result<()> {
+    writeln!(out, "{}", line.to_json())?;
+    out.flush()
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
@@ -194,6 +210,10 @@ impl ServeCarrier {
             if let Some(c) = later.candidate.as_deref().and_then(Candidate::from_wire) {
                 self.link.net.add_remote_candidate(c);
             }
+            #[cfg(target_os = "macos")]
+            if let Some(ids) = later.exclude_windows {
+                crate::mac::capture::set_excluded_windows(ids);
+            }
         }
         Ok(())
     }
@@ -214,6 +234,14 @@ impl ServeCarrier {
 }
 
 impl Carrier for ServeCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<cmux_rd_proto::DatagramDeparture>) {
+        self.link.drain_departures(out);
+    }
+
+    fn departure_overflows(&self) -> u64 {
+        self.link.departure_overflows()
+    }
+
     fn fds(&self) -> Vec<RawFd> {
         let mut fds = self.link.fds();
         fds.push(libc::STDIN_FILENO);
@@ -231,8 +259,16 @@ impl Carrier for ServeCarrier {
         self.link.path_rtt_us()
     }
 
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.link.media_queue_stats()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.link.send_datagram(datagram)
+    }
+
+    fn send_datagram_frame(&mut self, datagrams: Vec<Vec<u8>>, droppable: bool) -> io::Result<()> {
+        self.link.send_datagram_frame(datagrams, droppable)
     }
 
     fn send_control(&mut self, control: &Control) -> io::Result<()> {
@@ -240,13 +276,41 @@ impl Carrier for ServeCarrier {
     }
 }
 
+/// Start bitrate off a direct LAN path (the congestion controller's own start).
+const WAN_START_KBPS: u32 = 8_000;
+/// Start bitrate on a direct LAN path. The controller grows only 8% per second of
+/// flowing frames, so from 8 Mbps it took about 24 s of motion to reach 50 Mbps; a LAN
+/// carries 30 Mbps at once, and a rising delay still cuts it within a few frames.
+const LAN_START_KBPS: u32 = 30_000;
+/// A round trip under this counts as LAN when the path's class does not say so (a peer
+/// first learned during the handshake is classed `direct_wan`).
+const LAN_RTT_US: u64 = 5_000;
+
+/// The start bitrate when `--start-kbps` is not given, from the current path's class and
+/// medium (wire names) and round trip; never above `max_kbps`. A relay is never LAN.
+fn default_start_kbps(
+    path_kind: Option<&str>,
+    medium: Option<&str>,
+    rtt_us: Option<u64>,
+    max_kbps: u32,
+) -> u32 {
+    let relay = matches!(path_kind, Some("turn_relay" | "do_relay" | "via_cloud_region"));
+    let lan = !relay
+        && (path_kind == Some("direct_lan")
+            || matches!(medium, Some("lan" | "link"))
+            || rtt_us.is_some_and(|rtt| rtt < LAN_RTT_US));
+    let start = if lan { LAN_START_KBPS } else { WAN_START_KBPS };
+    start.min(max_kbps)
+}
+
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
-/// viewer is told view, not a control session whose input is dropped.
-fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
+/// when its capture does or does not apply input: one that applies none (the Wayland portal
+/// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
+/// session whose input is dropped.
+fn view_only_for(scope: &str, applies_input: bool) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(!capture.applies_input()),
+        "control" => Ok(!applies_input),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
@@ -264,7 +328,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
-    crate::host::set_xauthority(opts)?;
+    crate::host::check_xauthority(opts)?;
     // Capture setup states (a Wayland portal waiting for the person at the screen) reach the app.
     #[cfg(all(feature = "portal", target_os = "linux"))]
     crate::desktop::set_status_sink(Box::new(|state, message| {
@@ -277,13 +341,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
-    let view_only = view_only_for(&setup.scope, capture)?;
+    let view_only = view_only_for(&setup.scope, capture.applies_input())?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::mac::capture::displays() {
+    match crate::desktop::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
@@ -302,7 +366,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         local: keys,
         expected_remote: peer_key,
         stun,
-        bind: "0.0.0.0:0".parse()?,
+        // `--link-bind IP:PORT` (measurement only): the link's UDP socket on one interface's
+        // address, so a Mac with Ethernet and Wi-Fi on one subnet sends from Wi-Fi when asked
+        // (scripts/screen-share-vs.py --link wifi). The app never passes it.
+        bind: opts.str_or("link-bind", "0.0.0.0:0").parse()?,
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
@@ -346,20 +413,23 @@ fn serve_session(
     let mut cfg = SessionCfg {
         display: display.to_owned(),
         max_fps,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
+        // Set from the path once the viewer starts (below); the capture does not read it.
+        start_kbps: 0,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: String::new(),
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
         content: "screen".into(),
         openh264_lib: None,
-        threads: 2,
+        threads: crate::encoder::default_threads(),
         stats_every_ms: 1000,
         settle_us: crate::host::DEFAULT_SETTLE_US,
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
-        input_frame_now: opts.flag("input-frame-now"),
+        // On by default: the frame that shows an input's effect goes out at once instead of
+        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
+        input_frame_now: opts.flag_or("input-frame-now", true),
         // Set from the path's round trip once the viewer starts (below).
         frames_in_flight: 2,
         capture,
@@ -371,8 +441,12 @@ fn serve_session(
     let mut answered = false;
     // The capture and encoder open while the answer crosses the hub and the link shakes
     // hands, not after the viewer's start: its first frame no longer waits for them. An
-    // error waits for the viewer's start, where it ended the session before.
-    let mut desktop: Option<Res<Box<dyn crate::desktop::Desktop>>> = None;
+    // error waits for the viewer's start, where it ended the session before. It opens for the
+    // cursor this host offers; a viewer that negotiates the other choice gets it opened again.
+    let mut desktop: Option<Res<OpenedDesktop>> = None;
+    // The current path's class and medium (wire names), from the last path change.
+    let mut path_kind: Option<&'static str> = None;
+    let mut path_medium: Option<&'static str> = None;
     // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
     // descriptor never sees them.
     carrier.pump_app()?;
@@ -407,6 +481,11 @@ fn serve_session(
                     return Ok("viewer closed the link".into())
                 }
                 NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                    // The path's class picks the start bitrate.
+                    if let EndpointEvent::PathChanged { kind, medium, .. } = &path {
+                        path_kind = kind.map(|k| k.wire_name());
+                        path_medium = medium.map(|m| m.wire_name());
+                    }
                     // The round trip sizes the frames in flight when the stream starts.
                     carrier.link.record_path(path);
                 }
@@ -419,7 +498,7 @@ fn serve_session(
         }
         carrier.report_paths();
         if answered && desktop.is_none() {
-            desktop = Some(crate::desktop::open(&cfg));
+            desktop = Some(OpenedDesktop::open(&cfg, crate::desktop::reports_cursor()));
         }
     }
     let (Some(Control::Hello { service, caps, .. }), Some(Control::Start { key, mode })) =
@@ -435,7 +514,17 @@ fn serve_session(
         interactive: true,
     };
     let sink = crate::upstream::session_sink(None, 0);
-    let host_caps = crate::upstream::offered_caps(&*sink);
+    let mut host_caps = crate::upstream::offered_caps(&*sink);
+    // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
+    if crate::desktop::reports_cursor() {
+        host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
+    // Clipboard text only when the app's setup turned it on and this host has a clipboard it
+    // can watch (macOS). A `view` scope session still never applies or sends one: it never
+    // holds control (clipboard.rs).
+    if crate::clipboard::offered(setup.clipboard) {
+        host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -467,6 +556,10 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
+    cfg.start_kbps = opts.num_or(
+        "start-kbps",
+        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, cfg.max_kbps),
+    )?;
     // Enough frames in flight to cover the path's round trip, at least two: the next
     // frame encodes while the last one waits for its acknowledgement.
     cfg.frames_in_flight = carrier
@@ -476,9 +569,9 @@ fn serve_session(
         .max(2);
     let desktop = match desktop {
         Some(opened) => opened?,
-        None => crate::desktop::open(&cfg)?,
+        None => OpenedDesktop::open(&cfg, crate::desktop::reports_cursor())?,
     };
-    let mut media = MediaSession::with_desktop(desktop, &cfg, MAX_DATAGRAM, &negotiated.caps, sink);
+    let mut media = MediaSession::on_desktop(desktop, &cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),
@@ -502,12 +595,130 @@ mod tests {
     use super::*;
 
     #[test]
-    fn portal_sessions_are_view_only_whatever_the_scope() {
-        // The portal backend drops input: a control session there would not be one.
-        assert!(view_only_for("view", CaptureBackend::X11).unwrap());
-        assert!(!view_only_for("control", CaptureBackend::X11).unwrap());
-        assert!(view_only_for("view", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("control", CaptureBackend::Portal).unwrap());
-        assert!(view_only_for("full", CaptureBackend::X11).is_err());
+    fn serve_preserves_frame_boundaries_before_the_link_connects() {
+        let local = KeyPair::generate().unwrap();
+        let peer = KeyPair::generate().unwrap();
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"serve-queue-test".to_vec(),
+            local,
+            expected_remote: peer.public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().unwrap(),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .unwrap();
+        let mut carrier = ServeCarrier {
+            link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
+            app: AppLines { buf: Vec::new() },
+        };
+        carrier.send_datagram_frame(vec![vec![1], vec![2]], true).unwrap();
+        carrier.send_datagram_frame(vec![vec![3]], true).unwrap();
+        let stats = carrier.media_queue_stats().unwrap();
+        assert_eq!(stats.queue_frames, 1);
+        assert_eq!(stats.queue_datagrams, 1);
+        assert_eq!(stats.dropped_replaced_frames, 1);
+        assert_eq!(stats.dropped_replaced_datagrams, 2);
+    }
+
+    #[test]
+    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
+        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+        let off: Setup = serde_json::from_str(base).expect("setup");
+        assert!(!off.clipboard);
+        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
+        let on: Setup = serde_json::from_str(on).expect("setup");
+        assert!(on.clipboard);
+    }
+
+    /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
+    #[derive(Default)]
+    struct Piped {
+        pending: Vec<u8>,
+        flushed: Vec<u8>,
+    }
+
+    impl Write for Piped {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed.append(&mut self.pending);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn every_app_line_reaches_the_pipe_whole_and_flushed() {
+        let mut out = Piped::default();
+        let lines = [
+            AppLine { displays: Some(vec![(1920, 1080)]), current: Some(0), ..AppLine::default() },
+            AppLine { key: Some("ab".repeat(32)), ..AppLine::default() },
+            AppLine { candidate: Some("host 192.168.1.4:51000".into()), ..AppLine::default() },
+            AppLine { candidates_done: true, ..AppLine::default() },
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            write_line(&mut out, line).unwrap();
+            // Nothing waits in a buffer: the reader has every line so far, each ended by one newline.
+            assert!(out.pending.is_empty());
+            let read: Vec<&[u8]> =
+                out.flushed.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+            assert_eq!(read.len(), i + 1);
+            assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
+        }
+        assert_eq!(out.flushed.last(), Some(&b'\n'));
+    }
+
+    #[test]
+    fn portal_sessions_control_only_with_a_remote_desktop_grant() {
+        // Without the grant the portal drops input: a control session there would not be one.
+        let x11 = CaptureBackend::X11.applies_input_with(false);
+        assert!(view_only_for("view", x11).unwrap());
+        assert!(!view_only_for("control", x11).unwrap());
+        let portal = CaptureBackend::Portal.applies_input_with(false);
+        assert!(view_only_for("view", portal).unwrap());
+        assert!(view_only_for("control", portal).unwrap());
+        let granted = CaptureBackend::Portal.applies_input_with(true);
+        assert!(view_only_for("view", granted).unwrap());
+        assert!(!view_only_for("control", granted).unwrap());
+        assert!(view_only_for("full", x11).is_err());
+    }
+
+    #[test]
+    fn a_lan_path_starts_at_the_lan_bitrate() {
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("lan"), None, 50_000), 30_000);
+        assert_eq!(default_start_kbps(Some("direct_wan"), Some("link"), None, 50_000), 30_000);
+        // A peer learned in the handshake is classed WAN; a sub-5 ms round trip is LAN.
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(1_200), 50_000), 30_000);
+        assert_eq!(default_start_kbps(None, None, Some(4_999), 50_000), 30_000);
+    }
+
+    #[test]
+    fn other_paths_keep_the_old_start_and_max_caps_both() {
+        assert_eq!(default_start_kbps(None, None, None, 50_000), 8_000);
+        assert_eq!(
+            default_start_kbps(Some("direct_wan"), Some("routed"), Some(5_000), 50_000),
+            8_000
+        );
+        assert_eq!(default_start_kbps(Some("direct_wan"), None, Some(40_000), 50_000), 8_000);
+        // A relay is never LAN, whatever its round trip.
+        assert_eq!(default_start_kbps(Some("turn_relay"), Some("lan"), Some(1_000), 50_000), 8_000);
+        assert_eq!(default_start_kbps(Some("direct_lan"), None, None, 20_000), 20_000);
+        assert_eq!(default_start_kbps(None, None, None, 4_000), 4_000);
+    }
+
+    #[test]
+    fn later_lines_carry_the_excluded_windows() {
+        let later: Later = serde_json::from_str(r#"{"exclude_windows":[123,456]}"#).unwrap();
+        assert_eq!(later.exclude_windows, Some(vec![123, 456]));
+        assert!(!later.stop && later.candidate.is_none());
+        let emptied: Later = serde_json::from_str(r#"{"exclude_windows":[]}"#).unwrap();
+        assert_eq!(emptied.exclude_windows, Some(Vec::new()));
+        let stop: Later = serde_json::from_str(r#"{"stop":true}"#).unwrap();
+        assert_eq!(stop.exclude_windows, None);
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextRemoteView
 import Foundation
 
 /// The last `capacity` samples of one measure (milliseconds), oldest overwritten first: a
@@ -54,6 +55,11 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
     private(set) var dropped = 0
     private(set) var intervals = MacScreenRollingSamples(capacity: window)
     private(set) var present = MacScreenRollingSamples(capacity: window)
+    /// The viewer's stages on the glass (screen-share design D8), from the drawable's presented
+    /// time: release to decoded (Decode), decoded to the glass (Present), and their sum.
+    private(set) var decode = MacScreenRollingSamples(capacity: window)
+    private(set) var glass = MacScreenRollingSamples(capacity: window)
+    private(set) var decodePresent = MacScreenRollingSamples(capacity: window)
     private var lastPresentedNanos: UInt64?
     private var lastFrame: UInt32?
 
@@ -70,6 +76,16 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
         if let last = lastFrame, frame > last, frame - last > 1 { dropped += Int(frame - last - 1) }
         lastFrame = frame
     }
+
+    /// A frame reached the glass: its Decode and Present stages. Out-of-order times (a clock
+    /// that is not the decoder's) are left out.
+    mutating func shown(_ times: RemoteViewerFrameTimes) {
+        guard times.releasedAtNanos > 0, times.releasedAtNanos <= times.decodedAtNanos,
+              times.decodedAtNanos <= times.presentedAtNanos else { return }
+        decode.add(Double(times.decodedAtNanos - times.releasedAtNanos) / 1e6)
+        glass.add(Double(times.presentedAtNanos - times.decodedAtNanos) / 1e6)
+        decodePresent.add(Double(times.presentedAtNanos - times.releasedAtNanos) / 1e6)
+    }
 }
 
 /// When a session's connect started and how long until its first frame showed, plus its recent
@@ -77,18 +93,6 @@ nonisolated struct MacScreenFrameTimings: Equatable, Sendable {
 nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
     /// Round trips over the last 60 path and status reports.
     static let rttWindow = 60
-
-    /// The steps between the ticket and the first frame, in order.
-    enum Step: String, CaseIterable, Sendable {
-        /// This side's offer went to the hub.
-        case offerSent = "offer_sent"
-        /// The host's answer came back.
-        case answered
-        /// The link's bridge listens: the pane's transport connects.
-        case linkReady = "link_ready"
-        /// The host's stream started (welcome and started arrived).
-        case streaming
-    }
 
     /// Wall clock when this session's connect started (the approved ticket's stream began).
     private(set) var startedAt: Date?
@@ -100,8 +104,10 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
     /// The person's Connect to the first frame on screen, in milliseconds (nil when the session
     /// started without one, as a quality restart does).
     private(set) var clickToFirstFrameMs: Double?
-    /// Each step's time since the connect started, in milliseconds.
-    private(set) var stepsMs: [Step: Double] = [:]
+    /// Connect start to the end of each stage the connect got past, in milliseconds: `answer` (the host
+    /// answered), `link` (the link came up), `frame` (a picture showed). A stage skipped over ends when the
+    /// later one does.
+    private(set) var stageMs: [MacScreenConnectStage: Double] = [:]
     private(set) var rtt = MacScreenRollingSamples(capacity: rttWindow)
 
     /// A new connect (`requested`: when the person asked for it): everything before it is gone.
@@ -112,12 +118,6 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
         self.requested = requested.flatMap { $0 <= instant ? $0 : nil }
     }
 
-    /// A step reached at `instant`; only its first time after a connect counts.
-    mutating func reached(_ step: Step, at instant: ContinuousClock.Instant) {
-        guard stepsMs[step] == nil, let started, instant >= started else { return }
-        stepsMs[step] = Self.ms(started.duration(to: instant))
-    }
-
     /// The first frame showed at `instant`; only the first one after a connect counts.
     mutating func firstFrame(at instant: ContinuousClock.Instant) {
         guard firstFrameMs == nil, let started, instant >= started else { return }
@@ -125,24 +125,15 @@ nonisolated struct MacScreenConnectTimings: Equatable, Sendable {
         if let requested { clickToFirstFrameMs = Self.ms(requested.duration(to: instant)) }
     }
 
-    /// Request to ticket, then each step to the next, then the last step to the first frame:
-    /// where a slow connect spent its time. Steps not reached are left out.
-    var stagesMs: [(String, Double)] {
-        guard firstFrameMs != nil || !stepsMs.isEmpty else { return [] }
-        var stages: [(String, Double)] = []
-        if let requested, let started { stages.append(("request_to_ticket", Self.ms(requested.duration(to: started)))) }
-        var last = ("ticket", 0.0)
-        for step in Step.allCases {
-            guard let at = stepsMs[step] else { continue }
-            stages.append(("\(last.0)_to_\(step.rawValue)", (at - last.1).rounded()))
-            last = (step.rawValue, at)
-        }
-        if let firstFrameMs { stages.append(("\(last.0)_to_first_frame", (firstFrameMs - last.1).rounded())) }
-        return stages
-    }
-
     private static func ms(_ elapsed: Duration) -> Double {
         (Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15).rounded()
+    }
+
+    /// The connect reached `stage` at `instant`: every stage before it that has no end yet ends now.
+    mutating func reached(_ stage: MacScreenConnectStage, at instant: ContinuousClock.Instant) {
+        guard let started, instant >= started else { return }
+        let ms = Self.ms(started.duration(to: instant))
+        for done in MacScreenConnectStage.allCases where done < stage && stageMs[done] == nil { stageMs[done] = ms }
     }
 
     mutating func sampleRtt(_ ms: Double?) {

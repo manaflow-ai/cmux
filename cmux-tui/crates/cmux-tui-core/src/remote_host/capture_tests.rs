@@ -119,6 +119,7 @@ impl MockHost {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(json!({"busy": false})),
             closed: (Mutex::new(false), std::sync::Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         });
         let reading = Arc::clone(&connection);
         let read_thread = std::thread::spawn(move || Inner::read(&Weak::new(), &reading, reader));
@@ -670,6 +671,7 @@ fn manual_host() -> (Arc<Connection>, BufReader<UnixStream>, JoinHandle<()>) {
         next_id: std::sync::atomic::AtomicU64::new(1),
         status: Mutex::new(json!({"busy": false})),
         closed: (Mutex::new(false), std::sync::Condvar::new()),
+        quit: std::sync::atomic::AtomicBool::new(false),
     });
     let reading = Arc::clone(&connection);
     let thread = std::thread::spawn(move || Inner::read(&Weak::new(), &reading, reader));

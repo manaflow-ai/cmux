@@ -229,12 +229,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
         if (!moves) return;
         const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
         const capped = field.scrollHeight > field.clientHeight + 1;
-        const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
+        // The rects include the composer's density zoom; line height and keyframes are in its CSS pixels. Unscaled, a
+        // zoomed composer (every density but Default) animated toward the wrong height and jumped at the end.
+        const cssHeight = Number.parseFloat(getComputedStyle(field).height);
+        const scale = cssHeight > 0 ? to / cssHeight : 1;
+        const reveal = capped || Math.abs(to - from) / scale > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
         const now = performance.now();
         const { keyframes, duration, easing, progress } = growthFrames(
           arm,
-          from,
-          to,
+          from / scale,
+          to / scale,
           running ? running.end - now : undefined,
         );
         const timing = { duration, easing };

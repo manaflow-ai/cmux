@@ -140,9 +140,9 @@ test("Cmd-Return asks even when a row the arrows picked leads", async () => {
   expect(calls).toEqual([["ask", "claude", "reddit-scraper", undefined, "claude-opus-5-5"]]);
 });
 
-test("the Ask row shows Cmd-Return's keycap when another row leads", async () => {
+test("the Ask row has no action hint when another row leads", async () => {
   await render([]);
   await type("reddit");
   const ask = rows().find((row) => label(row) === "Ask Claude Code")!;
-  expect(ask.querySelector(".nt-row-action kbd")?.textContent).toBe("⌘↵");
+  expect(ask.querySelector("kbd")).toBeNull();
 });
