@@ -33,6 +33,7 @@ members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -171,6 +172,7 @@ default-members = [
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -381,6 +383,7 @@ cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
@@ -427,6 +430,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+indexmap = "2"
 toml = "0.8"
 # Same version toml 0.8 already pulls in; used for comment-preserving edits of
 # the user's codex config.toml when syncing hook trust state.
