@@ -11,6 +11,7 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces } from "../cardRows";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -66,20 +67,6 @@ function ListRows({
       {below?.(row)}
     </div>
   ));
-}
-
-/** The schema rows about spaces (Sidebar > Sidebar Buttons and Spaces). With one space the page
- * draws none of them (Hide Spaces); search still finds them. */
-export const SPACE_ROWS: ReadonlySet<string> = new Set([
-  "sidebar.showSpaces",
-  "sidebar.spacesPosition",
-  "sidebar.spacesVisibility",
-]);
-
-/** Whether the active window has a second space: until then no Settings page names spaces. */
-export function useSeveralSpaces(): boolean {
-  const { host } = useSettingsState();
-  return (host?.rooms?.length ?? 0) > 1;
 }
 
 /**
@@ -314,8 +301,7 @@ function MachineVmHost({ row }: { row: HostListRow }) {
   );
 }
 
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
+export { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces };
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

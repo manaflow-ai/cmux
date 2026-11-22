@@ -765,6 +765,18 @@ pub struct ChatPageResult {
     pub turns: bool,
 }
 
+/// One person in a chat presence replacement. Presence is a latest-value state op and carries
+/// no chat id or sequence: the containing chat stream supplies its identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresencePerson {
+    pub id: String,
+    pub name: String,
+    pub devices: u32,
+    pub viewing: bool,
+    pub typing: bool,
+}
+
 /// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
 /// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
 /// from the list's `DeltaOp<T>`, in the same frame kind.
@@ -795,6 +807,17 @@ pub enum ChatOp {
         #[serde(skip_serializing_if = "Option::is_none")]
         head: Option<QueueHead>,
     },
+    /// The complete latest presence set for this chat. `trimmed` reports people omitted to fit
+    /// the bounded state frame; there is deliberately no `chatId` or `seq`.
+    Presence {
+        participants: Vec<PresencePerson>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        trimmed: usize,
+    },
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 // Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
@@ -805,7 +828,7 @@ impl<'de> Deserialize<'de> for ChatOp {
         #[serde(rename_all = "camelCase")]
         struct Fields {
             op: String,
-            seq: u64,
+            seq: Option<u64>,
             row: Option<RawJson>,
             body_len: Option<u64>,
             row_id: Option<u64>,
@@ -814,32 +837,43 @@ impl<'de> Deserialize<'de> for ChatOp {
             removed: Option<String>,
             count: Option<u32>,
             head: Option<QueueHead>,
+            participants: Option<Vec<PresencePerson>>,
+            trimmed: Option<usize>,
         }
         let fields = Fields::deserialize(deserializer)?;
         let seq = fields.seq;
         match fields.op.as_str() {
             "row" => Ok(Self::Row {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
                 body_len: fields.body_len,
             }),
             "text" => Ok(Self::Text {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
                 text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
             }),
             "patch" => Ok(Self::Patch {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
             }),
             "queue" => Ok(Self::Queue {
-                seq,
+                seq: seq.ok_or_else(|| D::Error::missing_field("seq"))?,
                 entry: fields.entry,
                 removed: fields.removed,
                 count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
                 head: fields.head,
             }),
-            other => Err(D::Error::unknown_variant(other, &["row", "text", "patch", "queue"])),
+            "presence" => Ok(Self::Presence {
+                participants: fields
+                    .participants
+                    .ok_or_else(|| D::Error::missing_field("participants"))?,
+                trimmed: fields.trimmed.unwrap_or_default(),
+            }),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["row", "text", "patch", "queue", "presence"],
+            )),
         }
     }
 }
@@ -1474,6 +1508,16 @@ mod other_delta_tests {
                 removed: None,
                 count: 1,
                 head: Some(QueueHead { entries: vec![item], count: 1 }),
+            },
+            ChatOp::Presence {
+                participants: vec![PresencePerson {
+                    id: "person".into(),
+                    name: "Person".into(),
+                    devices: 1,
+                    viewing: true,
+                    typing: false,
+                }],
+                trimmed: 2,
             },
         ];
         let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };
