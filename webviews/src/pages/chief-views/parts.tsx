@@ -46,6 +46,7 @@ function AgoStamp({ at, strings }: { at: number; strings: Strings }) {
     <time
       className="cv-ago"
       dateTime={new Date(at).toISOString()}
+      // tooltip-allow: the shown time is relative; the tooltip is the one place its date shows.
       title={new Date(at).toLocaleString(strings.language)}
     >
       {shortDuration(now - at, strings.language)}
@@ -84,7 +85,7 @@ export function OwnerChips({ owners, strings }: { owners: readonly ChiefAgent[];
   return (
     <span className="cv-owners">
       {owners.slice(0, 3).map((owner) => (
-        <span key={owner.id} className="cv-chip cv-owner" data-state={owner.state} title={owner.title}>
+        <span key={owner.id} className="cv-chip cv-owner" data-state={owner.state} aria-description={owner.title}>
           <StateMark state={owner.state} strings={strings} />
           <span className="cv-owner-name">{owner.name.split("/").at(-1)}</span>
         </span>
@@ -133,7 +134,7 @@ export const AgentRow = memo(function AgentRow({
             <span className="cv-row-title">{agent.title}</span>
             {!compact && showMachine && <span className="cv-row-machine">{machineLabel(agent, strings)}</span>}
             {!compact && folder && (
-              <span className="cv-row-folder" title={agent.folder ?? undefined}>
+              <span className="cv-row-folder" aria-description={agent.folder ?? undefined}>
                 {folder}
               </span>
             )}

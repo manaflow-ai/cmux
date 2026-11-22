@@ -12,7 +12,7 @@ export function ReadLabel({ path, full, t }: { path: string; full: string; t: Tr
   const name = path.replace(/\/+$/, "").split("/").pop() || path;
   const [before = "", after = ""] = t("command.read", { file: "\u0000" }).split("\u0000");
   const file = (
-    <span className="cv-tool__file" title={full} data-tooltip-force="">
+    <span className="cv-tool__file" aria-description={full}>
       {name}
     </span>
   );
