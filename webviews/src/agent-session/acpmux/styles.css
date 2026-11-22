@@ -440,7 +440,7 @@
    shifting"). The slot is a zero-height box in the dock in every state; what it holds is positioned over the
    transcript's last pixels above the composer, so a chip or a Restart line appearing, changing or going moves
    no row (noLayoutShift.test.tsx). Its box is click-through; only the chip and the line's own controls take clicks. */
-.acpmux-host-slot{position:relative;height:0;margin:0;padding:0;z-index:4;pointer-events:none}
+.acpmux-host-slot{position:relative;height:0;margin:0;padding:0;z-index:var(--layer-sticky);pointer-events:none}
 .acpmux-host-slot>*{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:flex-end}
 .acpmux-host-slot>.acpmux-host-line,.acpmux-host-slot>.acpmux-host-line-group{pointer-events:none}
 .acpmux-host-slot .acpmux-host-line>*{pointer-events:auto}
