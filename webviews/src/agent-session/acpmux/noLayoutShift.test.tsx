@@ -91,10 +91,13 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   const signature = await drawStates(container, {
     connected: () => draw(<HostRecoveringLine />),
     "reconnecting, under the bound": () =>
-      draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />),
-    "reconnecting, past the bound": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} />),
-    "reconnecting, dot": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="dot" />),
-    "reconnecting, corner": () => draw(<HostRecoveringLine relinkingSince={0} now={LONG} variant="corner" />),
+      draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />),
+    "reconnecting, past the bound": () =>
+      draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={LONG} />),
+    "reconnecting, dot": () =>
+      draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={LONG} variant="dot" />),
+    "reconnecting, corner": () =>
+      draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={LONG} variant="corner" />),
     restoring: () => draw(<HostRecoveringLine restoring={{ waitedMs: LONG, at: 0 }} now={0} />),
     "waiting for the service": () => draw(<HostWaitingLine since={0} now={60_000} onRestart={() => undefined} />),
     "failed, with Retry": () =>
@@ -109,9 +112,9 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
 test("nothing shows under the bound, and the chip past it is out of flow", async () => {
   const container = installDom();
   const draw = draws(container);
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />);
+  await draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />);
   expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS} />);
+  await draw(<HostRecoveringLine relinkingSince={0} sendWaitingSince={0} now={RECONNECT_LINE_AFTER_MS} />);
   const chip = container.querySelector(".acpmux-host-chip")!;
   expect(chip.textContent).toBe("Reconnecting…");
   expectOutOfFlow(chip);

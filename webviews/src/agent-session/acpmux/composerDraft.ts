@@ -212,6 +212,14 @@ export function notifyDraftActionsChanged(): void {
   draftActionsChangedAndFlush();
 }
 
+/** Calls `listener` whenever the native action map is installed, replaced or removed. */
+export function onDraftActionsChanged(listener: () => void): () => void {
+  draftActionSubscribers.add(listener);
+  return () => {
+    draftActionSubscribers.delete(listener);
+  };
+}
+
 /** Re-renders a composer when a reconnect installs the native action map. */
 export function useDraftActionsVersion(): number {
   return useSyncExternalStore(

@@ -168,6 +168,7 @@ import {
   composerDraft,
   DRAFT_SETTLE_MS,
   notifyDraftActionsChanged,
+  useDraftActionsVersion,
   hasPendingDraftWrite,
   readDurableDraftState,
   readPersistedDraft,
@@ -872,6 +873,7 @@ import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHin
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
+import { OfflineSends, lostToLink, untilLinked, withOfflineSends, type OfflineSend } from "./offlineSends";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { watchLaunchSettle } from "./launchSettle";
@@ -1472,21 +1474,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [startingRows, clientSnapshot],
   );
+  /// Prompts sent while the pane has no link to acpmux (offlineSends.ts): each shows at once as its
+  /// pending row, is kept on disk, and goes once, in order, when the link is back.
+  const [offlineSends] = useState(() => new OfflineSends(nativeUnsentPrompts(callNative)));
+  const offlineVersion = useSyncExternalStore(
+    (listener) => offlineSends.subscribe(listener),
+    () => offlineSends.version,
+    () => offlineSends.version,
+  );
+  const shownOffline = useMemo(
+    () => offlineSends.in(clientSnapshot.sessionId || undefined),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- offlineVersion names when the queue changed.
+    [offlineSends, offlineVersion, clientSnapshot.sessionId],
+  );
   // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
     () =>
       liveAsk(
-        withStartingPrompt(
-          applySwitch(
-            catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-            switchView,
-            catalog,
+        withOfflineSends(
+          withStartingPrompt(
+            applySwitch(
+              catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+              switchView,
+              catalog,
+            ),
+            shownStarting,
           ),
-          shownStarting,
+          shownOffline,
         ),
       ),
-    [clientSnapshot, switchView, catalog, shownStarting],
+    [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -6664,6 +6682,65 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newChatDraft.kept = [];
     for (const text of kept) composer.restore(text, [], true);
   }, [snapshot.sessionId]);
+  // The link is back (the client's action map installed): the shown chat's prompts sent while it
+  // was down go, one at a time and in order, each under its own prompt id, so acpmux runs each once
+  // (a resend it already has answers `duplicate`). A reload reads the ones still on disk first.
+  const draftActionsVersion = useDraftActionsVersion();
+  const offlineShownChat = snapshot.sessionId;
+  useEffect(() => {
+    if (!offlineShownChat) return;
+    let current = true;
+    void nativeUnsentPrompts(callNative)
+      .read(offlineShownChat)
+      .then((records) => {
+        if (current) offlineSends.adopt(offlineShownChat, records);
+      });
+    return () => {
+      current = false;
+    };
+  }, [offlineSends, offlineShownChat]);
+  // A new link (or its loss) ends a send's back-off: the next flush goes at once.
+  useEffect(() => offlineSends.linkChanged(), [offlineSends, draftActionsVersion]);
+  useEffect(() => {
+    if (!offlineShownChat || !offlineSends.in(offlineShownChat).length || !window.cmuxAcpmuxActions?.["chat.send"])
+      return;
+    void offlineSends.flush(
+      offlineShownChat,
+      () => Boolean(window.cmuxAcpmuxActions?.["chat.send"]) && sessionIdRef.current === offlineShownChat,
+      (item: OfflineSend) =>
+        new Promise<void>((resolve, reject) => {
+          // No `accepted`: a refusal stays in the chat as its own Not sent row with Retry, never
+          // lost. `taken` settles it once acpmux has it; the turn's end is the transcript's.
+          callNative("chat.send", {
+            text: item.text,
+            attachments: item.attachments,
+            expectedSessionId: item.chat,
+            gesture: { promptId: item.id, ticket: Promise.resolve(undefined) },
+            taken: () => resolve(),
+          }).then(() => resolve(), reject);
+        }),
+      (item, error) => {
+        // The link went again, or the new client has not selected the chat yet: it waits.
+        if (
+          lostToLink(error) ||
+          isStartCancelled(error) ||
+          (error as { message?: unknown } | null)?.message === translate("error.notOpen")
+        )
+          return "wait";
+        // A failed row with Retry, or the folder's trust hold, has it now.
+        if (keptInChat(error) || heldRefusal(error)) return "dropped";
+        // The send put it back into the composer itself.
+        if ((error as { message?: unknown } | null)?.message === "agent_session.changed_during_send") {
+          offlineSends.remove(item.id);
+          return "dropped";
+        }
+        // Any other refusal before it reached the chat: back into the composer, never lost.
+        offlineSends.remove(item.id);
+        restoreComposerDraft(composerHandle, heldBack, item.text, item.attachments);
+        return "dropped";
+      },
+    );
+  }, [offlineSends, offlineShownChat, offlineVersion, draftActionsVersion]);
   holdRefused.current = (text, attachments, error, sentFrom) => {
     trustHeld.hold(text, attachments, sentFrom);
     if (error && typeof error === "object") heldRefusals.add(error);
@@ -7234,6 +7311,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   sendTrustHeld.current = async (entry) => {
     const ticket = await entry.ticket;
+    // While the pane reconnects the held prompt waits for the link; it is never handed back for it
+    // (offlineSends.ts).
+    await untilLinked();
     // This render's send, as the chat shown now has it: the ticket may have come after another
     // chat showed.
     return sendTrustHeldNow.current(entry, ticket);
@@ -12778,8 +12858,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 cloudRecovery.resume();
                 return true;
               }
-              // Until acpmux connects nothing takes a prompt; the composer keeps it.
-              if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // No link to acpmux (a reconnect, a daemon restart): Send still takes the prompt (Leo,
+              // 2026-11-22: "JUST LET ME SEND"). In a started chat it shows at once as its pending row,
+              // is kept on disk and goes once, in order, when the link is back (offlineSends.ts); one
+              // sent while earlier ones still wait goes after them. A new chat's start waits for the
+              // link below (`send`), its prompt already drawn as the chat's first row.
+              const offlineChat =
+                snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !startingSends.busy
+                  ? snapshot.sessionId
+                  : undefined;
+              if (offlineChat && (!window.cmuxAcpmuxActions?.["chat.send"] || offlineSends.pending(offlineChat))) {
+                offlineSends.add(
+                  offlineChat,
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  gesture?.promptId,
+                );
+                return true;
+              }
               // An installed harness mention is a read-only guest request. Keep the normal send
               // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
               // known mention outside code gets one inline guest note at the transcript tail.
@@ -12823,13 +12923,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 // message goes to the chat as it is rather than failing each send.
                 if (!switchForks(snapshot)) clearHeldFork(snapshot.sessionId);
                 const forked = sendHeldFork(snapshot.sessionId, {
+                  // While the pane reconnects the fork waits for the link, never refused for it.
                   fork: (params) =>
-                    callNative<string>("chat.switchModel", {
-                      ...params,
-                      text,
-                      attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
-                      ...(gesture ? { gesture } : {}),
-                    }),
+                    untilLinked().then(() =>
+                      callNative<string>("chat.switchModel", {
+                        ...params,
+                        text,
+                        attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                    ),
                   // The composer leaves with the chat: its prompt is not the source chat's draft now.
                   sent: (source) => writePersistedDraft(source, ""),
                 });
@@ -12930,6 +13033,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // gesture is bound to, if any (`sendThrough` sends it under that).
               const promptId = gesture?.promptId ?? crypto.randomUUID();
               const send = async () => {
+                // While the pane reconnects the start and its prompt wait for the link: the prompt is
+                // drawn already (startingSends.ts), and nothing is refused for the link (offlineSends.ts).
+                await untilLinked();
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
                 // A Claude or Codex desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
@@ -13299,6 +13405,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The pane asks again by itself unless asking cannot change the answer: a chat too large to
         // open, or another build's acpmux holding the socket (only Restart clears it).
         selfRetrying={hostSelfRetrying(hostFailure, acpmuxRestartOffered)}
+        nothingWaits={offlineSends.waitingSince(snapshot.sessionId || undefined) === undefined}
         restarting={restartingAcpmux}
         onRestart={
           acpmuxRestartOffered
@@ -13334,7 +13441,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       hostErrorCard
     );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
-  // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline.
+  // while the host says acpmux restores, "Reconnecting…" for a lost connection before the deadline,
+  // only while a prompt the person sent waits for it (offlineSends.ts): otherwise a reconnect holds
+  // nothing up, so it says nothing.
   // A Restart acpmux in flight keeps its own line.
   // It is drawn out of flow, in a slot that is always there (HostLineSlot): no state of it moves a row.
   const hostLine = (
@@ -13344,6 +13453,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ) : (
         <HostRecoveringLine
           relinkingSince={relinkingSince}
+          sendWaitingSince={offlineSends.waitingSince(snapshot.sessionId || undefined)}
           restoring={hostRestoring}
           failureShown={hostErrorSaid}
           // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.

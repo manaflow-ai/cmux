@@ -6,6 +6,7 @@ import { postNative } from "../native";
 import { type ComposerAttachment } from "../attachments";
 import { type SendGesture } from "../heldPrompt";
 import { callNative } from "../callNative";
+import { untilLinked } from "../offlineSends";
 
 /// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
 /// session daemon's agent-session-start). A trust refusal has its own question.
@@ -46,19 +47,23 @@ export const removeQueued = (promptId: string) =>
 /// is the transcript's), and rejects when it was refused before. One acpmux refused for the folder's
 /// trust that joined the pane's hold (`holdRefused`) counts as taken: it waits in the queue now.
 /// `gesture`: the Enter or click the composer bound to a send it held for its files.
+/// While the pane reconnects it waits for the link, never refused for it (offlineSends.ts).
 const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[], gesture?: SendGesture) =>
-  new Promise<void>((resolve, reject) => {
-    callNative("chat.send", {
-      text,
-      attachments,
-      accepted: () => resolve(),
-      steer,
-      ...(gesture ? { gesture } : {}),
-    }).then(
-      () => resolve(),
-      (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
-    );
-  });
+  untilLinked().then(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        callNative("chat.send", {
+          text,
+          attachments,
+          accepted: () => resolve(),
+          steer,
+          ...(gesture ? { gesture } : {}),
+        }).then(
+          () => resolve(),
+          (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+        );
+      }),
+  );
 
 /// Keeps the current gesture for prompt `promptId`, which the folder's trust holds (trustHeld.ts).
 export const reserveHeldPrompt = (promptId: string) =>

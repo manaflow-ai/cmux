@@ -222,8 +222,16 @@ export function readHostRestoring(source: unknown, at: number): HostRestoring | 
 /// a refusal said at once, such as another build's acpmux on the socket) is never covered by
 /// "Reconnecting…": the person needs its Restart now, not after the deadline. The restore line
 /// stays, since the host says it only while acpmux restores, and a refusal without it ends it.
+///
+/// "Reconnecting…" shows only while a prompt the person sent waits for the link (`sendWaitingSince`,
+/// offlineSends.ts) and has waited the same bound: a reconnect blocks nothing (Send always takes the
+/// prompt and it goes once the link is back), so a reconnect no one is waiting on says nothing (Leo,
+/// 2026-11-22: "FUCKING RECONNECTING JUST LET ME SEND WHY WOULD IT FUCKING BLOCK SENDS IN THE FIRST
+/// PLACE STUPID STUPID FUCKING DESIGN"; handbook ui-text-says-only-what-you-can-act-on.md).
 export function hostRecoveryLine(state: {
   relinkingSince?: number;
+  /// When the oldest prompt still waiting for the link was sent, while one waits.
+  sendWaitingSince?: number;
   restoring?: HostRestoring;
   failureShown?: boolean;
   /// When the wait the waiting line counts began (HostWaitingLine `since`), if one runs. That line
@@ -233,13 +241,14 @@ export function hostRecoveryLine(state: {
   waitingSince?: number;
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
-  const { relinkingSince, restoring, failureShown, waitingSince, now } = state;
+  const { relinkingSince, sendWaitingSince, restoring, failureShown, waitingSince, now } = state;
   if (restoring) {
     const waitedMs = restoring.waitedMs + Math.max(0, now - restoring.at);
     // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
     return waitedMs < RECONNECT_LINE_AFTER_MS ? undefined : { kind: "restoring", waitedMs };
   }
   if (relinkingSince === undefined || failureShown) return undefined;
+  if (sendWaitingSince === undefined || now - sendWaitingSince < RECONNECT_LINE_AFTER_MS) return undefined;
   const waited = now - relinkingSince;
   if (waited < RECONNECT_LINE_AFTER_MS) return undefined;
   // Only a wait that began while this line showed hands over from it: a handshake started after the

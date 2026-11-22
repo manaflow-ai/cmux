@@ -65,6 +65,7 @@ export function HostUnavailableLine({
   restarting,
   onRestart,
   selfRetrying = true,
+  nothingWaits = false,
 }: {
   message: string;
   detail?: string;
@@ -73,11 +74,14 @@ export function HostUnavailableLine({
   restarting?: boolean;
   onRestart?(): void;
   selfRetrying?: boolean;
+  /// No prompt the person sent waits for the link (offlineSends.ts): a failure the pane clears by
+  /// itself then says nothing at all, since nothing is held up and there is nothing to click.
+  nothingWaits?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const detailId = useId();
-  if (selfRetrying && !onRestart) return <ReconnectingLine />;
+  if (selfRetrying && !onRestart) return nothingWaits ? null : <ReconnectingLine />;
   return (
     <div className="acpmux-host-line-group" role="alert">
       <div className="acpmux-host-line">
@@ -227,11 +231,12 @@ export function HostWaitingLine({
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
 /// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
+/// a lost connection comes back and a sent prompt waits for it, as a ConnectionChip (out of flow). No button and no card: nothing
 /// waits on the person. Otherwise
 /// (`otherwise`) the host's other line, if any.
 export function HostRecoveringLine({
   relinkingSince,
+  sendWaitingSince,
   restoring,
   failureShown,
   waitingSince,
@@ -242,6 +247,9 @@ export function HostRecoveringLine({
   /// The chip's look, for the gallery; the pane passes none.
   variant?: ConnectionChipVariant;
   relinkingSince?: number;
+  /// When the oldest prompt waiting for the link was sent (offlineSends.ts): "Reconnecting…" shows
+  /// only while one has waited past the bound, as nothing else is held up by a reconnect.
+  sendWaitingSince?: number;
   restoring?: HostRestoring;
   /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
   failureShown?: boolean;
@@ -253,7 +261,14 @@ export function HostRecoveringLine({
 }) {
   const t = useT();
   const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
+  const line = hostRecoveryLine({
+    relinkingSince,
+    sendWaitingSince,
+    restoring,
+    failureShown,
+    waitingSince,
+    now: fixedNow ?? ticking,
+  });
   if (!line) return otherwise;
   return line.kind === "restoring" ? (
     <ConnectionChip

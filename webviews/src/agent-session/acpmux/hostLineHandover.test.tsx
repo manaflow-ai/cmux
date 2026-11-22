@@ -22,6 +22,7 @@ test("Reconnecting… stays until the waiting line replaces it: no second draws 
     const line = renderToStaticMarkup(
       <HostRecoveringLine
         relinkingSince={relinkingSince}
+        sendWaitingSince={relinkingSince}
         waitingSince={waitingSince}
         now={now}
         otherwise={<HostWaitingLine since={waitingSince} now={now} onRestart={() => undefined} />}
@@ -38,12 +39,18 @@ test("Reconnecting… stays until the waiting line replaces it: no second draws 
 });
 
 test("a handshake that starts after the deadline brings no Reconnecting… back", () => {
-  expect(hostRecoveryLine({ relinkingSince: 0, waitingSince: 26_000, now: 27_000 })).toBeUndefined();
+  expect(
+    hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 0, waitingSince: 26_000, now: 27_000 }),
+  ).toBeUndefined();
   // Nor does a wait that has already reached it (the waiting line shows), or none at all.
-  expect(hostRecoveryLine({ relinkingSince: 0, waitingSince: 1_000, now: 26_000 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 25_000 })).toBeUndefined();
+  expect(
+    hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 0, waitingSince: 1_000, now: 26_000 }),
+  ).toBeUndefined();
+  expect(hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 0, now: 25_000 })).toBeUndefined();
   // While the handshake that began under the line still waits short of the deadline, the line stays.
-  expect(hostRecoveryLine({ relinkingSince: 0, waitingSince: 1_000, now: 25_500 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ relinkingSince: 0, sendWaitingSince: 0, waitingSince: 1_000, now: 25_500 })).toEqual({
+    kind: "reconnecting",
+  });
 });
 
 test("the waiting and restoring lines tick in the fixed-width clock", () => {
