@@ -106,58 +106,52 @@ extension NativeNewTabModel {
 }
 
 extension AgentPaneNewTabActions {
-    /// One New Tab page as ``fill(again:_:)`` sees it: its view when it has one, else the page the app stores for it.
+    /// One New Tab page as ``fill(again:_:)`` sees it: its view, when it has one.
     public struct Page {
         let view: AgentPaneView?
-        /// The page shows no palette action.
+        /// The page shows no palette action. A page with no view shows none.
         let lacks: Bool
-        let store: @MainActor ([AgentPaneOmnibar.Action]) -> Void
 
-        /// - Parameters:
-        ///   - view: The page's view; nil before it is made (Cmd-N's first page before its pane shows it).
-        ///   - stored: The page as the app stores it, which a view made later shows.
-        ///   - store: Writes the actions into the stored page.
-        public init(view: AgentPaneView?, stored: AgentPaneNewTab, store: @escaping @MainActor ([AgentPaneOmnibar.Action]) -> Void) {
+        /// - Parameter view: The page's view; nil before it is made (Cmd-N's first page before its pane shows it, the
+        ///   page of a tab that its pane does not show).
+        public init(view: AgentPaneView?) {
             self.view = view
-            lacks = view.map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? stored.omnibar.actions.isEmpty
-            self.store = store
+            lacks = view.map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? true
         }
     }
 
     /// Lists the palette's actions for the New Tab pages that show without them, as background work from the next
     /// frame on (a slice of actions per task, yielding to input), so Cmd-T and Cmd-N never wait for them and the
     /// open's frames never hold the whole list (PACING TRIAGE #32910). A page with a view takes them in place
-    /// (``AgentPaneView/refreshNewTabActions(_:)``); a page with no view yet takes them into its stored page, so the
-    /// view made from it later lists them.
+    /// (``AgentPaneView/refreshNewTabActions(_:)``).
     ///
     /// While the last list holds (``kept``) the pages take it and nothing is read. A page that took it, or a list
-    /// whose listing had no key (``firstUseReads``), reads the actions again at its person's first input. A page with
-    /// no view yet has no such signal, so it takes neither: the app asks again when its view is made, and it takes
-    /// the list then.
+    /// whose listing had no key (``firstUseReads``), reads the actions again at its person's first input.
+    ///
+    /// A page with no view takes no list, and the page that the app stores for it never has one. A stored list has
+    /// nothing that says what it was read under: the view made from it later would show it after a change of the
+    /// registry or of the focus's context too, and would read nothing again. Such a page still asks for a listing,
+    /// so a list is kept when its view is made. The app asks again at the view's make, and the view takes the kept
+    /// list, or a listing's, then.
     ///
     /// - Parameters:
-    ///   - again: Reads the actions again and gives them to every page: after a page's first use, and after a run of
-    ///     a row that the palette refused. A page whose list is equal sends nothing.
+    ///   - again: Reads the actions again and gives them to every page that has a view: after a page's first use, and
+    ///     after a run of a row that the palette refused. A page whose list is equal sends nothing.
     ///   - pages: The New Tab pages of now, asked at the listing's first task and at its hand-over.
     public func fill(again: Bool = false, _ pages: @escaping @MainActor @Sendable () -> [Page]) {
         if again {
             return read(wanted: { !pages().isEmpty }) { listed in
-                for page in pages() {
-                    if let view = page.view { view.refreshNewTabActions(listed) } else { page.store(listed.actions) }
-                }
+                for page in pages() { page.view?.refreshNewTabActions(listed) }
             }
         }
         // Checked at the listing's first task: Cmd-N's page joins the app's pages after this call.
         list(wanted: { pages().contains(where: \.lacks) }) { [weak self] listed in
             guard let self else { return }
             let again = firstUseReads
-            for page in pages() where page.lacks {
-                if let view = page.view {
-                    view.refreshNewTabActions(listed)
-                    if again { readAtFirstUse(view.model, pages) }
-                } else if !again {
-                    page.store(listed.actions)
-                }
+            for page in pages() {
+                guard page.lacks, let view = page.view else { continue }
+                view.refreshNewTabActions(listed)
+                if again { readAtFirstUse(view.model, pages) }
             }
         }
     }
