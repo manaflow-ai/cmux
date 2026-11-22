@@ -496,6 +496,20 @@
       "title" : "Only Above Context Used (%)",
       "type" : "number"
     },
+    "agents.chats.archiveInactive" : {
+      "default" : "never",
+      "description" : "Move inactive local chats to the archive. Pinned chats, nested chats and chats with work in progress stay in place.",
+      "enum" : [
+        "never",
+        "1d",
+        "2d",
+        "7d",
+        "14d",
+        "30d"
+      ],
+      "title" : "Archive Inactive Chats",
+      "type" : "string"
+    },
     "agents.chats.coldArchive" : {
       "default" : false,
       "description" : "Unused chats are compressed into one small file each and open as before.",
