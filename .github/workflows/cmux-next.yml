@@ -3353,7 +3353,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 20 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 30 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
@@ -3722,7 +3722,9 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-next-fast-tier-cargo
+          shared-key: cmux-next-fast-tier-cargo-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (one key across pool hosts and Blacksmith)
+          add-rust-environment-hash-key: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-211

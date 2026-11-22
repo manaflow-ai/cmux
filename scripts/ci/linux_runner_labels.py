@@ -17,7 +17,8 @@ Two literals stay, because the places they run read no repository variables:
   a copy of the repository on another account, where GitHub's own Ubuntu image is the only label;
 - the fork pull request branch, `head.repo.full_name != github.repository && '<label>'`: it must be
   an ephemeral member of its pool: the pool read right after it, else the last Linux pool the
-  expression reads (the size the job runs at with no overflow). runners.json is its source.
+  expression reads (the size the job runs at with no overflow), else (a fork branch before the
+  persistent `'cmux-linux'` label) the general `linux` pool. runners.json is its source.
   Owned fleet members (`cmux-fleet-linux-*`) never count: a fork's code never runs on our machines.
   `--fix` rewrites a fork label outside its pool to the pool's first ephemeral member, so a pool
   change is runners.json plus `--fix`, never a hand edit across files.
@@ -91,6 +92,7 @@ def code_part(line: str) -> str:
     return line if cut < 0 else line[:cut]
 
 
+PERSISTENT_NEXT = re.compile(r"\s*\|\|\s*'cmux-linux'")
 PAIRED_POOL = re.compile(r"\s*\|\|\s*fromJSON\(vars\.RUNNER_POOLS\)\.([a-z][a-z0-9_]*)")
 
 
@@ -99,6 +101,8 @@ def fork_branches(code: str, defaults: dict[str, list[str]]) -> list[tuple[re.Ma
 
     A fork branch's pool is the pool read right after it (`(fork && '<label>' || fromJSON(vars.RUNNER_POOLS).linux_16)`),
     else the last Linux pool the expression reads after it: the size the job runs at when no overflow is on.
+    A fork branch before a literal persistent label (`|| 'cmux-linux'`, the one persistent Linux pool of
+    hq decisions/junctions.md 2026-11-20) reads no pool; it is judged against the general `linux` pool.
     """
     branches = []
     for fork in FORK_BRANCH.finditer(code):
@@ -108,6 +112,8 @@ def fork_branches(code: str, defaults: dict[str, list[str]]) -> list[tuple[re.Ma
         paired = PAIRED_POOL.match(rest)
         pools = [paired.group(1)] if paired and LINUX_POOL.match(paired.group(1)) else [
             pool for pool in POOL_READ.findall(rest) if LINUX_POOL.match(pool)][-1:]
+        if not pools and PERSISTENT_NEXT.match(rest):
+            pools = ["linux"]
         branches.append((fork, defaults.get(pools[0], []) if pools else []))
     return branches
 

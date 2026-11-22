@@ -5,6 +5,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { describedText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -32,7 +33,8 @@ afterAll(async () => {
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
+  // A hidden element is a control's description (aria-describedby), not an item of the row.
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > :not([hidden])")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -100,9 +102,9 @@ test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or st
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
-  expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
-    "Starts a new session from this point. This one stays as it is.",
-  );
+  // A tooltip is one line (its name); what Fork does describes the button for screen readers.
+  expect(forkButton.hasAttribute("data-tooltip-detail")).toBe(false);
+  expect(describedText(forkButton)).toBe("Starts a new session from this point. This one stays as it is.");
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
   expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();

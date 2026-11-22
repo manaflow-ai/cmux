@@ -19,6 +19,7 @@ FORK = "github.event_name == 'pull_request' && github.event.pull_request.head.re
 POOLS = {
     "pools": {
         "$comment": ["test"],
+        "linux": {"members": ["cmux-fleet-linux-x64", "blacksmith-4vcpu-ubuntu-2404"]},
         "linux_2": {"members": ["blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
         "linux_8": {"members": ["cmux-fleet-linux-x64", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"]},
         "macos_26": {"members": ["blacksmith-6vcpu-macos-26"]},
@@ -107,6 +108,16 @@ class LinuxRunnerLabelsTests(unittest.TestCase):
         self.tree.workflow(
             f"${{{{ {OWNER} || {FORK} && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8 && "
             "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
+        self.assertEqual(self.check(), [])
+
+    def test_fork_branch_before_the_persistent_label_takes_the_general_linux_pool(self) -> None:
+        # feat-cmux-next's one persistent Linux pool (hq decisions/junctions.md 2026-11-20): `|| 'cmux-linux'`.
+        path = self.tree.workflow(f"${{{{ {OWNER} || {FORK} && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}}}")
+        self.assertEqual(self.check(), [])
+        path = self.tree.workflow(f"${{{{ {OWNER} || {FORK} && 'cmux-fleet-linux-x64' || 'cmux-linux' }}}}")
+        self.assertTrue(any("fork branch names 'cmux-fleet-linux-x64'" in p for p in self.check()))
+        lrl.fix(self.tree.dir)
+        self.assertIn("&& 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux'", path.read_text())
         self.assertEqual(self.check(), [])
 
     def test_baseline_allows_its_count_and_no_more(self) -> None:
