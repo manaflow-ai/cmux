@@ -45,6 +45,8 @@ QUEUE_WORKFLOWS = frozenset({
 EXCEPTIONS = {
     "cla.yml": "the CLA Assistant moves to the gate label with its policy PR (exact-head human approval)",
     "resolve-runners.yml": "the resolver reads no runner variable and must not depend on a fleet it resolves",
+    "web-complexity-trusted.yml": "reads untrusted source: only the one-job PR-control JIT label, with no switch a "
+    "variable can flip to a pooled overflow route (cmux#49117, test_ci_runner_set)",
 }
 
 
