@@ -123,13 +123,9 @@ extension AgentPaneTransport {
 
     /// Each method and key the relay dropped (P0), logged once per app run: a page newer than the
     /// app shows in the log without a line per frame.
-    nonisolated private static let droppedLogged = OSAllocatedUnfairLock(initialState: Set<String>())
-
+    /// Names the keys P0 dropped. Debug level: a newer page drops the same keys on every frame.
     nonisolated private static func logDropped(method: String?, _ dropped: [String]) {
-        let method = method ?? "-"
-        let fresh = droppedLogged.withLock { seen in dropped.filter { seen.insert(method + " " + $0).inserted } }
-        guard !fresh.isEmpty else { return }
-        logger.notice("agent pane dropped params this app does not know method=\(method, privacy: .public) keys=\(fresh.joined(separator: ","), privacy: .public)")
+        logger.debug("agent pane dropped params this app does not know method=\(method ?? "-", privacy: .public) keys=\(dropped.joined(separator: ","), privacy: .public)")
     }
 
     /// The off-main rules on one frame, in order (see ``Checked``).
