@@ -52,6 +52,8 @@ function snapshotFor(effort: string, alias = false): AcpmuxSnapshot {
     protocolVersion: 1,
     rows: [],
     sessions: [],
+    link: "connected",
+    emitReason: "gallery",
     connection: "gallery",
     isWorking: false,
     queue: [],

@@ -36,6 +36,8 @@ function baseSnapshot(title: string, harness = "codex"): AcpmuxSnapshot {
       model: harness === "claude" ? "claude-sonnet" : "gpt-6-astra",
       effort: "high",
     },
+    link: "connected",
+    emitReason: "connected",
     connection: "connected",
     sessionId: "preview-session",
     isWorking: false,

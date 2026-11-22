@@ -10,8 +10,8 @@ import { linkUp, type AcpmuxSnapshot } from "./model";
 /// Stop the turn has not ended on yet. `working`: a turn runs. `idle`: none runs.
 export type TurnPhase = "offline" | "idle" | "working" | "stopping";
 
-export function turnPhase(snapshot: Pick<AcpmuxSnapshot, "connection" | "isWorking" | "stopping">): TurnPhase {
-  if (!linkUp(snapshot.connection)) return "offline";
+export function turnPhase(snapshot: Pick<AcpmuxSnapshot, "link" | "isWorking" | "stopping">): TurnPhase {
+  if (!linkUp(snapshot)) return "offline";
   if (!snapshot.isWorking) return "idle";
   return snapshot.stopping ? "stopping" : "working";
 }

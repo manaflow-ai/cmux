@@ -13,7 +13,8 @@ export function useWorkflowTranscript(
   agent: WorkflowAgent | undefined,
   chat: string,
   read: TranscriptRead,
-  connection: string,
+  /// The snapshot's `emitReason`: each new one reads the agent again.
+  emitReason: string,
 ) {
   const t = useT();
   const [revision, redraw] = useReducer((n: number) => n + 1, 0);
@@ -41,7 +42,7 @@ export function useWorkflowTranscript(
     agent?.doing,
     agent?.tokens,
     agent?.lastMessage,
-    connection,
+    emitReason,
   ]);
   const rows = useMemo((): AcpmuxRow[] | undefined => {
     if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;

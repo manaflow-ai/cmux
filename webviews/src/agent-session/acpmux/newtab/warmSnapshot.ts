@@ -67,10 +67,10 @@ function subscribe(listener: () => void): () => void {
 /// The chats a page lists while its own list has not arrived: the context's, until then.
 /// A page whose daemon is down shows that, not chats it cannot open (or that were deleted since).
 export function shownNewTabSessions(
-  snapshot: Pick<AcpmuxSnapshot, "listedSessions" | "sessions" | "connection">,
+  snapshot: Pick<AcpmuxSnapshot, "listedSessions" | "sessions" | "link" | "emitReason">,
   carried: Sessions,
 ): Sessions | undefined {
-  if (snapshot.connection === "disconnected" || snapshot.connection === "debug") return undefined;
+  if (snapshot.link === "disconnected" || snapshot.emitReason === "debug") return undefined;
   return !snapshot.listedSessions && snapshot.sessions.length === 0 && carried.length > 0 ? carried : undefined;
 }
 

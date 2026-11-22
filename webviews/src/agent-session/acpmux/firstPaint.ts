@@ -19,7 +19,7 @@ export type FirstPaintState = {
   /// The chat's own rows are in, from its attach or a kept tail (the client's `chatRead`), with the
   /// chat it names: not a retry still connecting, not the draw hold running out.
   chatRead?: boolean;
-  /// The client said the chat's open failed (`connection: "failed"`): that is what the chat is now.
+  /// The client said the chat's open failed (`emitReason: "failed"`): that is what the chat is now.
   openRefused?: boolean;
   /// acpmux answered that it lists no such chat, and why (deleted, offline, paused; not a machine
   /// still connecting): the pane's unavailable state, with its Reconnect or Resume, is the chat now.

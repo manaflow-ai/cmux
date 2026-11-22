@@ -14,7 +14,15 @@ const rows = [
   { id: "a2", kind: "assistant", text: "working on it", at: 5, streaming: true },
 ];
 const snapshot = (family: string, isWorking: boolean) =>
-  ({ canFork: true, isWorking, connection: "connected", summary: { family }, rows }) as unknown as AcpmuxSnapshot;
+  ({
+    canFork: true,
+    isWorking,
+    link: "connected",
+    emitReason: "connected",
+    connection: "connected",
+    summary: { family },
+    rows,
+  }) as unknown as AcpmuxSnapshot;
 
 test("a Claude or Codex chat forks a finished turn while a later turn runs", () => {
   for (const family of ["claude", "codex"]) {
@@ -32,7 +40,14 @@ test("another agent forks only at an idle chat's end", () => {
 
 test("an unserved or disconnected chat forks nothing", () => {
   expect(canForkTurn({ ...snapshot("claude", true), canFork: false } as AcpmuxSnapshot)).toBe(false);
-  expect(canForkTurn({ ...snapshot("claude", true), connection: "disconnected" } as AcpmuxSnapshot)).toBe(false);
+  expect(
+    canForkTurn({
+      ...snapshot("claude", true),
+      link: "disconnected",
+      emitReason: "disconnected",
+      connection: "disconnected",
+    } as AcpmuxSnapshot),
+  ).toBe(false);
 });
 
 test("the running turn shows no Fork, and Fork Conversation (forkRefusal, forkToTarget) is unchanged", async () => {

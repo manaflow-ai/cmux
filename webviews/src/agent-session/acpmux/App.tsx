@@ -46,6 +46,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
+  emitted,
   linkUp,
   SINCE_DIVIDER,
   type AcpmuxPlanEntry,
@@ -2176,7 +2177,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
   // Footer actions and checkpoints show only while acpmux is reachable. The client reports failures
   // in the transcript; a bridge that cannot route an action has nothing to add.
-  const connected = linkUp(snapshot.connection);
+  const connected = linkUp(snapshot);
   const checkpoints = useCheckpoints({
     request: callNative,
     target: snapshot.summary?.cwd
@@ -2983,7 +2984,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     selectedWorkflowAgent,
     chatName,
     readWorkflowAgent,
-    snapshot.connection,
+    snapshot.emitReason,
   );
   // A subagent's own transcript for a line that needs its whole reply (SubagentReportLine.tsx), read
   // through one stable getter so a streaming subagent wakes no transcript row.
@@ -4016,9 +4017,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const backgroundWorkflowReads = useMemo(
     () =>
       workflowLabsEnabled
-        ? { sessionId: shownSessionId, chat: chatName, connection: snapshot.connection, read: readWorkflowAgent }
+        ? { sessionId: shownSessionId, chat: chatName, emitReason: snapshot.emitReason, read: readWorkflowAgent }
         : undefined,
-    [workflowLabsEnabled, shownSessionId, chatName, snapshot.connection, readWorkflowAgent],
+    [workflowLabsEnabled, shownSessionId, chatName, snapshot.emitReason, readWorkflowAgent],
   );
   // Hunk decisions outlive the view, so reopening a turn shows what was already decided.
   const [hunkDecisions, setHunkDecisions] = useState<ReadonlyMap<string, HunkDecision>>(() => new Map());
@@ -6782,7 +6783,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         current &&
         config.owner === current.sessionId &&
         config.rows === current.rows &&
-        linkUp(current.connection) &&
+        linkUp(current) &&
         !current.summary?.watching &&
         remoteComposer(current).canSend &&
         harnessSwitch.view().intent === undefined &&
@@ -6836,7 +6837,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, []);
   // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
   // machine may be paused, so recovery reads it as it does a lost link.
-  const cloudLinkUp = connected && snapshot.connection !== "failed";
+  const cloudLinkUp = connected && snapshot.emitReason !== "failed";
   const cloudRecoveryShows = cloudChatRecoveryActive(
     !!snapshot.unavailable,
     snapshot.sessionId,
@@ -7453,9 +7454,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Not merely past "connecting": the open's hold (direct.ts OPEN_HOLD_MS) draws what it has when
   // acpmux is slow, which is the empty transcript. A failed open draws what it is too.
   const openFailed =
-    clientSnapshot.connection.startsWith("connecting:") ||
-    clientSnapshot.connection === "disconnected" ||
-    clientSnapshot.connection === "failed";
+    clientSnapshot.emitReason.startsWith("connecting:") ||
+    clientSnapshot.link === "disconnected" ||
+    clientSnapshot.emitReason === "failed";
   const adoptionDrawn =
     adoptingSession === undefined ||
     openFailed ||
@@ -7481,7 +7482,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         clientSnapshot.sessionId !== undefined &&
         adoptionDrawn &&
         (draftSettled === clientSnapshot.sessionId || draftWaitOver === clientSnapshot.sessionId),
-      openRefused: clientSnapshot.connection === "failed",
+      openRefused: clientSnapshot.emitReason === "failed",
       chatUnavailable: clientSnapshot.unavailable !== undefined && clientSnapshot.unavailable.reason !== "connecting",
     });
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
@@ -8471,7 +8472,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setSnapshot((current) => ({
           ...current,
           rows,
-          connection: "debug",
+          ...emitted("debug"),
           isWorking: fields?.isWorking ?? false,
           canLoadOlder: false,
           // The live chat's steers name rows the seed replaced: only the fixture's own stand.
@@ -10371,7 +10372,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
-          setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+          setSnapshot((current) => ({ ...current, ...emitted(`connecting: ${String(error)}`) }));
           // A chat too large to open says so in plain words; the reply's byte count stays in the log.
           const tooLarge = hostRefusedTooLarge(error);
           // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
@@ -11981,8 +11982,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabSessions.length === 0 &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
-    composerSnapshot.connection !== "disconnected" &&
-    composerSnapshot.connection !== "debug";
+    composerSnapshot.link !== "disconnected" &&
+    composerSnapshot.emitReason !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
   // The daemon's list (removals win) once it has answered, else the page's own. This Mac's store
   // answering with no project (every one removed or missing) is `null`: no chat or started folder

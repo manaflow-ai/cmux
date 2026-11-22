@@ -47,7 +47,7 @@ function GalleryWorkflowPanel({ drill, loads, parallel }: Props) {
       <BackgroundTasksPanel
         groups={groups}
         initialDrill={drill ? { agentId: pane, workflow: true } : undefined}
-        workflow={{ sessionId: SESSION, chat: "This chat", connection: "connected", read }}
+        workflow={{ sessionId: SESSION, chat: "This chat", emitReason: "connected", read }}
         onClearFinished={() => undefined}
         onExpand={() => undefined}
         onClose={() => undefined}

@@ -9,21 +9,19 @@
 // `session/cancel` stops whatever the chat runs, so a kept Stop never goes to another turn (a
 // queued prompt that started meanwhile) and never goes while nothing runs.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { PaneLink } from "./model";
 
-/// What the kept Stop reads of the pane: the chat it shows, its connection (the snapshot's
-/// `connection`, which also carries what a snapshot was emitted for: an event's kind, `history`),
+/// What the kept Stop reads of the pane: the chat it shows, its link (the snapshot's `link`),
 /// whether it works and the prompt of the turn that runs (snapshot `turnPrompt`).
-export type StopView = { sessionId?: string; connection: string; isWorking: boolean; turnPrompt?: string };
+export type StopView = { sessionId?: string; link: PaneLink; isWorking: boolean; turnPrompt?: string };
 
 /// A Stop acpmux did not get: the chat and the turn (by its prompt) it was for, and whether the
 /// pane must lose its connection before sending it again (it was refused while the pane still read
 /// connected: the socket was closing, and a send now would be refused the same way).
 export type KeptStop = { sessionId: string; turnPrompt?: string; awaitsDisconnect: boolean };
 
-/// The pane reaches acpmux: any snapshot but a lost, opening or retrying connection's (App.tsx
-/// `connected`, model.ts `connectionStatus`).
-const reachable = (connection: string) =>
-  connection !== "disconnected" && connection !== "reconnecting" && !connection.startsWith("connecting");
+/// The pane reaches acpmux: its link is up, not lost or opening (App.tsx `connected`).
+const reachable = (link: PaneLink) => link === "connected";
 
 /// What to do with `kept` now. `keep`: wait (with `awaitsDisconnect` cleared once the pane read a
 /// lost connection); `send`: the pane is connected to that chat again and the stopped turn runs;
@@ -31,7 +29,7 @@ const reachable = (connection: string) =>
 /// connected.
 export function keptStopStep(kept: KeptStop, view: StopView): { step: "keep" | "send" | "drop"; kept: KeptStop } {
   if (view.sessionId !== kept.sessionId) return { step: "drop", kept };
-  if (!reachable(view.connection))
+  if (!reachable(view.link))
     return { step: "keep", kept: kept.awaitsDisconnect ? { ...kept, awaitsDisconnect: false } : kept };
   // Another turn runs (a prompt that waited, or one sent since), or one this pane cannot name: only
   // the stopped turn itself, known by its prompt, takes the session-wide cancel.
@@ -58,7 +56,7 @@ export function useStopThroughReconnect(
     setKept({
       sessionId: pressed.sessionId,
       turnPrompt: pressed.turnPrompt,
-      awaitsDisconnect: reachable(now.connection),
+      awaitsDisconnect: reachable(now.link),
     });
   }, []);
   const stop = useCallback(() => {

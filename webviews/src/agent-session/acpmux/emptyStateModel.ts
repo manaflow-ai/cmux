@@ -29,7 +29,7 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
   if (!summary || (summary.sessionId !== snapshot.sessionId && !snapshot.switching)) return false;
   // While connecting or reconnecting, a chat its summary says has no turns is still new: it keeps
   // its hero (the page's cached chat, the chat before the drop) instead of a blank transcript.
-  if (snapshot.connection.startsWith("failed")) return false;
+  if (snapshot.emitReason.startsWith("failed")) return false;
   const turns = summary.turnCount ?? (snapshot.canLoadOlder ? 1 : 0);
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }
