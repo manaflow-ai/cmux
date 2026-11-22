@@ -483,6 +483,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Fleet sagas expose local operation state; only the person turns this read-only experiment on.",
+      "keys": [
+        "labs.fleetSagas"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [

@@ -6,6 +6,8 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = [
         // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
         "labs.liveTree": .userOnly,
+        // Fleet sagas expose local operation state; only the person turns this read-only experiment on.
+        "labs.fleetSagas": .userOnly,
         // Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.
         "experiments.chatWidgets": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).

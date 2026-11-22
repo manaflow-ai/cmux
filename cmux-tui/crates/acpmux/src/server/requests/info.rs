@@ -3,6 +3,7 @@
 
 use super::*;
 
+mod fleet_sagas;
 mod live_tree;
 
 /// The most keys one `_acpmux/info` with `sessionIds` asks for (the design doc, "asks by key
@@ -39,6 +40,11 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     {
         let cwd = s.meta().cwd;
         detail.set("liveTree", live_tree::read(&cwd).await);
+    }
+    if params.get("includeFleetSagas") == Some(&Value::Bool(true))
+        && matches!(conn.origin, Origin::Local | Origin::LocalApp)
+    {
+        detail.set("fleetSagas", fleet_sagas::read().await);
     }
     if let Some(obj) = detail.as_object_mut() {
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));

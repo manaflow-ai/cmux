@@ -7527,6 +7527,11 @@ export class AcpmuxDirectClient {
     return (reply as { liveTree?: unknown } | null)?.liveTree;
   }
 
+  async fleetSagasStatus(sessionId: string): Promise<unknown> {
+    const reply = await this.request("_acpmux/info", { sessionId, waitLogs: false, includeFleetSagas: true }, 5000);
+    return (reply as { fleetSagas?: unknown } | null)?.fleetSagas;
+  }
+
   gitDiffCounts(scope: string): Promise<unknown> {
     return this.git("git.diff", { scope, include_patch: false });
   }
