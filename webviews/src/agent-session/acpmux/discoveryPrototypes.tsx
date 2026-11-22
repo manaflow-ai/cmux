@@ -70,6 +70,7 @@ function KeyOverlay({ bottom, left, width }: { bottom: number; left: number; wid
   return (
     <div
       data-prototype="modifier-overlay"
+      data-host-glass="popover"
       className="ui-popup ui-glass"
       style={{
         position: "fixed",
