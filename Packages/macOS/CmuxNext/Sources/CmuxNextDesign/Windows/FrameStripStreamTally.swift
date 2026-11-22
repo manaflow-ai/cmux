@@ -13,12 +13,20 @@ nonisolated struct StreamTally: Sendable {
         case display(age: Double)
         case missing
         case later
+
+        /// True for the handler's own time.
+        var isOwn: Bool {
+            switch self {
+            case .display: false
+            case .missing, .later: true
+            }
+        }
     }
 
     private var rowStatus = ""
     private var rowTimes: [Double] = []
     private var ownTimeRows: [Int] = []
-    private var noRows: [(at: Double, why: Int)] = []
+    private var noRows: [(at: Double, why: Int, own: Bool)] = []
     private var noRowCounts: [Int: Int] = [:]
     private var complete = 0
     private var idle = 0
@@ -58,14 +66,16 @@ nonisolated struct StreamTally: Sendable {
     }
 
     /// A buffer that made no row, `at` ms after the start. `why`: its status's raw number, or one of the three above.
-    /// The first 256 keep their time.
-    mutating func noRow(at: Double, why: Int) {
+    /// `own`: `at` is the handler's own time, not the buffer's display time (the buffer's frame of the display is
+    /// then at `at` or before it). The first 256 keep their time and `own`.
+    mutating func noRow(at: Double, why: Int, own: Bool) {
         noRowCounts[why, default: 0] += 1
-        if noRows.count < 256 { noRows.append((at, why)) }
+        if noRows.count < 256 { noRows.append((at, why, own)) }
     }
 
     /// The reply's `screen_stream`. `sentAt`: when the key went in, ms after the start; `no_row` and `row_ms` (each
-    /// row's time, in tenths of a ms where the row's own `ms` is a whole one) count from it.
+    /// row's time, in tenths of a ms where the row's own `ms` is a whole one) count from it. A `no_row` entry: the
+    /// time, why, and 1 for the handler's own time or 0 for the display's.
     func fields(sentAt: Double) -> [String: any Sendable] {
         func tenth(_ value: Double) -> Double { (value * 10).rounded() / 10 }
         let noStatus = noRowCounts[Self.noStatus] ?? 0
@@ -74,7 +84,7 @@ nonisolated struct StreamTally: Sendable {
         var otherStatus: [String: Int] = [:]
         for (why, count) in noRowCounts where why >= 0 { otherStatus[String(why)] = count }
         let buffers = rowStatus.count + noRowCounts.values.reduce(0, +)
-        let noRowTimes: [[Double]] = noRows.map { [tenth($0.at - sentAt), Double($0.why)] }
+        let noRowTimes: [[Double]] = noRows.map { [tenth($0.at - sentAt), Double($0.why), $0.own ? 1 : 0] }
         let rowMs: [Double] = rowTimes.map { tenth($0 - sentAt) }
         let lagMean = lagCount > 0 ? lagSum / Double(lagCount) : 0
         let workMean = complete > 0 ? workSum / Double(complete) : 0

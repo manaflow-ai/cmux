@@ -148,18 +148,30 @@ not copy, and an idle buffer before the first picture make none. A row's time is
 handler's own time when the buffer has none or a later one. `stream` has those counts as whole numbers, whether
 they add up (`counts_agree`), and each gap (the frames with no row between 2 rows one after the other, the later
 one after the key) under ONE kind, the first of these that applies, in this order: `with_a_buffer` (a buffer that
-made no row has its time in the gap), `not_known` (how many buffers made no row is not known, or the reply's list
-of them is not whole and the gap is after the last buffer that it lists: a buffer that the list does not have can
-be in the gap), `own_time` (the row before or after the gap has the handler's own time, so the gap can be a fault
-of that time), `then_idle` and `then_complete` (no such buffer and no such row: the stream gave no buffer for those
-frames, and the row after them is an idle buffer's or a complete one's), and `not_known` again when the row after
-has no status in the reply. The gaps are counted from the key to `content_first` and over the whole take; `steps`
-counts the rows' steps against the display's frame time from the stream's times in tenths of a ms. `lists` keeps
+made no row, with the display's time, has its time in the gap), `not_known` (a buffer that made no row, with the
+handler's own time, has its time in the gap: its frame of the display is at that time or before it; or how many
+buffers made no row is not known; or the reply's list of them is not whole and the gap is after the last buffer
+that it lists: a buffer that the list does not have can be in the gap), `own_time` (the row before or after the
+gap has the handler's own time, so the gap can be a fault of that time), `then_idle` and `then_complete` (no such
+buffer and no such row: the stream gave no buffer for those frames, and the row after them is an idle buffer's or
+a complete one's), and `not_known` again when the row after has no status in the reply. A buffer's entry says its
+clock with a third value (1 the handler's own, 0 the display's); an entry of 2 values is of a build that does not
+say it, and is read as the display's. The gaps are counted from the key to `content_first` and over the whole
+take. Counted apart: the listed buffers with the handler's own time (`no_row_own_time`), the gaps with one in them
+(`own_time_buffer_gaps`), and the gaps whose kind is NOT SAFE (`kind_not_safe_gaps`): a gap with the kind
+`own_time`, `then_idle` or `then_complete` that ends before such a buffer by the recording's largest lag or less
+(`lag_ms_max`, the largest age of a buffer that made a row with the display's time; with no lag in the reply, or
+with no such row, each such gap before the buffer) can be the buffer's true gap. With 0 such gaps the kinds answer
+for each gap; with 1 or more, for the other gaps only. `steps` counts the rows' steps against the display's frame
+time from the stream's times in tenths of a ms. `lists` keeps
 what the kinds were read from: the reply's 4 lists after the checks (numbers and the 2 status letters only) and
-the place of each row in them, so another rule of the kinds can read the same take again. The counts are facts of
-a row: no INVALID reason reads them, and a frame with no row before the first content is INVALID whatever its
-kind. Counts in a form that `stream_of` does not know end no run: the row then has no `stream`, and `stream_fault`
-has the name of Python's error as ONE word (no text of the reply); the head says how many rows have one.
+the place of each row in them, so another rule of the kinds can read the same take again. A stream that made no
+row has its counts in a window-list reply: the row then has the counts alone (its rows are not the stream's, so no
+gap has a kind). The counts are facts of a row: no INVALID reason reads them, and a frame with no row before the
+first content is INVALID whatever its kind. Counts that `stream_of` cannot read (a form that it does not know, or
+a fault of its own code) end no run: the row then has no `stream`, `stream_fault` has the name of Python's error
+as ONE word (no text of the reply), and `stream_kept` has the reply's counts cut to numbers and the 2 status
+letters, so the row can be read again; the head and the driver's line of the row say it.
 """
 import math
 import re
@@ -547,10 +559,15 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
     own = said.get("own_time_rows")
     own = {_whole(place) for place in own} if isinstance(own, list) else None
     times = said.get("row_ms") if isinstance(said.get("row_ms"), list) and all(_number(at) for at in said["row_ms"]) else None
-    given = [buffer for buffer in said.get("no_row") or []
-             if isinstance(buffer, list) and len(buffer) == 2 and all(_number(value) for value in buffer)]
-    listed = sorted((buffer[0] + shift, buffer[1]) for buffer in given)
+    # A buffer that made no row: its time, why, and whether that time is the handler's own (the entry's third value:
+    # 1 the handler's own, 0 the display's; None for an entry of 2 values, a build that does not say it).
+    given = [(buffer[0], buffer[1], bool(buffer[2]) if len(buffer) == 3 else None) for buffer in said.get("no_row") or []
+             if isinstance(buffer, list) and len(buffer) in (2, 3) and all(_number(value) for value in buffer)
+             and (len(buffer) == 2 or buffer[2] in (0, 1))]
+    listed = sorted(((at + shift, why, clock) for at, why, clock in given), key=lambda buffer: buffer[:2])
     out["other_status"], out["own_time_rows"] = other, None if own is None else len(own)
+    # The listed buffers with the handler's own time (None: an entry does not say its clock).
+    out["no_row_own_time"] = None if None in [clock for _, _, clock in given] else sum(1 for _, _, clock in given if clock)
     out.update({name: said[name] if _number(said.get(name)) else None for name in ("lag_ms_max", "lag_ms_mean", "work_ms_max", "work_ms_mean")})
     known = other is not None and own is not None and None not in own and None not in [out[name] for name in names]
     no_row = sum(other.values()) + out["no_status"] + out["no_picture"] + out["idle_before_a_picture"] if known else None
@@ -570,7 +587,8 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
     out["lists"] = {
         "row_status": status if isinstance(said.get("row_status"), str) and set(status) <= set(STREAM_STATUS) else None,
         "row_ms": times if times is not None and all(math.isfinite(at) for at in times) else None,
-        "no_row": [[at, int(why) if why == int(why) else why] for at, why in given if math.isfinite(at) and math.isfinite(why)],
+        "no_row": [[at, int(why) if why == int(why) else why] + ([] if clock is None else [int(clock)])
+                   for at, why, clock in given if math.isfinite(at) and math.isfinite(why)],
         "own_time_rows": None if own is None or None in own else sorted(own),
         "place_before_key": places[offset - 1] if 0 < offset <= len(places) else None,
         "places_after_key": places[offset:], "shift_ms": round(shift, 3)}
@@ -584,8 +602,16 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
     out["content_first_status"] = None if first is None else after[first]
     # The gaps: the frames after the key with no row, between 2 rows one after the other (the key's own frame, 0, is
     # the floor). A buffer that made no row is in a gap when its time is from the row before (or the key) to the row
-    # after, each with half a ms more: the rows' times are whole ms and the buffers' times are tenths.
+    # after, each with half a ms more: the rows' times are whole ms and the buffers' times are tenths. A buffer whose
+    # time is the handler's own had its frame of the display at that time OR BEFORE it: it makes no gap
+    # `with_a_buffer`, the gap that its time is in is `not_known` (when no buffer with the display's time is in it),
+    # and the kind of a gap that ends in the `lag` ms before it (the largest age of a buffer that made a row in this
+    # recording: the only measure of how late the handler ran) is `not_safe`: that gap can be the buffer's true one.
     part = out["no_row_not_listed"]
+    lag = out["lag_ms_max"] if _number(out["lag_ms_max"]) and math.isfinite(out["lag_ms_max"]) else None
+    if own is not None and out["rows"] is not None and len(own) >= out["rows"]:
+        lag = None  # no row has the display's time: the reply's lag (0) is of no buffer
+    late = [time for time, _, clock in listed if clock]
     gaps = []
     for at in range(offset, len(every)):
         (frame, row), before = every[at], every[at - 1] if at else None
@@ -594,24 +620,38 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
             continue
         low = max(before[1]["ms"], 0.0) if before else 0.0
         ends = {places[at]} | ({places[at - 1]} if before else set())
-        if any(low - 0.5 <= time <= row["ms"] + 0.5 for time, _ in listed):
+        inside = [clock for time, _, clock in listed if low - 0.5 <= time <= row["ms"] + 0.5]
+        if any(clock is not True for clock in inside):
             kind = "with_a_buffer"
-        elif part is None or (part > 0 and (not listed or row["ms"] > listed[-1][0])):
+        elif inside or part is None or (part > 0 and (not listed or row["ms"] > listed[-1][0])):
             kind = "not_known"
         elif own and ends & own:
             kind = "own_time"
         else:
             kind = {"idle": "then_idle", "complete": "then_complete"}.get(status_of(places[at]), "not_known")
-        gaps.append((at - offset, frames, kind))
+        # Not safe: a kind that names a cause, of a gap that ends before an own-time buffer by the lag or less (not
+        # known with no lag in the reply: then each such gap before an own-time buffer counts).
+        after_it = [round(time - row["ms"] - 0.5, 3) for time in late if time > row["ms"] + 0.5]
+        safe = kind in ("with_a_buffer", "not_known") or not any(lag is None or far <= lag for far in after_it)
+        gaps.append((at - offset, frames, kind, True in inside, not safe))
 
     def tally(chosen):
-        return {"gaps": len(chosen), "frames": sum(frames for _, frames, _ in chosen),
-                **{kind: {"gaps": sum(1 for _, _, name in chosen if name == kind),
-                          "frames": sum(frames for _, frames, name in chosen if name == kind)} for kind in STREAM_KINDS}}
+        return {"gaps": len(chosen), "frames": sum(gap[1] for gap in chosen),
+                **{kind: {"gaps": sum(1 for gap in chosen if gap[2] == kind),
+                          "frames": sum(gap[1] for gap in chosen if gap[2] == kind)} for kind in STREAM_KINDS}}
 
+    def apart(chosen, which):
+        return {"gaps": sum(1 for gap in chosen if gap[which]), "frames": sum(gap[1] for gap in chosen if gap[which])}
+
+    to_first = None if first is None else [gap for gap in gaps if gap[0] <= first]
     out["whole_take"] = tally(gaps)
-    out["to_content_first"] = None if first is None else tally([gap for gap in gaps if gap[0] <= first])
-    out["before_content_first"] = None if first is None else next((kind for at, _, kind in gaps if at == first), "no_gap")
+    out["to_content_first"] = None if to_first is None else tally(to_first)
+    out["before_content_first"] = None if first is None else next((gap[2] for gap in gaps if gap[0] == first), "no_gap")
+    # Counted apart, for the whole take and to `content_first` (None: no content_first): the gaps with an own-time
+    # buffer in them, and the gaps whose kind is not safe. With 0 gaps that are not safe the kinds answer for each
+    # gap; with 1 or more they answer for the other gaps only.
+    out["own_time_buffer_gaps"] = {"whole_take": apart(gaps, 3), "to_content_first": None if to_first is None else apart(to_first, 3)}
+    out["kind_not_safe_gaps"] = {"whole_take": apart(gaps, 4), "to_content_first": None if to_first is None else apart(to_first, 4)}
     # The steps between the rows after the key, from the stream's times: how far each is from a whole count (1 or
     # more) of the display's frame times, and the mean of the steps of one frame.
     out["steps"] = None
@@ -629,38 +669,90 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
 
 def stream_sentence(rows):
     """The report's head sentence from the rows' `stream`: the sums of the recorder's counts over the rows that have
-    them, numbers only. None when no row has them (a build with no counts): the head is then as it was."""
+    them, numbers only, and how many rows have a `stream_fault`. None when no row has counts or a fault (a build
+    with no counts): the head is then as it was."""
     seen = [row["stream"] for row in rows if row.get("stream")]
     faults = [row["stream_fault"] for row in rows if row.get("stream_fault")]
-    not_read = (f"the reader did not know the form of the counts of {len(faults)} rows ("
-                + ", ".join(f"{word} {faults.count(word)}" for word in sorted(set(faults))) + ")")
+    not_read = (f"the reader could not read the counts of {len(faults)} rows ("
+                + ", ".join(f"{word} {faults.count(word)}" for word in sorted(set(faults)))
+                + "): the reply's form or a fault of the reader; each such row keeps the reply's counts (`stream_kept`)")
     if not seen:
         return f"the screen stream's counts (0 of the {len(rows)} rows have them): {not_read}" if faults else None
 
     def total(name):
         return sum(stream.get(name) or 0 for stream in seen)
 
+    def apart(name):
+        return sum(apart_of(stream, name) for stream in seen)
+
     other = sum(sum(stream["other_status"].values()) for stream in seen if stream.get("other_status"))
     spans = [stream["to_content_first"] for stream in seen if stream.get("to_content_first")]
     by_kind = ", ".join(f"{kind.replace('_', ' ')} {sum(span[kind]['gaps'] for span in spans)}" for kind in STREAM_KINDS)
     lag = max([stream["lag_ms_max"] for stream in seen if _number(stream.get("lag_ms_max"))], default=None)
+    # The buffers with no row whose time is the handler's own: their frame is at that time or before it.
+    own = (f"{total('no_row_own_time')} of the listed ones have the handler's own time (not said in "
+           f"{sum(1 for stream in seen if stream.get('no_row_own_time') is None)} rows)")
+    unsafe = (f"{apart('kind_not_safe_gaps')} of the gaps end within the row's largest lag before a buffer with no row that has "
+              f"the handler's own time, in {sum(1 for stream in seen if apart_of(stream, 'kind_not_safe_gaps'))} rows: their kind is "
+              f"not safe, the kinds answer for the other gaps only ({apart('own_time_buffer_gaps')} gaps have such a buffer in them)")
     return (f"the screen stream's counts ({len(seen)} of the {len(rows)} rows have them): {total('buffers')} buffers (complete "
             f"{total('complete')}, idle {total('idle')}, another status {other}, no status {total('no_status')}); "
             f"{other + total('no_status') + total('no_picture') + total('idle_before_a_picture')} buffers made no row (another status "
             f"{other}, no status {total('no_status')}, no picture {total('no_picture')}, idle before a picture "
-            f"{total('idle_before_a_picture')}); {total('own_time_rows')} rows have the handler's own time; the frames with no row "
-            f"from the key to content_first: {sum(span['frames'] for span in spans)} in {sum(span['gaps'] for span in spans)} gaps "
-            f"({by_kind}); the handler's lag at most {'not known' if lag is None else f'{lag:g}'} ms; the counts do not agree in "
-            f"{sum(1 for stream in seen if not stream['counts_agree'])} rows" + (f"; {not_read}" if faults else ""))
+            f"{total('idle_before_a_picture')}; {own}); {total('own_time_rows')} rows have the handler's own time; the frames with "
+            f"no row from the key to content_first: {sum(span['frames'] for span in spans)} in {sum(span['gaps'] for span in spans)} gaps "
+            f"({by_kind}); {unsafe}; the handler's lag at most {'not known' if lag is None else f'{lag:g}'} ms; the counts do not "
+            f"agree in {sum(1 for stream in seen if not stream['counts_agree'])} rows" + (f"; {not_read}" if faults else ""))
+
+
+def apart_of(stream, name):
+    """A row's count of gaps from the key to `content_first` that `stream_of` counts apart (`own_time_buffer_gaps`,
+    `kind_not_safe_gaps`); 0 for a row with none."""
+    return ((stream.get(name) or {}).get("to_content_first") or {}).get("gaps") or 0
+
+
+# The counts of the reply's `screen_stream` that are one number each.
+STREAM_NUMBERS = ("buffers", "rows", "complete", "idle", "no_status", "no_picture", "idle_before_a_picture", "no_display_time",
+                  "display_time_later", "lag_ms_max", "lag_ms_mean", "work_ms_max", "work_ms_mean")
+
+
+def _kept(reply):
+    """For a row whose counts the reader could not read: the reply's `screen_stream` cut to what a later reading can
+    take, with no other text of the reply. A count that is a finite number; `other_status`'s counts under a status
+    number; `row_status` when it has the 2 status letters only; `row_ms` and `own_time_rows` when each entry is a
+    finite number (a place in them is a row's place); each `no_row` entry of 2 or 3 finite numbers. A field in
+    another form is left out. None for a reply that cannot be cut."""
+    def finite(value):
+        return _number(value) and math.isfinite(value)
+
+    try:
+        said = reply["screen_stream"]
+        out = {name: said[name] for name in STREAM_NUMBERS if finite(said.get(name))}
+        if isinstance(said.get("other_status"), dict):
+            out["other_status"] = {status: count for status, count in said["other_status"].items()
+                                   if isinstance(status, str) and status.isdigit() and finite(count)}
+        if isinstance(said.get("row_status"), str) and set(said["row_status"]) <= set(STREAM_STATUS):
+            out["row_status"] = said["row_status"]
+        for name in ("row_ms", "own_time_rows"):
+            if isinstance(said.get(name), list) and all(finite(value) for value in said[name]):
+                out[name] = list(said[name])
+        if isinstance(said.get("no_row"), list):
+            out["no_row"] = [list(entry) for entry in said["no_row"]
+                             if isinstance(entry, list) and len(entry) in (2, 3) and all(finite(value) for value in entry)]
+        return out
+    except Exception:  # a reply in a form that cannot be cut: the fault's word stays the row's fact
+        return None
 
 
 def _counts(reply, *rows):
-    """A row's `stream` and `stream_fault`: `stream_of`, and for counts in a form that it does not know no counts
-    and the name of Python's error (ONE word; no text of the reply). A fact of a row must not end a take."""
+    """A row's `stream`, `stream_fault` and `stream_kept`: `stream_of`; and when it has an error (counts in a form
+    that it does not know, or a fault of the reader's own code) no counts, the name of Python's error (ONE word; no
+    text of the reply) and the reply's counts cut to numbers and the 2 status letters (`_kept`), so the row can be
+    read again. A fact of a row must not end a take."""
     try:
-        return stream_of(reply, *rows), None
+        return stream_of(reply, *rows), None, None
     except Exception as fault:  # each error of the read: the row's other numbers do not need the counts
-        return None, type(fault).__name__
+        return None, type(fault).__name__, _kept(reply)
 
 
 def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=SETTLE_MS):
@@ -672,10 +764,10 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out = {"key": key, "gap_ms": gap_ms, "invalid": [], "capture": reply.get("capture"),
            "capture_error": reply.get("capture_error"), "spans": reply.get("spans") or [],
            "key_work_ms": work, "zero": ZERO_SENT if said else None if work is None else ZERO,
-           # The recorder's counts of its stream (None: a build with none, or counts in a form that the reader does
-           # not know: `stream_fault` then has ONE word). A fact: no reason below reads it.
-           "stream": None, "stream_fault": None}
-    out["stream"], out["stream_fault"] = _counts(reply)
+           # The recorder's counts of its stream (None: a build with none, or counts that the reader could not read:
+           # `stream_fault` then has ONE word and `stream_kept` the reply's counts). A fact: no reason below reads it.
+           "stream": None, "stream_fault": None, "stream_kept": None}
+    out["stream"], out["stream_fault"], out["stream_kept"] = _counts(reply)
     if reply.get("capture") != CAPTURE:
         out["invalid"].append(f"capture: the frames are not the screen's ({reply.get('capture')!r}): the page is not in them")
     if work is None:
@@ -722,8 +814,9 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     out["partial_state_not_seen"] = None if first is None else out["first_frame_span"]["no_row"]
     out["invalid"] += [fault for fault in [no_row_fault(out["first_frame_span"], "the key", "content_first")] if fault]
     # Why the frames with no row have none, by the recorder's counts (a fact; the reason above does not read it).
-    if out["stream"]:
-        out["stream"], out["stream_fault"] = _counts(reply, every, len(timed) - len(after), first, shift, refresh)
+    # The rows of a window-list recording are not the stream's (a stream that made no row): its counts stay alone.
+    if out["stream"] and reply.get("capture") == CAPTURE:
+        out["stream"], out["stream_fault"], out["stream_kept"] = _counts(reply, every, len(timed) - len(after), first, shift, refresh)
     # The rows of the part that moves, from the key to `content_final` (to the end when the content has none): 4 of
     # them at least, and their own step. Rows that come slower than the display there are not each frame of it. The
     # still part after it is not judged: its frames with no row are a count (`frames_not_delivered`).
