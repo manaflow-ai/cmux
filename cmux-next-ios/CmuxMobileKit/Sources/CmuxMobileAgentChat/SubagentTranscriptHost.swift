@@ -82,7 +82,8 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
         guard scrollView.bounds.height > 0, scrollView.contentSize.height > 0 else { return }
         let grew = scrollView.contentSize.height > contentHeight
         contentHeight = scrollView.contentSize.height
-        guard !scrollView.isTracking else { return }
+        // Under the finger nothing moves the transcript but the finger.
+        guard !scrollView.isTracking, !scrollView.isDragging else { return }
         if !positioned {
             positioned = true
             scrollView.contentOffset.y = follow.follows ? bottomOffset : topOffset
@@ -103,8 +104,15 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
 
     // MARK: The reader's scroll decides whether the end is followed.
 
+    /// The reader's finger takes the transcript: following stops this frame, so the end is never
+    /// pulled back under a drag. Coming to rest within the end's band follows it again.
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        follow.follows = false
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard positioned, scrollView.isTracking || scrollView.isDecelerating else { return }
+        // Only a fling's coast: under the finger, following stays off (`scrollViewWillBeginDragging`).
+        guard positioned, !scrollView.isTracking, scrollView.isDecelerating else { return }
         _ = follow.changed(atEnd: onEnd, grew: false, scrolling: true, running: running())
     }
 }
