@@ -36,14 +36,16 @@ const fmt = (n: number) => Number(n.toFixed(4)).toString();
  * The mask gradient: `top` px of fade from the top edge, `bottom` px from the bottom edge, full ink
  * between. A band of 0 px is no fade on that edge.
  */
+/** One mask stop: ink at `alpha` at `at` (a mask alpha, not a colour). */
+const stop = (alpha: number, at: string) => `rgb(0 0 0 / ${fmt(alpha)}) ${at}`; // colour-allow: a mask's alpha stop, never painted
+
 export function edgeFadeMask(curve: Curve, top: number, bottom: number): string {
   const stops: string[] = [];
-  if (top > 0) for (const t of samples(curve)) stops.push(`rgb(0 0 0 / ${fmt(alphaAt(curve, t))}) ${fmt(t * top)}px`);
-  else stops.push("rgb(0 0 0 / 1) 0px");
+  if (top > 0) for (const t of samples(curve)) stops.push(stop(alphaAt(curve, t), `${fmt(t * top)}px`));
+  else stops.push(stop(1, "0px"));
   if (bottom > 0)
-    for (const t of samples(curve).reverse())
-      stops.push(`rgb(0 0 0 / ${fmt(alphaAt(curve, t))}) calc(100% - ${fmt(t * bottom)}px)`);
-  else stops.push("rgb(0 0 0 / 1) 100%");
+    for (const t of samples(curve).reverse()) stops.push(stop(alphaAt(curve, t), `calc(100% - ${fmt(t * bottom)}px)`));
+  else stops.push(stop(1, "100%"));
   return `linear-gradient(to bottom, ${stops.join(", ")})`;
 }
 
