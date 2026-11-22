@@ -20,7 +20,7 @@ expect certain things to come in, that dynamism versus like what parts of the UI
 | Zone | Kind | What lives there | Why |
 | --- | --- | --- | --- |
 | Top start of the text column | dynamic | The unread banner | What's new arrives where the eye settles on entering a chat |
-| Bottom center, on the composer's center line | dynamic | Jump to latest (or the Needs you pill), with Jump up stacked on it | Where to go next waits next to where you type |
+| Bottom, over the composer card's end edge (jumpPlace.css; the `jump-latest-place` arm can put it at the start edge, the end corner or the center line) | dynamic | Jump to latest (or the Needs you pill), with Jump up stacked on it | Where to go next waits next to where you type |
 | Top center, under the header | stable | The pinned "Subagent of" pill | Identity of the view, never news |
 | End edge | stable | Session Info | Pushes the column or floats in the gutter; never covers a dynamic zone |
 
@@ -75,7 +75,10 @@ Leo, 2026-11-10: "having a jump up button, like jumping up since like the last t
 seems like very good. Because it's like, okay, you get jump to bottom, but then jump to, like, the last
 thread."
 
-- **Jump to latest**: a glass control on the composer's center line while the reader is scrolled up.
+- **Jump to latest**: a glass control over the composer card's end edge while the reader is scrolled up,
+  its arrow over the card's last button (the mic or Send), so the tucked hat's count pill has the middle to itself (Leo,
+  2026-11-21, of the arrow on the pill: "didn't we say we wanted to move these to the side"). It takes the
+  start edge when the hat's handle stands at the end (`agentPane.display.trayHandle`).
 - **Jump up** is the same disc with its arrow turned up in place (`jumpPair.css`, One control below): the
   same look, size, glass, focus and fade. So only one of the two ever shows (Leo, 2026-11-12: "after
   clicking the jump to bottom button, this appears... and then it appears again when you went up. which is
