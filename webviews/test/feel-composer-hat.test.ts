@@ -43,10 +43,14 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     component: "composer-hat",
     viewport: { width: 480, height: 240 },
     prepare: async (page) => void (await page.waitForSelector(HEAD)),
-    // Twenty joining in one frame each shifts the page 0.013 (limit 0.01) on the exact arm too: the tray
-    // grows under the burst, not the header's words. Its words and count pass here.
+    // Twenty joining widen the subagent icon row (HatFaces.tsx) from 2 icons to its 140 px cap, and the
+    // kinds and time after it move over by that width: 0.013 against 0.01 in this 480 x 240 stage, on
+    // every arm. Measured by each layout-shift entry's sources (the kinds, the time, the icons), 2026-11-22.
+    // The row's count is held 1.6 s, so it is one move, not twenty. Keeping the words put needs the row
+    // after them or a reserved width: a choice about the icon header's design (#49824), not this file's.
     known: {
-      "join-20": "unowned: the tray's growth under a burst of twenty joins shifts the page 0.013 on every arm",
+      "join-20":
+        "the subagent icon row widening to its cap moves the kinds after it once (0.013): a header design choice",
     },
   });
 

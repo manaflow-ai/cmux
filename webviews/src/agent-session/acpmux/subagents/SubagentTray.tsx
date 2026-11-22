@@ -403,7 +403,11 @@ export const SubagentTray = memo(function SubagentTray({
   const headButton = useRef<HTMLButtonElement | null>(null);
   // "+N more" and the time move as one trailing segment: a width change before them glides them to
   // their new place instead of jumping (trayMotion.tsx `useGlide`).
-  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
+  // The kinds after the subagent icons glide too, when the icon row widens (HatFaces).
+  useGlide(
+    headButton,
+    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > .acpmux-running-tray__kind",
+  );
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -872,7 +876,8 @@ export const SubagentTray = memo(function SubagentTray({
           {!kindsHead && (
             // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
             // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
-            <Dwelt value={headText} dwellMs={PHASE_DWELL_MS}>
+            // A fold or unfold is the reader's own change: keyed by it, the words change at once.
+            <Dwelt key={open ? "open" : "folded"} value={headText} dwellMs={PHASE_DWELL_MS}>
               {(text) => (
                 <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
               )}
@@ -911,7 +916,7 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <Dwelt value={moreCount} dwellMs={PHASE_DWELL_MS}>
+            <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
               {(n) => (
                 <Tick
                   className="acpmux-summary-meta acpmux-running-tray__more"
