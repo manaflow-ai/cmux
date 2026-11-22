@@ -11,6 +11,7 @@ use crate::policy::PolicyConfig;
 fn table() -> Vec<(&'static str, Value, Kind)> {
     vec![
         ("status", json!({}), Kind::Engine),
+        ("list_displays", json!({}), Kind::Engine),
         ("list_machines", json!({}), Kind::Engine),
         ("list_apps", json!({}), Kind::Inventory),
         ("list_windows", json!({}), Kind::Inventory),
