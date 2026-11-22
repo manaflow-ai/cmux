@@ -319,7 +319,7 @@
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"gap","values":{"2px":4}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"margin","values":{"2px":1}}
-{"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"outline","values":{"1.5px":5}}
+{"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"outline","values":{"1.5px":4}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"token-copy","property":"padding-top","values":{"2px":1}}
@@ -637,11 +637,11 @@
 {"file":"optchat-inspector/styles.css","kind":"token-copy","property":"padding","values":{"2px":3}}
 {"file":"pages/apps/styles.css","kind":"duration","property":"transition","values":{"border-color 120ms ease, background 120ms ease, transform 120ms ease":1}}
 {"file":"pages/apps/styles.css","kind":"easing","property":"transition","values":{"transform var(--cmux-motion-micro) ease":1}}
-{"file":"pages/apps/styles.css","kind":"font-weight","property":"font-weight","values":{"500":5,"650":1,"700":1}}
+{"file":"pages/apps/styles.css","kind":"font-weight","property":"font-weight","values":{"500":4,"650":1,"700":1}}
 {"file":"pages/apps/styles.css","kind":"height","property":"height","values":{"13px":1,"44px":1,"9px":1,"11px":1,"220px":1,"18px":1,"14px":1,"112px":1}}
 {"file":"pages/apps/styles.css","kind":"height","property":"min-height","values":{"150px":1,"220px":2,"180px":1}}
 {"file":"pages/apps/styles.css","kind":"radius","property":"border-radius","values":{"10px":1,"9px":1}}
-{"file":"pages/apps/styles.css","kind":"spacing","property":"gap","values":{"2px":5,"4px 10px":1,"6px":8,"14px":3,"10px":10,"18px":1}}
+{"file":"pages/apps/styles.css","kind":"spacing","property":"gap","values":{"2px":5,"4px 10px":1,"6px":6,"14px":2,"10px":10,"18px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"left","values":{"2px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"margin-left","values":{"-2px":1}}
 {"file":"pages/apps/styles.css","kind":"spacing","property":"margin-top","values":{"22px":1,"10px":2}}
@@ -856,21 +856,20 @@
 {"file":"sidebar/AllChatsDesigns.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":1}}
 {"file":"styles.css","kind":"font-weight","property":"font-weight","values":{"500":10,"700":1}}
-{"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"56px":1,"26px":1,"14px":1,"22px":2,"19px":1,"6px":1}}
+{"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"14px":1,"22px":2,"19px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1}}
-{"file":"styles.css","kind":"radius","property":"border-radius","values":{"5px":2,"7px":2,"1.5px":1,"3px":1}}
+{"file":"styles.css","kind":"radius","property":"border-radius","values":{"7px":2,"5px":2,"3px":1}}
 {"file":"styles.css","kind":"spacing","property":"bottom","values":{"14px":1}}
-{"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"5px":6,"10px":2,"2px":3,"14px":1,"6px":4,"1.5px":1}}
+{"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"5px":6,"10px":2,"2px":3,"14px":1,"6px":4}}
 {"file":"styles.css","kind":"spacing","property":"left","values":{"-9999px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin","values":{"7px 6px":1,"var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0":1,"4px 2px":1}}
-{"file":"styles.css","kind":"spacing","property":"margin-left","values":{"6px":3,"-2px":1,"2px":1}}
+{"file":"styles.css","kind":"spacing","property":"margin-left","values":{"6px":3,"-2px":1}}
 {"file":"styles.css","kind":"spacing","property":"margin-right","values":{"3px":1}}
-{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"2px":1,"9px 12px":1,"0 12px 0 17px":1}}
+{"file":"styles.css","kind":"spacing","property":"padding","values":{"3px 4px 3px 8px":1,"0 24px 0 9px":1,"0 7px 0 9px":1,"12px 9px":1,"5px 8px 7px":1,"0 7px":1,"2px":1,"0 4px 0 10px":1,"3px 7px":1,"0 10px":1,"0 6px 6px":1,"2px 7px 6px":1,"5px 7px":1,"0 5px":1,"10px 12px":1,"1px 6px":3,"12px 10px":1,"1px 8px":1,"3px 8px":1,"9px 12px":1,"0 12px 0 17px":1}}
 {"file":"styles.css","kind":"spacing","property":"padding-right","values":{"9px":1}}
 {"file":"styles.css","kind":"spacing","property":"top","values":{"10px":1,"-6px":1}}
 {"file":"styles.css","kind":"token-copy","property":"gap","values":{"10px":1,"2px":3}}
 {"file":"styles.css","kind":"token-copy","property":"margin","values":{"2px":1}}
-{"file":"styles.css","kind":"token-copy","property":"margin-left","values":{"2px":1}}
 {"file":"styles.css","kind":"token-copy","property":"padding","values":{"2px":2}}
 {"file":"ui/Breadcrumbs.gallery.css","kind":"height","property":"min-height","values":{"200px":1,"18px":1}}
 {"file":"ui/Breadcrumbs.gallery.css","kind":"radius","property":"border-radius","values":{"5px":1}}

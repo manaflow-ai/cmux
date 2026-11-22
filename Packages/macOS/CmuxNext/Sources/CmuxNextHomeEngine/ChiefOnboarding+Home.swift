@@ -5,9 +5,10 @@ public import CmuxNextHomeModel
 import CmuxNextCompat
 
 extension ChiefOnboarding {
-    /// Shows Meet Chief on `transcript` while conversation `id` is the person's only Chief chat with no messages, runs
-    /// the card's clicks on this model, and ends it for good when a first message arrives (the person started
-    /// chatting). Every Home view follows this one model, so each window shows the same step.
+    /// Shows Meet Chief on `transcript` where ``place(chatAt:shownAt:otherChiefs:)`` says (the first run on the
+    /// person's only, empty Chief chat; from the palette on any Chief chat), runs the card's clicks on this model, and
+    /// ends it for good when a message arrives while it shows (the person started chatting). Every Home view follows
+    /// this one model, so each window shows the same step.
     /// - Parameters:
     ///   - transcript: The Chief chat's transcript.
     ///   - id: The Chief chat.
@@ -32,22 +33,36 @@ extension ChiefOnboarding {
                 _ = registry.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string(setting)], origin: .user))
             }
         }
-        /// Where the chat is: the person's only Chief with no messages yet (`empty`), or with messages (`chatting`).
-        enum Place: Equatable, Sendable { case empty, chatting, other }
         // task-owner: lives until the caller cancels it with its view; event-driven (Observation of this model, the
         // settings it reads and the store).
         return Task { [weak self, weak transcript] in
-            for await (place, state) in ObservationStream({ [weak self] () -> (Place, HomeChiefOnboardingState?) in
-                guard let self, shows, let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.participants.contains(where: { $0.agentClass == .chief }),
-                      HomeArchivedChiefs(archivedChiefs(), me: store.me?.id).otherChiefs(than: id, in: store.rows) == 0
-                else { return (.other, nil) }
-                return summary.lastSeq == 0 ? (.empty, HomeChiefOnboardingState(self)) : (.chatting, nil)
+            var shownAt: UInt64?  // the chat's newest message when the card first showed here
+            // The Chief chat as the card reads it (nil: not a Chief chat): its newest message, the other Chiefs, the
+            // card's state while it shows (read here, so a step's change runs the loop) and whether it was reopened.
+            for await seen in ObservationStream({ [weak self] () -> (lastSeq: UInt64, others: Int, state: HomeChiefOnboardingState?, reopened: Bool)? in
+                guard let self, let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let others = HomeArchivedChiefs(archivedChiefs(), me: store.me?.id).otherChiefs(than: id, in: store.rows)
+                return (summary.lastSeq, others, shows ? HomeChiefOnboardingState(self) : nil, reopened)
             }) {
                 guard let self, let transcript else { return }
-                if place == .chatting { finish() }
-                transcript.showChiefOnboarding(state)
+                let spot = seen.map { self.place(chatAt: $0.lastSeq, shownAt: shownAt, otherChiefs: $0.others) } ?? .hidden
+                if spot == .ends { finish() }
+                shownAt = spot == .shows ? shownAt ?? seen?.lastSeq : nil
+                transcript.showChiefOnboarding(spot == .shows ? seen?.state : nil)
             }
+        }
+    }
+
+    /// Meet Chief in the palette (`home.meetChief`): shows the card again from its first step and brings the Chief
+    /// chat forward (`home.show`, then `home.openChief`), also when the chat has messages.
+    /// - Parameter registry: The app's actions.
+    public func bindMeetChief(into registry: ActionRegistry) {
+        registry.bindEffect("home.meetChief") { [weak self, weak registry] invocation in
+            self?.reopen()
+            _ = registry?.perform("home.show", invocation: invocation)
+            _ = registry?.perform("home.openChief", invocation: invocation)
+            return .done
         }
     }
 
