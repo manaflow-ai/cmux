@@ -6,6 +6,7 @@ import type { AcpmuxRow } from "../model";
 export type RowFrameInputs = {
   index: number;
   top: number;
+  height: number;
   gapBelow: number;
   setSize: number;
   expanded: boolean;
@@ -24,6 +25,7 @@ export type RowFrameInputs = {
 const INPUT_KEYS = [
   "index",
   "top",
+  "height",
   "gapBelow",
   "setSize",
   "expanded",
@@ -70,6 +72,7 @@ export class RowFrameCache {
   readonly scratch: RowFrameInputs = {
     index: 0,
     top: 0,
+    height: 0,
     gapBelow: 0,
     setSize: 0,
     expanded: false,

@@ -478,6 +478,7 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   referenceScope,
+  height,
   gapBelow,
   children,
 }: {
@@ -486,6 +487,9 @@ const RowFrame = React.memo(function RowFrame({
   /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
   /// gap target spans it, so a drag from between two rows starts a selection.
   gapBelow: number;
+  /// The row's placed height: what a settled row off screen keeps as its size while it is skipped
+  /// (`content-visibility: auto`, design/chat-render-pipeline.md R7).
+  height: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -685,7 +689,13 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // A settled row off screen skips style, layout and paint (styles.css), at its placed height
+      // until it draws; a plain property, so a new height restyles the row alone (R7).
+      style={{
+        top: integralTop,
+        marginTop: placedTop - integralTop,
+        containIntrinsicSize: lastTurn ? undefined : `auto ${height}px`,
+      }}
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -870,7 +880,7 @@ type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
-  geometry: { topAt(index: number): number; gapAt(index: number): number };
+  geometry: { topAt(index: number): number; heightAt(index: number): number; gapAt(index: number): number };
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -959,6 +969,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
+      inputs.height = geometry.heightAt(absoluteIndex);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -1007,6 +1018,7 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           index={absoluteIndex}
           setSizeRef={view.setSizeRef}
           top={inputs.top}
+          height={inputs.height}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
           expanded={isExpanded}
