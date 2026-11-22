@@ -601,7 +601,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // A run-loop timer in the common modes, not a task: code that spins the run loop from
         // inside a main-queue block (a test host, a modal) never drains the main queue (green-16:
         // the spare was never built in the unit host).
-        let timer = Timer(timeInterval: Self.spareStillness, repeats: false) { [weak self] _ in
+        // The stillness still to wait (at least 0.1 s): during a long scroll the timer fires about
+        // once per stillness period, never in a tight loop.
+        let wait = max(0.1, Self.spareStillness - (CACurrentMediaTime() - lastScroll))
+        let timer = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.spareTimerFired() }
         }
         spareTimer = timer
