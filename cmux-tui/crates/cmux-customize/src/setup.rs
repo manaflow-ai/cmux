@@ -222,8 +222,9 @@ pub(crate) fn read_parts(dir: &Path, findings: &mut Vec<Finding>) -> Result<Setu
     }
     let text = std::fs::read_to_string(&file)
         .map_err(|error| unreadable(format!("{SETUP_FILE}: {error}")))?;
-    let value = jsonc::parse(&text)
+    let mut value = jsonc::parse(&text)
         .map_err(|error| unreadable(format!("{SETUP_FILE} is not JSON: {error}")))?;
+    crate::file_refs::resolve(&mut value, dir).map_err(unreadable)?;
     let manifest: Manifest = serde_json::from_value(value).map_err(|error| {
         unreadable(format!("{SETUP_FILE} is not a cmux setup: {}", strip_value(&error)))
     })?;
