@@ -139,6 +139,7 @@ const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
+       cmux app renderers profile --browser <id> [--seconds <n>]  (one cmux page's heap and CPU profile; needs defaults key CMUXPageProfiler)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
        cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
@@ -147,6 +148,9 @@ usage: cmux app ping | identify | capabilities
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
+                                                (this Cloud machine's preview as a new app version; no app needed)
+       cmux app versions NAME | rollback NAME [--to N] | ls  (published apps on this machine)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 

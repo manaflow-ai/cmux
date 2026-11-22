@@ -298,3 +298,14 @@ impl Hub {
 #[cfg(test)]
 #[path = "usage_view_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl Hub {
+    /// Sets `id`'s stats as a pass that found them does: kept, and its row told changed.
+    pub(crate) fn set_usage_stats_for_test(&self, id: &str, stats: UsageStats) {
+        self.usage_stats.stats.lock().unwrap_or_else(|e| e.into_inner()).insert(id.into(), stats);
+        if let Some(session) = self.session_by_id(id) {
+            self.events.row_changed(&session);
+        }
+    }
+}

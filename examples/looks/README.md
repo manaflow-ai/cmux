@@ -61,6 +61,31 @@ that its screenshots exist.
 profile files (`cargo run --manifest-path examples/customize-demo/looks/check/Cargo.toml --
 FILE.json ...`).
 
+## Looks written on public surfaces
+
+These whole looks are written the way anyone outside the cmux team could write one: a theme file, a
+few settings, a stylesheet of public chat tokens and a sidebar view, in one setup
+([docs/cmux-next/look-addons.md](../../docs/cmux-next/look-addons.md)). Each also lives in a small
+repo of its own, like dotfiles; the folder here is a copy that cmux's own tests check, and its setup,
+theme, stylesheet and view files are the repo's. Change a look in its repo.
+
+| Look | Its repo | What it is |
+| --- | --- | --- |
+| [`studio`](studio) | [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look) | A quiet black workbench for agent threads: New thread and Search rows, thread cards by project with their age, settled chats folded away, the Studio composer, filled prompt bubbles, one bright blue; dark, light and ember variants |
+| [`paper`](paper) | [manaflow-ai/cmux-paper-look](https://github.com/manaflow-ai/cmux-paper-look) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
+
+```sh
+cmux setup install github.com/manaflow-ai/cmux-studio-look   # on, as one layer
+cmux setup remove manaflow-ai/studio-look                     # off; yours comes back
+```
+
+Keys still in review sit in these folders as comments naming their pull request, as in basalt.
+[`looks.json`](looks.json) lists these looks and the built-in preset each recreates. CI installs
+each one (`cmux-customize` `tests/example_looks.rs`), holds its stylesheet to the public token list
+(`bun run check:look-addons`), and draws it in the real chat to check that nothing moves
+(`webviews/test/browser/look-addons.test.ts`). Like every whole look, each is in
+[`../gallery/gallery.json`](../gallery/gallery.json).
+
 ## What a look can change today
 
 Settings (any key an agent may set; `cmux settings list` prints them all):
