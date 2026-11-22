@@ -746,7 +746,21 @@ describe("the felt time after a send", () => {
     expect(chaos.restartTimeline(stdout, 1000000000, 1000010000)).toBe(
       "+500 ms systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL | +3600 ms systemd[1]: Started acpmux.service. | +5000 ms acpmux[42]: INFO ready",
     );
-    expect(chaos.restartTimelineCommand(1000000000)).toContain("--since @999999");
+    expect(chaos.restartTimelineCommand(1000000000)).toContain("journalctl --user -u acpmux.service --since @999999");
+  });
+
+  test("the restart timeline merges daemon.log's own times with the journal's, in time order", () => {
+    // 1000000000 ms is 1970-01-12T13:46:40Z; no skew given.
+    const stdout = [
+      "@@now 1000012000",
+      "1000003.000000 vm systemd[1]: Started acpmux.service.",
+      "1970-01-12T13:46:46.000Z  INFO agents may start",
+      "1970-01-12T13:46:44.500Z  INFO acpmux daemon ready",
+      "1970-01-12T13:40:00.000Z  WARN an older daemon's line",
+    ].join("\n");
+    expect(chaos.restartTimeline(stdout, 1000000000)).toBe(
+      "+3000 ms systemd[1]: Started acpmux.service. | +4500 ms INFO acpmux daemon ready | +6000 ms INFO agents may start",
+    );
   });
 
   test("no reply within the deadline is null, with the last error", async () => {
