@@ -95,7 +95,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             (try? JSONSerialization.jsonObject(with: Data($0)) as? [String: Any])?["cmd"] as? String
         }
         if !cmds.isEmpty { lock.withLock { writeLog.append(cmds) } }
-        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+        return data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
     }
 
     private func respondLine(_ service: String, _ line: Data) -> [Data] {
