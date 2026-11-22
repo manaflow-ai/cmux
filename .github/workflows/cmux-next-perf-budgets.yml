@@ -583,7 +583,7 @@ jobs:
       - name: Install Playwright browsers
         if: ${{ startsWith(needs.plan.outputs.linux_part, 'web-ui') }}
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       # The measured commit's own benches; the perf cron script from the branch tip judges them.
       - name: Fetch the perf cron script of the branch tip

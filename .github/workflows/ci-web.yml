@@ -409,7 +409,7 @@ jobs:
 
       - name: Install headless engines
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Run the real-daemon pane checks
         working-directory: webviews
@@ -697,7 +697,7 @@ jobs:
         id: engines
         continue-on-error: true
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
@@ -1082,7 +1082,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.pick.outputs.files != '0' }}
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # The base check's replay with the head's runner and no retry, at the head shards' widths (the base check
       # replays one at a time; one at a time here, shard 1's 600 s file plus the others ran past the head shards).
@@ -1301,7 +1301,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
       # the job's verdict is the last step's. A red the base passed is replayed there again, at most
@@ -1454,7 +1454,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/playwright-install-deps.sh" webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun
