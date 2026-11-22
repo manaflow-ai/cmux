@@ -51,6 +51,7 @@ import Testing
             #expect(window.overlayLayer.placement == .overlayWindow, "a page window on screen: the panel serves it")
             #expect(!host.usesWindowBackend, "the overlays go back to the panel above the page window")
             #expect(InTreeRetiredGuards.shared.dividerCatchers == before + 1, "one window counted once, not per evaluate")
+            #expect(window.overlayLayer.retiredPageWindowSightings.last?.contains("#\(page.windowNumber)") == true)
 
             window.removeChildWindow(page)
             page.orderOut(nil)
@@ -72,5 +73,6 @@ import Testing
         window.overlayLayer.evaluate()
         #expect(window.overlayLayer.placement == .overlayWindow)
         #expect(InTreeRetiredGuards.shared.dividerCatchers == before)
+        #expect(window.overlayLayer.retiredPageWindowSightings.isEmpty)
     }
 }
