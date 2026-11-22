@@ -326,7 +326,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
 /// (`keep`) writes the port down: another acpmux process that starts a proxy
 /// of its own finds the daemon's port held and takes a new one, and writing
 /// that down sent the next daemon to it, away from every agent on the old
-/// port (fs-agent-lane-2, 2026-11-22 17:03Z: the file named 45835, which
+/// port (a Freestyle lane, 2026-11-22 17:03Z: the file named 45835, which
 /// nothing served until the 17:09Z restart moved the daemon there).
 fn bind_stable(dir: &Path, keep: bool) -> std::io::Result<std::net::TcpListener> {
     let file = dir.join(PORT_FILE);
@@ -424,7 +424,7 @@ fn write_trust(
     };
     // A file of ours is never a base: a process an agent of ours started inherits
     // `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` naming them, and extending them
-    // added our CA once more each start (fs-agent-lane-2, 2026-11-22: three CAs in
+    // added our CA once more each start (a Freestyle lane, 2026-11-22: three CAs in
     // node-extra-ca.pem).
     let foreign = |p: &String| !is_ours(dir, Path::new(p));
     crate::home_fs::write(dir.join(CA_CERT_FILE), ca_pem)?;
