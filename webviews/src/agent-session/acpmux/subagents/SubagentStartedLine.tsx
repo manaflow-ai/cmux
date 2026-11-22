@@ -11,6 +11,7 @@ import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from 
 import { subagentTaskLabel } from "./subsessions";
 import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentStartedLine.css";
+import { intl } from "../../../ui/intl";
 
 export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const t = useT();
@@ -23,7 +24,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   if (!agents.length) return null;
   const open = pane ?? nav;
   const names = agents.map((agent) => subagentTaskLabel(t, agent));
-  const list = new Intl.ListFormat(language, { type: "conjunction" });
+  const list = intl.ListFormat(language, { type: "conjunction" });
   const [before, after] = t("subagents.startedLine", { name: "\u0000" }).split("\u0000");
   const identity = (index: number) => (
     <AgentIdentity

@@ -206,14 +206,14 @@ describe("iOS kit picker fallback", () => {
   // The picker reads the eight vCPU pool unless a bounded LINUX_RUNNER (4/8/16) or the overflow flag picks another.
   const moved = JSON.stringify({ ...POOLS, linux_8: "blacksmith-16vcpu-ubuntu-2404" });
   const cases: Array<[string, Record<string, string>, string]> = [
-    ["declared pools read the eight vCPU pool", { ...DEFAULT_VARS }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["declared pools read the eight vCPU pool", { ...DEFAULT_VARS }, POOLS.linux_8],
     ["a moved eight vCPU pool is followed", { RUNNER_POOLS: moved }, "blacksmith-16vcpu-ubuntu-2404"],
-    ["a fleet LINUX_RUNNER is rejected for the pool", { ...DEFAULT_VARS, LINUX_RUNNER: "fleet-linux" }, "blacksmith-8vcpu-ubuntu-2404"],
+    ["a fleet LINUX_RUNNER is rejected for the pool", { ...DEFAULT_VARS, LINUX_RUNNER: "fleet-linux" }, POOLS.linux_8],
     ["four vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-4vcpu-ubuntu-2404" }, "blacksmith-4vcpu-ubuntu-2404"],
     ["eight vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-8vcpu-ubuntu-2404" }, "blacksmith-8vcpu-ubuntu-2404"],
     ["sixteen vCPU is accepted", { ...DEFAULT_VARS, LINUX_RUNNER: "blacksmith-16vcpu-ubuntu-2404" }, "blacksmith-16vcpu-ubuntu-2404"],
-    ["an invalid LINUX_RUNNER falls back to the eight vCPU pool", { ...DEFAULT_VARS, LINUX_RUNNER: "glaeda-std-xcode-26.6" }, "blacksmith-8vcpu-ubuntu-2404"],
-    ["saved overflow reads the sixteen vCPU pool", { ...DEFAULT_VARS, CI_CLOUD_OVERFLOW_SAVED: "true" }, "blacksmith-16vcpu-ubuntu-2404"],
+    ["an invalid LINUX_RUNNER falls back to the eight vCPU pool", { ...DEFAULT_VARS, LINUX_RUNNER: "glaeda-std-xcode-26.6" }, POOLS.linux_8],
+    ["saved overflow reads the sixteen vCPU pool", { ...DEFAULT_VARS, CI_CLOUD_OVERFLOW_SAVED: "true" }, POOLS.linux_16],
   ];
 
   it.each(cases)("runs picker and tests with %s", (_name, vars, expected) => {

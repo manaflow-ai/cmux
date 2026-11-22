@@ -3,7 +3,7 @@
 # cmux-next app. install-cef-license.sh puts it in the embedded CEF framework's
 # Resources: the CEF artifact's own LICENSE.txt when it has one, else the stock
 # copy checked in at scripts/cmux-next/cef-license/LICENSE.txt (pinned by
-# sha256). bundle-map.json requires it next to Chromium's CREDITS.html for
+# sha256). bundle-map.json requires it next to Chromium's CREDITS.html(.gz) for
 # every CEF binary.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)

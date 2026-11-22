@@ -18,8 +18,9 @@
   review_mac.py phones SOCK                   {"paired_connected": N, "phones": [...]} (names and ids only)
   review_mac.py quit SOCK                     quit as the person does, keeping sessions (quitKeepSessions)
   review_mac.py backend-check VALUE           the canonical origin --backend names, or exit 2 with the reason:
-      `dev`/`development`, `preview-N`, the shared dev Workers API origin, or a tailnet origin
-      (https://<host>.<tailnet>.ts.net[:port]); the app's own allowlists (Rust cmux-cloud-environment,
+      `dev`/`development`, `preview-N`, the shared dev Workers API origin, a tailnet origin
+      (https://<host>.<tailnet>.ts.net[:port]) or a tag stack's public origin (https://api.s<N>.wdev.cmux.dev);
+      the app's own allowlists (Rust cmux-cloud-environment,
       iOS CloudBackendOverride) hold the same list
   review_mac.py backend-write FOLDER ORIGIN   the dev build's backend.json in its bundle folder
       (~/Library/Application Support/cmux-next/<bundle id>); an empty ORIGIN removes it. Prints
@@ -49,6 +50,8 @@ import urllib.parse
 PAGE = "cmux.mobile-pairing"
 DEVELOPMENT_API = "https://cmux-api-development.debussy.workers.dev"
 TAILNET_LABEL = re.compile(r"^[a-z0-9-]+$")
+PUBLIC_STACK = re.compile(r"api\.s[0-9]{1,3}\.wdev\.cmux\.dev")
+TEAM_TAILNET_SUFFIX = ".tail137216.ts.net"
 
 
 def backend_origin(value):
@@ -77,11 +80,16 @@ def backend_origin(value):
     preview = re.fullmatch(r"cmux-api-preview-(\d+)\.debussy\.workers\.dev", host)
     if preview and not port and int(preview.group(1)) > 0:
         return f"https://cmux-api-preview-{int(preview.group(1))}.debussy.workers.dev"
-    if host.endswith(".ts.net"):
-        labels = host[: -len(".ts.net")].split(".")
-        if len(labels) >= 2 and all(label and TAILNET_LABEL.match(label) for label in labels):
+    # One machine of the team's tailnet (Rust TEAM_TAILNET_SUFFIX, iOS CloudBackendOverride): another tailnet's
+    # name is refused, since a Tailscale Funnel name is public.
+    if host.endswith(TEAM_TAILNET_SUFFIX):
+        machine = host[: -len(TEAM_TAILNET_SUFFIX)]
+        if machine and TAILNET_LABEL.match(machine):
             return f"https://{host}{suffix}"
-    raise ValueError(f"{raw!r} is not the shared dev deployment or a tailnet (*.ts.net) origin")
+    # A tag stack's public origin (scripts/cmux-next/cloud-dev-stack/gateway): one slot's API host, no port.
+    if PUBLIC_STACK.fullmatch(host) and not port:
+        return f"https://{host}"
+    raise ValueError(f"{raw!r} is not the shared dev deployment, a machine of the team's tailnet (*{TEAM_TAILNET_SUFFIX}) or a tag stack's public origin")
 
 
 def write_backend(folder, origin):

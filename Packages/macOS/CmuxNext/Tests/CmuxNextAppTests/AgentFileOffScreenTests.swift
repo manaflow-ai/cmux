@@ -7,7 +7,7 @@ import Testing
 /// An agent's `cmux open FILE` whose workspace no window shows (the person looks at Home) opens the
 /// file as a tab in that workspace, and the person's view stays where it is (user, 2026-11-18).
 /// Before, `file.open` needed a pane on screen and refused: "pane:… is not shown in any window".
-@MainActor @Suite(.serialized, .closesItsWindows)
+@MainActor @Suite(.serialized, .closesItsWindows, .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentFileOffScreenTests {
     @Test(arguments: ["notes.md", "main.swift"])
     func anAgentsFileOpensAsATabInItsWorkspaceOffScreen(name: String) async throws {

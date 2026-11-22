@@ -2,18 +2,24 @@
 // by title, then folders, then files of the chat's folder. Files come from the host's search
 // (`file.search`, fileSearchModel.ts) with its ranking and matched letters; folders are matched
 // here as the path picker's fuzzy filter ranks a name (viewer-empty/fuzzy.ts), and chats by a word
-// of their title (titleMatch).
+// of their title (titleMatch). Installed extensions add their own items (`cmux.composer.mention/1`,
+// composer/extensionMentions.ts): after the chats, or first when the word names their prefix (`@pr`).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
+import type { ExtensionMention } from "./composer/extensionMentions";
 
 export type MentionItem =
   | { kind: "session"; key: string; sessionId: string; title: string; project?: string; name: Run[] }
   | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
-  | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
+  | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] }
+  | { kind: "extension"; key: string; mention: ExtensionMention; name: Run[] };
+
+/// How many extension items the picker lists.
+export const MENTION_EXTENSION_ITEMS = 6;
 
 /// How many chats and folders the picker lists ahead of the files.
 export const MENTION_SESSIONS = 5;
@@ -60,7 +66,7 @@ export function loadRecentMentionPaths(scope: string | undefined): RecentMention
 }
 
 export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
-  if (!scope || item.kind === "session" || item.kind === "harness") return;
+  if (!scope || item.kind === "session" || item.kind === "harness" || item.kind === "extension") return;
   const picked: RecentMention = { kind: item.kind, path: item.path };
   const next = [
     picked,
@@ -290,8 +296,20 @@ function folderItems(files: readonly FileMatch[], query: string): MentionItem[] 
   });
 }
 
+/// Rows for the extension items the daemon matched (in its order), their label's matched letters bold.
+function extensionItems(mentions: readonly ExtensionMention[], query: string): MentionItem[] {
+  const word = query.includes(":") ? query.slice(query.indexOf(":") + 1) : query;
+  return mentions.slice(0, MENTION_EXTENSION_ITEMS).map((mention) => ({
+    kind: "extension",
+    key: `extension:${mention.app}:${mention.prefix}:${mention.id}`,
+    mention,
+    name: textRuns(mention.label, (word && fuzzyIndices(word, mention.label)) || []),
+  }));
+}
+
 /// The picker's rows for `query`: chats, then folders, then the host's files in its order. A query
 /// with a `.` or `/` is a path (`app.ts`, `src/`), so its folders and files come before the chats.
+/// Extension items follow the chats, or lead when the word names a provider (`extensionFirst`).
 export function mentionItems({
   query,
   files,
@@ -299,6 +317,8 @@ export function mentionItems({
   chatId,
   recent = [],
   harnesses = [],
+  extension = [],
+  extensionFirst = false,
 }: {
   query: string;
   files: readonly FileMatch[];
@@ -306,6 +326,8 @@ export function mentionItems({
   chatId?: string;
   recent?: readonly RecentMention[];
   harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
+  extension?: readonly ExtensionMention[];
+  extensionFirst?: boolean;
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
@@ -336,17 +358,32 @@ export function mentionItems({
   ];
   // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
   // "@coord", and a bare @ (no query, so no harness) keeps its height.
-  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows];
-  return [...chats, ...harnessRows, ...paths];
+  const extensionRows = extensionItems(extension, text);
+  if (extensionFirst) return [...extensionRows, ...chats, ...harnessRows, ...paths];
+  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows, ...extensionRows];
+  return [...chats, ...harnessRows, ...extensionRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
-/// files land around it), else the first. While the files for the word are still on their way, a
-/// chat is not picked unasked: a quick `@app⏎` means the file, which lists a moment later. -1: none.
-export function mentionSelection(items: readonly MentionItem[], activeKey: string | undefined, pending: boolean) {
+/// files land around it), else the first. While the files for the word are still on their way, the
+/// first row that is not a chat (a quick `@app⏎` means the file) nor an extension's item, unless the
+/// word named its provider (`@pr`, `providerAsked`), else the first: a listed row is always chosen,
+/// so Return never falls through to send. -1: no rows.
+export function mentionSelection(
+  items: readonly MentionItem[],
+  activeKey: string | undefined,
+  pending: boolean,
+  providerAsked = false,
+) {
   const chosen = activeKey === undefined ? -1 : items.findIndex((item) => item.key === activeKey);
   if (chosen >= 0) return chosen;
-  return pending ? items.findIndex((item) => item.kind !== "session") : items.length > 0 ? 0 : -1;
+  if (items.length === 0) return -1;
+  return pending
+    ? Math.max(
+        0,
+        items.findIndex((item) => item.kind !== "session" && (item.kind !== "extension" || providerAsked)),
+      )
+    : 0;
 }
 
 /// What a pick writes in place of the `@word`: a file's or folder's `@path ` (a folder's with its
@@ -355,6 +392,17 @@ export function mentionSelection(items: readonly MentionItem[], activeKey: strin
 /// and the transcript links (#22055).
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind === "harness") return mentionText(item.harnessId);
+  // An extension's item writes its own text (a PR's link and title, a ticket), not an `@` path.
+  if (item.kind === "extension") {
+    const shown = `${item.mention.insert.replace(/\s+/g, " ").trim()} `;
+    // Inline marks are escaped as a chat's are; a start that reads as a block (`> `, `- `, `1. `,
+    // `# `, `+ `) is escaped too, since the pick can sit at the start of a line.
+    const markdown = shown
+      .replace(/[\\`*_[\]~<&]/g, "\\$&")
+      .replace(/^(#{1,6}|[>+-])(?= )/, "\\$1")
+      .replace(/^(\d+)([.)])(?= )/, "$1\\$2");
+    return { markdown, shown };
+  }
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
   return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };

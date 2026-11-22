@@ -56,6 +56,30 @@ git add ghostty
 git commit -m "Update ghostty submodule"
 ```
 
+## ghostty-next upstream syncs: to a libghostty-vt release tag
+
+`ghostty-next` is upstream `ghostty-org/ghostty` main plus a short patch stack
+([plans/cmux-next/ghostty-next.md](../../plans/cmux-next/ghostty-next.md) section 1). Upstream tags
+libghostty-vt releases on main (`vt-1.0.0` on 2026-11-06, `vt-1.0.1` on 2026-11-11), and each tag carries
+a semver-stable C ABI. Sync to the newest `vt-*` tag, not to main's tip. Take a later main commit only
+when a named fix needs it, and say which fix in the PR. Then every upstream fix we want arrives as a tag
+bump, not a cherry-pick.
+
+```bash
+cd ghostty-next
+git remote add upstream https://github.com/ghostty-org/ghostty.git   # once
+git fetch upstream main --tags
+git describe --tags --match 'vt-*' --abbrev=0 HEAD   # newest release the current pin holds (an error: none)
+tag=$(git tag -l 'vt-*' --sort=-v:refname | head -1)
+git checkout -B "lane/upstream-$tag" HEAD          # start from the pin: it can hold fixes fork main lacks
+git merge --no-ff "$tag" -m "Merge upstream libghostty-vt $tag"
+git merge-base --is-ancestor "$tag" HEAD && echo "on $tag"
+```
+
+Push the branch, then move the parent pointer (Submodule safety below). The cmux PR's title names the
+tag ("ghostty-next: sync to upstream vt-1.0.1"), and cmux-tui's tests pass on the fleet
+(`cmux-ci test --setup rust`).
+
 ## Submodule safety
 
 For any submodule (`ghostty`, `ghostty-next`, `homebrew-cmux`), push the submodule commit to its remote branch **before** committing the updated pointer in the parent repo. Never commit on a detached HEAD or a temporary branch: the parent then points at a SHA unreachable from any remote branch, and a future checkout or CI job fails to fetch it.

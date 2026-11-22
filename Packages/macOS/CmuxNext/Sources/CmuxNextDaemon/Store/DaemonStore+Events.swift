@@ -232,7 +232,7 @@ extension DaemonStore {
                 indexed(existing, in: pane)
             } else {
                 let tab = TabModel(delta.entity)
-                tab.setAgent(agents.bySurface[delta.surface])
+                tab.setAgent(agents.status(for: tab))
                 pane.insertTab(tab, at: delta.index ?? pane.tabs.count)
                 indexed(tab, in: pane)
             }
@@ -318,14 +318,19 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
-            if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
+            if agents.apply(status) {
+                // Every tab of the terminal, not only the one on the surface the event names: a
+                // restored or reopened terminal's tab has a surface of its own (cmux#49392).
+                tabsBySurface[status.surface]?.setAgent(status)
+                if let terminal = status.terminalID { for tab in index.tabs(terminalResource: terminal) { tab.setAgent(status) } }
+            }
             return .none
         case .agentPresenceChanged(let presence):
             holdPresence(presence)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .agentSessionShareChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none

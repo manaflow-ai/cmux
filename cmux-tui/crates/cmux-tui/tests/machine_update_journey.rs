@@ -167,13 +167,14 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
 }
 
 /// A machine of this client's own build that does not serve a verb (here a
-/// host without the Cloud records, so no `fs-v1`) is not called outdated:
+/// host with no file owner, as a Mac, so no `fs-v1`) is not called outdated:
 /// updating it would change nothing, so the verb's own refusal stands.
 #[test]
 fn machine_gate_leaves_a_same_build_machine_to_its_own_refusal() {
     let (root, _cleanup) = journey_root("mgs");
     let mac = Machine::start(&root, "mac", Vec::new());
-    let plain = Machine::start(&root, "plain", Vec::new());
+    let no_owner = vec![("CMUX_TEST_NO_FILE_OWNER", "1".to_owned())];
+    let plain = Machine::start(&root, "plain", no_owner);
     let project = mac.home().join("app");
     fs::create_dir_all(&project).unwrap();
     fs::write(project.join("notes.txt"), "stays here\n").unwrap();

@@ -22,6 +22,23 @@ fn an_owner_cloud_start_takes_the_persons_permission_mode() {
     assert_eq!(parsed("bypassPermissions").ok(), Some(false));
 }
 
+/// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness". A Claude
+/// chat on the caller's own Cloud VM with no pick, under the person's full-access level, moves to
+/// Claude Code's Auto once it started (it keeps Bypass permissions where Claude Code refuses Auto).
+/// A pick, another level and another family keep what the start gave them.
+#[test]
+fn an_owner_cloud_claude_start_defaults_to_auto() {
+    assert_eq!(cloud_default_mode(None, Some("fullAccess"), "claude"), Some("auto"));
+    assert_eq!(cloud_default_mode(None, Some("fullAccess"), "claude-sr2"), Some("auto"));
+    assert_eq!(cloud_default_mode(Some("bypassPermissions"), Some("fullAccess"), "claude"), None);
+    assert_eq!(cloud_default_mode(Some("default"), Some("fullAccess"), "claude"), None);
+    assert_eq!(cloud_default_mode(None, Some("standard"), "claude"), None);
+    assert_eq!(cloud_default_mode(None, Some("ask"), "claude"), None);
+    assert_eq!(cloud_default_mode(None, None, "claude"), None);
+    assert_eq!(cloud_default_mode(None, Some("fullAccess"), "codex"), None);
+    assert_eq!(cloud_default_mode(None, Some("fullAccess"), "claudette"), None);
+}
+
 /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
 /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never
 /// allows it. On a team VM that word (the creator's, from the Cloud API)

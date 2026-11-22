@@ -69,7 +69,7 @@ AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s
 # The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
 # (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
 # tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
-# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
 FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
                           re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -687,7 +687,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
@@ -849,6 +849,30 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
     return len(commit_removed & back) / len(commit_removed) >= 0.5
 
 
+def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: float) -> None:
+    """In a blobless history (risk-tier.yml fetches the base with --filter=blob:none: 16 MB in 5 s instead of
+    681 MB in 115 s, 11-21), fetch every version of `paths` the blame and `git show` below read, in one round
+    trip. Without it each version is its own lazy fetch: 52 s to blame 40 lines of cmux-next.yml, against 2 s
+    with it. Best effort: in a full history, or when the fetch fails, the blame falls back to lazy fetches."""
+    try:
+        promisors = subprocess.run(["git", "-C", repo_dir, "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                   capture_output=True, text=True, timeout=10).stdout.split()
+        remote = next((key[len("remote."):-len(".promisor")] for key in promisors[::2]), None)
+        if not remote or not paths:
+            return
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        raw = subprocess.run(["git", "-C", repo_dir, "log", "--format=", "--raw", "--no-abbrev", "--no-renames",
+                              base_sha, "--", *paths], capture_output=True, text=True, env=env, timeout=timeout).stdout
+        oids = {field for line in raw.splitlines() if line.startswith(":") for field in line.split()[2:4]}
+        oids.discard("0" * 40)
+        if oids:
+            subprocess.run(["git", "-C", repo_dir, "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
+                            "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin", remote],
+                           input="\n".join(sorted(oids)) + "\n", capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -862,6 +886,11 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
     deadline = time.monotonic() + budget
+    blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
+              if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
+              and not any(matches(entry.get("previous_filename") or entry["filename"], g) for g in GENERATED)]
+    if budget > 0:
+        prefetch_blobs(repo_dir, base_sha, blamed, timeout=max(1, budget / 3))
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
         remaining = deadline - time.monotonic()
@@ -1033,6 +1062,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
             out.write(f"ready={'false' if missing else 'true'}\n")
+            # risk-tier.yml grades again on GITHUB_TOKEN only when this is true: a refused sign-off read is the one
+            # held verdict another token can change (tests/test_risk_tier.py).
+            out.write(f"signoff_unread={'true' if unread else 'false'}\n")
             # Only an unowned takeback keeps the check red (risk-tier.yml): it is a stale-base squash
             # quietly reverting a merged change. A BLOCK on the head is the lander's to refuse.
             unowned = unowned_takebacks(pr.get("body") or "", list(undone))
