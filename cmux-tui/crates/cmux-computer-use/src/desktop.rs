@@ -590,6 +590,19 @@ pub trait Desktop: Send + Sync {
     fn capture_apps(&self) -> DResult<Vec<App>> {
         Err(DesktopError::Unsupported("this desktop lists no capture apps".into()))
     }
+    /// An H.264 encoder for a recording of `width` x `height` pictures at
+    /// about `fps` ([`crate::record`]). Without one the `record` tool answers
+    /// `unsupported`.
+    fn frame_encoder(
+        &self,
+        _width: u32,
+        _height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Err(DesktopError::Unsupported(
+            "this desktop has no H.264 encoder, so it cannot record the screen yet".into(),
+        ))
+    }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree>;
     /// The policy's view of apps that menu items could open or hand data to
     /// (Recent Items, Open With, Services); the engine sets it once.
@@ -693,6 +706,16 @@ pub trait HostServices: Send + Sync {
     /// Every app the capture sees (any window, any level).
     fn capture_apps(&self) -> DResult<Vec<App>> {
         Err(DesktopError::Unsupported("the host lists no capture apps".into()))
+    }
+    /// The host's H.264 encoder for a recording (VideoToolbox in the macOS
+    /// worker), see [`Desktop::frame_encoder`].
+    fn frame_encoder(
+        &self,
+        _width: u32,
+        _height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Err(DesktopError::Unsupported("the host has no H.264 encoder for recordings".into()))
     }
     fn request_permission(&self, which: &str) -> DResult<()>;
     /// Screen Recording as this host reads it, or None to leave the read to the engine. The
