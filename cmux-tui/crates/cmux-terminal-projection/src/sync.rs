@@ -1867,7 +1867,7 @@ mod tests {
     #[test]
     fn stale_partials_are_dropped_for_newer_seqs() {
         let s = states(8);
-        let mut tx = SyncSender::with_epoch(60, 4);
+        let mut tx = SyncSender::with_epoch(32, 4);
         let mut rx = SyncReceiver::new();
         let mut first_frags = Vec::new();
         for st in &s {
