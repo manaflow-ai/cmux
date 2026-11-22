@@ -527,7 +527,8 @@ public final class MainThreadWatchdog: Sendable {
            runningHangIsBusy(beat: beat, elapsedNanos: elapsed, assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             // A fault, never a trap: the watchdog must not end the app it watches (https://github.com/manaflow-ai/cmux/issues/50992).
-            logger.fault("main thread busy hang: over \(configuration.hangAssertThreshold?.fractionalMilliseconds ?? 0, format: .fixed(precision: 0)) ms of main-thread work; see debug.hangs and the hang file")
+            let thresholdMilliseconds = Double(hangAssertNanos) / 1_000_000
+            logger.fault("main thread busy hang: over \(thresholdMilliseconds, format: .fixed(precision: 0)) ms of main-thread work; see debug.hangs and the hang file")
             #if DEBUG
             busyHangFaults.add(1, ordering: .relaxed)
             #endif
