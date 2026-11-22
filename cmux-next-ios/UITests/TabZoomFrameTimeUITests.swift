@@ -53,7 +53,12 @@ final class TabZoomFrameTimeUITests: XCTestCase {
             }
             guard let bar else { return XCTFail("the grid's Done, cycle \(cycle)\n\(app.debugDescription)") }
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-            bar.tap()
+            // The glass bar can report Done with the whole bar's frame (38..364),
+            // whose center is the "N Tabs" title: tap Done's own circle, 24 pt in
+            // from the frame's trailing edge (TabOverview's bottom bar).
+            let frame = bar.frame
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.maxX - 24, dy: frame.midY)).tap()
             XCTAssertTrue(tabs.waitForExistence(timeout: 10) && escape.waitForExistence(timeout: 10),
                           "back on the terminal page, cycle \(cycle)\n\(app.debugDescription)")
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
