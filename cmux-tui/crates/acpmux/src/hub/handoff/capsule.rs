@@ -1,5 +1,5 @@
-//! The first message a handoff target receives: the source's recent user
-//! and assistant messages, newest kept first within `MAX_CAPSULE_BYTES`,
+//! The first message a handoff target receives: the source's first prompt and
+//! its recent user and assistant messages, newest kept first within `MAX_CAPSULE_BYTES`,
 //! and what that message carries per item (coverage). A source that
 //! compacted leads with its latest compaction summary, followed by the
 //! messages since; the messages before it are what the summary covers.
@@ -39,6 +39,21 @@ fn tail(s: &str, max: usize) -> &str {
     }
     &s[start..]
 }
+
+/// The first `max` bytes of `s`, ending on a character boundary.
+fn head(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Room for the line that says how many messages a cut capsule left out.
+const CUT_LINE_MAX: usize = 96;
 
 fn kb(bytes: usize) -> String {
     format!("{:.1} KB", bytes as f64 / 1024.0)
@@ -145,12 +160,20 @@ impl Hub {
             let open_cut = format!(
                 "{lead} The most recent part of the conversation is below (older messages were cut to fit); carry on from where it ended.\n\n<transcript>\n"
             );
-            let budget = MAX_CAPSULE_BYTES.saturating_sub(open_cut.len() + CLOSING.len());
-            // Newest first until the budget is spent; the oldest are cut.
+            let mut budget = MAX_CAPSULE_BYTES.saturating_sub(open_cut.len() + CLOSING.len());
+            // The first prompt always (it names the task: #50094 lost its codeword), then the
+            // newest until the budget is spent; the ones between are cut, and a line says how many.
+            let first_over =
+                total_bytes > budget && entries.len() > 2 && entries[0].text.starts_with("User: ");
+            let first = first_over.then(|| head(&entries[0].text, budget / 8));
+            if let Some(f) = first {
+                budget = budget.saturating_sub(f.len() + SEPARATOR.len() + CUT_LINE_MAX);
+            }
+            let rest = if first.is_some() { &entries[1..] } else { &entries[..] };
             let mut kept: Vec<&str> = Vec::new();
             let mut used = 0usize;
             let mut from_seq = to_seq;
-            for e in entries.iter().rev() {
+            for e in rest.iter().rev() {
                 let need = e.text.len() + if kept.is_empty() { 0 } else { SEPARATOR.len() };
                 if used + need > budget {
                     break;
@@ -167,8 +190,20 @@ impl Hub {
                 kept.push(cut);
                 from_seq = last.from_seq;
             }
-            let truncated = used < total_bytes;
             kept.reverse();
+            let cut_line;
+            if let Some(f) = first {
+                let cut = rest.len() - kept.len();
+                if cut > 0 {
+                    cut_line =
+                        format!("[… {cut} messages between the first and these were cut to fit …]");
+                    kept.insert(0, &cut_line);
+                }
+                kept.insert(0, f);
+                used += f.len() + SEPARATOR.len();
+                from_seq = entries[0].from_seq;
+            }
+            let truncated = used < total_bytes;
             let open = if truncated { &open_cut } else { &open_all };
             let text = format!("{open}{}{CLOSING}", kept.join(SEPARATOR));
             let context = Context { from_seq, to_seq, truncated, bytes: used, total_bytes };
