@@ -12,9 +12,55 @@ final class TerminalComposerLookUITests: XCTestCase {
 
     @MainActor
     func testTerminalComposerLookIsConstantAcrossLineCounts() throws {
+        try checkLook(name: "terminal-composer")
+    }
+
+    /// Reduce Transparency on: the step's `reducetransparency=1` turns it on in the
+    /// simulator (com.apple.Accessibility, read back there); launch arguments alone do
+    /// not reach UIKit's accessibility settings. Skipped in a step without it.
+    @MainActor
+    func testTerminalComposerLookIsConstantWithReduceTransparency() throws {
+        try XCTSkipUnless(Self.stepTurnedOn("reducetransparency"), "run the step with reducetransparency=1")
+        XCTAssertTrue(UIAccessibility.isReduceTransparencyEnabled, "Reduce Transparency is on in this simulator")
+        try checkLook(name: "reduce-transparency", arguments: ["-UIAccessibilityReduceTransparencyEnabled", "YES"],
+                      note: "isReduceTransparencyEnabled=\(UIAccessibility.isReduceTransparencyEnabled)")
+    }
+
+    /// Increase Contrast on (`increasecontrast=1` in the step, as above).
+    @MainActor
+    func testTerminalComposerLookIsConstantWithIncreaseContrast() throws {
+        try XCTSkipUnless(Self.stepTurnedOn("increasecontrast"), "run the step with increasecontrast=1")
+        XCTAssertTrue(UIAccessibility.isDarkerSystemColorsEnabled, "Increase Contrast is on in this simulator")
+        try checkLook(name: "increase-contrast", arguments: ["-UIAccessibilityDarkerSystemColorsEnabled", "YES"],
+                      note: "isDarkerSystemColorsEnabled=\(UIAccessibility.isDarkerSystemColorsEnabled)")
+    }
+
+    /// A light backdrop: the terminal demo's page in a light terminal theme (the Mac's
+    /// Solarized Light, `-CmuxMobileTerminalDemoLight`, this launch only), the same
+    /// TerminalTabPage and composer as a workspace's tab. The terminal above the field
+    /// is checked light, so the run is not a dark one by mistake.
+    @MainActor
+    func testTerminalComposerLookIsConstantOnALightTerminal() throws {
+        try checkLook(name: "light-terminal",
+                      arguments: ["-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                  "-CmuxMobileTerminalDemoPhases", "none", "-CmuxMobileTerminalDemoLight"],
+                      demo: false, lightBackdrop: true)
+    }
+
+    private static func stepTurnedOn(_ setting: String) -> Bool {
+        (ProcessInfo.processInfo.environment["CMUX_SIM_A11Y"] ?? "").split(separator: " ").contains { $0 == setting }
+    }
+
+    /// Types 1 to 8 lines, measures the field's empty glass at 1, 3, 4 and 8, attaches
+    /// each screenshot and the numbers, and checks 3, 4 and 8 against 1.
+    @MainActor
+    private func checkLook(name: String, arguments: [String] = [], note: String = "", demo: Bool = true,
+                           lightBackdrop: Bool = false) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES"]
+        if demo { app.launchArguments += ["-cmux-mobile-demo", "ws-terminal-idle"] }
+        app.launchArguments += arguments
         app.launch()
         defer { app.terminate() }
         let field = app.textViews["terminal.composer.field"]
@@ -23,6 +69,7 @@ final class TerminalComposerLookUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
 
         var lumas: [Int: Double] = [:]
+        var backdrops: [Int: Double] = [:]
         field.typeText("l1")
         for count in 1...8 {
             if count > 1 { field.typeText("\nl\(count)") }
@@ -31,25 +78,40 @@ final class TerminalComposerLookUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.8)
             let shot = app.screenshot()
             let attachment = XCTAttachment(screenshot: shot)
-            attachment.name = "terminal-composer-\(count)-lines"
+            attachment.name = "\(name)-\(count)-lines"
             attachment.lifetime = .keepAlways
             add(attachment)
             let luma = try Self.meanLuma(shot.image, in: Self.emptyGlass(field.frame))
             lumas[count] = luma
-            print("composer-look lines=\(count) frame=\(field.frame) luma=\(String(format: "%.2f", luma))")
+            backdrops[count] = try Self.meanLuma(shot.image, in: Self.backdrop(field.frame))
+            print("composer-look \(name) lines=\(count) frame=\(field.frame) luma=\(String(format: "%.2f", luma))")
         }
         // The numbers as a text attachment too: a UI test's print never
         // reaches the step's exported logs, its attachments do.
-        let numbers = XCTAttachment(string: lumas.sorted { $0.key < $1.key }
-            .map { "composer-look lines=\($0.key) luma=\(String(format: "%.2f", $0.value))" }.joined(separator: "\n"))
-        numbers.name = "composer-look-numbers"
+        var lines = lumas.sorted { $0.key < $1.key }.map {
+            "composer-look \(name) lines=\($0.key) luma=\(String(format: "%.2f", $0.value)) backdrop=\(String(format: "%.2f", backdrops[$0.key] ?? -1))"
+        }
+        if !note.isEmpty { lines.append("composer-look \(name) \(note)") }
+        let numbers = XCTAttachment(string: lines.joined(separator: "\n"))
+        numbers.name = "\(name == "terminal-composer" ? "composer-look" : name)-numbers"
         numbers.lifetime = .keepAlways
         add(numbers)
         let one = try XCTUnwrap(lumas[1])
         for count in [3, 4, 8] {
             let luma = try XCTUnwrap(lumas[count])
-            XCTAssertEqual(luma, one, accuracy: 3, "the field's glass at \(count) lines is as bright as at 1 line")
+            XCTAssertEqual(luma, one, accuracy: 3, "\(name): the field's glass at \(count) lines is as bright as at 1 line")
         }
+        if lightBackdrop {
+            for (count, backdrop) in backdrops {
+                XCTAssertGreaterThan(backdrop, 150, "\(name): the terminal above the field is light at \(count) lines")
+            }
+        }
+    }
+
+    /// The terminal's right edge near the top of the page, clear of the toolbar, the
+    /// prompt's text and the dock: its background.
+    private static func backdrop(_ field: CGRect) -> CGRect {
+        CGRect(x: field.maxX - 44, y: 140, width: 36, height: 24)
     }
 
     /// The field's empty glass right of the short lines: inside the text

@@ -220,10 +220,16 @@ mode="${1:-build}"
 #                    (`defaults write com.apple.Accessibility ReduceMotionEnabled` inside the booted
 #                    simulator), read back there and written to SUMMARY.md; the DEBUG app logs
 #                    UIAccessibility.isReduceMotionEnabled at launch and SUMMARY.md quotes that line.
+#   reducetransparency=1, increasecontrast=1   Reduce Transparency or Increase Contrast on in the UI
+#                    test simulator before its run (com.apple.Accessibility
+#                    EnhancedBackgroundContrastEnabled or DarkenSystemColors, read back there); the
+#                    test process gets TEST_RUNNER_CMUX_SIM_A11Y naming them and can check UIAccessibility
+#                    itself (TerminalComposerLookUITests).
 # SUMMARY.md names the device type the step ran on. shots therefore has no scene named device or
 # reducemotion.
 sim_device=""
 reduce_motion=0
+sim_a11y=()
 if [[ $# -gt 1 ]]; then
   sim_rest=()
   for arg in "${@:2}"; do
@@ -236,6 +242,8 @@ if [[ $# -gt 1 ]]; then
           { echo "cmux-next-ios-sim.sh: device= wants an iPhone device type name, e.g. device=iPhone,16e, got '$sim_device'" >&2; exit 2; } ;;
       reducemotion=1) reduce_motion=1 ;;
       reducemotion=*) echo "cmux-next-ios-sim.sh: reducemotion takes only reducemotion=1, got '$arg'" >&2; exit 2 ;;
+      reducetransparency=1|increasecontrast=1) sim_a11y+=("${arg%=1}") ;;
+      reducetransparency=*|increasecontrast=*) echo "cmux-next-ios-sim.sh: ${arg%%=*} takes only ${arg%%=*}=1, got '$arg'" >&2; exit 2 ;;
       *) sim_rest+=("$arg") ;;
     esac
   done
@@ -1230,6 +1238,21 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
+  if [[ ${#sim_a11y[@]} -gt 0 ]]; then
+    xcrun simctl boot "$ui_udid" >/dev/null 2>&1 || true
+    xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+    for setting in "${sim_a11y[@]}"; do
+      case "$setting" in
+        reducetransparency) a11y_key=EnhancedBackgroundContrastEnabled; a11y_note=com.apple.accessibility.cache.enhance.background.contrast ;;
+        increasecontrast) a11y_key=DarkenSystemColors; a11y_note=com.apple.accessibility.cache.darken.system.colors.enabled
+          xcrun simctl ui "$ui_udid" increase_contrast enabled >/dev/null 2>&1 || true ;;
+      esac
+      a11y_value="$(sim_a11y_on "$ui_udid" "$a11y_key" "$a11y_note")" || {
+        note "- $setting (UI test simulator): FAIL: $a11y_key read back in the simulator: '$a11y_value'"; exit 3; }
+      note "- $setting (UI test simulator): on, $a11y_key read back in the simulator: $a11y_value"
+    done
+    export TEST_RUNNER_CMUX_SIM_A11Y="${sim_a11y[*]}"
+  fi
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
