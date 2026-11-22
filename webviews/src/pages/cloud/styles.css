@@ -153,7 +153,7 @@ select {
 }
 
 .cloud-loading,
-.cloud-disconnected,
+.cloud-still-trying,
 .cloud-signed-out {
   flex: 1;
 }

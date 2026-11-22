@@ -10,7 +10,9 @@ import "./chiefWork.css";
 export interface ChiefWorkPanelProps {
   snapshot?: HomeChiefWork;
   loading: boolean;
-  error?: string;
+  /** The read has failed for the house deadline and is still being asked again (`useAutoRetry`): one
+   *  quiet line, no button. Earlier failures show nothing. */
+  stillTrying?: boolean;
   onRefresh(): void;
   onClose(): void;
   strings: Strings;
@@ -20,7 +22,7 @@ const agentRank = { waiting: 0, working: 1, failed: 2, idle: 3 };
 const taskRank = { running: 0, unknown: 1, failed: 2, cancelled: 2, done: 2 };
 
 /** A snapshot view: no timers, subscriptions or parallel copy of the Chief's work state. */
-export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, strings }: ChiefWorkPanelProps) {
+export function ChiefWorkPanel({ snapshot, loading, stillTrying, onRefresh, onClose, strings }: ChiefWorkPanelProps) {
   const { t } = strings;
   const agents = [...(snapshot?.agents ?? [])].sort(
     (a, b) => agentRank[a.state] - agentRank[b.state] || (a.startedAt ?? 0) - (b.startedAt ?? 0),
@@ -59,15 +61,15 @@ export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, s
         </header>
         <div className="hc-chief-work__body">
           <output className="hc-chief-work__notice">
-            {error
-              ? t("work.unavailable")
+            {stillTrying
+              ? t("work.stillLoading")
               : loading
                 ? t("work.loading")
                 : snapshot?.truncated
                   ? t("work.partial")
                   : null}
           </output>
-          {snapshot && agents.length === 0 && tasks.length === 0 && !snapshot.truncated && !error ? (
+          {snapshot && agents.length === 0 && tasks.length === 0 && !snapshot.truncated && !stillTrying ? (
             <p className="hc-chief-work__empty">{t("work.empty")}</p>
           ) : (
             <>

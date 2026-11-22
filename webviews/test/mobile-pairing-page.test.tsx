@@ -3,7 +3,7 @@
 // iPhone host's status, its waiting requests (Allow, Don't Allow) and phones once ready, shows a QR
 // code only when the host sends one, asks for a new code when the shown one expires, and a missing
 // host says so instead of loading forever.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -249,4 +249,64 @@ test("the page names the missing step, then the host's status, requests and phon
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(host.querySelector("img.pairing-qr")).toBeNull();
   expect(host.querySelector(".pairing-failure-detail")?.textContent).toBe("relay refused");
+});
+
+// Leo, 2026-11-22: "vacuous decisions like that should be just done". A first status read that fails
+// is read again on its own: no Try Again, the page keeps saying Checking…, and only a failure that has
+// lasted the deadline says one quiet line.
+test("a failed first read is asked again on its own, with no button", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { MobilePairingPage } = await import("../src/pages/mobile-pairing/MobilePairingPage");
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const { LASTING_MS } = await import("../src/ui/lasting");
+  const strings = createStrings(
+    {
+      en: {
+        "mobilePairing.page.title": "Pair your iPhone",
+        "mobilePairing.page.loading": "Checking…",
+        "mobilePairing.page.stillLoading": "Still checking this Mac’s pairing status…",
+      },
+    },
+    ["en"],
+  );
+  const fake = fakeHost(BASE);
+  let refusing = true;
+  const client: PageClient = {
+    ...fake.client,
+    call: async <R,>(op: string, params: unknown) => {
+      if (op === "cmux.mobilePairing.status" && refusing) {
+        fake.calls.push({ op, params });
+        throw pageError("cmux.protocol.unavailable", "starting", true);
+      }
+      return fake.client.call<R>(op, params);
+    },
+  };
+  const reads = () => fake.calls.filter((call) => call.op === "cmux.mobilePairing.status").length;
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const own = createRoot(container);
+  jest.useFakeTimers();
+  try {
+    const store = new MobilePairingStore(client);
+    act(() => own.render(<MobilePairingPage store={store} strings={strings} />));
+    await act(async () => await store.start());
+    expect(reads()).toBe(1);
+    expect(container.querySelectorAll("button").length).toBe(0);
+    expect(container.textContent).toContain("Checking…");
+    for (let ms = 0; ms < 3_000; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+    expect(reads()).toBeGreaterThan(1);
+    expect(container.textContent).not.toContain("Still checking");
+    for (let ms = 0; ms < LASTING_MS; ms += 500) await act(async () => void jest.advanceTimersByTime(500));
+    expect(container.textContent).toContain("Still checking this Mac’s pairing status…");
+    expect(container.querySelectorAll("button").length).toBe(0);
+    refusing = false;
+    for (let ms = 0; ms < 35_000; ms += 500) await act(async () => void jest.advanceTimersByTime(500));
+    expect(store.getSnapshot().status?.state).toBe("signedOut");
+    expect(container.textContent).not.toContain("Still checking");
+  } finally {
+    act(() => own.unmount());
+    container.remove();
+    jest.useRealTimers();
+  }
 });

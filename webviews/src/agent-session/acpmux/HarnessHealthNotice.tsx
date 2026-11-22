@@ -222,6 +222,7 @@ export function HarnessHealthNotice({
           </button>
         )}
         <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
+          {/* retry-prompt-ok: runs the agent's updater again (an install). */}
           {t("harness.tryAgain")}
         </button>
       </>

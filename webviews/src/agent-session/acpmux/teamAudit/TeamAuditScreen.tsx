@@ -8,6 +8,7 @@ import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { currentLanguage, useT, type StringKey, type Translate } from "../i18n";
 import { formatCount, formatDuration } from "../ledger/ledgerModel";
+import { useAutoRetry } from "../autoRetry";
 import { isOlderDaemon } from "../queue/queueModel";
 import {
   auditHasMachineTime,
@@ -159,6 +160,13 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
     );
   };
 
+  // A failed read is asked again on its own (autoRetry.ts): the status reads as loading, and only a
+  // failure that lasts the house deadline says so, in one quiet line with no button.
+  const failed = state.phase === "answered" && state.answer.kind === "failed";
+  const { stillTrying } = useAutoRetry(failed, () => read(picked.current.range, picked.current.group), {
+    busy: state.phase === "loading",
+  });
+
   const reply =
     state.phase === "answered" && state.answer.kind === "ready"
       ? state.answer.reply
@@ -168,13 +176,17 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
   const status =
     state.phase === "older"
       ? t("teamAudit.older")
-      : state.phase === "answered" && state.answer.kind !== "ready"
-        ? t(REASON_KEY[state.answer.kind])
-        : !reply
+      : stillTrying && (failed || state.phase === "loading")
+        ? t("teamAudit.stillTrying")
+        : failed
           ? t("ledger.loading")
-          : !auditHasRows(reply)
-            ? t("teamAudit.empty")
-            : "";
+          : state.phase === "answered" && state.answer.kind !== "ready"
+            ? t(REASON_KEY[state.answer.kind])
+            : !reply
+              ? t("ledger.loading")
+              : !auditHasRows(reply)
+                ? t("teamAudit.empty")
+                : "";
   // The rows on screen are labelled by the grouping they were read for, not the one being read.
   const shown = (state.phase === "older" ? undefined : state.group) ?? group;
   const machine = reply ? auditHasMachineTime(reply) : false;
@@ -245,11 +257,6 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
         )}
         <div className="cst-status" aria-live="polite">
           {status}
-          {state.phase === "answered" && state.answer.kind === "failed" && (
-            <button type="button" className="cst-link" onClick={() => read(range, group)}>
-              {t("ledger.retry")}
-            </button>
-          )}
         </div>
       </div>
     </div>

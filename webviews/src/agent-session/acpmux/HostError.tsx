@@ -8,8 +8,9 @@ import { waitedText } from "./hostErrorModel";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
-/// (`action`, the label for `onRetry`); without `onRetry` it has no button. With its own action it is
-/// a warning that waits for that step; with plain Retry it is an error whose Retry leads.
+/// (`action`, the label for `onRetry`); without both it has no button. With its own action it is a
+/// warning that waits for that step. It never has a plain Retry: asking again without the step gets
+/// the same refusal, and the start runs again by itself once the step is done (Leo, 2026-11-22).
 export function HostError({
   message,
   retrying,
@@ -23,17 +24,16 @@ export function HostError({
   hint?: string | null;
   action?: string;
 }) {
-  const t = useT();
-  const label = action ?? t(retrying ? "host.retryQueued" : "host.retry");
   return (
     <div className="acpmux-host-error">
       <Notice
         kind={action ? "warning" : "error"}
         title={hint ? message : undefined}
         message={hint ?? message}
-        retry={!action && onRetry ? { label, onRetry, disabled: retrying } : undefined}
         actions={
-          action && onRetry ? [{ id: "action", label, onSelect: onRetry, disabled: retrying, primary: true }] : []
+          action && onRetry
+            ? [{ id: "action", label: action, onSelect: onRetry, disabled: retrying, primary: true }]
+            : []
         }
       />
     </div>
@@ -95,6 +95,10 @@ export function HostUnavailableLine({
           </button>
         ) : (
           onRetry && (
+            // retry-prompt-ok: only a failure asking again by itself cannot clear reaches here (`selfRetrying`
+            // false): a chat too large to open ("Update cmux to open this chat, then Retry"), or a refusal that
+            // waits on the person (acpmux missing or stopped, an untrusted folder). Its Retry sends `ready`, which
+            // starts a stopped agent service; the pane's own asks never do (App.tsx `retryNow`).
             <button type="button" onClick={onRetry} disabled={retrying}>
               {t(retrying ? "host.retryQueued" : "host.retry")}
             </button>

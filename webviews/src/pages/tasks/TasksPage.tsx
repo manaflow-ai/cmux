@@ -135,7 +135,7 @@ function OwnerNotRunning({ strings, copy }: { strings: Strings; copy?: (text: st
 }
 
 /** Return sends `create`; the field clears once the owner has the task, so a create whose outcome
- * is unknown (the link broke, the call timed out) keeps its text, with Retry (the same key) and
+ * is unknown (the link broke, the call timed out) keeps its text, with Retry (the same key; retry-prompt-ok: a write) and
  * Discard. Escape clears it (and gives up an unsent create). It takes focus only on a click or a
  * user-run New Task (`request` changes). */
 function NewTaskField({ store, strings, request }: { store: TasksStore; strings: Strings; request: number }) {
@@ -194,7 +194,8 @@ function NewTaskField({ store, strings, request }: { store: TasksStore; strings:
   );
 }
 
-/** "Not sent" with Retry and Discard: a change whose outcome is unknown, never resent on its own. */
+/** "Not sent" with Retry and Discard: a change whose outcome is unknown, never resent on its own.
+ * retry-prompt-ok: a resend writes the person's change (it may already have landed), so it is theirs. */
 function UnsentActions({
   strings,
   onRetry,
@@ -207,6 +208,7 @@ function UnsentActions({
   return (
     <span className="tasks-unsent">
       <span className="tasks-unsent-label">{strings.t("change.unsent")}</span>
+      {/* retry-prompt-ok: resends the person's task change */}
       <button type="button" className="tasks-link-button" onClick={onRetry}>
         {strings.t("change.retry")}
       </button>
@@ -258,6 +260,7 @@ export function UnsentStrip({ store, state, strings }: LayoutProps) {
               {key ? <span className="tasks-key">{key}</span> : null}
               <span className="tasks-unsent-action">{action}</span>
               <span className="tasks-spacer" />
+              {/* retry-prompt-ok: resends the person's task change */}
               <button type="button" className="tasks-link-button" onClick={() => store.retry(intent.key)}>
                 {strings.t("change.retry")}
               </button>

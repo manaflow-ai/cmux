@@ -303,6 +303,7 @@ export default componentEntry<Props>({
       props: { look: "imessage", state: "long" },
     },
     "failed-send": {
+      // retry-prompt-ok: the kept Try Again re-sends the message.
       note: "A send the owner refused: Not Delivered under it, the red mark to Try Again; the right-click menu has Delete.",
       props: { look: "imessage", state: "failed" },
     },

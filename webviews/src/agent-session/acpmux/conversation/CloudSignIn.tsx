@@ -55,6 +55,7 @@ const SIGN_IN_LABEL = {
 } as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
+  // retry-prompt-ok: sign-in and code-entry failures; trying again means the person signs in or types a code again.
   bad_code: "turn.signIn.error.badCode",
   expired: "turn.signIn.error.expired",
   shared_machine: "turn.signIn.error.sharedMachine",
@@ -529,6 +530,7 @@ export function CloudSignIn({
               disabled={stage.at === "sending"}
               onClick={() => sendAgain(signIn.reserve())}
             >
+              {/* retry-prompt-ok: sends a new sign-in code to the person, a sign-in step they choose. */}
               {t("turn.signIn.sendAgain")}
             </button>
           )}
@@ -544,6 +546,7 @@ export function CloudSignIn({
           <output className="cv-turn-signin__error">{t(FAILURE_COPY[stage.failure])}</output>
           {stage.failure !== "shared_machine" && stage.failure !== "remote_refused" && (
             <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={retry}>
+              {/* retry-prompt-ok: starts a new sign-in, which asks the person for a code again. */}
               {t("turn.retry")}
             </button>
           )}

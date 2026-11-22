@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoginAgent, LoginStart } from "../agent-session/acpmux/cloudAgentLogin";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { useT } from "../agent-session/acpmux/i18n";
+import { useAutoRetry } from "../agent-session/acpmux/autoRetry";
 import { MachineLoginError, type MachineLoginApi, type MachineLoginStatus } from "./machineLogin";
 import { ExpiredSession } from "./wire";
 
@@ -141,6 +142,13 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
       (error) => failure(error, controller),
     );
   };
+  // Until the run's status has been read there is no harness, so nothing for the person to choose: a
+  // failed read is read again on its own, and only one that lasts the deadline says a quiet line (no
+  // Retry). A failed start or finish keeps its sign-in button: that is the person's call.
+  const unread = !state.harness && !state.login;
+  const { stillTrying } = useAutoRetry(unread && state.phase === "ready" && state.error ? state : undefined, refresh, {
+    busy: unread && state.phase === "checking",
+  });
   if (state.phase === "hidden") return null;
   const busy = state.phase !== "ready";
   const title =
@@ -159,7 +167,8 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
         <strong>{title}</strong>
         {busy && <Spinner size={16} />}
       </div>
-      {state.error && <p role="alert">{t(`turn.signIn.error.${state.error}`)}</p>}
+      {state.error && !unread && <p role="alert">{t(`turn.signIn.error.${state.error}`)}</p>}
+      {unread && stillTrying && <p>{t("chiefWeb.signIn.stillChecking")}</p>}
       {state.login && (
         <>
           <a href={state.login.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
@@ -210,9 +219,10 @@ export function MachineSignIn({ run, api, onExpired }: { run: string; api: Machi
           </div>
         </>
       )}
-      {!state.login && (
-        <button type="button" className="chief-web__action" disabled={busy} onClick={state.harness ? start : refresh}>
-          {state.harness ? title : t("turn.retry")}
+      {/* retry-prompt-ok: starts a sign-in (opens the provider's page), the person's call */}
+      {!state.login && state.harness && (
+        <button type="button" className="chief-web__action" disabled={busy} onClick={start}>
+          {title}
         </button>
       )}
     </section>

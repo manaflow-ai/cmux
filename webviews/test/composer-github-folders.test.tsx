@@ -584,7 +584,7 @@ test("repos.list refused as not connected falls back to the Connect to GitHub ro
   }
 });
 
-test("another repos.list failure makes the pinned GitHub row Retry, which reads again with the menu open", async () => {
+test("another repos.list failure is read again on its own with the menu open, with no Retry row", async () => {
   const gh = host({
     "github.status": { state: "ready", repos_scope: "all" },
     "github.repos.list": { error: new Error("GitHub did not answer") },
@@ -592,25 +592,27 @@ test("another repos.list failure makes the pinned GitHub row Retry, which reads 
   const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
   try {
     await openFolderMenu();
-    // The GitHub row under Add folder…, the only GitHub row there: Retry over the error.
+    // Asking again is the only answer, so nothing waits on the person: no Retry, no error words, and
+    // only Add folder… pinned until the failure has lasted the deadline (autoRetry.ts `stillTrying`).
     const pinned = doc().querySelector(".ui-combobox-pinned")!;
     const actions = [...pinned.querySelectorAll<HTMLElement>("[role=option]")];
     expect(actions[0]!.textContent).toContain("Add folder…");
-    const retry = actions[1]!;
-    expect(retry.querySelector(".acpmux-menu-label")?.textContent).toBe("Retry");
-    expect(detail(retry)).toBe("GitHub did not answer");
-    expect(retry.querySelector(".acpmux-location-action-icon svg")).not.toBeNull();
-    expect(actions.filter((row) => row.querySelector("[data-github]"))).toHaveLength(1);
+    expect(option("Retry")).toBeUndefined();
+    expect(doc().querySelector(".acpmux-folder-popover [data-still-trying]")).toBeNull();
+    expect(doc().body.textContent).not.toContain("GitHub did not answer");
     expect(option("Choose more repositories…")).toBeUndefined();
     expect(option(CONNECT)).toBeUndefined();
     expect(doc().querySelector(".acpmux-folder-popover [role=alert]")).toBeNull();
+    const lists = gh.calls.filter(([method]) => method === "github.repos.list").length;
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
-    await press(retry);
+    // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+    await settle();
+    expect(gh.calls.filter(([method]) => method === "github.repos.list").length).toBe(lists + 1);
     expect(gh.calls.at(-1)).toEqual(["github.repos.list", { query: null }]);
     expect(picked).toEqual([]);
-    // Still open: the repositories listed, the GitHub row Choose more repositories… again.
+    // Still open: the repositories listed, the GitHub row Choose more repositories….
     expect(doc().querySelector(".acpmux-location-search")).not.toBeNull();
-    expect(option("Retry")).toBeUndefined();
     expect(option("acme/web")).toBeDefined();
     expect(option("Choose more repositories…")!.closest(".ui-combobox-pinned")).not.toBeNull();
   } finally {

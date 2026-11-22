@@ -93,9 +93,10 @@ test.serial("Resume uses native attach, then rereads the missing chat; disposal 
     );
   }
   await act(async () => root.render(<Recovery />));
-  const retry = mount.querySelector<HTMLButtonElement>('[data-action="reconnect"]');
-  expect(retry).not.toBeNull();
-  await act(async () => retry!.click());
+  // No Reconnect button: the card reads the machines again on its own (autoRetry.ts, first ask
+  // within 1 s; Leo, 2026-11-22: "vacuous decisions like that should be just done").
+  expect(mount.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
   expect(calls.filter((method) => method === "cloudMachine.recoveryList")).toHaveLength(2);
   const button = mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]');
   expect(button).not.toBeNull();

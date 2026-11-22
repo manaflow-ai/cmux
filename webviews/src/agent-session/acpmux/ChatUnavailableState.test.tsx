@@ -213,3 +213,27 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   expect(container.querySelector(".acpmux-unavailable-progress")).toBe(slot);
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
 });
+
+test("an offline chat reads the machines and the chat list again on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  let asks = 0;
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => asks++}
+        noteDelayMs={0}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1_000));
+  expect(asks).toBe(1);
+  await act(async () => void jest.advanceTimersByTime(2_000));
+  expect(asks).toBe(2);
+});

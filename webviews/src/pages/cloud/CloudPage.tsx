@@ -32,15 +32,16 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     }),
     [store],
   );
-  // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // reads again on its own); then the disconnected state with Retry.
-  const down = snap.connection === "disconnected";
-  const failed = snap.connection === "failed";
-  const downLasting = useLasting(down);
   // The first read usually answers in well under a second: the page stays blank until then, and
-  // says Loading… only once it lasts (a failure still shows its own card at once).
+  // says Loading… only once it lasts.
   const loading = !snap.auth || (snap.loading && snap.rows.length === 0);
   const loadingShown = useLoadingShown(loading);
+  // A lost link or a failed page read is read again by the store on its own (store.ts
+  // `readAgainLater`), so there is nothing to press: the page shows nothing while it recovers (a
+  // launch, a daemon restart), and once that lasts the grace, one quiet line with no button. The
+  // stretch holds across the store's attempts (`recovering`), so the line does not flash.
+  const outage = snap.connection === "disconnected" || snap.connection === "failed" || (!!snap.recovering && loading);
+  const outageLasting = useLasting(outage);
   const signedIn = !!snap.auth?.signedIn && snap.connection === "connected";
   const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
@@ -55,30 +56,16 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       </button>
     ) : null;
   const body = () => {
-    if (down && !downLasting) return null;
-    if (failed)
-      return (
-        <div className="cloud-message cloud-failed" role="alert">
-          <p>{t(L.actionFailed)}</p>
-          {snap.error && <p className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</p>}
-          {store.canRetry && (
-            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
+    if (outage)
+      return outageLasting ? (
+        // The last failure's words stay reachable on hover, not as a second line.
+        <div
+          className="cloud-message cloud-still-trying"
+          title={snap.error ? errorText(snap.error, snap.errorCode, t) : undefined}
+        >
+          <p>{t(L.stillTrying)}</p>
         </div>
-      );
-    if (down)
-      return (
-        <div className="cloud-message cloud-disconnected">
-          <p>{t(L.disconnected)}</p>
-          {store.canRetry && (
-            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
-              {t(L.retry)}
-            </button>
-          )}
-        </div>
-      );
+      ) : null;
     // `!snap.auth` again so the rest of the body reads it as set.
     if (!snap.auth || loading)
       return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;

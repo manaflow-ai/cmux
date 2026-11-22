@@ -2,6 +2,7 @@
 // UpdaterService, live through cmux.settings.host.changed). A download runs with no sidebar card
 // (Leo 2026-11-03, after ChatGPT's one-step update), so its progress and Cancel live here, and so
 // does a failed check's or download's Try Again, background ones included. Every text is the host's.
+// retry-prompt-ok: the host (UpdaterService) owns these actions; a download's Try Again installs an update.
 import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";

@@ -50,7 +50,7 @@ import {
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 
-/** The first and the longest wait before the store reads auth again after the link refused it. */
+/** The first and the longest wait before the store reads the page again after a failed read. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
 export const CLOUD_RESTART_MAX_MS = 10_000;
 
@@ -65,8 +65,9 @@ export interface CreateDraft {
   /** The team's snapshots (`cloud.snapshot.list {}`). */
   snapshots?: CloudSnapshot[];
   /**
-   * The snapshot list failed: the sheet says so beside Source and offers Retry, which reads it again
-   * on the same draft (name, size, source and key kept). Base image stays choosable meanwhile.
+   * The snapshot list failed: the sheet reads it again on its own (CreateSheet.tsx, useAutoRetry) on
+   * the same draft (name, size, source and key kept), and says so beside Source only once that lasts.
+   * Base image stays choosable meanwhile. Stays set until a read answers, across the re-reads.
    */
   snapshotsFailed?: boolean;
   submitting: boolean;
@@ -99,6 +100,12 @@ export interface RetentionEdit {
 
 export interface CloudState {
   connection: Connection;
+  /**
+   * The page lost its link or its first read failed, and the store reads it again on its own
+   * (`readAgainLater`); set from that failure until a read succeeds, so the page keeps one quiet
+   * stretch across the attempts instead of flashing between them.
+   */
+  recovering?: true;
   auth?: AuthStatus;
   loading: boolean;
   machines: CloudMachine[];
@@ -107,7 +114,10 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
-  /** The last plan read failed (not "not served"): the storefront says so and offers Retry. */
+  /**
+   * The last plan read failed (not "not served"): the storefront reads it again on its own and,
+   * once that lasts, says it is still trying (Storefront.tsx, useAutoRetry).
+   */
   planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
@@ -171,16 +181,18 @@ export class CloudStore {
   /** The account stream's last event. */
   private lastAccount?: AccountEvent;
   /**
-   * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
+   * Bumped by stop, sign-out, team switch and a re-read. Every async load captures it and drops its
    * result (and closes its watch) when it changed, so an old account or team never writes state.
    */
   private session = 0;
-  /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
+  /** Bumped by sign-in, sign-out and team switch (not by a re-read): an answer from another account is dropped. */
   private accountEpoch = 0;
-  /** The next `start` after a first auth read the link refused (`startLater`); cleared by stop. */
+  /** The next `start` after a failed page read (`readAgainLater`); cleared by stop. */
   private restart: ReturnType<typeof setTimeout> | undefined;
-  /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
+  /** Failed page reads in a row: the wait before the next one doubles. */
   private restartAttempts = 0;
+  /** Inside `stop`: the session it ends is not a failure to read again. */
+  private halting = false;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -259,18 +271,18 @@ export class CloudStore {
       if (session !== this.session) return;
       this.started = false;
       const failed = failure(error);
-      const connection = connectionFailure(error);
-      this.set({ ...failed, loading: false, connection });
-      if (connection === "disconnected") this.startLater();
+      // Read again on its own (`set` arms `readAgainLater`), whether the link refused it or the
+      // owner answered with an error: auth is a read, asking again changes nothing.
+      this.set({ ...failed, loading: false, connection: connectionFailure(error) });
       return;
     }
     if (session !== this.session) return;
     // The link answers: follow the app's account from here on (each start after a stop subscribes again).
     void this.watchAuth();
-    // Back after `startLater`: the refused read's error goes, and the page loads as on a first
-    // start (Retry does the same before it starts).
+    // Back after `readAgainLater`: the failed read's error goes, and the page loads as on a first
+    // start (as a first start does). The backoff resets only once the whole page
+    // read (auth and, signed in, the machine list) succeeds.
     const recovered = this.restartAttempts > 0;
-    this.restartAttempts = 0;
     this.set({
       auth,
       connection: "connected",
@@ -278,9 +290,11 @@ export class CloudStore {
     });
     if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
+    if (session === this.session && this.state.connection === "connected") this.recovered();
   }
 
   stop(): void {
+    this.halting = true;
     this.started = false;
     this.lifetime += 1;
     this.unwatchAuth?.();
@@ -291,38 +305,42 @@ export class CloudStore {
     this.restart = undefined;
     this.restartAttempts = 0;
     this.endSession();
+    this.halting = false;
   }
 
   /**
-   * The link refused the first auth read (on a launch or a daemon restart the daemon or its Cloud
-   * relay is not up yet): read it again on its own, 1 s and then doubling to 10 s, so the page
-   * comes up once the link does. The connection stays "disconnected" meanwhile (the page shows it
-   * only once that lasts, ui/lasting.ts) and Retry still asks at once. Ends with a read that
-   * succeeds or a failure that is not the link's, and with `stop` (the last listener leaving).
+   * The page lost its link or a page read failed (on a launch or a daemon restart the daemon or its
+   * Cloud relay is not up yet; an owner that answered with an error for a moment): read it all again
+   * on its own, 1 s and then doubling to 10 s, so the page comes up once the link and the owner do.
+   * Nobody presses anything: every read here is a read, so asking again is never the person's
+   * decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). The connection
+   * stays "disconnected" or "failed" meanwhile and `recovering` holds the stretch, which the page
+   * shows only once it lasts, as one quiet line (CloudPage.tsx). Armed by `set` on every change into
+   * those states; ends with a read that succeeds, and with `stop` (the last listener leaving).
    */
-  private startLater(): void {
+  private readAgainLater(): void {
     clearTimeout(this.restart);
     const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
     this.restart = setTimeout(() => {
       this.restart = undefined;
-      if (this.listeners.size > 0) void this.start();
+      const { connection } = this.state;
+      if (this.listeners.size === 0) return;
+      // Back by another way meanwhile (an event proved the link, a sign-in read it all).
+      if (connection !== "disconnected" && connection !== "failed") return this.recovered();
+      // A fresh session, keeping what the page shows and the backoff.
+      const attempts = this.restartAttempts;
+      this.stop();
+      this.restartAttempts = attempts;
+      void this.start();
     }, delay);
   }
 
-  get canRetry(): boolean {
-    return this.client !== null;
-  }
-
-  /** After a disconnect: drops the old session and starts again (the localized Retry button). */
-  async retry(): Promise<void> {
-    this.stop();
-    this.set({
-      connection: this.client ? "connecting" : "disconnected",
-      loading: true,
-      error: undefined,
-      errorCode: undefined,
-    });
-    await this.start();
+  /** The page read succeeded: the stretch of re-reads ends and the next failure waits 1 s again. */
+  private recovered(): void {
+    this.restartAttempts = 0;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.state.recovering) this.set({ recovering: undefined });
   }
 
   /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
@@ -399,7 +417,7 @@ export class CloudStore {
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
-  /** Storefront Retry after a failed plan read. */
+  /** Reads the plan again after a failed read (the storefront asks on its own, useAutoRetry). */
   retryPlan(): Promise<void> {
     return this.account.readPlan(this.session);
   }
@@ -425,11 +443,13 @@ export class CloudStore {
     this.loadSnapshots(key);
   }
 
-  /** The sheet's Retry after the snapshot list failed: reads it again, keeping the draft. */
+  /**
+   * Reads the snapshot list again after it failed (the sheet asks on its own), keeping the draft. The
+   * failure stays on the draft until a read answers, so the sheet's quiet stretch spans the re-reads.
+   */
   retrySnapshots(): void {
     const draft = this.state.create;
     if (!draft?.snapshotsFailed || !this.canChange()) return;
-    this.set({ create: { ...draft, snapshotsFailed: undefined } });
     this.loadSnapshots(draft.key);
   }
 
@@ -500,12 +520,12 @@ export class CloudStore {
         if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false } });
         return;
       }
-      // Recorded even after a session restart (stop, retry): the intent and the sheet must not
+      // Recorded even after a session restart (stop, a re-read): the intent and the sheet must not
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
       if (session === this.session) this.madeRoom(result?.made_room?.machine);
-      // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
+      // Kept across a re-read while the sheet was open; dropped when the account or team changed since.
       if (
         draft.openWhenRunning &&
         result?.machine?.id &&
@@ -817,7 +837,7 @@ export class CloudStore {
    * account (its own Sign In, a team switch it ran, the stream's first event) unless `switched`
    * (another signed-in user); otherwise the old account's state goes and the new one loads, as
    * after the page's own sign-in or sign-out. A read that fails restarts the page the way a
-   * failed first read does (back on its own once the link is, or Retry), so the event is never lost.
+   * failed first read does (back on its own once the link is, `readAgainLater`), so the event is never lost.
    */
   private async accountChanged(switched = false): Promise<void> {
     // Before the first auth read answered, that read is newer than the event.
@@ -832,9 +852,8 @@ export class CloudStore {
       this.restartSession();
       void this.detail.load(undefined);
       this.started = false;
-      const connection = connectionFailure(error);
-      this.set({ ...signedOutState(), auth: undefined, ...failure(error), connection });
-      if (connection === "disconnected") this.startLater();
+      // `set` arms `readAgainLater`: the page reads auth again on its own.
+      this.set({ ...signedOutState(), auth: undefined, ...failure(error), connection: connectionFailure(error) });
       return;
     }
     const shown = this.state.auth;
@@ -1110,6 +1129,19 @@ export class CloudStore {
 
   private set(patch: Partial<CloudState>): void {
     this.state = { ...this.state, ...patch };
+    // Any change into a lost link or a failed page read, from whichever read saw it, is read again
+    // on its own (`readAgainLater`); one timer at a time, and none while `stop` ends the session.
+    const { connection } = this.state;
+    if (
+      (connection === "disconnected" || connection === "failed") &&
+      this.client &&
+      !this.halting &&
+      this.restart === undefined &&
+      this.listeners.size > 0
+    ) {
+      if (!this.state.recovering) this.state = { ...this.state, recovering: true };
+      this.readAgainLater();
+    }
     for (const listener of this.listeners) listener();
   }
 }

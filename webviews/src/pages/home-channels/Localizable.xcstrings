@@ -1714,134 +1714,134 @@
         }
       }
     },
-    "work.unavailable": {
-      "comment": "Chief Home Work: read-only current-machine work inventory",
+    "work.stillLoading": {
+      "comment": "Chief Home Work: a read of the work inventory that kept failing past the deadline; it is asked again on its own (no button)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Background work is unavailable. Try refreshing."
+            "value": "Still loading background work…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "العمل في الخلفية غير متاح. حاول التحديث."
+            "value": "لا يزال تحميل العمل في الخلفية جاريًا…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pozadinski rad nije dostupan. Pokušajte osvježiti."
+            "value": "Rad u pozadini se još učitava…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Baggrundsarbejde er ikke tilgængeligt. Prøv at opdatere."
+            "value": "Indlæser stadig baggrundsarbejde…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hintergrundaktivität ist nicht verfügbar. Versuche zu aktualisieren."
+            "value": "Hintergrundaktivität wird noch geladen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El trabajo en segundo plano no está disponible. Prueba a actualizar."
+            "value": "Todavía cargando el trabajo en segundo plano…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le travail en arrière-plan est indisponible. Essayez d’actualiser."
+            "value": "Chargement du travail en arrière-plan toujours en cours…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il lavoro in background non è disponibile. Prova ad aggiornare."
+            "value": "Caricamento del lavoro in background ancora in corso…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バックグラウンド作業を表示できません。更新してみてください。"
+            "value": "バックグラウンド作業をまだ読み込んでいます…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចបង្ហាញការងារផ្ទៃខាងក្រោយបានទេ។ សូមព្យាយាមផ្ទុកឡើងវិញ។"
+            "value": "នៅតែកំពុងផ្ទុកការងារផ្ទៃខាងក្រោយ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "백그라운드 작업을 확인할 수 없습니다. 새로고침해 보세요."
+            "value": "백그라운드 작업을 아직 불러오는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bakgrunnsarbeid er ikke tilgjengelig. Prøv å oppdatere."
+            "value": "Laster fortsatt bakgrunnsarbeid…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Praca w tle jest niedostępna. Spróbuj odświeżyć."
+            "value": "Nadal wczytuję pracę w tle…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O trabalho em segundo plano está indisponível. Tente atualizar."
+            "value": "Ainda carregando o trabalho em segundo plano…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Фоновая работа недоступна. Попробуйте обновить."
+            "value": "Фоновая работа ещё загружается…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถแสดงงานเบื้องหลังได้ ลองรีเฟรช"
+            "value": "ยังคงโหลดงานเบื้องหลัง…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arka plan işleri kullanılamıyor. Yenilemeyi deneyin."
+            "value": "Arka plan işleri hâlâ yükleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Фонова робота недоступна. Спробуйте оновити."
+            "value": "Фонова робота ще завантажується…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể xem công việc nền. Hãy thử làm mới."
+            "value": "Vẫn đang tải công việc nền…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "后台工作不可用。请尝试刷新。"
+            "value": "仍在加载后台工作…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法顯示背景工作。請嘗試重新整理。"
+            "value": "仍在載入背景工作…"
           }
         }
       }

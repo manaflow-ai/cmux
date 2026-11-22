@@ -199,6 +199,7 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
         <span className="row-error" role="alert">
           {chatgptErrorText(chatgpt.error)}
         </span>
+        {/* retry-prompt-ok: connecting ChatGPT again opens its sign-in, which the person completes. */}
         <Button
           type="button"
           className="button"

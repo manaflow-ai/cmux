@@ -154,7 +154,7 @@ export class AccountReader {
       this.host.set({ plan, planFailed: false, ...(lifted ? { refusal: undefined } : {}) });
     } catch {
       // The plan shown stays; the next change or page open reads it again. Without one, the
-      // storefront shows the failure and Retry.
+      // storefront reads it again on its own (Storefront.tsx, useAutoRetry).
       if (session === this.host.session() && !this.host.get().plan) this.host.set({ planFailed: true });
     }
   }

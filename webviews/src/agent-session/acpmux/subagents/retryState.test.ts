@@ -16,6 +16,8 @@ import {
   retryLabel,
   RETRY_METHOD,
   runRetry,
+  untilNotBusy,
+  type RetryNote,
   type RetryTarget,
 } from "./retryState";
 
@@ -329,5 +331,37 @@ describe("Retry reaches acpmux, and only acpmux", () => {
   test("the strings are in the catalog", () => {
     for (const key of ["retry.busy", "retry.nothingFailed", "retry.failed", "retry.running", "retry.gone"] as const)
       expect(translate(key)).not.toBe(key);
+  });
+});
+
+describe("a Retry acpmux refuses as busy is asked again on its own", () => {
+  const fast = { firstMs: 1, maxMs: 2, random: () => 0, visible: () => true };
+
+  test("it asks until acpmux takes it, and answers what acpmux said then", async () => {
+    const answers: (RetryNote | undefined)[] = ["retry.busy", "retry.busy", undefined];
+    let asked = 0;
+    const { answer } = untilNotBusy(async () => answers[asked++], fast);
+    expect(await answer).toBeUndefined();
+    expect(asked).toBe(3);
+  });
+
+  test("any other refusal ends the wait with its note", async () => {
+    let asked = 0;
+    const { answer } = untilNotBusy(async () => (asked++ === 0 ? "retry.busy" : "retry.gone"), fast);
+    expect(await answer).toBe("retry.gone");
+    expect(asked).toBe(2);
+  });
+
+  test("stop ends the wait: nothing more is asked", async () => {
+    let asked = 0;
+    const { stop } = untilNotBusy(async () => {
+      asked++;
+      return "retry.busy";
+    }, fast);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    stop();
+    const seen = asked;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(asked).toBe(seen);
   });
 });

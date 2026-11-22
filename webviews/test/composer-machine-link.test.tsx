@@ -9,7 +9,8 @@
 //   - a chat on an acpmux peer reads only that peer's link as acpmux reports it (`peerStates`), and a
 //     chat on this Mac draws nothing;
 //   - connected is the dot alone; connecting, reconnecting and offline name the machine and the
-//     sidebar header's word for the state; offline offers Reconnect, which asks acpmux for the peer;
+//     sidebar header's word for the state; offline asks acpmux for the peer again on its own (the
+//     shared backoff, autoRetry.ts), with no Reconnect button;
 //   - the row's element stays one element through every state, so the row's other controls stay put.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -163,21 +164,23 @@ test("a peer chat's row says each link state in the sidebar's words, in one elem
   expect(link()?.hasAttribute("data-said")).toBe(false);
 });
 
-test("an offline peer offers Reconnect, which asks for that peer", async () => {
+test("an offline peer is asked for again on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
   const asked: PeerLink[] = [];
   let answer!: () => void;
   await render(started("walk-remote", "offline"), (pressed) => {
     asked.push(pressed);
     return new Promise<void>((resolve) => (answer = resolve));
   });
-  const button = reconnect()!;
-  expect(button.textContent).toBe("Reconnect");
-  await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  expect(reconnect()).toBeNull();
+  expect(link()?.querySelector("button")).toBeNull();
+  // The first ask comes within 1 s; while it is in flight no second one is sent.
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
   expect(asked).toEqual([{ machine: "walk-remote", link: "offline" }]);
-  expect(reconnect()?.disabled).toBe(true);
-  expect(reconnect()?.textContent).toBe("Reconnecting…");
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  expect(asked).toHaveLength(1);
   await act(async () => answer());
-  expect(reconnect()?.disabled).toBe(false);
+  expect(link()?.querySelector("button")).toBeNull();
 });
 
 test("a Cloud peer that does not answer leaves it to the peer copy banner", async () => {

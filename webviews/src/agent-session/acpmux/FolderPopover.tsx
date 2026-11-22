@@ -5,6 +5,7 @@ import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import type { BrowseRequest } from "./AddProjectPanel";
 import type { BrowseResult } from "./addProjectPanelModel";
+import { useAutoRetry } from "./autoRetry";
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { GitHubMark, LockIcon } from "./GitHubIcons";
@@ -186,17 +187,28 @@ export function FolderPopover({
     () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
     [githubReady, githubRepos, typed],
   );
+  // A repositories' list that failed is read again on its own while the menu is open (autoRetry.ts; each open
+  // also reads it again, githubRepos.ts): asking again is the only answer, so it is no row to click (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done"). Only one that keeps failing says so.
+  const githubListFailed = github && !addingExtra && githubStatus === "ready" ? github.state.error : undefined;
+  const { stillTrying: githubStillTrying } = useAutoRetry(githubListFailed, () => github?.onRetry(), {
+    busy: github?.state.loading ?? false,
+    shown: open,
+  });
   // The GitHub row is pinned with the actions under the list: the folder list scrolls (thousands of
   // projects), and a row at its end would sit below the fold where nobody finds it. Connected: Choose
-  // more repositories…, or Retry when the repositories' list failed. Connect to GitHub only where a
-  // click can connect: not connected, or signed out (the click signs in first). Never while the check
-  // did not answer (a connected team's check can fail), nor on a Cloud service with no GitHub App (#46018).
+  // more repositories…, or, once a failed list has lasted, the quiet Still loading row. Connect to GitHub
+  // only where a click can connect: not connected, or signed out (the click signs in first). Never while
+  // the check did not answer (a connected team's check can fail), nor on a Cloud service with no GitHub App
+  // (#46018).
   const githubAction =
     github && !addingExtra
       ? githubReady
         ? GITHUB_MORE
         : githubStatus === "ready"
-          ? GITHUB_RETRY
+          ? githubStillTrying
+            ? GITHUB_RETRY
+            : undefined
           : githubStatus === "not_connected" ||
               (githubStatus === "unavailable" && github.state.status?.reason === "signed_out")
             ? GITHUB_ADD
@@ -285,11 +297,8 @@ export function FolderPopover({
       github?.onConnect();
       return;
     }
-    // Retry reads the repositories again, the menu still open; they are listed once they load.
-    if (value === GITHUB_RETRY) {
-      github?.onRetry();
-      return;
-    }
+    // The Still loading row is words, not an action: the list is read again on its own.
+    if (value === GITHUB_RETRY) return;
     // Return on words no loaded repository matches: ask GitHub for them (the loaded page may be
     // only the first of the person's repositories). The field's words arrive as the value: with
     // words typed, the Combobox never submits a pinned row it highlighted by itself.
@@ -348,13 +357,12 @@ export function FolderPopover({
     }
     if (value === GITHUB_RETRY)
       return (
-        <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-retry="">
+        <span className="acpmux-location-action acpmux-location-row" data-github="" data-still-trying="">
           <span className="acpmux-location-action-icon" aria-hidden="true">
             <GitHubMark />
           </span>
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{t("project.retry")}</span>
-            <span className="acpmux-menu-description">{github?.state.error}</span>
+            <span className="acpmux-menu-description">{t("composer.githubStillLoading")}</span>
           </span>
         </span>
       );
@@ -639,7 +647,7 @@ const ACTION_EXTRA = ACTION + "extra";
 /// The GitHub part's rows: never a path either.
 const GITHUB_ADD = "\u0000github:add";
 const GITHUB_MORE = "\u0000github:more";
-const GITHUB_RETRY = "\u0000github:retry";
+const GITHUB_RETRY = "\u0000github:still-loading";
 const GITHUB_REPO = "\u0000github:repo:";
 
 /// An action's glyph in the folders' icon column: + adds, a folder with + adds one more, the branch

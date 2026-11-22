@@ -129,7 +129,8 @@ test("a link without its secret says so and keeps Join off", async () => {
   await page.unmount();
 });
 
-test("the owner offline: the page says so, and Join again is the same attempt", async () => {
+test("the owner offline: the page joins again on its own, the same attempt, saying nothing at first", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
   const storage = new Map<string, string>();
   const tab = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -146,9 +147,12 @@ test("the owner offline: the page says so, and Join again is the same attempt", 
   });
   await typeName(page.host, "Ana");
   await submit(page.host);
-  expect(page.host.querySelector("[role=alert]")?.textContent).toBe(translate("guest.join.hostOffline"));
-  await submit(page.host);
-  expect(asked.length).toBe(2);
+  expect(page.host.querySelector("[role=alert]")).toBeNull();
+  expect(joinButton(page.host).textContent).toBe(translate("guest.join.joining"));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+  });
+  expect(asked.length).toBeGreaterThanOrEqual(2);
   expect(asked[0]).toEqual({ attempt_id: asked[1]!.attempt_id, secret: "c2VjcmV0LWFiY2RlZmdo", name: "Ana" });
   await page.unmount();
 });
@@ -241,7 +245,6 @@ for (const [error, shown] of [
   ["share.not_invited", "guest.invite.notInvited"],
   ["share.unverified", "guest.invite.unverified"],
   ["share.unauthorized", "guest.invite.signIn"],
-  ["share.host_offline", "guest.join.hostOffline"],
 ] as const)
   test(`an invite accept answered ${error} says so, and Join stays to try again`, async () => {
     const page = await mount({ secret: undefined, invite: true, accept: async () => ({ ok: false, error }) });
@@ -315,9 +318,10 @@ test("an invitee the owner removes (uninvite) ends on You were removed", async (
 });
 
 // The transcript is its own chunk (GuestTranscript.tsx). A load that fails (a dropped connection)
-// says so with Retry, keeps the composer where it is, and the snapshot that came meanwhile draws
-// once Retry loads it.
-test("a transcript chunk that fails to load says so; Retry loads it and the chat draws", async () => {
+// is tried again on its own, says nothing at first and has no Retry (Leo, 2026-11-22: "vacuous
+// decisions like that should be just done"), keeps the composer where it is, and the snapshot that
+// came meanwhile draws once a later load lands.
+test("a transcript chunk that fails to load is tried again on its own and the chat draws", async () => {
   let fail = true;
   let asked = 0;
   const loadTranscript = () => {
@@ -329,27 +333,28 @@ test("a transcript chunk that fails to load says so; Retry loads it and the chat
     role: "talk",
     openSocket: fakeRoom(joinFrames(workingRecords())),
     loadTranscript,
+    reloadPage: () => undefined,
   });
   await roomFrames();
-  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
-  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
+  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
+  expect(page.host.querySelector(".guest-live__transcript button")).toBeNull();
   expect(page.host.textContent).not.toContain("bun test src/upload.test.ts --rerun-each 5");
   expect(page.host.querySelector(".guest-live__dock textarea")).not.toBeNull();
   fail = false;
   await act(async () => {
-    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
   });
   await roomFrames();
   expect(asked).toBe(2);
-  expect(page.host.querySelector(".guest-live__transcript [role=alert]")).toBeNull();
   expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
   await page.unmount();
 });
 
-// The browser may keep a failed module fetch for the page's life (#38101 F1): a Retry whose load
-// fails too reloads the page instead of asking the same failed import again.
-test("a Retry whose load fails too reloads the page", async () => {
+// The browser may keep a failed module fetch for the page's life (#38101 F1): a load that failed
+// twice reloads the page once instead of asking the same failed import again, and not again soon.
+test("a chunk load that fails twice reloads the page once", async () => {
   let reloads = 0;
+  dom.window.sessionStorage.removeItem("cmux.guest.chunkReloadAt");
   const page = await mount({
     guestId: "g1",
     role: "talk",
@@ -358,15 +363,14 @@ test("a Retry whose load fails too reloads the page", async () => {
     reloadPage: () => void (reloads += 1),
   });
   await roomFrames();
-  const alert = page.host.querySelector(".guest-live__transcript [role=alert]");
-  expect(alert?.textContent).toContain(translate("guest.live.loadFailed"));
   expect(reloads).toBe(0);
   await act(async () => {
-    alert!.querySelector("button")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
   });
   await roomFrames();
   expect(reloads).toBe(1);
   await page.unmount();
+  dom.window.sessionStorage.removeItem("cmux.guest.chunkReloadAt");
 });
 
 const signedIn = (avatarUrl?: string) => async () =>

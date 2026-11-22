@@ -572,7 +572,6 @@ export function NewTabScreen(props: Props) {
     originalFailures,
     unsettled,
     cancel,
-    retry,
     revive,
     attachError,
     drop,
@@ -653,6 +652,7 @@ export function NewTabScreen(props: Props) {
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  /// retry-prompt-ok: a start's Retry sends the draft to the agent again, a paid model request.
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
@@ -805,6 +805,7 @@ export function NewTabScreen(props: Props) {
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
         // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        // retry-prompt-ok: it sends the draft to the agent again, a paid model request.
         retry: () => continueAfterSetup.current(args[0], args[3]),
       });
     };
@@ -916,7 +917,6 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     cancel,
-    retry,
     revive,
     originalFailures,
     codex: harness === "codex",
@@ -1212,6 +1212,8 @@ export function NewTabScreen(props: Props) {
           setStartError({
             error: errorMessage(error) || t("switch.unknownError"),
             local: true,
+            // retry-prompt-ok: an open moves the person to the chat's workspace; asked again on its own it
+            // would pull them away later, so only their click opens it again.
             retry: () => (setStartError(undefined), openCard(id)),
           });
         });
@@ -1219,6 +1221,7 @@ export function NewTabScreen(props: Props) {
         setStartError({
           error: errorMessage(error) || t("switch.unknownError"),
           local: true,
+          // retry-prompt-ok: an open moves the person to the chat's workspace (as above).
           retry: () => (setStartError(undefined), openCard(id)),
         });
       }
@@ -1237,6 +1240,7 @@ export function NewTabScreen(props: Props) {
       setStartError({
         error: errorMessage(error) || t("switch.unknownError"),
         local: true,
+        // retry-prompt-ok: Compress or Decompress changes the chat; the person chooses to run it again.
         retry: () => {
           setStartError(undefined);
           coldArchiveCard(id, archived);
@@ -1969,6 +1973,7 @@ export function NewTabScreen(props: Props) {
       },
       (error: unknown) => {
         console.warn("agent pane: New Worktree failed", error);
+        // retry-prompt-ok: New Worktree makes a git worktree and branch on disk; the person chooses to again.
         if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
       },
     );
@@ -2346,6 +2351,7 @@ export function NewTabScreen(props: Props) {
           />
         )}
         {browseError && props.onBrowseProject && (
+          // retry-prompt-ok: Browse opens a folder picker the person answers; it is theirs to open again.
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
@@ -2474,7 +2480,7 @@ export function NewTabScreen(props: Props) {
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
-                shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
+                shows them, each with its remove and cancel (the strip below leaves them out). */}
               {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
@@ -2532,7 +2538,6 @@ export function NewTabScreen(props: Props) {
               inline.cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             onExpand={inline.expand}
             originalFailures={originalFailures}
             onReorder={inline.reorder}

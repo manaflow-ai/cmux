@@ -12,6 +12,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { VirtualTranscript } from "../agent-session/acpmux/App";
+import { useAutoRetry } from "../agent-session/acpmux/autoRetry";
+import { useLasting } from "../ui/lasting";
 import { readOnlyRegistry } from "../agent-session/acpmux/rows/registry";
 import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/GuestActionsBoundary";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
@@ -69,6 +71,7 @@ export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, 
   const [identity, setIdentity] = useState<ChiefIdentity>();
   const [failed, setFailed] = useState<"expired" | "offline" | "inaccessible">();
   const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
   const saved = useMemo(() => storage ?? browserStorage(), [storage]);
   const frame = useRef<HTMLDivElement>(null);
 
@@ -91,33 +94,34 @@ export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, 
     };
   }, []);
 
+  // One read of who this is per attempt. A Chief that did not answer is asked again on its own
+  // (`useAutoRetry`: jittered backoff, paused while the page is hidden), so "offline" stays set across
+  // the asks and only a stretch that lasts the deadline says one quiet line, with no Retry (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done").
   useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let retries = 0;
-    setFailed(undefined);
-    const load = () => {
-      void api
-        .me(controller.signal)
-        .then((me) => {
-          if (!controller.signal.aborted) setIdentity(me);
-        })
-        .catch((error) => {
-          if (controller.signal.aborted) return;
-          if (error instanceof ExpiredSession) setFailed("expired");
-          else if (error instanceof ChiefAccessError) setFailed("inaccessible");
-          else {
-            setFailed("offline");
-            timer = setTimeout(load, Math.min(30_000, 1_000 * 2 ** Math.min(retries++, 5)));
-          }
-        });
-    };
-    load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
+    setLoading(true);
+    void api
+      .me(controller.signal)
+      .then((me) => {
+        if (controller.signal.aborted) return;
+        setFailed(undefined);
+        setIdentity(me);
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ExpiredSession) setFailed("expired");
+        else if (error instanceof ChiefAccessError) setFailed("inaccessible");
+        else setFailed("offline");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [api, attempt]);
+  const { stillTrying } = useAutoRetry(failed === "offline", () => setAttempt((value) => value + 1), {
+    busy: loading,
+  });
 
   return (
     <div ref={frame} className="chief-web" data-testid="chief-web">
@@ -145,13 +149,8 @@ export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, 
               </>
             ) : failed === "inaccessible" ? (
               <p role="alert">{t("chiefWeb.notYours")}</p>
-            ) : failed === "offline" ? (
-              <>
-                <p>{t("chiefWeb.unavailable")}</p>
-                <button className="chief-web__action" onClick={() => setAttempt((value) => value + 1)}>
-                  {t("retry.action")}
-                </button>
-              </>
+            ) : failed === "offline" && stillTrying ? (
+              <p>{t("chiefWeb.stillTrying")}</p>
             ) : (
               <Spinner size={20} />
             )}
@@ -227,6 +226,10 @@ function ChiefChat({
     };
   }, [api, identity, prompts, openSocket, transcript]);
 
+  // The wire reconnects on its own (wire.ts `reconnect`); a drop says nothing until it has lasted the
+  // house deadline.
+  const connecting = useLasting(connection === "connecting" || connection === "reconnecting");
+
   const pending = mine.filter(
     (prompt) =>
       !confirmed.has(prompt.clientId) &&
@@ -244,12 +247,7 @@ function ChiefChat({
             </>
           ) : connection === "inaccessible" ? (
             <span role="alert">{t("chiefWeb.notYours")}</span>
-          ) : connection === "offline" ? (
-            <>
-              <span>{t("chiefWeb.offline")}</span>
-              <button onClick={() => wire.current?.retry()}>{t("retry.action")}</button>
-            </>
-          ) : connection !== "live" ? (
+          ) : connection !== "live" && connecting ? (
             <>
               <Spinner size={14} />
               <span>{connection === "connecting" ? t("guest.live.connecting") : t("guest.live.reconnecting")}</span>
@@ -301,6 +299,7 @@ function ChiefChat({
                       ? t("message.sent")
                       : t("chiefWeb.notSent")}
                 </span>
+                {/* retry-prompt-ok: re-sends the person's refused message (a paid Chief turn) */}
                 {prompt.state === "refused" && (
                   <button
                     onClick={() => {

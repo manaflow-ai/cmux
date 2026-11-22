@@ -1585,13 +1585,930 @@
         }
       }
     },
-    "turnShots.before": {"comment":"Agent pane: tag on the picture of the chat's page before a turn changed it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"قبل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prije"}},"da":{"stringUnit":{"state":"needs_review","value":"Før"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorher"}},"en":{"stringUnit":{"state":"translated","value":"Before"}},"es":{"stringUnit":{"state":"needs_review","value":"Antes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Avant"}},"it":{"stringUnit":{"state":"needs_review","value":"Prima"}},"ja":{"stringUnit":{"state":"needs_review","value":"変更前"}},"km":{"stringUnit":{"state":"needs_review","value":"មុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전"}},"nb":{"stringUnit":{"state":"needs_review","value":"Før"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przed"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Antes"}},"ru":{"stringUnit":{"state":"needs_review","value":"До"}},"th":{"stringUnit":{"state":"needs_review","value":"ก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önce"}},"uk":{"stringUnit":{"state":"needs_review","value":"До"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"之前"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"之前"}}}},
-    "turnShots.after": {"comment":"Agent pane: tag on the picture of the chat's page after a turn changed it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"بعد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslije"}},"da":{"stringUnit":{"state":"needs_review","value":"Efter"}},"de":{"stringUnit":{"state":"needs_review","value":"Nachher"}},"en":{"stringUnit":{"state":"translated","value":"After"}},"es":{"stringUnit":{"state":"needs_review","value":"Después"}},"fr":{"stringUnit":{"state":"needs_review","value":"Après"}},"it":{"stringUnit":{"state":"needs_review","value":"Dopo"}},"ja":{"stringUnit":{"state":"needs_review","value":"変更後"}},"km":{"stringUnit":{"state":"needs_review","value":"ក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이후"}},"nb":{"stringUnit":{"state":"needs_review","value":"Etter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Po"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Depois"}},"ru":{"stringUnit":{"state":"needs_review","value":"После"}},"th":{"stringUnit":{"state":"needs_review","value":"หลัง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sonra"}},"uk":{"stringUnit":{"state":"needs_review","value":"Після"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sau"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"之后"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"之後"}}}},
-    "turnShots.drag": {"comment":"Agent pane: accessible name of the split between a turn's before and after pictures","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اسحب للمقارنة بين قبل وبعد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Povucite da uporedite prije i poslije"}},"da":{"stringUnit":{"state":"needs_review","value":"Træk for at sammenligne før og efter"}},"de":{"stringUnit":{"state":"needs_review","value":"Ziehen, um Vorher und Nachher zu vergleichen"}},"en":{"stringUnit":{"state":"translated","value":"Drag to compare before and after"}},"es":{"stringUnit":{"state":"needs_review","value":"Arrastra para comparar antes y después"}},"fr":{"stringUnit":{"state":"needs_review","value":"Faites glisser pour comparer avant et après"}},"it":{"stringUnit":{"state":"needs_review","value":"Trascina per confrontare prima e dopo"}},"ja":{"stringUnit":{"state":"needs_review","value":"ドラッグして変更前と変更後を比較"}},"km":{"stringUnit":{"state":"needs_review","value":"អូសដើម្បីប្រៀបធៀបមុន និងក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"드래그하여 이전과 이후 비교"}},"nb":{"stringUnit":{"state":"needs_review","value":"Dra for å sammenligne før og etter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przeciągnij, aby porównać przed i po"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Arraste para comparar antes e depois"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перетащите, чтобы сравнить до и после"}},"th":{"stringUnit":{"state":"needs_review","value":"ลากเพื่อเปรียบเทียบก่อนและหลัง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önce ve sonrayı karşılaştırmak için sürükleyin"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перетягніть, щоб порівняти до і після"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kéo để so sánh trước và sau"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"拖动以比较之前和之后"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"拖曳以比較之前與之後"}}}},
-    "turnShots.show": {"comment":"Agent pane: accessible name of the Before / After switch of a turn's pictures","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"عرض قبل أو بعد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži prije ili poslije"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis før eller efter"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorher oder Nachher zeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show before or after"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar antes o después"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher avant ou après"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra prima o dopo"}},"ja":{"stringUnit":{"state":"needs_review","value":"変更前または変更後を表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញមុន ឬក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이전 또는 이후 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis før eller etter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż przed lub po"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar antes ou depois"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать до или после"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงก่อนหรือหลัง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önceyi veya sonrayı göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати до або після"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiển thị trước hoặc sau"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示之前或之后"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示之前或之後"}}}},
-    "turnShots.alt.before": {"comment":"Agent pane: alt text of the picture of the chat's page before a turn","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الصفحة قبل هذا الدور"}},"bs":{"stringUnit":{"state":"needs_review","value":"Stranica prije ovog poteza"}},"da":{"stringUnit":{"state":"needs_review","value":"Siden før denne tur"}},"de":{"stringUnit":{"state":"needs_review","value":"Die Seite vor diesem Zug"}},"en":{"stringUnit":{"state":"translated","value":"The page before this turn"}},"es":{"stringUnit":{"state":"needs_review","value":"La página antes de este turno"}},"fr":{"stringUnit":{"state":"needs_review","value":"La page avant ce tour"}},"it":{"stringUnit":{"state":"needs_review","value":"La pagina prima di questo turno"}},"ja":{"stringUnit":{"state":"needs_review","value":"このターンの前のページ"}},"km":{"stringUnit":{"state":"needs_review","value":"ទំព័រមុនវេននេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 턴 이전의 페이지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Siden før denne turen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Strona przed tą turą"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A página antes deste turno"}},"ru":{"stringUnit":{"state":"needs_review","value":"Страница до этого хода"}},"th":{"stringUnit":{"state":"needs_review","value":"หน้าก่อนรอบนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu turdan önceki sayfa"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сторінка до цього ходу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trang trước lượt này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"本轮之前的页面"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"本輪之前的頁面"}}}},
-    "turnShots.alt.after": {"comment":"Agent pane: alt text of the picture of the chat's page after a turn","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الصفحة بعد هذا الدور"}},"bs":{"stringUnit":{"state":"needs_review","value":"Stranica poslije ovog poteza"}},"da":{"stringUnit":{"state":"needs_review","value":"Siden efter denne tur"}},"de":{"stringUnit":{"state":"needs_review","value":"Die Seite nach diesem Zug"}},"en":{"stringUnit":{"state":"translated","value":"The page after this turn"}},"es":{"stringUnit":{"state":"needs_review","value":"La página después de este turno"}},"fr":{"stringUnit":{"state":"needs_review","value":"La page après ce tour"}},"it":{"stringUnit":{"state":"needs_review","value":"La pagina dopo questo turno"}},"ja":{"stringUnit":{"state":"needs_review","value":"このターンの後のページ"}},"km":{"stringUnit":{"state":"needs_review","value":"ទំព័របន្ទាប់ពីវេននេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 턴 이후의 페이지"}},"nb":{"stringUnit":{"state":"needs_review","value":"Siden etter denne turen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Strona po tej turze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A página depois deste turno"}},"ru":{"stringUnit":{"state":"needs_review","value":"Страница после этого хода"}},"th":{"stringUnit":{"state":"needs_review","value":"หน้าหลังรอบนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu turdan sonraki sayfa"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сторінка після цього ходу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trang sau lượt này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"本轮之后的页面"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"本輪之後的頁面"}}}},
-    "turnShots.open": {"comment":"Agent pane: button that opens a turn's after picture full size","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح بالحجم الكامل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori u punoj veličini"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn i fuld størrelse"}},"de":{"stringUnit":{"state":"needs_review","value":"In voller Größe öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open full size"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir a tamaño completo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir en taille réelle"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri a grandezza intera"}},"ja":{"stringUnit":{"state":"needs_review","value":"フルサイズで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកទំហំពេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"전체 크기로 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne i full størrelse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz w pełnym rozmiarze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir em tamanho real"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть в полном размере"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดขนาดเต็ม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tam boyutta aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити в повному розмірі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở kích thước đầy đủ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以完整尺寸打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以完整尺寸開啟"}}}},
+    "turnShots.before": {
+      "comment": "Agent pane: tag on the picture of the chat's page before a turn changed it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Før"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorher"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prima"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更前"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Før"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przed"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "До"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "До"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之前"
+          }
+        }
+      }
+    },
+    "turnShots.after": {
+      "comment": "Agent pane: tag on the picture of the chat's page after a turn changed it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poslije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachher"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Después"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이후"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depois"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "После"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之後"
+          }
+        }
+      }
+    },
+    "turnShots.drag": {
+      "comment": "Agent pane: accessible name of the split between a turn's before and after pictures",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسحب للمقارنة بين قبل وبعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povucite da uporedite prije i poslije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Træk for at sammenligne før og efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ziehen, um Vorher und Nachher zu vergleichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to compare before and after"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrastra para comparar antes y después"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faites glisser pour comparer avant et après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trascina per confrontare prima e dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ドラッグして変更前と変更後を比較"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អូសដើម្បីប្រៀបធៀបមុន និងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "드래그하여 이전과 이후 비교"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dra for å sammenligne før og etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeciągnij, aby porównać przed i po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arraste para comparar antes e depois"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перетащите, чтобы сравнить до и после"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลากเพื่อเปรียบเทียบก่อนและหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce ve sonrayı karşılaştırmak için sürükleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перетягніть, щоб порівняти до і після"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kéo để so sánh trước và sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拖动以比较之前和之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拖曳以比較之前與之後"
+          }
+        }
+      }
+    },
+    "turnShots.show": {
+      "comment": "Agent pane: accessible name of the Before / After switch of a turn's pictures",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض قبل أو بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži prije ili poslije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis før eller efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorher oder Nachher zeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show before or after"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar antes o después"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher avant ou après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra prima o dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更前または変更後を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញមុន ឬក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전 또는 이후 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis før eller etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przed lub po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar antes ou depois"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать до или после"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงก่อนหรือหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önceyi veya sonrayı göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати до або після"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị trước hoặc sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示之前或之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示之前或之後"
+          }
+        }
+      }
+    },
+    "turnShots.alt.before": {
+      "comment": "Agent pane: alt text of the picture of the chat's page before a turn",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الصفحة قبل هذا الدور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica prije ovog poteza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden før denne tur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Seite vor diesem Zug"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page before this turn"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página antes de este turno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page avant ce tour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina prima di questo turno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターンの前のページ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រមុនវេននេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 턴 이전의 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden før denne turen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona przed tą turą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página antes deste turno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страница до этого хода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าก่อนรอบนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu turdan önceki sayfa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінка до цього ходу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang trước lượt này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本轮之前的页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本輪之前的頁面"
+          }
+        }
+      }
+    },
+    "turnShots.alt.after": {
+      "comment": "Agent pane: alt text of the picture of the chat's page after a turn",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الصفحة بعد هذا الدور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica poslije ovog poteza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden efter denne tur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Seite nach diesem Zug"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page after this turn"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página después de este turno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page après ce tour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina dopo questo turno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターンの後のページ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័របន្ទាប់ពីវេននេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 턴 이후의 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden etter denne turen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona po tej turze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página depois deste turno"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страница после этого хода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าหลังรอบนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu turdan sonraki sayfa"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінка після цього ходу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang sau lượt này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本轮之后的页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "本輪之後的頁面"
+          }
+        }
+      }
+    },
+    "turnShots.open": {
+      "comment": "Agent pane: button that opens a turn's after picture full size",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح بالحجم الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori u punoj veličini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn i fuld størrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In voller Größe öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open full size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir a tamaño completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir en taille réelle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri a grandezza intera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フルサイズで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកទំហំពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 크기로 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne i full størrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz w pełnym rozmiarze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir em tamanho real"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть в полном размере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดขนาดเต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam boyutta aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити в повному розмірі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở kích thước đầy đủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以完整尺寸打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "以完整尺寸開啟"
+          }
+        }
+      }
+    },
     "composer.browserPick.kind": {
       "comment": "Agent pane: the caption on a composer chip that holds an element picked in a browser page (shown before the element's tag and the page's host)",
       "extractionState": "manual",
@@ -6076,138 +6993,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法打開系統設定。"
-          }
-        }
-      }
-    },
-    "peerCopy.reconnectFailed": {
-      "comment": "Agent pane: under the offline machine banner when Reconnect failed; the button beside it tries again",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّرت إعادة الاتصال. حاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovno povezivanje nije uspjelo. Pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke genoprette forbindelsen. Prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung konnte nicht wiederhergestellt werden. Versuche es noch einmal."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't reconnect. Try again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo volver a conectar. Inténtalo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de se reconnecter. Réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile riconnettersi. Riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再接続できませんでした。もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចភ្ជាប់ឡើងវិញបានទេ។ សូមព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 연결할 수 없습니다. 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke koble til igjen. Prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się ponownie połączyć. Spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível reconectar. Tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось переподключиться. Попробуйте ещё раз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เชื่อมต่อใหม่ไม่ได้ ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden bağlanılamadı. Tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося перепідключитися. Спробуйте ще раз."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể kết nối lại. Hãy thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法重新连接。请重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法重新連線。請再試一次。"
           }
         }
       }
@@ -34984,6 +35769,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法讀取團隊的支出。"
+          }
+        }
+      }
+    },
+    "teamAudit.stillTrying": {
+      "comment": "Agent pane: History > Team, the quiet line when reading the team's spend has kept failing past the deadline; the page keeps asking on its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تزال المحاولة جارية لقراءة إنفاق الفريق…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još se pokušava pročitati potrošnja tima…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøver stadig at læse holdets forbrug…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Ausgaben des Teams werden weiter abgerufen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to read the team’s spend…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguimos intentando leer el gasto del equipo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvelle tentative de lecture des dépenses de l’équipe…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora in corso il tentativo di leggere la spesa del team…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チームの使用量をまだ読み込もうとしています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែកំពុងព្យាយាមអានការចំណាយរបស់ក្រុម…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀 사용량을 계속 읽어오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøver fortsatt å lese teamets forbruk…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal próbujemy odczytać wydatki zespołu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda tentando ler o gasto da equipe…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё пытаемся прочитать расходы команды…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังคงพยายามอ่านค่าใช้จ่ายของทีม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibin harcaması okunmaya çalışılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі намагаємося прочитати витрати команди…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn đang thử đọc mức chi tiêu của nhóm…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在尝试读取团队的用量…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在嘗試讀取團隊的用量…"
           }
         }
       }
@@ -79844,138 +80761,6 @@
         }
       }
     },
-    "guest.join.hostOffline": {
-      "comment": "Guest page: join failed because the owner's computer is not connected; the guest may try again",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The owner's computer is offline. Try again in a moment."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Computer des Besitzers ist offline. Versuche es gleich noch einmal."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’ordinateur du propriétaire est hors ligne. Réessayez dans un instant."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حاسوب المالك غير متصل. حاول مرة أخرى بعد قليل."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El ordenador del propietario está sin conexión. Inténtalo de nuevo en un momento."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "擁有者的電腦離線中。請稍後再試。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有者的电脑处于离线状态。请稍后再试。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소유자의 컴퓨터가 오프라인입니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オーナーのコンピュータがオフラインです。しばらくしてからもう一度お試しください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vlasnikov računar je van mreže. Pokušaj ponovo za trenutak."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ejerens computer er offline. Prøv igen om et øjeblik."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il computer del proprietario è offline. Riprova tra un momento."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កុំព្យូទ័ររបស់ម្ចាស់មិនមានអ៊ីនធឺណិតទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eierens datamaskin er frakoblet. Prøv igjen om et øyeblikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Komputer właściciela jest offline. Spróbuj ponownie za chwilę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O computador do dono está offline. Tente novamente em instantes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Компьютер владельца не в сети. Повторите попытку чуть позже."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คอมพิวเตอร์ของเจ้าของออฟไลน์อยู่ ลองอีกครั้งในอีกสักครู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sahibinin bilgisayarı çevrimdışı. Birazdan tekrar dene."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Комп’ютер власника не в мережі. Спробуйте ще раз за мить."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy tính của chủ sở hữu đang ngoại tuyến. Hãy thử lại sau giây lát."
-          }
-        }
-      }
-    },
     "guest.join.failed": {
       "comment": "Guest page: join failed for another reason (network); the guest may try again",
       "extractionState": "manual",
@@ -81424,138 +82209,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Đang kết nối lại…"
-          }
-        }
-      }
-    },
-    "guest.live.loadFailed": {
-      "comment": "Guest page: the chat's transcript failed to load (a network error); a Retry button follows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't load the chat. Check your connection."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Chat konnte nicht geladen werden. Prüfe deine Verbindung."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger la discussion. Vérifiez votre connexion."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل الدردشة. تحقّق من اتصالك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cargar el chat. Comprueba tu conexión."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入聊天。請檢查你的網路連線。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法加载聊天。请检查你的网络连接。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "채팅을 불러오지 못했습니다. 연결을 확인하세요."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットを読み込めませんでした。接続を確認してください。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat se nije mogao učitati. Provjerite vezu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chatten kunne ikke indlæses. Tjek din forbindelse."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile caricare la chat. Controlla la connessione."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចផ្ទុកការជជែកបានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke laste inn chatten. Sjekk tilkoblingen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się wczytać czatu. Sprawdź połączenie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível carregar o chat. Verifique sua conexão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось загрузить чат. Проверьте подключение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โหลดแชทไม่ได้ ตรวจสอบการเชื่อมต่อของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbet yüklenemedi. Bağlantınızı kontrol edin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося завантажити чат. Перевірте з’єднання."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể tải cuộc trò chuyện. Hãy kiểm tra kết nối."
           }
         }
       }
@@ -95419,138 +96072,6 @@
         }
       }
     },
-    "machineLink.reconnect": {
-      "comment": "Agent pane: the button beside an offline machine in the composer row that reconnects it",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة الاتصال"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovo poveži"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opret forbindelse igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut verbinden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reconnect"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volver a conectar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se reconnecter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riconnetti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再接続"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្ជាប់ឡើងវិញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 연결"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koble til igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Połącz ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Переподключить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เชื่อมต่อใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden Bağlan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Під'єднати знову"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kết nối lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重新连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重新連線"
-          }
-        }
-      }
-    },
     "peerCopy.offline.title": {
       "comment": "Agent pane: a banner over a chat whose machine is offline; {machine} is a machine name such as huge-blue",
       "extractionState": "manual",
@@ -100507,6 +101028,138 @@
         }
       }
     },
+    "workflow.stillLoadingTranscript": {
+      "comment": "Agent pane: a workflow agent's transcript, the quiet line when reading it has kept failing past the deadline; the pane keeps asking on its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال تحميل سجل الوكيل جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još se učitava transkript agenta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indlæser stadig agentens transskription…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Protokoll des Agenten wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading the agent’s transcript…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seguimos cargando la transcripción del agente…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chargement de la transcription de l’agent en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora in caricamento la trascrizione dell’agente…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのトランスクリプトをまだ読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែកំពុងផ្ទុកកំណត់ត្រារបស់ភ្នាក់ងារ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 기록을 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laster fortsatt agentens transkripsjon…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wczytujemy transkrypcję agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda carregando a transcrição do agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё загружаем журнал агента…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังคงโหลดบันทึกของเอเจนต์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın dökümü hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі завантажуємо журнал агента…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn đang tải bản ghi của tác nhân…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在加载代理的记录…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在載入代理的記錄…"
+          }
+        }
+      }
+    },
     "workflow.cannotResume": {
       "comment": "Agent pane: workflow cannotResume",
       "extractionState": "manual",
@@ -102355,398 +103008,266 @@
         }
       }
     },
-    "composer.retryAttachment": {
-      "comment": "Agent pane: the button on an attachment that could not be attached, to try it again",
+    "composer.stillUploading": {
+      "comment": "Agent pane: the tooltip of an attachment still loading whose upload failed for a while and is being tried again on its own (no button); the next line is the upload's error. {name} is the file",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إعادة المحاولة"
+            "value": "ما زلنا نحاول رفع {name}…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokušaj ponovo"
+            "value": "Još pokušavamo otpremiti {name}…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prøv igen"
+            "value": "Prøver stadig at uploade {name}…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erneut versuchen"
+            "value": "{name} wird weiter hochzuladen versucht…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retry"
+            "value": "Still trying to upload {name}…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reintentar"
+            "value": "Seguimos intentando subir {name}…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Réessayer"
+            "value": "Nouvelle tentative d’envoi de {name} en cours…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Riprova"
+            "value": "Stiamo ancora provando a caricare {name}…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "再試行"
+            "value": "{name} のアップロードを引き続き試しています…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ព្យាយាមម្ដងទៀត"
+            "value": "នៅតែព្យាយាមផ្ទុកឡើង {name}…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "다시 시도"
+            "value": "{name} 업로드를 계속 시도하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prøv igjen"
+            "value": "Prøver fortsatt å laste opp {name}…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ponów"
+            "value": "Nadal próbujemy przesłać {name}…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tentar novamente"
+            "value": "Ainda tentando enviar {name}…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Повторить"
+            "value": "Продолжаем пытаться загрузить {name}…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลองอีกครั้ง"
+            "value": "ยังคงพยายามอัปโหลด {name}…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeniden dene"
+            "value": "{name} yüklenmeye çalışılmaya devam ediliyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Повторити"
+            "value": "Досі намагаємося завантажити {name}…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thử lại"
+            "value": "Vẫn đang thử tải lên {name}…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重试"
+            "value": "仍在尝试上传 {name}…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重試"
+            "value": "仍在嘗試上傳 {name}…"
           }
         }
       }
     },
-    "composer.originalFailed": {
-      "comment": "Agent pane: the tooltip of the Retry badge on a staged image whose full-size original could not be uploaded to the session's machine; the preview still sends. {name} is the image, {reason} the upload's error",
+    "composer.stillUploadingOriginal": {
+      "comment": "Agent pane: the quiet mark on a staged image whose full-size original has failed to upload for a while and is being tried again on its own (no button); the preview still sends. {name} is the image",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The original of {name} was not uploaded: {reason}"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يتم رفع النسخة الأصلية من {name}: {reason}"
+            "value": "ما زلنا نحاول رفع النسخة الأصلية من {name}…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Original za {name} nije otpremljen: {reason}"
+            "value": "Još pokušavamo otpremiti original za {name}…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Originalen af {name} blev ikke uploadet: {reason}"
+            "value": "Prøver stadig at uploade originalen af {name}…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das Original von {name} wurde nicht hochgeladen: {reason}"
+            "value": "Das Original von {name} wird weiter hochzuladen versucht…"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se subió el original de {name}: {reason}"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’original de {name} n’a pas été envoyé : {reason}"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’originale di {name} non è stato caricato: {reason}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} の元の画像はアップロードされませんでした: {reason}"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបភាពដើមនៃ {name} មិនត្រូវបានផ្ទុកឡើងទេ៖ {reason}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name}의 원본이 업로드되지 않았습니다: {reason}"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Originalen av {name} ble ikke lastet opp: {reason}"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oryginał {name} nie został przesłany: {reason}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O original de {name} não foi enviado: {reason}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оригинал {name} не загружен: {reason}"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ได้อัปโหลดต้นฉบับของ {name}: {reason}"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} için orijinal yüklenmedi: {reason}"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оригінал {name} не завантажено: {reason}"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bản gốc của {name} chưa được tải lên: {reason}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} 的原图未上传：{reason}"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} 的原圖未上傳：{reason}"
-          }
-        }
-      }
-    },
-    "composer.retryOriginal": {
-      "comment": "Agent pane: the accessible name of the Retry badge on a staged image whose full-size original could not be uploaded; it uploads the original again",
-      "extractionState": "manual",
-      "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upload the original of {name} again"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "رفع النسخة الأصلية من {name} مرة أخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovo otpremi original za {name}"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Upload originalen af {name} igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Original von {name} erneut hochladen"
+            "value": "Still trying to upload the original of {name}…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Volver a subir el original de {name}"
+            "value": "Seguimos intentando subir el original de {name}…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Renvoyer l’original de {name}"
+            "value": "Nouvelle tentative d’envoi de l’original de {name} en cours…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Carica di nuovo l’originale di {name}"
+            "value": "Stiamo ancora provando a caricare l’originale di {name}…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} の元の画像をもう一度アップロード"
+            "value": "{name} の元の画像のアップロードを引き続き試しています…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទុកឡើងរូបភាពដើមនៃ {name} ម្ដងទៀត"
+            "value": "នៅតែព្យាយាមផ្ទុកឡើងរូបភាពដើមនៃ {name}…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name}의 원본 다시 업로드"
+            "value": "{name} 원본 업로드를 계속 시도하는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Last opp originalen av {name} på nytt"
+            "value": "Prøver fortsatt å laste opp originalen av {name}…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prześlij ponownie oryginał {name}"
+            "value": "Nadal próbujemy przesłać oryginał {name}…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enviar o original de {name} novamente"
+            "value": "Ainda tentando enviar o original de {name}…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Загрузить оригинал {name} ещё раз"
+            "value": "Продолжаем пытаться загрузить оригинал {name}…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อัปโหลดต้นฉบับของ {name} อีกครั้ง"
+            "value": "ยังคงพยายามอัปโหลดต้นฉบับของ {name}…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{name} için orijinali yeniden yükle"
+            "value": "{name} dosyasının orijinali yüklenmeye çalışılmaya devam ediliyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завантажити оригінал {name} ще раз"
+            "value": "Досі намагаємося завантажити оригінал {name}…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tải lại bản gốc của {name}"
+            "value": "Vẫn đang thử tải lên bản gốc của {name}…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重新上传 {name} 的原图"
+            "value": "仍在尝试上传 {name} 的原图…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "重新上傳 {name} 的原圖"
+            "value": "仍在嘗試上傳 {name} 的原圖…"
           }
         }
       }
@@ -123180,134 +123701,134 @@
         }
       }
     },
-    "newTab.chatsLoadFailed": {
-      "comment": "New Tab > Chats when the chat index did not answer; a Try again button follows",
+    "newTab.chatsStillLoading": {
+      "comment": "New Tab > Chats: one quiet line, with no button, when the chat index has not answered for a while; the list keeps asking on its own",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't load your chats."
+            "value": "Still loading your chats…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر تحميل الدردشات."
+            "value": "ما زال تحميل الدردشات جاريًا…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće učitati vaše chatove."
+            "value": "Još se učitavaju vaši chatovi…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dine chats kunne ikke indlæses."
+            "value": "Dine chats indlæses stadig…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Chats konnten nicht geladen werden."
+            "value": "Deine Chats werden noch geladen …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron cargar tus chats."
+            "value": "Seguimos cargando tus chats…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de charger vos discussions."
+            "value": "Chargement de vos discussions en cours…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile caricare le tue chat."
+            "value": "Stiamo ancora caricando le tue chat…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットを読み込めませんでした。"
+            "value": "チャットをまだ読み込んでいます…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចផ្ទុកការជជែករបស់អ្នកបានទេ។"
+            "value": "នៅតែកំពុងផ្ទុកការជជែករបស់អ្នក…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅을 불러올 수 없습니다."
+            "value": "채팅을 아직 불러오는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke laste inn chattene dine."
+            "value": "Laster fortsatt inn chattene dine …"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się wczytać czatów."
+            "value": "Nadal wczytujemy czaty…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível carregar seus chats."
+            "value": "Ainda carregando seus chats…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось загрузить чаты."
+            "value": "Чаты всё ещё загружаются…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่สามารถโหลดแชตของคุณได้"
+            "value": "ยังคงโหลดแชตของคุณอยู่…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetleriniz yüklenemedi."
+            "value": "Sohbetleriniz hâlâ yükleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося завантажити ваші чати."
+            "value": "Ваші чати ще завантажуються…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể tải các cuộc trò chuyện của bạn."
+            "value": "Vẫn đang tải các cuộc trò chuyện của bạn…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法加载你的对话。"
+            "value": "仍在加载你的对话…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法載入你的對話。"
+            "value": "仍在載入你的對話…"
           }
         }
       }
@@ -204966,270 +205487,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法呈現此訊息，已以純文字顯示其內容。"
-          }
-        }
-      }
-    },
-    "pane.renderFailed": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر عرض لوحة الوكيل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Panel agenta se nije mogao prikazati."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentpanelet kunne ikke vises."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Agentenbereich konnte nicht dargestellt werden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The agent pane could not be drawn."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo mostrar el panel del agente."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le panneau de l'agent n'a pas pu être affiché."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile visualizzare il pannello dell'agente."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントペインを表示できませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចបង្ហាញផ្ទាំងភ្នាក់ងារបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 패널을 표시할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentpanelet kunne ikke vises."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się wyświetlić panelu agenta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível exibir o painel do agente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось отобразить панель агента."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่สามารถแสดงแผงเอเจนต์ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan paneli görüntülenemedi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося показати панель агента."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể hiển thị khung tác tử."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法显示代理窗格。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法顯示代理窗格。"
-          }
-        }
-      }
-    },
-    "pane.renderRetry": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut versuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try again"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្យាយាមម្តងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spróbuj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tekrar dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спробувати ще раз"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重試"
           }
         }
       }
@@ -315501,138 +315758,6 @@
         }
       }
     },
-    "sessionInfo.connectors.retry": {
-      "comment": "Agent pane Inspector, Connectors: a failed MCP server's Reconnect button after the reconnect failed; clicking tries again",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أعد المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut versuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try again"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សាកម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spróbuj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tekrar dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спробувати ще раз"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重試"
-          }
-        }
-      }
-    },
     "sessionInfo.context.used": {
       "comment": "Agent pane Inspector, Context (open): the row with the tokens used of the context window",
       "extractionState": "manual",
@@ -329895,128 +330020,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر فتح طرفية هذا العامل. حاول مرة أخرى."
+            "state": "translated",
+            "value": "تعذّر فتح طرفية هذا العامل."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminal ovog radnika nije moguće otvoriti. Pokušajte ponovo."
+            "state": "translated",
+            "value": "Terminal ovog radnika nije moguće otvoriti."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke åbne denne arbejders terminal. Prøv igen."
+            "state": "translated",
+            "value": "Kunne ikke åbne denne arbejders terminal."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Das Terminal dieses Workers konnte nicht geöffnet werden. Versuche es erneut."
+            "state": "translated",
+            "value": "Das Terminal dieses Workers konnte nicht geöffnet werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't open this worker's terminal. Try again."
+            "value": "Couldn't open this worker's terminal."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo abrir la terminal de este worker. Inténtalo de nuevo."
+            "state": "translated",
+            "value": "No se pudo abrir la terminal de este worker."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible d’ouvrir le terminal de ce worker. Réessayez."
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal de ce worker."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile aprire il terminale di questo worker. Riprova."
+            "state": "translated",
+            "value": "Impossibile aprire il terminale di questo worker."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "このワーカーのターミナルを開けませんでした。もう一度お試しください。"
+            "state": "translated",
+            "value": "このワーカーのターミナルを開けませんでした。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចបើក terminal របស់ worker នេះបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+            "state": "translated",
+            "value": "មិនអាចបើក terminal របស់ worker នេះបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 워커의 터미널을 열 수 없습니다. 다시 시도하세요."
+            "state": "translated",
+            "value": "이 워커의 터미널을 열 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke åpne terminalen til denne arbeideren. Prøv igjen."
+            "state": "translated",
+            "value": "Kunne ikke åpne terminalen til denne arbeideren."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się otworzyć terminala tego workera. Spróbuj ponownie."
+            "state": "translated",
+            "value": "Nie udało się otworzyć terminala tego workera."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível abrir o terminal deste worker. Tente novamente."
+            "state": "translated",
+            "value": "Não foi possível abrir o terminal deste worker."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось открыть терминал этого воркера. Попробуйте ещё раз."
+            "state": "translated",
+            "value": "Не удалось открыть терминал этого воркера."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ไม่ได้ ลองอีกครั้ง"
+            "state": "translated",
+            "value": "เปิดเทอร์มินัลของเวิร์กเกอร์นี้ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu çalışanın terminali açılamadı. Yeniden deneyin."
+            "state": "translated",
+            "value": "Bu çalışanın terminali açılamadı."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося відкрити термінал цього воркера. Спробуйте ще раз."
+            "state": "translated",
+            "value": "Не вдалося відкрити термінал цього воркера."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể mở terminal của worker này. Hãy thử lại."
+            "state": "translated",
+            "value": "Không thể mở terminal của worker này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "无法打开此工作器的终端。请重试。"
+            "state": "translated",
+            "value": "无法打开此工作器的终端。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "無法開啟此工作器的終端機。請重試。"
+            "state": "translated",
+            "value": "無法開啟此工作器的終端機。"
           }
         }
       }
@@ -340121,138 +340246,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "上次上線：{time}。連線後聊天會在這裡開啟。"
-          }
-        }
-      }
-    },
-    "unavailable.reconnect": {
-      "comment": "Agent pane: button on an offline chat; checks the machine and the chat again",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة الاتصال"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovo poveži"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opret forbindelse igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut verbinden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reconnect"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volver a conectar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se reconnecter"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riconnetti"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再接続"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្ជាប់ឡើងវិញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 연결"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koble til igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Połącz ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Переподключить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เชื่อมต่อใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden Bağlan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Під'єднати знову"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kết nối lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重新连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重新連線"
           }
         }
       }
@@ -352905,10 +352898,534 @@
         }
       }
     },
-    "computerUse.preview.runningLabelNoApp":{"comment":"Agent pane: accessibility label of the live preview card while the agent uses an app whose name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة مباشرة للتطبيق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"Live forhåndsvisning af app"}},"de":{"stringUnit":{"state":"needs_review","value":"Live-Vorschau der App"}},"en":{"stringUnit":{"state":"translated","value":"Live app preview"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app en directo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app dal vivo"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのライブプレビュー"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុនផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"실시간 앱 미리보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Direkte forhåndsvisning av app"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения в реальном времени"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอปสด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Canlı uygulama önizlemesi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку наживо"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"实时应用预览"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"即時 App 預覽"}}}},
-    "computerUse.preview.doneLabelNoApp":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة التطبيق، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning af app, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"App-Vorschau, fertig"}},"en":{"stringUnit":{"state":"translated","value":"App preview, done"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app, completato"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのプレビュー、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុន រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"앱 미리보기, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning av app, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอป เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygulama önizlemesi, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"应用预览，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"App 預覽，已完成"}}}},
-    "computerUse.preview.runningLabel":{"comment":"Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، مباشر"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, live"}},"en":{"stringUnit":{"state":"translated","value":"{app}, live"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, en directo"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, dal vivo"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、ライブ"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} ផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 실시간"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, direkte"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, в реальном времени"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} สด"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, canlı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, наживо"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，实时"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，即時"}}}},
-    "computerUse.preview.doneLabel":{"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، انتهى"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, završeno"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, færdig"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, fertig"}},"en":{"stringUnit":{"state":"translated","value":"{app}, done"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, terminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, terminé"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, completato"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、完了"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} រួចរាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 완료"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, ferdig"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, gotowe"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, concluído"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} เสร็จแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, bitti"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, готово"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, đã xong"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，已完成"}}}},
+    "computerUse.preview.runningLabelNoApp": {
+      "comment": "Agent pane: accessibility label of the live preview card while the agent uses an app whose name is not known (computerUse/ComputerUsePreviewCard.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينة مباشرة للتطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled aplikacije uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live forhåndsvisning af app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Vorschau der App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live app preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa de la app en directo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu de l'app en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima dell'app dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのライブプレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលកម្មវិធីជាមុនផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실시간 앱 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte forhåndsvisning av app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd aplikacji na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prévia do app ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Просмотр приложения в реальном времени"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างแอปสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı uygulama önizlemesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перегляд застосунку наживо"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước ứng dụng trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实时应用预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "即時 App 預覽"
+          }
+        }
+      }
+    },
+    "computerUse.preview.doneLabelNoApp": {
+      "comment": "Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينة التطبيق، انتهى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled aplikacije, završeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisning af app, færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App-Vorschau, fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App preview, done"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa de la app, terminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu de l'app, terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima dell'app, completato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのプレビュー、完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលកម្មវិធីជាមុន រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱 미리보기, 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forhåndsvisning av app, ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd aplikacji, gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prévia do app, concluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Просмотр приложения, готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างแอป เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uygulama önizlemesi, bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перегляд застосунку, готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước ứng dụng, đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "应用预览，已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App 預覽，已完成"
+          }
+        }
+      }
+    },
+    "computerUse.preview.runningLabel": {
+      "comment": "Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}، مباشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, uživo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, live"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, live"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{app}, live"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, en directo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, dal vivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{app}、ライブ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} ផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, 실시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, direkte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, в реальном времени"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} สด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, canlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, наживо"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}，实时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}，即時"
+          }
+        }
+      }
+    },
+    "computerUse.preview.doneLabel": {
+      "comment": "Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}، انتهى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, završeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{app}, done"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, terminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, completato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{app}、完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, concluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}, đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}，已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}，已完成"
+          }
+        }
+      }
+    },
     "computerUse.preview.close": {
       "comment": "Agent pane: accessibility label of the live preview card's close button, which hides the card for that session (computerUse/ComputerUsePreviewCard.tsx)",
       "extractionState": "manual",
@@ -356337,270 +356854,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Dùng Lâu dài"
-          }
-        }
-      }
-    },
-    "sandbox.checkAgain": {
-      "comment": "Chat: button that asks the app again for a sandboxed run whose answer was lost",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check again"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut prüfen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vérifier à nouveau"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تحقّق مجددًا"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comprobar de nuevo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次檢查"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再次检查"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 확인"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "もう一度確認"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Provjeri ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tjek igen"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Controlla di nuovo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពិនិត្យម្ដងទៀត"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sjekk igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sprawdź ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verificar de novo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проверить снова"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตรวจสอบอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tekrar denetle"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перевірити знову"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểm tra lại"
-          }
-        }
-      }
-    },
-    "sandbox.unchecked": {
-      "comment": "Chat: notice that the app didn't answer whether this tab has a sandboxed run",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't check this tab for a sandboxed run."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieser Tab konnte nicht auf einen Sandbox-Lauf geprüft werden."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de vérifier si cet onglet a une exécution isolée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر التحقق من وجود تشغيل معزول في علامة التبويب هذه."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo comprobar si esta pestaña tiene una ejecución aislada."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法檢查此分頁是否有沙箱執行。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法检查此标签页是否有沙箱运行。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 탭에 샌드박스 실행이 있는지 확인하지 못했습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このタブにサンドボックス実行があるか確認できませんでした。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije bilo moguće provjeriti ima li ova kartica izolovano pokretanje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke tjekke, om denne fane har en sandkassekørsel."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile verificare se questa scheda ha un'esecuzione in sandbox."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចពិនិត្យថាផ្ទាំងនេះមានដំណើរការក្នុងប្រអប់ខ្សាច់ឬទេ។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke sjekke om denne fanen har en sandkassekjøring."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się sprawdzić, czy ta karta ma uruchomienie w piaskownicy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível verificar se esta aba tem uma execução isolada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось проверить, есть ли в этой вкладке запуск в песочнице."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตรวจสอบไม่ได้ว่าแท็บนี้มีการเรียกใช้แบบแซนด์บ็อกซ์หรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu sekmede korumalı çalıştırma olup olmadığı denetlenemedi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося перевірити, чи є в цій вкладці запуск у пісочниці."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể kiểm tra thẻ này có lần chạy hộp cát hay không."
           }
         }
       }
@@ -394596,134 +394849,134 @@
         }
       }
     },
-    "cloudRepository.noLink": {
-      "comment": "Agent pane: Cloud repository picker and recovery",
+    "cloudRepository.stillLinking": {
+      "comment": "Agent pane: Cloud repository recovery, the quiet line when getting a GitHub connect link has kept failing past the deadline; the card keeps asking on its own",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر الحصول على رابط ربط GitHub"
+            "value": "لا تزال المحاولة جارية للحصول على رابط GitHub…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije moguće dobiti vezu za povezivanje GitHuba"
+            "value": "Još se pokušava dohvatiti GitHub veza…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke hente et link til at forbinde GitHub"
+            "value": "Prøver stadig at hente et GitHub-link…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Link zum Verbinden von GitHub erhalten"
+            "value": "GitHub-Link wird weiter abgerufen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t get a GitHub connect link"
+            "value": "Still trying to get a GitHub link…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se pudo obtener un enlace para conectar GitHub"
+            "value": "Seguimos intentando obtener un enlace de GitHub…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossible d’obtenir un lien de connexion GitHub"
+            "value": "Nouvelle tentative de récupération d’un lien GitHub…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossibile ottenere un link per collegare GitHub"
+            "value": "Ancora in corso il tentativo di recuperare un link GitHub…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "GitHub 接続リンクを取得できませんでした"
+            "value": "GitHub のリンクをまだ取得しようとしています…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចយកតំណភ្ជាប់ GitHub បានទេ"
+            "value": "នៅតែកំពុងព្យាយាមយកតំណ GitHub…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "GitHub 연결 링크를 가져오지 못했습니다"
+            "value": "GitHub 링크를 계속 가져오는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fikk ikke en lenke for å koble til GitHub"
+            "value": "Prøver fortsatt å hente en GitHub-lenke…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie udało się pobrać linku do połączenia GitHub"
+            "value": "Nadal próbujemy pobrać link GitHub…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível obter um link para conectar o GitHub"
+            "value": "Ainda tentando obter um link do GitHub…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось получить ссылку для подключения GitHub"
+            "value": "Всё ещё пытаемся получить ссылку GitHub…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่สามารถรับลิงก์เชื่อมต่อ GitHub ได้"
+            "value": "ยังคงพยายามขอลิงก์ GitHub…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "GitHub bağlantı linki alınamadı"
+            "value": "GitHub bağlantısı alınmaya çalışılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося отримати посилання для підключення GitHub"
+            "value": "Досі намагаємося отримати посилання GitHub…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không lấy được liên kết kết nối GitHub"
+            "value": "Vẫn đang thử lấy liên kết GitHub…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "无法获取 GitHub 连接链接"
+            "value": "仍在尝试获取 GitHub 链接…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "無法取得 GitHub 連接連結"
+            "value": "仍在嘗試取得 GitHub 連結…"
           }
         }
       }
@@ -395120,270 +395373,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再次開啟 GitHub"
-          }
-        }
-      }
-    },
-    "cloudRepository.notConnectedYet": {
-      "comment": "Agent pane: Cloud repository picker and recovery",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يُربط GitHub بعد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub još nije povezan"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub er ikke forbundet endnu"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub ist noch nicht verbunden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GitHub isn’t connected yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub aún no está conectado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub n’est pas encore connecté"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub non è ancora collegato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub はまだ接続されていません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub មិនទាន់បានភ្ជាប់ទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub가 아직 연결되지 않았습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub er ikke koblet til ennå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub nie jest jeszcze połączony"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O GitHub ainda não está conectado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub ещё не подключён"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังไม่ได้เชื่อมต่อ GitHub"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub henüz bağlı değil"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub ще не підключено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub chưa được kết nối"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub 尚未连接"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "GitHub 尚未連接"
-          }
-        }
-      }
-    },
-    "cloudRepository.checkAgain": {
-      "comment": "Agent pane: Cloud repository picker and recovery",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تحقّق مرة أخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Provjeri ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tjek igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut prüfen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check again"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Comprobar de nuevo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vérifier à nouveau"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Controlla di nuovo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "もう一度確認"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពិនិត្យម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 확인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sjekk igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sprawdź ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verificar de novo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Проверить снова"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ตรวจสอบอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden kontrol et"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перевірити знову"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kiểm tra lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再次检查"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再次檢查"
           }
         }
       }
@@ -410340,266 +410329,266 @@
         }
       }
     },
-    "chiefWeb.offline": {
-      "comment": "Chief web: connection is unavailable",
+    "chiefWeb.stillTrying": {
+      "comment": "Chief web: the first read of the account's Chief kept failing past the deadline; the page asks again on its own (no button)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offline"
+            "value": "Still trying to reach Chief…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht verbunden"
+            "value": "Chief wird weiterhin zu erreichen versucht…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hors ligne"
+            "value": "Tentative de joindre Chief toujours en cours…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غير متصل"
+            "value": "لا نزال نحاول الوصول إلى Chief…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin conexión"
+            "value": "Seguimos intentando conectar con Chief…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "離線"
+            "value": "仍在嘗試連線到 Chief…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "离线"
+            "value": "仍在尝试连接 Chief…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오프라인"
+            "value": "Chief에 계속 연결을 시도하는 중…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフライン"
+            "value": "Chiefへの接続をまだ試みています…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Van mreže"
+            "value": "Još pokušavamo doći do Chiefa…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke på nettet"
+            "value": "Prøver stadig at nå Chief…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non in linea"
+            "value": "Stiamo ancora cercando di raggiungere Chief…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ក្រៅបណ្ដាញ"
+            "value": "នៅតែកំពុងព្យាយាមភ្ជាប់ទៅ Chief…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frakoblet"
+            "value": "Prøver fortsatt å nå Chief…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brak połączenia"
+            "value": "Nadal próbujemy połączyć się z Chiefem…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sem conexão"
+            "value": "Ainda tentando falar com o Chief…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не в сети"
+            "value": "Всё ещё пытаемся связаться с Chief…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ออฟไลน์"
+            "value": "ยังคงพยายามเชื่อมต่อกับ Chief…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çevrimdışı"
+            "value": "Chief’e ulaşmaya hâlâ çalışılıyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не в мережі"
+            "value": "Досі намагаємося зв’язатися з Chief…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ngoại tuyến"
+            "value": "Vẫn đang thử kết nối với Chief…"
           }
         }
       }
     },
-    "chiefWeb.unavailable": {
-      "comment": "Chief web: the service is temporarily unavailable",
+    "chiefWeb.signIn.stillChecking": {
+      "comment": "Chief web: a machine sign-in card whose status read kept failing past the deadline; it reads again on its own (no button)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief is unavailable"
+            "value": "Still checking this sign-in…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief ist nicht verfügbar"
+            "value": "Diese Anmeldung wird noch geprüft…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief est indisponible"
+            "value": "Vérification de cette connexion toujours en cours…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief غير متاح"
+            "value": "لا يزال التحقق من تسجيل الدخول هذا جاريًا…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief no está disponible"
+            "value": "Todavía comprobando este inicio de sesión…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 無法使用"
+            "value": "仍在檢查這次登入…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 暂时不可用"
+            "value": "仍在检查此次登录…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief를 사용할 수 없습니다"
+            "value": "이 로그인을 아직 확인하는 중…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefを利用できません"
+            "value": "このサインインをまだ確認しています…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief nije dostupan"
+            "value": "Još provjeravamo ovu prijavu…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief er ikke tilgængelig"
+            "value": "Tjekker stadig dette login…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief non è disponibile"
+            "value": "Verifica di questo accesso ancora in corso…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចប្រើ Chief បានទេ"
+            "value": "នៅតែកំពុងពិនិត្យការចូលនេះ…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief er utilgjengelig"
+            "value": "Sjekker fortsatt denne påloggingen…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief jest niedostępny"
+            "value": "Nadal sprawdzam to logowanie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief está indisponível"
+            "value": "Ainda verificando este login…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief недоступен"
+            "value": "Всё ещё проверяем этот вход…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief ไม่พร้อมใช้งาน"
+            "value": "ยังคงตรวจสอบการลงชื่อเข้าใช้นี้…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief kullanılamıyor"
+            "value": "Bu oturum açma hâlâ denetleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief недоступний"
+            "value": "Ще перевіряємо цей вхід…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief hiện không khả dụng"
+            "value": "Vẫn đang kiểm tra lần đăng nhập này…"
           }
         }
       }
@@ -412052,138 +412041,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Opening…"
-          }
-        }
-      }
-    },
-    "cloudPreview.retry": {
-      "comment": "Agent pane: button that retries opening a Cloud app preview after an error",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retry"
           }
         }
       }
@@ -452911,6 +452768,1458 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "描述什麼狀態代表已完成"
+          }
+        }
+      }
+    },
+    "project.stillLoading": {
+      "comment": "Add project: the quiet line while a folder list that keeps failing is read again on its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل هذا المجلد جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fascikla se još učitava…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig denne mappe…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading this folder…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía cargando esta carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de ce dossier toujours en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento della cartella ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダをまだ読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងផ្ទុកថតនេះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 이 폴더를 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt inn denne mappen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal wczytywanie tego folderu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando esta pasta…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка всё ещё загружается…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดโฟลเดอร์นี้อยู่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasör hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка ще завантажується…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải thư mục này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载此文件夹…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入此資料夾…"
+          }
+        }
+      }
+    },
+    "composer.githubStillLoading": {
+      "comment": "Folder menu: the quiet GitHub row while a repositories list that keeps failing is read again on its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل مستودعات GitHub جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub repozitoriji se još učitavaju…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig dine GitHub-repositorier…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine GitHub-Repositorys werden noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading your GitHub repositories…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía cargando tus repositorios de GitHub…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de vos dépôts GitHub toujours en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento dei repository GitHub ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub リポジトリをまだ読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងផ្ទុកឃ្លាំង GitHub របស់អ្នក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 GitHub 저장소를 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt inn GitHub-repositoriene dine…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal wczytywanie repozytoriów GitHub…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando seus repositórios do GitHub…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозитории GitHub всё ещё загружаются…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดรีโพซิทอรี GitHub ของคุณอยู่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub depoların hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозиторії GitHub ще завантажуються…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải các kho GitHub của bạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载你的 GitHub 仓库…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入你的 GitHub 儲存庫…"
+          }
+        }
+      }
+    },
+    "sandbox.stillChecking": {
+      "comment": "Chat: the quiet line while the tab's sandboxed run is read again on its own after reads kept failing",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال التحقق من وجود تشغيل معزول في علامة التبويب هذه جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još se provjerava ima li ova kartica pokretanje u sandboxu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjekker stadig denne fane for en sandboxkørsel…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab wird noch auf einen Sandbox-Lauf geprüft…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still checking this tab for a sandboxed run…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía comprobando si esta pestaña tiene una ejecución aislada…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification toujours en cours d’une exécution isolée dans cet onglet…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora in verifica di un’esecuzione in sandbox in questa scheda…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブのサンドボックス実行をまだ確認しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងពិនិត្យផ្ទាំងនេះរកការដំណើរការក្នុង sandbox…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 이 탭의 샌드박스 실행을 확인하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekker fortsatt denne fanen for en sandkassekjøring…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal sprawdzanie, czy ta karta ma uruchomienie w piaskownicy…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda verificando se esta aba tem uma execução isolada…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё проверяем, есть ли у этой вкладки запуск в песочнице…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงตรวจสอบการรันในแซนด์บ็อกซ์ของแท็บนี้อยู่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekmede korumalı alan çalıştırması hâlâ denetleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ще перевіряємо, чи має ця вкладка запуск у пісочниці…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang kiểm tra lượt chạy sandbox của thẻ này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在检查此标签页的沙盒运行…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在檢查此分頁的沙箱執行…"
+          }
+        }
+      }
+    },
+    "git.statusStillReading": {
+      "comment": "Changes view: the quiet line while a branch status read that keeps failing is read again on its own",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال قراءة الفرع جارية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grana se još čita…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læser stadig grenen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch wird noch gelesen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still reading the branch…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía leyendo la rama…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture de la branche toujours en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura del branch ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチをまだ読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងអានមែកធាង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 브랜치를 읽는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leser fortsatt grenen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal odczytywanie gałęzi…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda lendo o branch…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ветка всё ещё читается…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงอ่านสาขาอยู่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dal hâlâ okunuyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гілка ще читається…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang đọc nhánh…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在读取分支…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在讀取分支…"
+          }
+        }
+      }
+    },
+    "switch.stillTrying": {
+      "comment": "Agent pane: the one quiet line while the pane keeps starting the chosen agent on its own after its service did not answer; {agent} is the agent's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال محاولة تشغيل {agent} جارية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još pokušavam pokrenuti {agent}…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver stadig at starte {agent}…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} wird weiterhin gestartet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to start {agent}…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos intentando iniciar {agent}…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours en train de démarrer {agent}…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sto ancora provando ad avviare {agent}…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} の起動を引き続き試しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងព្យាយាមចាប់ផ្ដើម {agent} នៅឡើយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}을(를) 계속 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver fortsatt å starte {agent} …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal próbuję uruchomić {agent}…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda tentando iniciar {agent}…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё пытаемся запустить {agent}…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงพยายามเริ่ม {agent}…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} başlatılmaya devam ediliyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі намагаємося запустити {agent}…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang thử khởi động {agent}…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在尝试启动 {agent}…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在嘗試啟動 {agent}…"
+          }
+        }
+      }
+    },
+    "pane.stillLoading": {
+      "comment": "Agent pane: the one quiet line while the pane reloads itself on its own after it failed to draw, once that has lasted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل لوحة الوكيل جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel agenta se još učitava…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig agentpanelet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenbereich wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading the agent pane…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía cargando el panel del agente…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement du panneau de l’agent en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento del pannello dell’agente in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントパネルを読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ទុកផ្ទាំងភ្នាក់ងារនៅឡើយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널을 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt agentpanelet …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal wczytuję panel agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando o painel do agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель агента всё ещё загружается…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดแผงเอเจนต์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan paneli hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель агента ще завантажується…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải khung tác nhân…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载代理面板…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入代理面板…"
+          }
+        }
+      }
+    },
+    "guest.join.stillTrying": {
+      "comment": "Guest page: the one quiet line while joining a shared chat is tried again on its own (the owner's computer did not answer), once that has lasted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال محاولة الانضمام جارية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još pokušavam pristupiti…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver stadig at deltage…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beitritt wird weiter versucht…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to join…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos intentando unirte…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours en train de rejoindre…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sto ancora provando a partecipare…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参加を引き続き試しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងព្យាយាមចូលរួមនៅឡើយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속 참여를 시도하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver fortsatt å bli med …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal próbuję dołączyć…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda tentando entrar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё пытаемся подключиться…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงพยายามเข้าร่วม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Katılmaya çalışılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі намагаємося приєднатися…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang thử tham gia…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在尝试加入…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在嘗試加入…"
+          }
+        }
+      }
+    },
+    "guest.live.stillLoading": {
+      "comment": "Guest page: the one quiet line while the shared chat's code is loaded again on its own, once that has lasted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل الدردشة جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor se još učitava…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig chatten…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading the chat…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía cargando el chat…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de la conversation en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento della chat in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងផ្ទុកការជជែកនៅឡើយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt chatten …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal wczytuję czat…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando o chat…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат всё ещё загружается…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดแชท…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат ще завантажується…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải cuộc trò chuyện…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载聊天…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入聊天…"
+          }
+        }
+      }
+    },
+    "share.stillReading": {
+      "comment": "Agent pane: the Share dialog's one quiet status line while the chat's shares are read again on its own after a failed read, once that has lasted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال قراءة من لديه حق الوصول جارية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još čitam ko ima pristup…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læser stadig, hvem der har adgang…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriffsliste wird noch gelesen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still reading who has access…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía leyendo quién tiene acceso…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture des accès en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sto ancora leggendo chi ha accesso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスできるユーザーを読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងអានអ្នកដែលមានសិទ្ធិចូលប្រើនៅឡើយ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "액세스 권한이 있는 사람을 계속 읽는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leser fortsatt hvem som har tilgang …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal odczytuję, kto ma dostęp…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda lendo quem tem acesso…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё читаем, у кого есть доступ…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงอ่านว่าใครมีสิทธิ์เข้าถึง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişimi olanlar hâlâ okunuyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі читаємо, хто має доступ…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang đọc ai có quyền truy cập…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在读取谁有访问权限…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在讀取誰有存取權限…"
+          }
+        }
+      }
+    },
+    "imessage.stillTrying": {
+      "comment": "Session Info Connect iMessage connector: reading Messages' status or threads kept failing past the deadline; it is read again on its own (no button)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to reach iMessage…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage wird weiterhin zu erreichen versucht…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentative de joindre iMessage toujours en cours…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا نزال نحاول الوصول إلى iMessage…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos intentando conectar con iMessage…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在嘗試連線到 iMessage…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在尝试连接 iMessage…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage에 계속 연결을 시도하는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessageへの接続をまだ試みています…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još pokušavamo doći do iMessagea…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver stadig at nå iMessage…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stiamo ancora cercando di raggiungere iMessage…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងព្យាយាមភ្ជាប់ទៅ iMessage…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver fortsatt å nå iMessage…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadal próbujemy połączyć się z iMessage…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda tentando falar com o iMessage…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё пытаемся связаться с iMessage…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงพยายามเชื่อมต่อกับ iMessage…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage’a ulaşmaya hâlâ çalışılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі намагаємося зв’язатися з iMessage…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang thử kết nối với iMessage…"
+          }
+        }
+      }
+    },
+    "permission.stillReading": {
+      "comment": "Agent pane permission card: reading the chat's permission requests kept failing past the deadline; it is read again on its own (no button)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to read this chat's permission requests…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Berechtigungsanfragen dieses Chats werden weiterhin gelesen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture des demandes d’autorisation de ce chat toujours en cours…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال محاولة قراءة طلبات الأذونات في هذه الدردشة جارية…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos intentando leer las solicitudes de permiso de este chat…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在嘗試讀取此聊天的權限請求…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在尝试读取此聊天的权限请求…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 권한 요청을 계속 읽는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットの許可リクエストをまだ読み込んでいます…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još pokušavamo pročitati zahtjeve za dozvole ovog chata…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver stadig at læse denne chats tilladelsesanmodninger…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora in lettura delle richieste di autorizzazione di questa chat…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងព្យាយាមអានសំណើសិទ្ធិរបស់ការជជែកនេះនៅឡើយ…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver fortsatt å lese denne chattens tillatelsesforespørsler…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż próbujemy odczytać prośby o uprawnienia z tego czatu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda tentando ler os pedidos de permissão desta conversa…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё пытаемся прочитать запросы разрешений этого чата…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงพยายามอ่านคำขอสิทธิ์ของแชทนี้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin izin istekleri hâlâ okunmaya çalışılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі намагаємося прочитати запити на дозволи цього чату…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang cố đọc các yêu cầu quyền của cuộc trò chuyện này…"
           }
         }
       }

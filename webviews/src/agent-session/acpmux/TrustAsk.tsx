@@ -75,6 +75,7 @@ export function TrustAsk({
             {answers && onContinueWithoutFolder && (
               <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
             )}
+            {/* retry-prompt-ok: "Try again" is the person's own answer (Continue without folder) saved again. */}
             {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
           <span className="acpmux-trust-ask-actions">
@@ -152,6 +153,7 @@ export function TrustAsk({
       ) : owned ? (
         <>
           <span className="acpmux-trust-ask-text">
+            {/* retry-prompt-ok: "Try again" is the person's trust answer, a security choice, saved again. */}
             {ask.state === "failed" ? t("trust.failed") : t("trust.askPrivate", { agent })}
           </span>
           {failedReason && (
@@ -174,6 +176,7 @@ export function TrustAsk({
         <>
           <span className="acpmux-trust-ask-body">
             <span className="acpmux-trust-ask-text">
+              {/* retry-prompt-ok: "Try again" is the person's trust answer, a security choice, saved again. */}
               {ask.state === "failed"
                 ? t("trust.failed")
                 : offersRepo && repo

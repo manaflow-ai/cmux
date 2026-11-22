@@ -23,7 +23,9 @@ export type ComposeOutcome =
   /** Refused for another reason, shown as is ("" reads as the generic failure). */
   | { kind: "refused"; reason: string };
 
-/** What a sheet says after a start or an invite; null when it closes. */
+/** What a sheet says after a start or an invite; null when it closes.
+ * retry-prompt-ok: its "Try again" lines follow a start, an invite or a send the person chose; doing it
+ * again is theirs to decide (a second invite email, a new conversation). */
 export function composeMessage(outcome: ComposeOutcome, strings: Strings): string | null {
   const { t, format } = strings;
   switch (outcome.kind) {
@@ -129,6 +131,7 @@ export function teamInviteOutcome(result: TeamInviteResult, email: string, strin
     case "alreadyMember":
       return { kind: "refused", reason: strings.format("home.teamInvite.alreadyMember", email) };
     case "sendFailed":
+      // retry-prompt-ok: sending the invite email again is the person's call.
       return { kind: "refused", reason: strings.format("home.teamInvite.sendFailed", email) };
     case "notAllowed":
       return { kind: "refused", reason: strings.t("home.teamInvite.notAllowed") };
@@ -258,6 +261,7 @@ export function groupMessage(outcome: GroupOutcome, strings: Strings): string | 
     case "offline":
       return t("home.outcome.offline");
     case "refused":
+      // retry-prompt-ok: a group change the person made; making it again is theirs to decide.
       return t("home.outcome.failed");
     default:
       return t(`home.group.outcome.${outcome.kind}`);

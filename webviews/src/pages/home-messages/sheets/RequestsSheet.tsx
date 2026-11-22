@@ -30,6 +30,7 @@ export function RequestsSheet({ strings, requests, actions, onFinish }: Requests
     sheet.setStatus(null);
     void actions.answer(conversation, answer).then((done) => {
       sheet.setRunning(false);
+      // retry-prompt-ok: accepting or declining a request again is the person's choice.
       if (!done) return sheet.setStatus(t("home.outcome.failed"));
       if (answer === "accept") sheet.finish(conversation);
       else setAnswered((before) => new Set([...before, conversation]));

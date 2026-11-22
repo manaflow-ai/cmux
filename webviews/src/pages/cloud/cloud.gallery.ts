@@ -250,7 +250,7 @@ export default cloudPageEntry({
       snapshots,
     },
     "creating-snapshots-failed": {
-      note: "The create sheet when the snapshot list fails: Base image stays, with Retry.",
+      note: "The create sheet when the snapshot list stays down: Base image stays; the sheet reads the list again on its own and, once that lasts, says so in one quiet line with no button.",
       action: "create",
       snapshotsFail: true,
       machines,
@@ -358,7 +358,7 @@ export default cloudPageEntry({
       snapshots: [],
     },
     error: {
-      note: "The Cloud owner returns a network error during startup.",
+      note: "The Cloud owner keeps answering an error at startup: the page reads again on its own and, once that lasts, shows one quiet line with no button.",
       mode: "error",
       error: { code: "cmux.cloud.upstream_error", message: "The Cloud service did not answer." },
       machines,

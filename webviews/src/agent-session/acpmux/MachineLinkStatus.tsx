@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLinkDownSaid } from "./afterDelay";
+import { useAutoRetry } from "./autoRetry";
 import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import type { PeerLink } from "./peerLink";
@@ -29,7 +30,10 @@ export function linkWords(link: PeerLink, t: Translate): string {
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
 /// but now it's remote"). Connected is the dot alone; connecting or reconnecting turns the dot into
 /// a spinner in the dot's own box and names the machine and its state; down names them in the
-/// danger ink with Reconnect. A chat on this Mac draws nothing (`link` null).
+/// danger ink, while the row asks acpmux to redial it on its own (`onReconnect`, on the shared
+/// backoff, autoRetry.ts): no Reconnect button, since redialing is no one's decision (Leo,
+/// 2026-11-22: "vacuous decisions like that should be just done"). A chat on this Mac draws
+/// nothing (`link` null).
 ///
 /// One element from the first frame to the last, after the mode chip: the words grow from the
 /// dot and fade in, so the model chip and the ring (anchored at the row's end) never move, and
@@ -48,9 +52,21 @@ export function MachineLinkStatus({
   onReconnect?(link: PeerLink): Promise<unknown> | void;
 }) {
   const t = useT();
-  // The link a Reconnect was pressed on: it reads as in flight until it answers or the link moves on
-  // its own (another state or machine), whichever comes first.
+  // The link a redial was asked for: in flight until it answers or the link moves on its own
+  // (another state or machine), whichever comes first.
   const [pressed, setPressed] = useState<string>();
+  const downAt =
+    link && link.link === "offline" && !link.stuck && onReconnect ? `${link.machine}\n${link.link}` : undefined;
+  useAutoRetry(
+    downAt,
+    () => {
+      if (!link || !downAt || !onReconnect) return;
+      setPressed(downAt);
+      const settle = () => setPressed((current) => (current === downAt ? undefined : current));
+      Promise.resolve(onReconnect(link)).then(settle, settle);
+    },
+    { busy: downAt !== undefined && pressed === downAt },
+  );
   // A link that is not up and needs no person stays the plain dot until it has been down past the
   // bound (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): a drop that
   // heals within it draws nothing, one that lasts is said once, here. A refused sign-in or an update
@@ -66,9 +82,6 @@ export function MachineLinkStatus({
   const [shown, setShown] = useState({ words, name });
   if (said && (shown.words !== words || shown.name !== name)) setShown({ words, name });
   if (!link) return null;
-  const down = link.link === "offline";
-  const at = `${link.machine}\n${link.link}`;
-  const busy = pressed === at;
   const label = `${name} · ${words}`;
   return (
     <output
@@ -94,21 +107,6 @@ export function MachineLinkStatus({
               {look === "named" && <span className="acpmux-machine-link-name">{shown.name}</span>}
               <span className="acpmux-machine-link-state">{shown.words}</span>
             </span>
-            {down && !link.stuck && onReconnect && (
-              <button
-                type="button"
-                className="acpmux-machine-link-reconnect"
-                disabled={busy}
-                onClick={() => {
-                  if (busy) return;
-                  setPressed(at);
-                  const settle = () => setPressed((current) => (current === at ? undefined : current));
-                  Promise.resolve(onReconnect(link)).then(settle, settle);
-                }}
-              >
-                {busy ? t("machineLink.reconnecting") : t("machineLink.reconnect")}
-              </button>
-            )}
           </span>
         </span>
       )}

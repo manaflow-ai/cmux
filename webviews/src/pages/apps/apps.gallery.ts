@@ -364,7 +364,7 @@ export default appsPageEntry({
       data: many,
     },
     error: {
-      note: "The catalog owner returns a permission error.",
+      note: "The catalog owner keeps failing: the loading grid stays and one quiet line says it is still loading; it is read again on its own, with no Reload.",
       mode: "error",
       error: { code: "cmux.apps.permission", message: "The catalog is unavailable to this workspace." },
       hash: "#/discover?layout=grid",
@@ -376,7 +376,7 @@ export default appsPageEntry({
       data: base,
     },
     "detail-error": {
-      note: "The selected app detail fails once, then can be retried without losing selection.",
+      note: "The selected app detail fails once: it reads as loading and is read again on its own, keeping the selection (no Reload).",
       detailError: { code: "cmux.apps.backend_unavailable", message: "The app details are temporarily unavailable." },
       hash: "#/discover?layout=split&app=cmux.coderouter",
       data: base,

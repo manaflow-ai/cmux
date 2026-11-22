@@ -3,7 +3,7 @@
 // A new Cloud chat's folder menu with its GitHub part (githubRepos.ts, FolderPopover `github`): the
 // one Connect to GitHub row while GitHub is not connected (at rest, waiting for the browser, refused,
 // signed out), none where it can't connect (not set up, unchecked), the repositories once it is ready,
-// and a failed read with Retry.
+// and a failed read, read again on its own (one quiet Still loading row once it lasts, no Retry).
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -21,6 +21,7 @@ function picker(state: Partial<GitHubPickerState>): GitHubPicker {
       document.documentElement.dataset.galleryGitHub = "connect";
     },
     onSearch: () => undefined,
+    // The menu's own ask again while a read fails (FolderPopover `useAutoRetry`), never a click.
     onRetry: () => {
       document.documentElement.dataset.galleryGitHub = "retry";
     },
@@ -140,7 +141,7 @@ export default componentEntry<Props>({
       play: openFolder,
     },
     error: {
-      note: "Reading the repositories failed: the GitHub row becomes Retry, the error its second line; a click reads again with the menu open.",
+      note: "Reading the repositories failed: the menu reads them again on its own while open, and only once that has lasted does the GitHub row say Still loading, with no Retry.",
       props: {
         ...base,
         github: picker({ status: { state: "ready", reposScope: "all" }, error: "GitHub didn't answer." }),

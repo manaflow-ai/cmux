@@ -31,6 +31,7 @@ export function BtwAside({ note, onDismiss }: { note: BtwNote; onDismiss(): void
         <p role="alert">
           {t("needsYou.askFailed")}
           {note.error ? `: ${note.error}` : ""}
+          {/* retry-prompt-ok: asks the side question again, a new model request the person may not want. */}
           {note.retry && (
             <button type="button" onClick={note.retry}>
               {t("host.retry")}

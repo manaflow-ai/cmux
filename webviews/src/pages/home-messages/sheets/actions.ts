@@ -91,7 +91,8 @@ export interface ComposeActions {
 }
 
 /** A refusal the host sent as an error, as the sheet's status line reads it: the generic "That
- * didn't work. Try again." (an empty reason), never the owner's own text. */
+ * didn't work. Try again." (an empty reason), never the owner's own text.
+ * retry-prompt-ok: it follows a start, an invite or an answer the person chose. */
 function refused(): { kind: "refused"; reason: string } {
   return { kind: "refused", reason: "" };
 }

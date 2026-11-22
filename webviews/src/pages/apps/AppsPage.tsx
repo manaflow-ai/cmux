@@ -14,6 +14,7 @@ import { Skeleton } from "../../ui/Skeleton";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { useLasting } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 
 /** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
 type ToolbarTab = StoreTab | "examples";
@@ -26,6 +27,15 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   // the store re-reads once the link is back); then the disconnected state.
   const down = snap.connection === "disconnected";
   const downLasting = useLasting(down);
+  // A catalog read that failed with the link up is read again on its own (the store's `reload`, which
+  // also loads a deep-linked detail); the page keeps its loading grid and only a failure that lasts the
+  // deadline says one quiet line, with no Reload (Leo, 2026-11-22: "vacuous decisions like that should
+  // be just done").
+  const catalogFailing = !down && snap.catalogStatus === "error";
+  const catalogFailed = catalogFailing ? (snap.catalogError ?? true) : undefined;
+  const { stillTrying: catalogStillTrying } = useAutoRetry(catalogFailed, () => void store.reload(), {
+    busy: !down && snap.catalogStatus === "loading",
+  });
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
@@ -89,17 +99,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           }}
         />
       </header>
-      {snap.catalogError && snap.connection !== "disconnected" && (
-        <div className="apps-error" role="alert">
-          <span className="apps-error-copy">
-            <strong>{t("store.error.load")}</strong>
-            <span className="selectable">{snap.catalogError}</span>
-          </span>
-          <button type="button" className="apps-button" onClick={() => void store.reload()}>
-            {t("store.action.reload")}
-          </button>
-        </div>
-      )}
+      {catalogStillTrying && <output className="apps-error apps-muted">{t("store.stillLoading")}</output>}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -169,7 +169,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         strings={strings}
       />
       {snap.notice === "notInStore" && <output className="apps-notice">{t("store.notice.notInStore")}</output>}
-      {snap.loading && snap.visible.length === 0 ? (
+      {/* A catalog read that failed with the link up keeps the loading grid while the page asks again. */}
+      {(snap.loading || (snap.connection !== "disconnected" && snap.catalogStatus === "error")) &&
+      snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
       ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
         <output className="apps-state apps-state-empty">

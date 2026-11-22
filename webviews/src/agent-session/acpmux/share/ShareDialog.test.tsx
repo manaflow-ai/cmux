@@ -154,3 +154,28 @@ test("a person's row is one button for their role, with Remove its own button be
   await settle();
   expect(calls).toEqual(["role @sam talk"]);
 });
+
+test("a failed read of the chat's shares is read again on its own, with no Try again", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done": the open's read asks again
+  // on the shared backoff (autoRetry.ts, first ask within 1 s) and says nothing at first.
+  installDom();
+  const { ShareDialogHost } = await import("./ShareControl");
+  let reads = 0;
+  const call = async (op: string) => {
+    if (op !== "state") return {};
+    reads += 1;
+    if (reads === 1) throw new Error("share: 503 Service Unavailable");
+    return { shares: [] };
+  };
+  root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root!.render(<ShareDialogHost sessionId="s" chat="Demo" open onOpenChange={() => undefined} call={call} />),
+  );
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(reads).toBe(1);
+  expect(document.body.textContent).not.toContain(translate("share.error.generic"));
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 1_100)));
+  expect(reads).toBe(2);
+  expect(document.body.textContent).not.toContain(translate("share.error.generic"));
+  expect(document.body.textContent).not.toContain(translate("share.stillReading"));
+});

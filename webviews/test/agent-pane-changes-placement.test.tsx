@@ -92,6 +92,22 @@ test("a status read that fails for another reason still says so", async () => {
   expect(git.available).toBe(true);
 });
 
+test("a status read that failed is read again on its own, with no Refresh click", async () => {
+  let reads = 0;
+  const git = await readGit(() => {
+    reads += 1;
+    return reads === 1
+      ? Promise.reject(new NativeError({ code: "native.timed_out", origin: "native" }))
+      : Promise.resolve({ detached: false, head: "abc123", branch: "main", ahead: 0, behind: 0 });
+  });
+  expect(git.statusFailed).toBe(true);
+  expect(git.statusStillTrying).toBe(false);
+  // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  await act(async () => await Promise.resolve());
+  expect(reads).toBe(2);
+});
+
 test("a repository made while the view is open brings Commit and Push back on the next check", async () => {
   let initialized = false;
   const source = {

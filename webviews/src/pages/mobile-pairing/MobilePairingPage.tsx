@@ -4,6 +4,7 @@
 // connect (Allow, Don't Allow) and the account's phones. A QR code shows only when the host sends
 // one; it sends none until cmux on iPhone opens a pairing link.
 import { useEffect, useSyncExternalStore } from "react";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import type { Strings } from "../shared/i18n";
 import type { MobilePairingStore } from "./store";
 import type { MobilePairingStatus, PairingHost, PairingState } from "./types";
@@ -22,6 +23,12 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
     return () => clearTimeout(timer);
   }, [store, expiresAt]);
 
+  // A first read that failed is read again on its own (Leo, 2026-11-22: no vacuous "Try Again"); the
+  // page keeps saying Checking…, and only a failure that lasts the deadline gets one quiet line.
+  const { stillTrying } = useAutoRetry(!status && snapshot.failed, () => void store.refresh(), {
+    busy: snapshot.loading,
+  });
+
   return (
     <div className="pairing">
       <header className="pairing-header">
@@ -31,11 +38,9 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
       {snapshot.unavailable ? (
         <p className="pairing-message">{strings.t("mobilePairing.page.unavailable")}</p>
       ) : !status ? (
-        snapshot.failed ? (
-          <Failed store={store} strings={strings} />
-        ) : (
-          <p className="pairing-message pairing-muted">{strings.t("mobilePairing.page.loading")}</p>
-        )
+        <p className="pairing-message pairing-muted">
+          {strings.t(snapshot.failed && stillTrying ? "mobilePairing.page.stillLoading" : "mobilePairing.page.loading")}
+        </p>
       ) : (
         <>
           <Steps status={status} strings={strings} />
@@ -43,17 +48,6 @@ export function MobilePairingPage({ store, strings }: { store: MobilePairingStor
           {snapshot.failed && <p className="pairing-message">{strings.t("mobilePairing.page.loadFailed")}</p>}
         </>
       )}
-    </div>
-  );
-}
-
-function Failed({ store, strings }: { store: MobilePairingStore; strings: Strings }) {
-  return (
-    <div className="pairing-panel">
-      <p className="pairing-message">{strings.t("mobilePairing.page.loadFailed")}</p>
-      <button type="button" className="pairing-button" onClick={() => void store.refresh()}>
-        {strings.t("mobilePairing.page.retry")}
-      </button>
     </div>
   );
 }

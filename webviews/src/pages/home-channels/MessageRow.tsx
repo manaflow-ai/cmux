@@ -139,6 +139,7 @@ export const MessageRow = memo(function MessageRow({
         {pending === "failed" && (
           <p className="lg-pending failed" role="alert">
             <span>{t("pending.failed")}</span>
+            {/* retry-prompt-ok: re-sends the person's failed message (same idempotency key) */}
             <button type="button" className="lg-link-button" onClick={onRetry}>
               {t("pending.retry")}
             </button>

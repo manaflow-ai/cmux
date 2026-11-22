@@ -105,7 +105,7 @@ ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
+    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows|useAutoRetry|stillTrying"  # web holds
     r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold"  # native holds
     r")\b"
 )

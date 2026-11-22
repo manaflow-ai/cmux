@@ -494,6 +494,7 @@ function PendingQuestion({
         </legend>
         {refused && (
           <p className="acpmux-question-error" role="alert">
+            {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
             {t("question.replyFailed")}
             {refused.reason && " "}
             {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
@@ -698,6 +699,7 @@ function PendingQuestion({
         </div>
         {refused && (
           <p className="acpmux-question-error" role="alert">
+            {/* retry-prompt-ok: answering again re-sends the answer to the agent, the person chooses to */}
             {t("question.replyFailed")}
             {refused.reason && " "}
             {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
