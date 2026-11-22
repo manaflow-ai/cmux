@@ -500,6 +500,12 @@ jobs:
       lane: internal-submission
       ipa_artifact_name: cmux-internal-submission-ipa-${{ github.run_id }}
       gate_ref: feat-cmux-next
+    # Only the App Store Connect key, for the gate's read-only `asc validate`
+    # (never `secrets: inherit`: the signing secrets stay with upload).
+    secrets:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
 
   # The receipt ios-internal-submit.yml refuses to submit without: written only
   # when the gate judged this run's commit and IPA with no blocker.
