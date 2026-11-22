@@ -84,11 +84,13 @@ fn meter_rows(inner: &Inner) -> Vec<Value> {
                 }),
                 "held": own.held,
             });
-            if let Some(cause) = ladder.and_then(|l| l.paused) {
-                row["paused"] = json!(cause.describe());
-            }
-            if let Some(run_state) = run_state {
-                row["runState"] = json!(run_state);
+            if let Some(obj) = row.as_object_mut() {
+                if let Some(cause) = ladder.and_then(|l| l.paused) {
+                    obj.insert("paused".into(), json!(cause.describe()));
+                }
+                if let Some(run_state) = run_state {
+                    obj.insert("runState".into(), json!(run_state));
+                }
             }
             row
         })
