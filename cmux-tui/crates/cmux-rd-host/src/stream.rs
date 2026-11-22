@@ -29,6 +29,10 @@ mod paced;
 #[derive(Clone)]
 pub struct SessionCfg {
     pub display: String,
+    /// Linux X11: the viewer's display pick, an index into the host's display list (`main`
+    /// or none is the whole X screen). macOS picks through `display` itself.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub display_pick: Option<String>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
@@ -85,6 +89,10 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// The profile the last encoded frame ran with, as the encoder applied it (None until one
+    /// is encoded, and always from an encoder without an ultra mode): the stats line's
+    /// `encode_profile`.
+    encoded_profile: Option<cmux_rd_core::profile::EncodeProfile>,
     /// Departure receipts drained from the carrier each pump (a reused buffer) and their
     /// running totals for the stats line: what left the socket, not what was queued.
     departures: Vec<DatagramDeparture>,
@@ -140,7 +148,8 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
 
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
-/// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
+/// this frame, once; `shown_us`, the vsync the window server composited the frame for
+/// (ScreenCaptureKit's display time, usually a few ms after `arrived_us`);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
 /// since the last frame; `release_us`, when the engine's gate released the frame's request;
 /// `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's frame);
@@ -310,6 +319,7 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            encoded_profile: None,
             departures: Vec::new(),
             departed_datagrams: 0,
             departed_bytes: 0,
@@ -618,6 +628,7 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
         });
+        self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -881,6 +892,7 @@ impl MediaSession {
             departed_datagrams: Some(self.departed_datagrams),
             departed_bytes: Some(self.departed_bytes),
             departure_overflows: Some(carrier.departure_overflows()),
+            encode_profile: self.encoded_profile.map(|profile| profile.as_str().to_owned()),
         };
         let _ = carrier.send_control(&stats);
     }
