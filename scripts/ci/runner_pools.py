@@ -114,6 +114,8 @@ HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 # jobs sat queued on it, the oldest for over an hour. Each pass now writes the pool's live member to
 # them too (mirror_writes()), and --check fails while one names a label outside its pool.
 MIRRORS = {"LINUX_RUNNER": "linux"}
+# The persistent Linux pool's labels (cmux-runner-pool VMs; signing_runner_variables.SIGNING_ISOLATION_DEFERRED).
+PERSISTENT_LINUX_POOL_LABELS = frozenset({"cmux-fleet-linux-x64", "cmux-linux"})
 # Variables that hold one raw Blacksmith Linux label and that runs-on reads ahead of a Linux pool or literal
 # (`vars.X || ... fromJSON(vars.RUNNER_POOLS).linux_16`, `vars.X || 'blacksmith-...-ubuntu-2404'`), on main or
 # feat-cmux-next. They follow no pool, so moving a pool off a dead label left them on it: on 2026-11-18
@@ -605,7 +607,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
             continue
         current = (live.get(name) or "").strip()
         allowed_labels = allowed(pools[pool], pools) if pool in pools else []
-        if current not in allowed_labels:
+        # The persistent pool, set by hand on purpose (Leo, 2026-11-21 00:38Z: "just... accept all labels"): it
+        # serves every x64 Linux label, so nothing waits on it; not a pools.linux member, so the writer never
+        # routes the pool's own readers there.
+        if current not in allowed_labels and current not in PERSISTENT_LINUX_POOL_LABELS:
             found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
                          f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")

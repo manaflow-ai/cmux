@@ -1,17 +1,24 @@
-name: Vercel staging env apply
+name: Vercel env apply
 
-# Sets one or two non-secret env vars on the Vercel project cmux-staging (production target), then
-# redeploys the deployment that is live there, so staging keeps its commit and picks up the new values.
+# Sets one or two non-secret env vars on a Vercel project's production target (cmux-staging by default,
+# or cmux, which serves cmux.com), then rebuilds the commit that is live there, so the site keeps its
+# commit and picks up the new values. The new deployment is promoted only once READY; for cmux, cmux.com
+# must answer 200 afterwards or the previous production deployment is promoted back at once.
 # It uses the repo's VERCEL_TOKEN, so no person's Vercel login is needed. Values are workflow inputs and
 # show in the run's event payload: use it only for non-secret values (URLs, issuer names, flags).
-# Production cmux.com changes stay on cmuxterm-hq's scripts/prod-env-apply.sh.
+# Secret production values stay on cmuxterm-hq's scripts/prod-env-apply.sh.
 #
-#   gh workflow run vercel-staging-env-apply.yml --repo manaflow-ai/cmux --ref main \
+#   gh workflow run vercel-staging-env-apply.yml --repo manaflow-ai/cmux --ref main [-f project=cmux] \
 #     -f name1=NAME -f value1=VALUE [-f name2=NAME -f value2=VALUE]
 
 on:
   workflow_dispatch:
     inputs:
+      project:
+        description: "Vercel project: cmux-staging, or cmux (cmux.com)"
+        type: choice
+        options: [cmux-staging, cmux]
+        default: cmux-staging
       name1:
         description: "env var name"
         required: true
@@ -31,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: vercel-staging-env-apply
+  group: vercel-env-apply-${{ inputs.project }}
   cancel-in-progress: false
 
 env:
@@ -43,8 +50,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
-      - name: Set the env vars on cmux-staging and redeploy its live deployment
+      - name: Set the env vars on ${{ inputs.project }} and redeploy its live commit
         env:
+          PROJECT: ${{ inputs.project }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           NAME1: ${{ inputs.name1 }}
@@ -55,7 +63,10 @@ jobs:
         run: |
           import json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
 
-          PROJECT = "cmux-staging"
+          PROJECT = os.environ.get("PROJECT") or "cmux-staging"
+          SITES = {"cmux": "https://cmux.com"}
+          if PROJECT not in ("cmux-staging", "cmux"):
+              sys.exit(f"unknown project {PROJECT!r}")
           token, team = os.environ["VERCEL_TOKEN"], os.environ.get("VERCEL_ORG_ID", "")
           if not token:
               sys.exit("VERCEL_TOKEN is empty")
@@ -89,6 +100,12 @@ jobs:
           project = api(f"/v9/projects/{PROJECT}")
           pid = project["id"]
           print(f"project {PROJECT} ({pid})")
+
+          # A production build still running would land after ours; refuse before writing anything.
+          running = api(f"/v6/deployments?projectId={pid}&target=production&state=BUILDING,QUEUED,INITIALIZING&limit=20")
+          if running.get("deployments"):
+              sys.exit("a production build is still running: "
+                       + " ".join(d.get("url", "") for d in running["deployments"]) + "; run this again after it is live")
 
           envs = api(f"/v9/projects/{pid}/env").get("envs", [])
           for name, value in wanted:
@@ -173,14 +190,51 @@ jobs:
               sys.exit(f"redeploy ended {state}; the env change is saved but not live")
           print(f"new deployment READY: https://{new_url}")
 
-          for _ in range(30):
-              cur = (api(f"/v9/projects/{pid}").get("targets") or {}).get("production") or {}
-              if cur.get("id") == new_id:
-                  print("production now serves the new deployment")
+          def serving():
+              return ((api(f"/v9/projects/{pid}").get("targets") or {}).get("production") or {}).get("id")
+
+          def promote(dep_id):
+              api(f"/v10/projects/{pid}/promote/{dep_id}", "POST", {})
+              for _ in range(30):
+                  if serving() == dep_id:
+                      return True
+                  time.sleep(10)
+              return False
+
+          for _ in range(12):
+              cur = serving()
+              if cur == new_id:
                   break
               time.sleep(10)
-          else:
-              print(f"warning: production still serves {cur.get('id')}, not {new_id}")
+          if cur != new_id:
+              print(f"production still serves {cur}; promoting READY deployment {new_id}")
+              if not promote(new_id):
+                  sys.exit(f"promote of {new_id} did not take; production serves {serving()}")
+          print(f"production now serves the new deployment {new_id}")
+
+          site = SITES.get(PROJECT)
+          if site:
+              codes = []
+              for path in ("/", "/pricing"):
+                  code = 0
+                  for _ in range(6):
+                      try:
+                          with urllib.request.urlopen(urllib.request.Request(site + path, headers={
+                                  "User-Agent": "cmux-vercel-env-apply"}), timeout=30) as r:
+                              code = r.status
+                      except urllib.error.HTTPError as e:
+                          code = e.code
+                      except Exception as e:
+                          print(f"  {site}{path}: {e}")
+                      if code == 200:
+                          break
+                      time.sleep(10)
+                  print(f"{site}{path}: HTTP {code}")
+                  codes.append(code)
+              if any(c != 200 for c in codes):
+                  print(f"regression; promoting the previous production deployment {live['id']} back")
+                  back = promote(live["id"])
+                  sys.exit(f"rolled back to {live['id']}: {'done' if back else 'NOT confirmed, check now'}")
 
           envs = api(f"/v9/projects/{pid}/env").get("envs", [])
           present = {e.get("key") for e in envs

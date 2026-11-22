@@ -142,6 +142,16 @@ class Declared(unittest.TestCase):
         for name in runner_pools.MIRRORS.values():
             self.assertFalse(any(runner_pools.owned_ephemeral(label) for label in runner_pools.members(pools[name])))
 
+    def test_linux_runner_may_name_the_persistent_pool_but_nothing_else_outside_its_pool(self) -> None:
+        # The persistent pool serves every x64 Linux label (Leo, 2026-11-21 00:38Z: "just... accept all labels"),
+        # so nothing waits on it; it stays out of pools.linux, so the writer never routes the pool's readers there.
+        pools = runner_pools.load_pools()
+        for label in sorted(runner_pools.PERSISTENT_LINUX_POOL_LABELS):
+            with self.subTest(label=label):
+                self.assertEqual(runner_pools.mirror_problems({"LINUX_RUNNER": label}, pools, record=None), [])
+                self.assertNotIn(label, runner_pools.members(pools["linux"]))
+        self.assertTrue(runner_pools.mirror_problems({"LINUX_RUNNER": "glaeda-linux-arm64"}, pools, record=None))
+
     def test_an_owned_linux_vm_label_may_only_lead_a_pool_with_blacksmith_after_it(self) -> None:
         good = {"a": {"why": "x", "members": ["glaeda-linux-arm64", "blacksmith-2vcpu-ubuntu-2404"]}}
         self.assertEqual(runner_pools.spec_problems(good), [])
