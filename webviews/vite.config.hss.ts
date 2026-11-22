@@ -5,7 +5,7 @@ const LOG = process.env.HSS_LOG ?? "/tmp/hss-probe.ndjson";
 const log = (o: object) => fs.appendFileSync(LOG, JSON.stringify({ srv: Date.now(), ...o }) + "\n");
 const PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT ?? 4417);
 const early = `(function(){var T=function(){return performance.timeOrigin+performance.now()};
-var S=function(o){o.page=location.pathname;o.vis=document.visibilityState;o.focus=document.hasFocus();try{navigator.sendBeacon("http://127.0.0.1:${PORT}/__hss_log",JSON.stringify(o))}catch(e){}};
+var S=function(o){o.page=location.pathname;o.pid=window.__hssId||(window.__hssId=Math.random().toString(36).slice(2,7));o.ua=/Chrome/.test(navigator.userAgent)?"cr":"wk";o.vis=document.visibilityState;o.focus=document.hasFocus();try{navigator.sendBeacon("http://127.0.0.1:${PORT}/__hss_log",JSON.stringify(o))}catch(e){}};
 window.__hss={T:T,S:S};var N=window.WebSocket;if(!N)return;
 window.WebSocket=class extends N{constructor(u,p){super(u,p);if(!([].concat(p||[])).includes("vite-hmr"))return;
 this.addEventListener("message",function(e){var t=T();try{var m=JSON.parse(e.data);if(m.type==="update"||m.type==="full-reload")S({ev:"ws",t:t,type:m.type,ts:m.updates&&m.updates[0]&&m.updates[0].timestamp,paths:(m.updates||[]).map(function(u){return u.path})})}catch(x){}});}};
