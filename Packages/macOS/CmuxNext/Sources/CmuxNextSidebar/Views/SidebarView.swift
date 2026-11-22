@@ -60,6 +60,15 @@ public final class SidebarView: NSView {
     }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
+    /// The optional row observation feed supplied by the App's Labs experiment.
+    public var rowFeed: SidebarRowFeed? {
+        get { list.rowFeed }
+        set {
+            list.rowFeed?.watch(drawn: nil, near: [])
+            list.rowFeed = newValue
+            list.watchRows(layoutChanged: true)
+        }
+    }
     let scrollView = SidebarScrollView()
     let needsYouTray = SidebarNeedsYouTrayView() // the session tree's needs-you tray (SidebarView+NeedsYou)
     /// Coalesces the tray's recompute across a burst of row patches (status ticks).

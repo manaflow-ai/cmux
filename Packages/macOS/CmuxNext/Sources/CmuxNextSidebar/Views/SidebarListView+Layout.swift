@@ -46,6 +46,7 @@ extension SidebarListViewComponents {
         splicedRow = spliced?.row
         splicedOut = removed.map { (key: $0.row, moved: $0.moved) }
         SidebarPerfCounters.timed { applyKeepingViewport(layout, animated: animated) }
+        watchRows(layoutChanged: true)
         (splicedRow, splicedOut) = (nil, nil)
         spliceBase = plain.map { (model.sectionsRevision, $0) } // after the apply, which forgets any other base
         // The metrics and the model structure of that full layout, for the page kept from it.
@@ -660,6 +661,7 @@ extension SidebarListViewComponents {
         showLinesInView()
         // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
         if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
+        watchRows(layoutChanged: false)
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

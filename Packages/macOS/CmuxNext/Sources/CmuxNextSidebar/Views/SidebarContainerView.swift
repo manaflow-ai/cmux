@@ -169,9 +169,10 @@ public final class SidebarContainerView: NSView {
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
 
-    public init(model: SidebarModel) {
+    public init(model: SidebarModel, rowFeed: SidebarRowFeed? = nil) {
         self.model = model
         sidebarView = SidebarView(model: model)
+        sidebarView.rowFeed = rowFeed
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth + (model.isFloating ? Self.floatInset : 0)
         targetCollapseMotion = SidebarTunables.collapseMotion.value
