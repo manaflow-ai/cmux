@@ -42,7 +42,15 @@ import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
 import { SteerChatContext } from "./pendingSteerModel";
@@ -530,6 +538,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
+              with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
+              and you get the timing ... and we already have logic for the timing"). */}
+          {!messages && <ReplyTime at={row.at} />}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
