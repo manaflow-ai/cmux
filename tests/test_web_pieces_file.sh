@@ -11,7 +11,7 @@ PUBLISH="$ROOT/scripts/cmux-next/web-pieces-publish.sh"
 TMP=$(mktemp -d)
 SERVER=
 FORBID=
-trap '[[ -z "$SERVER" ]] || kill "$SERVER" 2>/dev/null; [[ -z "$FORBID" ]] || kill "$FORBID" 2>/dev/null; rm -rf "$TMP"' EXIT
+trap '[[ -z "$SERVER" ]] || kill "$SERVER" 2>/dev/null || true; [[ -z "$FORBID" ]] || kill "$FORBID" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 
 # The script's pieces are the crate's.
