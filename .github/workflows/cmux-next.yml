@@ -4086,7 +4086,7 @@ jobs:
         continue-on-error: true
         env:
           DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
-          WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+          WARM_WRITES: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }} # TEMPORARY: measurement links the empty clone
         run: |
           set -euo pipefail
           disk=()
