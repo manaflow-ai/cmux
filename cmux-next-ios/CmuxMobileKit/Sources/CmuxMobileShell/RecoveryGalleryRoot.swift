@@ -33,6 +33,7 @@ import SwiftUI
 /// - `chiplist`: a list's connection state (the Workspaces list, Home, Agent Chats) as a chip over
 ///   the rows, which never move: A, top center (the one `cmuxMobileBanner` draws), in the link
 ///   states and over the signed-out banner; B, top leading; C, symbol only at the top trailing edge.
+/// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -88,6 +89,8 @@ public struct RecoveryGalleryRoot: View {
                 listChips
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
+            case "keybar":
+                TerminalKeyBarGallery()
             default:
                 states
             }
