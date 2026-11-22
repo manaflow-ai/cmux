@@ -33,13 +33,12 @@ function approval(target: string, asker: string, confirmedBy: string, extra: Rec
 describe("POST /v1/devices/:id/share-approval", () => {
   it("carries the owner's device's approval to a Mac that is not sharing", async () => {
     const { account, mac, phone } = await ownerAndMac();
-    const sent = approval(mac.id, phone.id, account.userId, { stray: "dropped" });
-    const res = await phone.call("POST", `/v1/devices/${mac.id}/share-approval`, { approval: sent });
+    const fields = approval(mac.id, phone.id, account.userId);
+    const res = await phone.call("POST", `/v1/devices/${mac.id}/share-approval`, { approval: { ...fields, stray: "dropped" } });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(res.json).toEqual({ delivered: true, hostId: mac.id });
     const push = await mac.user!.next((f) => f.type === "share.approval");
     // `from` is the hub's record of the sender; only the approval's own fields pass.
-    const { stray: _, ...fields } = sent;
     expect(push).toEqual({ type: "share.approval", from: phone.id, approval: fields });
   });
 
