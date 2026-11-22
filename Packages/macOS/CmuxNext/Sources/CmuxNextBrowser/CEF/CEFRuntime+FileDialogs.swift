@@ -75,8 +75,7 @@ extension CEFRuntime {
             let chosen = response == .OK ? panel?.url : nil
             self?.answerFileDialog(dialogID, multiple: false, chosen.map { [$0] } ?? [])
         }
-        // A popup can close under its sheet: the sheet ends with it, so the chooser is still answered.
-        if let window { panel.beginSheet(endingWith: window, completionHandler: finish) } else { panel.begin(completionHandler: finish) }
+        if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { panel.begin(completionHandler: finish) }
     }
 }
 
