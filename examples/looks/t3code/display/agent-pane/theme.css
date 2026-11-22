@@ -1,0 +1,5 @@
+/* Size and line height come from the profile, so the transcript's measured rows agree with its text. */
+.cv-user__bubble {
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-page-bg));
+  border-radius: 16px;
+}
