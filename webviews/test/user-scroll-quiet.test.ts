@@ -38,22 +38,30 @@ test("quiet notification waits for the last input, stops during drag, and cleans
   }
 });
 
-test("an early fractional timeout rearms without notifying while input is held", () => {
+// The hold reads no clock (RFD 0026 rule 3): its end is the timer's firing, carrying the hold
+// generation it was issued under (followState.ts `intentExpired`). A later input issues a newer one,
+// so an older timer never ends a newer hold, however late the main thread runs it.
+test("the hold ends on its newest timer, which carries its hold generation", () => {
   jest.useFakeTimers();
   const clock = spyOn(performance, "now").mockReturnValue(0);
   const intent = userScrollIntent({} as HTMLElement);
-  let notices = 0;
-  const remove = intent.subscribeQuiet(() => notices++);
+  const notices: number[] = [];
+  const remove = intent.subscribeQuiet((generation) => notices.push(generation));
   try {
     intent.mark();
-    clock.mockReturnValue(999.25);
-    jest.advanceTimersByTime(1000);
+    const first = intent.holdGeneration();
+    jest.advanceTimersByTime(600);
+    intent.mark();
+    const second = intent.holdGeneration();
+    expect(second).toBeGreaterThan(first);
+    // The first input's second has passed: its timer is stale, the hold stays.
+    clock.mockReturnValue(5000);
+    jest.advanceTimersByTime(400);
     expect(intent.isHeld()).toBe(true);
-    expect(notices).toBe(0);
-    clock.mockReturnValue(1000.25);
-    jest.advanceTimersByTime(1);
+    expect(notices).toEqual([]);
+    jest.advanceTimersByTime(600);
     expect(intent.isHeld()).toBe(false);
-    expect(notices).toBe(1);
+    expect(notices).toEqual([second]);
   } finally {
     remove();
     intent.reset();

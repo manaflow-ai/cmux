@@ -25,37 +25,57 @@ const PRESS_SLOP_PX = 4;
 /// release, a press moving within its slop).
 type Input = "scroll" | "press" | "same";
 type Listener = (event?: Event) => void;
+/// Called once the hold ends, with the hold generation its timer was issued under (followState.ts
+/// `intentExpired`).
+type QuietListener = (generation: number) => void;
 const states = new WeakMap<HTMLElement, ReturnType<typeof createIntent>>();
 
+/// The hold reads no clock: each input (and a drag's lost release) issues one timer under a new hold
+/// generation, and only the newest one's firing ends the hold (RFD 0026 rule 3). Under a stalled main
+/// thread the hold therefore lasts until its timer runs, never less than `USER_SCROLL_INTENT_MS`.
 function createIntent() {
-  let at = -Infinity;
+  /// Bumped by every input: an explicit request lapses at the next one (`request`).
   let generation = 0;
+  /// Bumped by every input and every release: the timer issued under the newest one ends the hold.
+  let hold = 0;
+  /// Within `USER_SCROLL_INTENT_MS` of the newest input or release: its timer has not fired yet.
+  let open = false;
+  /// Whether any input came since the scroller attached (a quiet subscriber added later still hears
+  /// that the last one went quiet).
+  let marked = false;
   let pressed = false;
   /// Whether the newest input scrolls (`Input`): a press on text holds automatic motion like any
   /// input, but moves nothing by itself.
   let scrolling = false;
   let scrollbar = false;
   const listeners = new Set<Listener>();
-  const quietListeners = new Set<() => void>();
-  let quietTimer: ReturnType<typeof setTimeout> | undefined;
-  const scheduleQuiet = () => {
-    clearTimeout(quietTimer);
-    quietTimer = undefined;
-    if (pressed || quietListeners.size === 0 || at === -Infinity) return;
-    quietTimer = setTimeout(
-      () => {
-        quietTimer = undefined;
-        if (performance.now() - at < USER_SCROLL_INTENT_MS) {
-          scheduleQuiet();
-          return;
-        }
-        for (const listener of quietListeners) listener();
-      },
-      Math.max(1, Math.ceil(USER_SCROLL_INTENT_MS - (performance.now() - at))),
-    );
+  const quietListeners = new Set<QuietListener>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const quiet = () => {
+    if (pressed || !marked) return;
+    for (const listener of quietListeners) listener(hold);
+  };
+  /// The timer's firing as an event: one issued under an older hold generation is stale.
+  const expired = (issued: number) => {
+    if (issued !== hold) return;
+    timer = undefined;
+    open = false;
+    quiet();
+  };
+  const issue = (ms: number) => {
+    clearTimeout(timer);
+    const issued = hold;
+    timer = setTimeout(() => expired(issued), ms);
+  };
+  /// A new input or release opens the hold for `USER_SCROLL_INTENT_MS` under a new hold generation.
+  const restart = () => {
+    hold += 1;
+    open = true;
+    marked = true;
+    issue(USER_SCROLL_INTENT_MS);
   };
   return {
-    isHeld: () => pressed || performance.now() - at < USER_SCROLL_INTENT_MS,
+    isHeld: () => pressed || open,
     /// Held by an input that scrolls: the reader moved the view by hand. A press on text that has not
     /// moved, or its release, holds the view but is no scroll (Jump up's idle mark, jumpUp.ts: a
     /// click to select while scrolled up must not read as the reader scrolling).
@@ -65,6 +85,10 @@ function createIntent() {
     isScrollbarDragging: () => pressed && scrollbar,
     /// A pointer is held down on the scroller (a drag, on the rows or the scrollbar).
     isPressed: () => pressed,
+    /// The input generation now: a request made at it lapses at the next input (followState.ts).
+    generation: () => generation,
+    /// The hold generation now: the newest hold timer's (followState.ts `intentExpired`).
+    holdGeneration: () => hold,
     // An explicit request may start during the hold, but its continuations expire on later input.
     request: () => {
       const started = generation;
@@ -72,15 +96,18 @@ function createIntent() {
     },
     mark(event?: Event, input: Input = "scroll") {
       if (input !== "same") scrolling = input === "scroll";
-      at = performance.now();
       generation += 1;
-      scheduleQuiet();
+      restart();
       for (const listener of listeners) listener(event);
     },
     press(value: boolean, onScrollbar = false) {
       pressed = value;
       scrollbar = value && onScrollbar;
-      scheduleQuiet();
+      // Released after the hold's timer fired: quiet now, as the hold ended while pressed.
+      if (!value && !open && marked) {
+        hold += 1;
+        issue(1);
+      }
     },
     /// A drag that ended without its pointerup (no buttons on the next move, or the window lost
     /// focus): the quiet interval starts now, as at a release. Not new input, so explicit
@@ -88,8 +115,7 @@ function createIntent() {
     release() {
       pressed = false;
       scrollbar = false;
-      at = performance.now();
-      scheduleQuiet();
+      restart();
     },
     subscribe(listener: Listener) {
       listeners.add(listener);
@@ -97,24 +123,26 @@ function createIntent() {
         listeners.delete(listener);
       };
     },
-    subscribeQuiet(listener: () => void) {
+    subscribeQuiet(listener: QuietListener) {
       quietListeners.add(listener);
-      scheduleQuiet();
+      // Input that already went quiet before this subscriber came: it hears so on the next tick.
+      if (!open && marked && !pressed && timer === undefined) {
+        hold += 1;
+        issue(1);
+      }
       return () => {
         quietListeners.delete(listener);
-        if (quietListeners.size === 0) {
-          clearTimeout(quietTimer);
-          quietTimer = undefined;
-        }
       };
     },
     reset() {
       this.mark();
-      at = -Infinity;
+      hold += 1;
+      open = false;
+      marked = false;
       pressed = false;
       scrollbar = false;
-      clearTimeout(quietTimer);
-      quietTimer = undefined;
+      clearTimeout(timer);
+      timer = undefined;
     },
   };
 }
