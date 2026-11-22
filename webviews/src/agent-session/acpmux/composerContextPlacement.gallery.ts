@@ -13,8 +13,8 @@
 // Leo, 2026-11-22: "the things should usually if possible open away from the text input", and the
 // glass rules "we can follow and measure". Every play here also runs `menuConstraintFailures`
 // (gallery/menuConstraints.ts): the menu sits on its control's side away from the text field, covers
-// neither the field nor another control's text, and its text keeps 4.5:1 on its glass over a black
-// or white backdrop. `newtab-folder-mid` is Lucas's case: a New Tab composer just under the window's
+// neither the field nor another control's text, and its text keeps 4.5:1 on its glass over the
+// lightest or darkest surface under it. `newtab-folder-mid` is Lucas's case: a New Tab composer just under the window's
 // middle, whose folder menu opened down over the field and the "Bypass permissions" chip.
 import { agentPaneEntry } from "../../gallery/format";
 import { menuConstraintFailures } from "../../gallery/menuConstraints";

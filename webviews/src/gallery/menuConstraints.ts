@@ -10,8 +10,10 @@
 // 2. No overlap: the menu covers neither the text field nor any other drawn control's text (Lucas
 //    saw the folder menu draw over the "Bypass permissions" chip), nor its own control.
 // 3. Contrast over glass: the menu is translucent, so what is under it shows through. Its rows'
-//    text must keep `MENU_TEXT_CONTRAST` against the menu's fill laid over the worst backdrop the
-//    page could put under it (black or white), not just over the page colour it was drawn on.
+//    text, on every background between it and the menu (a selected row, a badge), must keep
+//    `MENU_TEXT_CONTRAST` against the menu's fill laid over each surface under the menu (sampled on
+//    a grid; the 32 px backdrop blur washes thin text strokes into the surface they sit on), the
+//    lightest and the darkest alike.
 
 /// WCAG AA body text.
 export const MENU_TEXT_CONTRAST = 4.5;
@@ -23,6 +25,7 @@ const FIELD = ".acpmux-composer-box .ProseMirror, .acpmux-composer-box textarea,
 const CONTROLS = ".acpmux-composer button, .nt-composer button, .acpmux-composer-strip button";
 
 type Rgba = [number, number, number, number];
+type Rgb = [number, number, number];
 
 /// A computed CSS colour (`rgb()`, `rgba()` or `color(srgb ...)`) as 0-1 channels and alpha.
 export function parseCssColor(value: string): Rgba | undefined {
@@ -54,18 +57,60 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/// The least contrast `text` keeps on a menu filled with `fill` over any backdrop between black
-/// and white: the fill over each extreme, then the text (with its own alpha) over that.
-export function worstContrastOverGlass(text: Rgba, fill: Rgba): number {
-  let worst = Infinity;
-  for (const backdrop of [
+/// The least contrast `text` keeps on a menu filled with `fill` over each of `backdrops` (black and
+/// white when none are given): the fill over each, then `layers` (backgrounds between the menu and the text,
+/// outermost first, such as a badge's own fill), then the text (with its own alpha) over that.
+export function worstContrastOverGlass(
+  text: Rgba,
+  fill: Rgba,
+  layers: Rgba[] = [],
+  backdrops: Rgb[] = [
     [0, 0, 0],
     [1, 1, 1],
-  ] as [number, number, number][]) {
-    const ground = over(fill, backdrop);
+  ],
+): number {
+  let worst = Infinity;
+  for (const backdrop of backdrops) {
+    let ground = over(fill, backdrop);
+    for (const layer of layers) ground = over(layer, ground);
     worst = Math.min(worst, contrastRatio(over(text, ground), ground));
   }
   return worst;
+}
+
+/// The opaque colour of the page under `menu` at a grid of points: each point's stack of elements
+/// outside the menu, composed from the first opaque background (or the canvas) up.
+export function surfacesUnder(menu: Element): Rgb[] {
+  const doc = menu.ownerDocument;
+  const view = doc.defaultView!;
+  const box = menu.getBoundingClientRect();
+  const canvas =
+    parseCssColor(view.getComputedStyle(doc.documentElement).backgroundColor) ??
+    parseCssColor(view.getComputedStyle(doc.body).backgroundColor);
+  const base: Rgb =
+    canvas && canvas[3] >= 1
+      ? [canvas[0], canvas[1], canvas[2]]
+      : view.matchMedia("(prefers-color-scheme: dark)").matches
+        ? [0, 0, 0]
+        : [1, 1, 1];
+  const out = new Map<string, Rgb>();
+  for (const fx of [0.15, 0.5, 0.85])
+    for (const fy of [0.15, 0.5, 0.85]) {
+      const x = box.left + box.width * fx;
+      const y = box.top + box.height * fy;
+      const fills: Rgba[] = [];
+      for (const el of doc.elementsFromPoint(x, y)) {
+        if (menu.contains(el) || el.contains(menu)) continue;
+        const bg = parseCssColor(view.getComputedStyle(el).backgroundColor);
+        if (!bg || bg[3] <= 0) continue;
+        fills.push(bg);
+        if (bg[3] >= 1) break;
+      }
+      let ground = base;
+      for (const fill of fills.reverse()) ground = over(fill, ground);
+      out.set(ground.map((c) => c.toFixed(3)).join(","), ground);
+    }
+  return [...out.values()];
 }
 
 function intersects(a: DOMRect, b: DOMRect, slack = 1): boolean {
@@ -116,10 +161,12 @@ export function menuConstraintFailures(menu: Element, { trigger, expectAway = tr
     if (intersects(box, r)) failures.push(`overlap: the menu (${fmt(box)}) covers "${label.slice(0, 40)}" (${fmt(r)})`);
   }
 
-  // 3. Contrast over glass: each row's text against the menu's fill over a black or white backdrop.
+  // 3. Contrast over glass: each row's text, through its own backgrounds, against the menu's fill over
+  //    the lightest and darkest surface under it.
   const fill = parseCssColor(view.getComputedStyle(menu).backgroundColor);
   if (fill && fill[3] > 0) {
     const seen = new Set<string>();
+    const backdrops = surfacesUnder(menu);
     const walker = doc.createTreeWalker(menu, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const text = node.textContent?.trim();
@@ -131,12 +178,23 @@ export function menuConstraintFailures(menu: Element, { trigger, expectAway = tr
       const bar = host.closest("[aria-disabled=true], [data-disabled], .ui-menu-hint") ? 3 : MENU_TEXT_CONTRAST;
       const color = parseCssColor(style.color);
       if (!color) continue;
-      const ratio = worstContrastOverGlass([color[0], color[1], color[2], color[3] * Number(style.opacity || 1)], fill);
+      // Backgrounds drawn between the menu and the text (a row's hover, a badge's fill), outermost first.
+      const layers: Rgba[] = [];
+      for (let el: Element | null = host; el && el !== menu; el = el.parentElement) {
+        const bg = parseCssColor(view.getComputedStyle(el).backgroundColor);
+        if (bg && bg[3] > 0) layers.unshift(bg);
+      }
+      const ratio = worstContrastOverGlass(
+        [color[0], color[1], color[2], color[3] * Number(style.opacity || 1)],
+        fill,
+        layers,
+        backdrops,
+      );
       const key = `${style.color}|${bar}`;
       if (ratio < bar && !seen.has(key)) {
         seen.add(key);
         failures.push(
-          `contrast: "${text.slice(0, 30)}" (${style.color}) keeps ${ratio.toFixed(2)}:1 on the menu's glass (${view.getComputedStyle(menu).backgroundColor}) over a worst-case backdrop; needs ${bar}:1`,
+          `contrast: "${text.slice(0, 30)}" (${style.color}) keeps ${ratio.toFixed(2)}:1 on the menu's glass (${view.getComputedStyle(menu).backgroundColor}) over the lightest or darkest surface under it; needs ${bar}:1`,
         );
       }
     }

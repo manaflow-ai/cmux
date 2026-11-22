@@ -5,8 +5,8 @@
 // (Lucas 2026-11-07) or leaves the window; this runs them in Chromium and checks they passed.
 // Leo 2026-11-22: "the things should usually if possible open away from the text input" and the glass
 // rules "we can follow and measure": each play also fails when the menu opens toward the text field,
-// covers the field or another control's text, or its text drops under 4.5:1 on its glass over a black
-// or white backdrop (gallery/menuConstraints.ts). Dark and light both run.
+// covers the field or another control's text, or its text drops under 4.5:1 on its glass over the
+// lightest or darkest surface under the menu (gallery/menuConstraints.ts). Dark and light both run.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
