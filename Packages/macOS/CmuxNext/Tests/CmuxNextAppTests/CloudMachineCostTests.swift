@@ -125,10 +125,9 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         let cost = SidebarMachine.Cost(hourlyRateUsd: 0.2645, runningSince: Date().addingTimeInterval(-8_040), cap: .capped(running: 2, max: 3))
         let tip = try #require(Self.header(SidebarMachine(id: MachineID("vm-cost"), name: "api", kind: .cloud, status: .connected, cost: cost)).themedToolTip)
         #expect(!tip.contains("\n"), "the tooltip took more than one line")
-        let parts = tip.components(separatedBy: " · ")
-        #expect(parts.first == SidebarStrings.statusConnected)
-        #expect(parts.last == SidebarStrings.capOf(2, 3))
-        #expect(parts.count == 3)
+        // The status first, then the cost (a cost line holds its own " · ": the rate and the time it has run), the cap last.
+        #expect(tip.hasPrefix(SidebarStrings.statusConnected + " · "), "\(tip)")
+        #expect(tip.hasSuffix(" · " + SidebarStrings.capOf(2, 3)), "\(tip)")
 
         #expect(SectionHeaderRowView.machineToolTip(status: SidebarStrings.statusConnected, cost: cost, now: Self.now)
             == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: " · "))
