@@ -3,12 +3,13 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
-     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
-     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
+  /* The draft grows about as tall as Claude Code desktop's before it scrolls (Leo 2026-11-22: "look at
+     how big claude code can grow"): up to 60% of the pane, thirty lines at most. Was twelve lines or
+     40vh (#24984, Lawrence: "too big" then), which capped a pasted page at a third of the pane. Short
+     panes still give up height (bottomStack.css). */
   max-height: min(
-    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
-    40vh
+    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 30) + var(--cmux-control-height, 23px)),
+    60vh
   );
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
@@ -31,6 +32,10 @@
   --acpmux-md-scrollbar-lane: 8px;
   /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
   --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Its thumb shows only while the draft scrolls (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE) and fades
+     in and out at the transcript's pace (conversation.css .acpmux-scroll), the host's durations. */
+  --cmux-scroller-fade-in: var(--agent-motion-in);
+  --cmux-scroller-fade-out: var(--agent-motion-move);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
   padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
