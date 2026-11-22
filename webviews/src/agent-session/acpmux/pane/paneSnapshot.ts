@@ -174,22 +174,19 @@ import { emptySnapshot, saveSnapshot } from "../snapshotCache";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { currentRegistry, NEW_TAB_CLOSE_EVENT, streamedOnly } from "../App";
 import {
-  currentRegistry,
   failedRowIds,
-  fetchScrollAnchor,
   heldGoesAfterTrust,
   heldPromptParams,
   type HeldSend,
   isStartRefusal,
-  NEW_TAB_CLOSE_EVENT,
-  postScrollAnchor,
-  readWake,
   refusedMachine,
   sendGestureParam,
   type SentFrom,
-  streamedOnly,
-} from "../App";
+} from "./sendHost";
+import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
+import { readWake } from "./wake";
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
