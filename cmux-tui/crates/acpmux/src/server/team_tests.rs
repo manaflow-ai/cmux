@@ -42,6 +42,8 @@ struct FakeHub {
     acknowledgements: Mutex<Vec<String>>,
     session_only_receipt: std::sync::atomic::AtomicBool,
     omit_start_work: std::sync::atomic::AtomicBool,
+    /// Failures the next browses answer, one each, before the page.
+    browse_failures: Mutex<std::collections::VecDeque<HubError>>,
 }
 
 impl MeshHub for FakeHub {
@@ -56,7 +58,11 @@ impl MeshHub for FakeHub {
         before: Option<u64>,
     ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
         self.browsed.lock().unwrap().push((unread, address.map(str::to_owned), before));
-        Box::pin(async {
+        let failure = self.browse_failures.lock().unwrap().pop_front();
+        Box::pin(async move {
+            if let Some(e) = failure {
+                return Err(e);
+            }
             Ok(TeamPage {
                 messages: vec![message(OWN_MESSAGE, OWN), message(OTHER_MESSAGE, OTHER)],
                 next: None,
@@ -525,4 +531,52 @@ async fn cloud_repo_initialize_reports_only_the_verified_local_caller() {
         )
         .await;
     assert_eq!(reply["result"]["_meta"]["acpmux"]["callerSessionId"], OWN);
+}
+
+/// A hub answer with `status` and `code`, as `mesh_http::answer` makes it.
+fn hub_status(status: u16, code: &str) -> HubError {
+    let mut e = HubError::refused(format!("the hub answered {status} {code}"));
+    e.refused = !(status == 408 || status == 429 || status >= 500);
+    e.status = Some(status);
+    e.code = Some(code.into());
+    e
+}
+
+/// `acpmux inbox` through a hub that blips once reads the page; one that keeps failing says
+/// which way it failed: a hub that is down is unavailable, a dropped connection did not answer,
+/// a refusal is the hub's, and a refusal this daemon made itself (no token command) is not.
+#[tokio::test(start_paused = true)]
+async fn an_inbox_read_tries_a_blip_again_and_names_how_it_failed() {
+    let (_hub, fake) = setup(true);
+    let mesh: Arc<dyn MeshHub> = fake.clone();
+    fake.browse_failures.lock().unwrap().push_back(hub_status(503, "mesh.unavailable"));
+    let page = team_page(&mesh, true, None).await.unwrap();
+    assert_eq!(page.messages.len(), 2);
+    assert_eq!(fake.browsed.lock().unwrap().len(), 2);
+
+    let cases = [
+        (hub_status(503, "mesh.unavailable"), "the mesh hub is unavailable", "mesh.unavailable"),
+        (
+            HubError::unavailable("the hub: error sending request"),
+            "the mesh hub did not answer",
+            "mesh.unavailable",
+        ),
+        (
+            hub_status(403, "mesh.forbidden"),
+            "the mesh hub refused the inbox read",
+            "mesh.forbidden",
+        ),
+        (
+            HubError::refused("no token command"),
+            "this daemon could not ask the mesh hub",
+            "mesh.unavailable",
+        ),
+    ];
+    for (e, words, reason) in cases {
+        *fake.browse_failures.lock().unwrap() =
+            std::iter::repeat_n(e, crate::mesh_retry::ATTEMPTS).collect();
+        let e = team_page(&mesh, true, None).await.unwrap_err();
+        assert!(e.message.starts_with(words), "{words}: {e:?}");
+        assert_eq!(e.data.unwrap()["reason"], json!(reason), "{words}");
+    }
 }

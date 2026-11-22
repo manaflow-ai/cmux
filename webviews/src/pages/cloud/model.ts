@@ -3,6 +3,7 @@
 // intents; an intent leaves the log on its echo or its reject). No I/O, no timers.
 import { format, L, type StringKey } from "./strings";
 import type { CloudDiskHealth, CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus } from "./ops";
+import { intl } from "../../ui/intl";
 
 /** The machine list layout (Debug setting `cloud.machines.layout`, README.md). */
 export type MachineLayout = "rows" | "cards";
@@ -207,7 +208,7 @@ export function moveSelection(rows: MachineRow[], selection: string | undefined,
 
 export function formatMegabytes(mb: number, t: (key: string) => string, language: string): string {
   const gb = mb / 1024;
-  const value = new Intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
+  const value = intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
   return format(t(L.gigabytes), { value });
 }
 
@@ -285,7 +286,7 @@ export function formatDate(value: number | null | undefined, language: string, w
   const options: Intl.DateTimeFormatOptions = withTime
     ? { dateStyle: "medium", timeStyle: "short" }
     : { dateStyle: "medium" };
-  return new Intl.DateTimeFormat(language, options).format(new Date(value));
+  return intl.DateTimeFormat(language, options).format(new Date(value));
 }
 
 export function percent(used: number | null | undefined, total: number | null | undefined): number | undefined {

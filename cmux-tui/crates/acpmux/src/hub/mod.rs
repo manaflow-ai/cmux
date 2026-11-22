@@ -180,6 +180,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
@@ -811,9 +812,9 @@ pub struct PromptOptions {
     /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
     /// `topic:T`; `None` derives it.
     pub thread: Option<String>,
-    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
-    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
-    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    /// A plain send from another agent, on this host or forwarded by a peer daemon or the mesh
+    /// relay (`session/prompt`, `inbox::plain_send`): the chat's inbox takes it. Every other path
+    /// that prompts (reports, task cards, a paused pair's release) keeps the queue.
     pub inbox: bool,
     /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
@@ -2168,6 +2169,7 @@ impl Hub {
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
+            gathering: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
             stop_restart: StdMutex::new(None),
