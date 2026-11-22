@@ -205,7 +205,10 @@ pub(super) fn execute(
         Request::Refresh { if_app_changed } => {
             let app = super::pr::App::find().commit;
             refresh_when(customize, app.as_deref(), if_app_changed, || {
-                Ok(with_no_longer_applies(customize, super::pr::refresh(customize, origin, now_ms)?))
+                Ok(with_no_longer_applies(
+                    customize,
+                    super::pr::refresh(customize, origin, now_ms)?,
+                ))
             })?
         }
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
