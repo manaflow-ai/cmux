@@ -914,6 +914,10 @@ final class ComposeView: UIView {
             emptyLinesMemo = (w, n)
             return n
         }
+        // cmux: the field's own lines when it shows this draft at this width: TextKit 1 laid them
+        // out for the key already (with the field's kern, which the plain measure leaves out), so a
+        // key typesets nothing again here (cmux21 `sample`, 3,000 characters: 0.13 ms a key).
+        if let n = textView.view.textKit1LineCount(showing: text, width: w) { return n }
         // cmux: typing at the end of the draft (each key's case) lays out only from the start of the
         // memo's second-to-last line: a greedy break before it cannot move when text is appended. The
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
@@ -924,6 +928,7 @@ final class ComposeView: UIView {
             keep = m.starts.count - 2
             from = second
         }
+        heightTypesets += 1  // cmux: tests (a key in a field that shows the draft typesets none of it again)
         let tail = TextLayout.make(u.substring(from: from), runs: [], maxWidth: w, font: ComposeView.font).lines
         let starts = Array((linesMemo?.starts ?? []).prefix(keep)) + tail.map { $0.range.location + from }
         linesMemo = (text, w, starts.count, starts)
@@ -947,6 +952,8 @@ final class ComposeView: UIView {
     /// cmux: the last draft's line count and where each of its lines starts (UTF-16), for the
     /// incremental layout of the next key.
     private var linesMemo: (text: String, width: CGFloat, count: Int, starts: [Int])?
+    /// cmux: how often the height typeset the draft's text (read by tests).
+    private(set) var heightTypesets = 0
     /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
     static let emptyLineMinWidth: CGFloat = 20
     private var emptyLinesMemo: (CGFloat, Int)?

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 653,
+  "count": 656,
   "sections": [
     {
       "id": "general",
@@ -6656,6 +6656,44 @@
             "max": 8,
             "unit": "points"
           }
+        },
+        {
+          "key": "notifications.delivery.permissionRequest",
+          "title": "Permission Request",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.question",
+          "title": "Question",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.taskComplete",
+          "title": "Task Complete",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "banner"
+          ]
         },
         {
           "key": "notifications.desktop",
