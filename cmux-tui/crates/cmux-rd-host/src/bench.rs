@@ -15,19 +15,22 @@ use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
 use crate::fdwait::wait_readable;
 use crate::marker;
+use crate::scaled::Scale;
 use crate::wire::{
     write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
+use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::input::InputSender;
+use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::Reassembler;
 use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
 use cmux_rd_proto::control::StreamKind;
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, HEADER_LEN, MAX_ARRIVALS,
-    MAX_DATAGRAM_VPC,
+    Arrival, ClockPong, DatagramHeader, DatagramKind, Feedback, FrameTimes, InputEvent, HEADER_LEN,
+    MAX_ARRIVALS, MAX_DATAGRAM_VPC,
 };
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
@@ -217,6 +220,9 @@ struct Viewer {
     record: Option<std::fs::File>,
     /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
     marker_origin: (usize, usize),
+    /// The stream's size once the host negotiated cap `video.scaled` (`--caps video.scaled`):
+    /// a decoded picture smaller than it is read scaled up to it (src/scaled.rs).
+    scaled_stream: Option<(usize, usize)>,
     /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
     /// default there); OpenH264 decodes constrained baseline only.
     #[cfg(target_os = "macos")]
@@ -225,6 +231,10 @@ struct Viewer {
     #[cfg(target_os = "linux")]
     presenter: Option<crate::present::Presenter>,
     present_errors: u64,
+    /// Every frame's stage times (D8), from the host's `FrameTimes` and this viewer.
+    ledger: StageLedger,
+    /// The session clock (C8), once the welcome lists cap `clock`.
+    clock: Option<ClockEstimator>,
     /// `--decoder vp9|av1` (features `vp9`, `av1`): a royalty-free codec's decoder, for a
     /// host started with the same `--codec`, and the picture it decodes into.
     #[cfg(any(feature = "vp9", feature = "av1"))]
@@ -279,6 +289,7 @@ impl Viewer {
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
                 self.bytes += d.len() as u64;
+                self.ledger.on_shard(h.stream, h.frame, d.len(), now / 1000);
                 self.arrivals.push(Arrival {
                     transport_seq: h.transport_seq,
                     arrival_us: (now / 1000) as u32,
@@ -290,6 +301,12 @@ impl Viewer {
                     self.first_rx.push_back((h.frame, now));
                 }
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
+                    self.ledger.on_released(
+                        h.stream,
+                        frame.frame,
+                        frame.last_shard_us,
+                        frame.released_us,
+                    );
                     self.released_since_feedback = true;
                     self.frames += 1;
                     if let Some(file) = self.record.as_mut() {
@@ -304,11 +321,15 @@ impl Viewer {
                         match decoded {
                             Ok(Some(picture)) => {
                                 self.decoded_frames += 1;
+                                self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, picture.size());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = picture.with_luma(crate::eval::roi) {
+                                    if let Some(pixels) =
+                                        picture.with_luma(|y, stride| quality_roi(scale, y, stride))
+                                    {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -318,9 +339,8 @@ impl Viewer {
                                     }
                                 }
                                 let origin = self.marker_origin;
-                                let read = picture.with_luma(|y, stride| {
-                                    marker::decode_luma_at(y, stride, true, origin)
-                                });
+                                let read = picture
+                                    .with_luma(|y, stride| read_marker(scale, y, stride, origin));
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -345,11 +365,16 @@ impl Viewer {
                         match decoded {
                             Ok(true) => {
                                 self.decoded_frames += 1;
+                                self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(
+                                    self.scaled_stream,
+                                    (pic.width, pic.y.len() / pic.width.max(1)),
+                                );
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(&pic.y, pic.width) {
+                                    if let Some(pixels) = quality_roi(scale, &pic.y, pic.width) {
                                         quality.decoded(
                                             u64::from(frame.frame),
                                             frame.body.t_capture_us,
@@ -358,12 +383,8 @@ impl Viewer {
                                         );
                                     }
                                 }
-                                let read = marker::decode_luma_at(
-                                    &pic.y,
-                                    pic.width,
-                                    true,
-                                    self.marker_origin,
-                                );
+                                let read =
+                                    read_marker(scale, &pic.y, pic.width, self.marker_origin);
                                 self.saw_marker(
                                     read,
                                     frame.frame,
@@ -397,11 +418,14 @@ impl Viewer {
                                     }
                                 }
                                 self.decoded_frames += 1;
+                                self.ledger.on_decoded(h.stream, frame.frame, t1 / 1000);
                                 if let Some(log) = self.eval_decode.as_mut() {
                                     log.record(frame.frame, frame.body.t_capture_us, t1 / 1000);
                                 }
+                                let scale = scale_of(self.scaled_stream, yuv.dimensions());
                                 if let Some(quality) = self.eval_quality.as_mut() {
-                                    if let Some(pixels) = crate::eval::roi(yuv.y(), yuv.strides().0)
+                                    if let Some(pixels) =
+                                        quality_roi(scale, yuv.y(), yuv.strides().0)
                                     {
                                         quality.decoded(
                                             u64::from(frame.frame),
@@ -419,12 +443,7 @@ impl Viewer {
                                     yuv.write_rgb8(&mut rgb);
                                     self.snapshot = Some((w, h, rgb));
                                 }
-                                marker::decode_luma_at(
-                                    yuv.y(),
-                                    yuv.strides().0,
-                                    true,
-                                    self.marker_origin,
-                                )
+                                read_marker(scale, yuv.y(), yuv.strides().0, self.marker_origin)
                             }
                             Ok(None) => None,
                             Err(_) => {
@@ -436,6 +455,13 @@ impl Viewer {
                     self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                 }
             }
+            // An ultra capacity probe: only its arrival goes back, in the media feedback.
+            DatagramKind::Probe => {
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
+            }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
                 let resends = match self.upstream.as_mut() {
                     Some(up) => up.on_datagram(d, now / 1000).unwrap_or_default(),
@@ -443,6 +469,16 @@ impl Viewer {
                 };
                 for datagram in resends {
                     let _ = self.send_datagram(&datagram);
+                }
+            }
+            DatagramKind::FrameTimes => {
+                if let Ok(times) = FrameTimes::decode(payload) {
+                    self.ledger.on_host(h.stream, h.frame, times);
+                }
+            }
+            DatagramKind::ClockPong => {
+                if let (Some(clock), Ok(pong)) = (self.clock.as_mut(), ClockPong::decode(payload)) {
+                    clock.on_pong(&pong, now / 1000);
                 }
             }
             DatagramKind::InputAck if payload.len() >= 4 => {
@@ -487,10 +523,21 @@ impl Viewer {
             };
             match serde_json::from_slice::<Control>(&payload)? {
                 Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                Control::Welcome { max_datagram, .. } => {
+                Control::Welcome { max_datagram, width, height, caps: ref negotiated, .. } => {
                     // Upstream datagrams use the size the host agreed to.
                     self.max_datagram = max_datagram;
-                    self.welcome = Some(serde_json::from_slice(&payload)?)
+                    if negotiated.iter().any(|c| c == caps::VIDEO_SCALED) {
+                        self.scaled_stream = Some((width as usize, height as usize));
+                    }
+                    let welcome: serde_json::Value = serde_json::from_slice(&payload)?;
+                    // An older host refuses the probe kinds: ping only when it lists `clock`.
+                    let lists = |cap: &str| {
+                        welcome["caps"].as_array().is_some_and(|c| c.iter().any(|v| v == cap))
+                    };
+                    if lists(caps::CLOCK) {
+                        self.clock.get_or_insert_with(ClockEstimator::new);
+                    }
+                    self.welcome = Some(welcome);
                 }
                 Control::Refused { reason } | Control::Ended { reason } => {
                     self.ended.get_or_insert(reason);
@@ -509,8 +556,43 @@ impl Viewer {
         }
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
+        self.send_clock_ping()?;
         self.send_input()?;
         Ok(())
+    }
+
+    /// The clock probe due now, if the session clock runs (cap `clock`).
+    fn send_clock_ping(&mut self) -> Res<()> {
+        let Some(ping) = self.clock.as_mut().and_then(|c| c.ping(now_ns() / 1000)) else {
+            return Ok(());
+        };
+        let mut d = Vec::with_capacity(HEADER_LEN + 32);
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::ClockPing,
+            stream: 0,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        }
+        .encode_into(&mut d);
+        d.extend_from_slice(&ping.encode());
+        self.send_datagram(&d)?;
+        Ok(())
+    }
+
+    /// The run's stage ledger (`cmux.rd-stage-ledger/1`) on the host's clock. The bench
+    /// decodes but draws nothing on glass, so Present (and Total, which ends there) stay
+    /// empty with that reason; `display_to_decoded` is the bench's end-to-end row.
+    fn stage_ledger(&self) -> serde_json::Value {
+        const NO_GLASS: &str =
+            "cmux-rd bench decodes but has no on-glass present time; the app's drawable presented time fills it";
+        let offset = self.clock.as_ref().and_then(ClockEstimator::estimate).map(|e| e.offset_us);
+        let json =
+            self.ledger.summary(offset, &[("Present", NO_GLASS), ("Total", NO_GLASS)]).to_json();
+        serde_json::from_str(&json).unwrap_or(serde_json::Value::Null)
     }
 
     /// Sends the keys typed into the `--present` window to the host, as the app's viewer does.
@@ -842,9 +924,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
             None => (0, 0),
         },
+        scaled_stream: None,
         #[cfg(target_os = "linux")]
         presenter: opts.get("present").map(crate::present::Presenter::open).transpose()?,
         present_errors: 0,
+        ledger: StageLedger::new(),
+        clock: None,
     };
     #[cfg(not(target_os = "linux"))]
     if opts.get("present").is_some() {
@@ -875,11 +960,17 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
-        caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
-        } else {
-            Vec::new()
+        // Upstream media needs both caps (rd change C4). `--caps A,B` offers more, such as
+        // `video.scaled` (the resolution ladder).
+        caps: {
+            let mut offered = vec![caps::CLOCK.into(), caps::LEDGER.into()];
+            if upstream.is_some() {
+                offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
+            }
+            offered.extend(opts.get("caps").into_iter().flat_map(|list| {
+                list.split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned)
+            }));
+            offered
         },
     })?;
     v.io.send_control(&Control::Start {
@@ -1035,6 +1126,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
         "host_stats_last": v.stats.last(),
         "upstream": upstream_report,
+        "stage_ledger": v.stage_ledger(),
         "ended": v.ended,
     });
     println!("{report}");
@@ -1127,12 +1219,40 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         "decode_errors": v.decode_errors,
         "present_errors": v.present_errors,
         "client_cpu_pct": (cpu_s() - c0) / secs * 100.0,
+        "stage_ledger": v.stage_ledger(),
         "ended": v.ended,
     });
     println!("{report}");
     write_snapshot(opts, v)?;
     let _ = v.io.send_control(&Control::Stop);
     Ok(())
+}
+
+/// How a decoded picture of size `picture` maps onto the stream, when the host negotiated cap
+/// `video.scaled` (`stream`) and sent a picture smaller than it; `None`: read it directly.
+fn scale_of(stream: Option<(usize, usize)>, picture: (usize, usize)) -> Option<Scale> {
+    stream.map(|stream| Scale::new(picture, stream)).filter(|scale| !scale.is_identity())
+}
+
+/// The quality region (`eval::RECT`, stream pixels) of a decoded luma plane.
+fn quality_roi(scale: Option<Scale>, y: &[u8], stride: usize) -> Option<Vec<u8>> {
+    match scale {
+        Some(scale) => scale.luma_rect(y, stride, crate::eval::RECT),
+        None => crate::eval::roi(y, stride),
+    }
+}
+
+/// The marker (at `origin`, stream pixels) of a decoded luma plane.
+fn read_marker(
+    scale: Option<Scale>,
+    y: &[u8],
+    stride: usize,
+    origin: (usize, usize),
+) -> Option<u16> {
+    match scale {
+        Some(scale) => marker::decode_with(true, origin, |x, row| scale.luma(y, stride, x, row)),
+        None => marker::decode_luma_at(y, stride, true, origin),
+    }
 }
 
 /// `--snapshot PATH`: the newest decoded frame, so a run shows what the viewer received.
@@ -1144,6 +1264,11 @@ fn write_snapshot(opts: &Opts, v: &Viewer) -> Res<()> {
     if let (Some(path), Some((w, h, rgb))) =
         (opts.get("snapshot"), converted.as_ref().or(v.snapshot.as_ref()))
     {
+        // A smaller picture (cap `video.scaled`) is written as a viewer shows it: stream size.
+        let scaled = scale_of(v.scaled_stream, (*w, *h)).map(|scale| scale.rgb(rgb));
+        let (w, h, rgb) = scaled
+            .as_ref()
+            .map_or((*w, *h, rgb.as_slice()), |(w, h, rgb)| (*w, *h, rgb.as_slice()));
         let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
         ppm.extend_from_slice(rgb);
         std::fs::write(path, ppm)?;
@@ -1199,6 +1324,8 @@ fn link_io() -> Res<ViewerIo> {
         turn: Vec::new(),
         relay_only: false,
     })?;
+    // A host that dies without a close ends this viewer instead of freezing it.
+    net.set_peer_lost(Some(std::time::Duration::from_micros(cmux_rd_link::PEER_LOST_US)));
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }

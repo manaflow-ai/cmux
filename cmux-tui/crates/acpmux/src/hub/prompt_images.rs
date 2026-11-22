@@ -121,8 +121,8 @@ pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     images.filter_map(|named| named.get("id").and_then(Value::as_str))
 }
 
-/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
-/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?, width?,
+/// height?}`, the id the SHA-256 of the bytes, the size read from the image's header). `None` for any other block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
@@ -136,6 +136,12 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let mut named = json!({"id": id, "mimeType": mime});
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
+    }
+    // Its pixel size from the header, so the chat reserves the image's exact box before the bytes
+    // load and a decoded image never moves a row (agent-transcript-clean-slate.md, step 2).
+    if let Some((width, height)) = super::image_dims::image_dims(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
     }
     Some((bytes, named))
 }
