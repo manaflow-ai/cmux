@@ -55,13 +55,13 @@ nonisolated enum CodeRouterPageConfirmations {
 }
 
 nonisolated enum CodeRouterPageStrings {
-    static var title: String { String(localized: "coderouter.page.title", defaultValue: "CodeRouter", table: "Accounts", bundle: .module) }
+    static var title: String { String(localized: "coderouter.page.title", defaultValue: "CodeRouter", table: "Accounts", bundle: .module.inAppLanguage) }
     static var connectTitle: String {
-        String(localized: "coderouter.connect.title", defaultValue: "Connect %@ to CodeRouter?", table: "Accounts", bundle: .module)
+        String(localized: "coderouter.connect.title", defaultValue: "Connect %@ to CodeRouter?", table: "Accounts", bundle: .module.inAppLanguage)
     }
     static var connectDetail: String {
         String(localized: "coderouter.connect.detail",
                defaultValue: "cmux sends this sign-in to CodeRouter. It stays private until you share it with your team.",
-               table: "Accounts", bundle: .module)
+               table: "Accounts", bundle: .module.inAppLanguage)
     }
 }

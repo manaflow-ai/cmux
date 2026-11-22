@@ -18,14 +18,10 @@ pub fn cd_argument(text: &str) -> Option<&str> {
 /// The value without surrounding whitespace and one pair of matching quotes.
 pub fn unquote(value: &str) -> &str {
     let value = value.trim();
-    if value.len() >= 2
-        && ((value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\'')))
-    {
-        &value[1..value.len() - 1]
-    } else {
-        value
-    }
+    ['"', '\'']
+        .into_iter()
+        .find_map(|quote| value.strip_prefix(quote)?.strip_suffix(quote))
+        .unwrap_or(value)
 }
 pub fn resolve(base: &Path, value: &str, home: &Path, previous: Option<&str>) -> Result<PathBuf> {
     let value = unquote(value);
@@ -33,7 +29,7 @@ pub fn resolve(base: &Path, value: &str, home: &Path, previous: Option<&str>) ->
         "-" => PathBuf::from(previous.ok_or_else(|| anyhow::anyhow!("No previous directory yet"))?),
         "~" => home.to_owned(),
         "" => base.to_owned(),
-        s if s.starts_with("~/") => home.join(&s[2..]),
+        s if s.starts_with("~/") => home.join(s.get(2..).unwrap_or_default()),
         s => base.join(s),
     };
     Ok(path)

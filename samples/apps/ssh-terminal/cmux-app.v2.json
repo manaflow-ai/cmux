@@ -2,11 +2,15 @@
   "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
   "id": "manaflow-ai/ssh-terminal",
-  "name": { "en": "SSH Terminal (sample)", "ja": "SSH ターミナル (サンプル)" },
+  "name": { "en": "SSH Terminal", "ja": "SSH ターミナル" },
   "version": "0.1.0",
   "description": {
-    "en": "Sample third-party terminal backend: plain SSH to hosts you connect, with no cmux on the host.",
-    "ja": "サードパーティのターミナルバックエンドのサンプル: 接続したホストへの通常の SSH。ホスト側に cmux は不要です。"
+    "en": "Open terminals on any host you can reach over SSH. The other machine needs no cmux, and cmux checks its host key before it connects.",
+    "ja": "SSH で接続できるホストならどこでもターミナルを開けます。相手のマシンに cmux は不要で、接続の前に cmux がホスト鍵を確認します。"
+  },
+  "tagline": {
+    "en": "Open terminals on any SSH host, no cmux needed on the other end",
+    "ja": "SSH で入れるホストでターミナルを開けます。相手側に cmux は不要です"
   },
   "publisher": { "name": "manaflow-ai (sample, not first-party)", "url": "https://github.com/manaflow-ai" },
   "repository": "https://github.com/manaflow-ai/cmux",

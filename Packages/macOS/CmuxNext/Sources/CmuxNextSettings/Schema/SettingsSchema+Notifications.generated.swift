@@ -115,6 +115,9 @@ extension AttentionSettings {
     /// `notifications.attention.showOnSidebar`.
     public nonisolated static let showOnSidebarPath = ["notifications", "attention", "showOnSidebar"]
     public nonisolated static let showOnSidebarDefault = true
+    /// `notifications.attention.mark`: Leo 2026-11-19: "needs you" as motion, a look customization, off by default (the badge stays the default).
+    public nonisolated static let markPath = ["notifications", "attention", "mark"]
+    public nonisolated static let markDefault: AttentionMarkLook = .badge
     /// `notifications.attention.moveToTop`.
     public nonisolated static let moveToTopPath = ["notifications", "attention", "moveToTop"]
     public nonisolated static let moveToTopDefault = true
@@ -160,6 +163,18 @@ extension NotificationSoundPreferences {
     /// `notifications.sounds.agents`.
     public nonisolated static let agentsPath = ["notifications", "sounds", "agents"]
     public nonisolated static let agentsDefault: JSONValue = .object([:])
+}
+
+extension NotificationPreferences {
+    /// `notifications.delivery.permissionRequest`.
+    public nonisolated static let permissionRequestDeliveryPath = ["notifications", "delivery", "permissionRequest"]
+    public nonisolated static let permissionRequestDeliveryDefault: NotificationDeliveryLevel = .banner
+    /// `notifications.delivery.question`.
+    public nonisolated static let questionDeliveryPath = ["notifications", "delivery", "question"]
+    public nonisolated static let questionDeliveryDefault: NotificationDeliveryLevel = .banner
+    /// `notifications.delivery.taskComplete`.
+    public nonisolated static let taskCompleteDeliveryPath = ["notifications", "delivery", "taskComplete"]
+    public nonisolated static let taskCompleteDeliveryDefault: NotificationDeliveryLevel = .banner
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

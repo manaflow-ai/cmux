@@ -10,8 +10,11 @@ import UniformTypeIdentifiers
 /// It shares the AppsClient's transport callback, so panel scene events cannot replace the App
 /// Store's event handling.
 ///
-/// Ops: `list`, `composer` (the composer's extension slash commands and mention providers, as the
-/// daemon answers `apps.composer.list`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
+/// Ops: `list`, `route {key, tool | app+props}` (the daemon's chat widget for a tool call or a widget
+/// part, `apps.chat_widgets.route`: the page mounts what it answers on the `chatWidget` surface),
+/// `composer` (the composer's extension slash commands and mention providers, as the
+/// daemon answers `apps.composer.list`), `mentions {query, prefix?, limit?}` (the extension `@` items
+/// that match, as the daemon ranks them in `apps.composer.mentions`), `mount {surface, app, section?, context}` (answers `{mount_id, asset_base?}`),
 /// `dispatch` and `reload {mount_id}` (both only from the person's own click or key), `layout
 /// {mount_id, height}` and `unmount`. The `scene` stream carries each mount's ops batches and its
 /// status, `{mount_id, status: loading|ready|failed|disconnected, reason?}`, as the host model has it.
@@ -86,10 +89,29 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
+        case Self.namespace + "route":
+            do {
+                return pageJSON(try await client.chatWidgetRoute(appJSON(params)))
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
         case Self.namespace + "composer":
             // The daemon decides what the composer lists; the page gets its reply as it is.
             do {
                 return try await pageJSON(client.composerPlaces())
+            } catch {
+                throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
+            }
+        case Self.namespace + "mentions":
+            // The daemon matches and ranks the items; the page gets its reply as it is.
+            guard let query = params["query"]?.stringValue else {
+                throw PageError.invalidParams("query is required")
+            }
+            var args: [String: AppJSON] = ["query": .string(query)]
+            if let prefix = params["prefix"]?.stringValue { args["prefix"] = .string(prefix) }
+            if let limit = params["limit"]?.intValue { args["limit"] = .number(Double(limit)) }
+            do {
+                return try await pageJSON(client.composerMentions(.object(args)))
             } catch {
                 throw PageError.failed(error, code: "cmux.apps.panels.failed", retryable: true)
             }
@@ -163,7 +185,7 @@ public final class AppsPanelsPageProvider: PageProvider, PageDynamicResourceSour
         guard let rawSurface = params["surface"]?.stringValue, let surface = AppMountSurface(rawValue: rawSurface),
               let app = params["app"]?.stringValue,
               let rawContext = params["context"], case .object = rawContext else {
-            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection, newTab or widget), app and object context are required")
+            throw PageError.invalidParams("surface (pane, sidebarSection, hoverCard, sessionInfoSection, chatWidget, newTab or widget), app and object context are required")
         }
         let section = params["section"]?.stringValue
         guard let record = client.app(app), let implementation = surface.implementation(of: record, id: section) else {

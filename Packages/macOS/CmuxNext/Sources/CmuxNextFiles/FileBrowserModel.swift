@@ -76,7 +76,8 @@ public final class FileBrowserModel {
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var typeSelect = TypeSelectBuffer()
     @ObservationIgnored private var indexCache: [String: Int]?
-    @ObservationIgnored let lister: any DirectoryListing
+    /// How this pane reads folders (its columns view reads through it too).
+    @ObservationIgnored public let lister: any DirectoryListing
     @ObservationIgnored private let watcher: any FolderWatching
     @ObservationIgnored let files: any FileOperating
     @ObservationIgnored private let now: @Sendable () -> Date

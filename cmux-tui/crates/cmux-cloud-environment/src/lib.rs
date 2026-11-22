@@ -41,9 +41,11 @@ pub enum Environment {
     Preview(u32),
     Staging,
     Prod,
-    /// A dev build's own backend on the tailnet: one tag's `wrangler dev` stack on the dev VM
-    /// (`https://<host>.<tailnet>.ts.net[:port]`, HTTPS only). Dev bundles only ([`is_dev_bundle`]);
-    /// its other origins are the development deployment's unless its client-config names others.
+    /// A dev build's own backend: one tag's `wrangler dev` stack on the dev VM, by its tailnet origin
+    /// (`https://<host>.<tailnet>.ts.net[:port]`) or its public one (`https://api.s<N>.wdev.cmux.dev`,
+    /// behind the authenticating gateway, scripts/cmux-next/cloud-dev-stack/gateway). HTTPS only. Dev
+    /// bundles only ([`is_dev_bundle`]); its other origins are the development deployment's unless
+    /// its client-config names others.
     Tailnet(String),
 }
 
@@ -86,7 +88,11 @@ impl Environment {
             PRODUCTION_API => Ok(Self::Prod),
             "http://localhost:8787" => Ok(Self::Local),
             _ if client_config::is_loopback_origin(&origin) => Ok(Self::LocalOrigin(origin)),
-            _ if client_config::is_tailnet_origin(&origin) => Ok(Self::Tailnet(origin)),
+            _ if client_config::is_tailnet_origin(&origin)
+                || client_config::is_public_stack_origin(&origin) =>
+            {
+                Ok(Self::Tailnet(origin))
+            }
             _ => {
                 let host = url::Url::parse(&origin)
                     .map_err(|error| error.to_string())?
@@ -290,10 +296,7 @@ impl Resolver {
             return Err("home path must be absolute".into());
         }
         move_from_classic(home, bundle_id);
-        Ok(Self {
-            bundle_id: bundle_id.into(),
-            home: home.to_path_buf(),
-        })
+        Ok(Self { bundle_id: bundle_id.into(), home: home.to_path_buf() })
     }
 
     /// This launch's backend, in order: `seed` (the launch's `--cloud-backend`, else its
@@ -348,10 +351,7 @@ impl Resolver {
         let path = self.state_path();
         let persisted = match fs::read_to_string(&path) {
             Ok(text) => Some(serde_json::from_str::<Persisted>(&text).map_err(|error| {
-                format!(
-                    "invalid cloud environment state {}: {error}",
-                    path.display()
-                )
+                format!("invalid cloud environment state {}: {error}", path.display())
             })?),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(format!("read {}: {error}", path.display())),
@@ -370,11 +370,7 @@ impl Resolver {
             );
         }
         let environment = self.default_environment();
-        let revision = if environment == self.default_environment() {
-            0
-        } else {
-            next_revision()
-        };
+        let revision = if environment == self.default_environment() { 0 } else { next_revision() };
         match self.persist_new(&environment, revision) {
             Ok(()) => self.selection(environment, revision),
             Err(error) if error.starts_with("state already exists:") => {
@@ -383,10 +379,7 @@ impl Resolver {
                 let text = fs::read_to_string(&path)
                     .map_err(|read| format!("read {}: {read}", path.display()))?;
                 let winner: Persisted = serde_json::from_str(&text).map_err(|parse| {
-                    format!(
-                        "invalid cloud environment state {}: {parse}",
-                        path.display()
-                    )
+                    format!("invalid cloud environment state {}: {parse}", path.display())
                 })?;
                 let environment = Environment::parse(&winner.name)?;
                 self.selection_with_legacy(
@@ -593,9 +586,8 @@ impl Resolver {
 
     fn persist_new(&self, environment: &Environment, revision: u64) -> Result<(), String> {
         let path = self.state_path();
-        let parent = path
-            .parent()
-            .ok_or_else(|| "cloud environment state has no parent".to_string())?;
+        let parent =
+            path.parent().ok_or_else(|| "cloud environment state has no parent".to_string())?;
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
@@ -609,14 +601,11 @@ impl Resolver {
         options.write(true).create_new(true);
         #[cfg(unix)]
         options.mode(0o600);
-        let mut file = options
-            .open(&tmp)
-            .map_err(|error| format!("create {}: {error}", tmp.display()))?;
+        let mut file =
+            options.open(&tmp).map_err(|error| format!("create {}: {error}", tmp.display()))?;
         let result = (|| {
-            file.write_all(&body)
-                .map_err(|error| format!("write {}: {error}", tmp.display()))?;
-            file.sync_all()
-                .map_err(|error| format!("sync {}: {error}", tmp.display()))?;
+            file.write_all(&body).map_err(|error| format!("write {}: {error}", tmp.display()))?;
+            file.sync_all().map_err(|error| format!("sync {}: {error}", tmp.display()))?;
             drop(file);
             fs::hard_link(&tmp, &path).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -633,9 +622,8 @@ impl Resolver {
 
     fn persist_replace(&self, environment: &Environment, revision: u64) -> Result<(), String> {
         let path = self.state_path();
-        let parent = path
-            .parent()
-            .ok_or_else(|| "cloud environment state has no parent".to_string())?;
+        let parent =
+            path.parent().ok_or_else(|| "cloud environment state has no parent".to_string())?;
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
@@ -649,14 +637,11 @@ impl Resolver {
         options.write(true).create_new(true);
         #[cfg(unix)]
         options.mode(0o600);
-        let mut file = options
-            .open(&tmp)
-            .map_err(|error| format!("create {}: {error}", tmp.display()))?;
+        let mut file =
+            options.open(&tmp).map_err(|error| format!("create {}: {error}", tmp.display()))?;
         let result = (|| {
-            file.write_all(&body)
-                .map_err(|error| format!("write {}: {error}", tmp.display()))?;
-            file.sync_all()
-                .map_err(|error| format!("sync {}: {error}", tmp.display()))?;
+            file.write_all(&body).map_err(|error| format!("write {}: {error}", tmp.display()))?;
+            file.sync_all().map_err(|error| format!("sync {}: {error}", tmp.display()))?;
             drop(file);
             fs::rename(&tmp, &path)
                 .map_err(|error| format!("replace {}: {error}", path.display()))?;
@@ -714,14 +699,12 @@ fn next_revision() -> u64 {
 /// `cmux/<bundle id>` (cmuxterm-hq goals/next-store-out-of-classic.md), which classic cmux of the
 /// same bundle id (NIGHTLY) also uses, so only NEXT's items move out of it ([`move_from_classic`]).
 pub fn bundle_folder(home: &Path, bundle_id: &str) -> PathBuf {
-    home.join("Library/Application Support/cmux-next")
-        .join(bundle_id)
+    home.join("Library/Application Support/cmux-next").join(bundle_id)
 }
 
 /// Where builds before kept [`bundle_folder`]'s items: classic cmux's `cmux/<bundle id>`.
 fn classic_bundle_folder(home: &Path, bundle_id: &str) -> PathBuf {
-    home.join("Library/Application Support/cmux")
-        .join(bundle_id)
+    home.join("Library/Application Support/cmux").join(bundle_id)
 }
 
 /// The items this crate keeps in [`bundle_folder`] that builds before kept in classic's folder.
@@ -778,11 +761,7 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 }
 
 fn temp_path(parent: &Path) -> PathBuf {
-    parent.join(format!(
-        ".{STATE_FILE}.{}.{}.tmp",
-        std::process::id(),
-        next_revision()
-    ))
+    parent.join(format!(".{STATE_FILE}.{}.{}.tmp", std::process::id(), next_revision()))
 }
 
 fn is_mutable_bundle(bundle_id: &str) -> bool {
@@ -840,11 +819,8 @@ mod tests {
         let home = Home::new();
         let old = classic(&home, SHIPPED_NIGHTLY_BUNDLE);
         fs::create_dir_all(old.join("client-config")).unwrap();
-        fs::write(
-            old.join(STATE_FILE),
-            r#"{"name":"staging","revision":7,"explicit":true}"#,
-        )
-        .unwrap();
+        fs::write(old.join(STATE_FILE), r#"{"name":"staging","revision":7,"explicit":true}"#)
+            .unwrap();
         fs::write(old.join("client-config/origin.json"), "{}").unwrap();
         // Classic NIGHTLY shares the bundle id and keeps its file-fallback sign-in here.
         fs::write(old.join("credentials.json"), "classic").unwrap();
@@ -852,44 +828,18 @@ mod tests {
         let resolver = Resolver::new(SHIPPED_NIGHTLY_BUNDLE, &home.0).unwrap();
         let next = bundle_folder(&home.0, SHIPPED_NIGHTLY_BUNDLE);
         assert_eq!(resolver.state_path(), next.join(STATE_FILE));
-        assert!(
-            fs::symlink_metadata(next.join(STATE_FILE))
-                .unwrap()
-                .is_file()
-        );
-        assert_eq!(
-            fs::read_to_string(next.join("client-config/origin.json")).unwrap(),
-            "{}"
-        );
+        assert!(fs::symlink_metadata(next.join(STATE_FILE)).unwrap().is_file());
+        assert_eq!(fs::read_to_string(next.join("client-config/origin.json")).unwrap(), "{}");
         // An older daemon still reads the old paths, through the links left there.
-        assert!(
-            fs::symlink_metadata(old.join(STATE_FILE))
-                .unwrap()
-                .file_type()
-                .is_symlink()
-        );
-        assert!(
-            fs::read_to_string(old.join(STATE_FILE))
-                .unwrap()
-                .contains("staging")
-        );
-        assert_eq!(
-            fs::read_to_string(old.join("client-config/origin.json")).unwrap(),
-            "{}"
-        );
-        assert_eq!(
-            fs::read_to_string(old.join("credentials.json")).unwrap(),
-            "classic"
-        );
+        assert!(fs::symlink_metadata(old.join(STATE_FILE)).unwrap().file_type().is_symlink());
+        assert!(fs::read_to_string(old.join(STATE_FILE)).unwrap().contains("staging"));
+        assert_eq!(fs::read_to_string(old.join("client-config/origin.json")).unwrap(), "{}");
+        assert_eq!(fs::read_to_string(old.join("credentials.json")).unwrap(), "classic");
         assert!(!next.join("credentials.json").exists());
 
         // Once: the links are not moved again, and a later resolver reads the same state.
         Resolver::new(SHIPPED_NIGHTLY_BUNDLE, &home.0).unwrap();
-        assert!(
-            fs::symlink_metadata(next.join(STATE_FILE))
-                .unwrap()
-                .is_file()
-        );
+        assert!(fs::symlink_metadata(next.join(STATE_FILE)).unwrap().is_file());
     }
 
     #[test]
@@ -899,31 +849,18 @@ mod tests {
         let next = bundle_folder(&home.0, DEV_BUNDLE);
         fs::create_dir_all(&old).unwrap();
         fs::create_dir_all(next.join("client-config")).unwrap();
-        fs::write(
-            old.join(STATE_FILE),
-            r#"{"name":"staging","revision":7,"explicit":true}"#,
-        )
-        .unwrap();
-        fs::write(
-            next.join(STATE_FILE),
-            r#"{"name":"dev","revision":0,"explicit":false}"#,
-        )
-        .unwrap();
+        fs::write(old.join(STATE_FILE), r#"{"name":"staging","revision":7,"explicit":true}"#)
+            .unwrap();
+        fs::write(next.join(STATE_FILE), r#"{"name":"dev","revision":0,"explicit":false}"#)
+            .unwrap();
         fs::create_dir_all(old.join("client-config")).unwrap();
         fs::write(old.join("client-config/a.json"), "old").unwrap();
         fs::write(next.join("client-config/b.json"), "new").unwrap();
 
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         assert_eq!(resolver.resolve(None).unwrap().name, "dev");
-        assert!(
-            fs::symlink_metadata(old.join(STATE_FILE))
-                .unwrap()
-                .is_file()
-        );
-        assert_eq!(
-            fs::read_to_string(old.join("client-config/a.json")).unwrap(),
-            "old"
-        );
+        assert!(fs::symlink_metadata(old.join(STATE_FILE)).unwrap().is_file());
+        assert_eq!(fs::read_to_string(old.join("client-config/a.json")).unwrap(), "old");
         assert!(!next.join("client-config/a.json").exists());
     }
 
@@ -941,10 +878,7 @@ mod tests {
         let preview = Environment::Preview(42).configuration();
         assert_eq!(preview.name, "preview-42");
         assert!(preview.api_origin.contains("preview-42"));
-        assert_eq!(
-            preview.platform_origin,
-            Environment::Dev.configuration().platform_origin
-        );
+        assert_eq!(preview.platform_origin, Environment::Dev.configuration().platform_origin);
         assert_eq!(preview.share_api_origin, DEVELOPMENT_API);
     }
 
@@ -976,21 +910,12 @@ mod tests {
         let initial = resolver.resolve(None).unwrap();
         assert_eq!(initial.name, "dev");
         assert!(!initial.legacy_storage);
-        assert_eq!(
-            resolver.set(Environment::Dev).unwrap().auth_namespace,
-            initial.auth_namespace
-        );
+        assert_eq!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
         let staging = resolver.set(Environment::Staging).unwrap();
         assert!(!staging.legacy_storage);
         assert_ne!(staging.auth_namespace, initial.auth_namespace);
-        assert_eq!(
-            resolver.resolve(None).unwrap().auth_namespace,
-            staging.auth_namespace
-        );
-        assert_ne!(
-            resolver.set(Environment::Dev).unwrap().auth_namespace,
-            initial.auth_namespace
-        );
+        assert_eq!(resolver.resolve(None).unwrap().auth_namespace, staging.auth_namespace);
+        assert_ne!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
     }
 
     #[test]
@@ -1010,17 +935,11 @@ mod tests {
     fn an_update_from_a_build_before_runtime_selection_stays_signed_in() {
         // Shipped NEXT Nightly is `com.cmuxterm.app.nightly`; its session was in
         // `<bundle>.auth` before #35284 and must still be read there (2026-11-05).
-        for bundle in [
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.rc",
-            "com.cmuxterm.app.nightly",
-            NIGHTLY_BUNDLE,
-        ] {
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.nightly", NIGHTLY_BUNDLE]
+        {
             let home = Home::new();
-            let selected = Resolver::new(bundle, &home.0)
-                .unwrap()
-                .resolve(None)
-                .unwrap();
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
             assert_eq!(selected.configuration.name, "prod", "{bundle}");
             assert!(selected.legacy_storage, "{bundle}");
             assert_eq!(selected.auth_storage_namespace, None, "{bundle}");
@@ -1030,65 +949,38 @@ mod tests {
     #[test]
     fn safe_untouched_defaults_preserve_historical_storage_only() {
         let home = Home::new();
-        for bundle in [
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.rc",
-            "com.cmuxterm.app.rc.test",
-            NIGHTLY_BUNDLE,
-        ] {
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.rc.test", NIGHTLY_BUNDLE]
+        {
             let resolver = Resolver::new(bundle, &home.0).unwrap();
             let selected = resolver.resolve(None).unwrap();
             assert!(selected.legacy_storage, "{bundle}");
             assert_eq!(selected.auth_storage_namespace, None);
             let explicit = resolver.resolve(Some("prod")).unwrap();
             assert!(!explicit.legacy_storage);
-            assert_eq!(
-                explicit.auth_storage_namespace,
-                Some(explicit.auth_namespace)
-            );
+            assert_eq!(explicit.auth_storage_namespace, Some(explicit.auth_namespace));
         }
         let resolver = Resolver::new("com.cmuxterm.app.debug.next", &home.0).unwrap();
         let selected = resolver.resolve(None).unwrap();
         assert!(selected.legacy_storage);
-        assert_eq!(
-            selected.auth_storage_namespace.as_deref(),
-            Some(DEVELOPMENT_STACK_PROJECT)
-        );
+        assert_eq!(selected.auth_storage_namespace.as_deref(), Some(DEVELOPMENT_STACK_PROJECT));
         let switched = resolver.set(Environment::Staging).unwrap();
         assert!(!switched.legacy_storage);
-        assert_eq!(
-            switched.auth_storage_namespace,
-            Some(switched.auth_namespace.clone())
-        );
+        assert_eq!(switched.auth_storage_namespace, Some(switched.auth_namespace.clone()));
         let returned = resolver.set(Environment::Dev).unwrap();
         assert!(!returned.legacy_storage);
-        assert_eq!(
-            returned.auth_storage_namespace,
-            Some(returned.auth_namespace.clone())
-        );
-        assert_ne!(
-            returned.auth_storage_namespace,
-            selected.auth_storage_namespace
-        );
+        assert_eq!(returned.auth_storage_namespace, Some(returned.auth_namespace.clone()));
+        assert_ne!(returned.auth_storage_namespace, selected.auth_storage_namespace);
     }
 
     #[test]
     fn unknown_debug_history_never_restores_unscoped_credentials() {
         let home = Home::new();
-        for bundle in [
-            DEV_BUNDLE,
-            "com.cmuxterm.app.debug.tagged",
-            "com.cmuxterm.app.debug.nextx",
-        ] {
-            let selected = Resolver::new(bundle, &home.0)
-                .unwrap()
-                .resolve(None)
-                .unwrap();
+        for bundle in [DEV_BUNDLE, "com.cmuxterm.app.debug.tagged", "com.cmuxterm.app.debug.nextx"]
+        {
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
             assert!(!selected.legacy_storage, "{bundle}");
-            assert_eq!(
-                selected.auth_storage_namespace,
-                Some(selected.auth_namespace)
-            );
+            assert_eq!(selected.auth_storage_namespace, Some(selected.auth_namespace));
         }
     }
 
@@ -1098,10 +990,7 @@ mod tests {
             (PRODUCTION_API, Environment::Prod),
             (STAGING_API, Environment::Staging),
             (DEVELOPMENT_API, Environment::Dev),
-            (
-                "https://cmux-api-preview-123.debussy.workers.dev",
-                Environment::Preview(123),
-            ),
+            ("https://cmux-api-preview-123.debussy.workers.dev", Environment::Preview(123)),
         ] {
             assert_eq!(Environment::parse(origin).unwrap(), expected);
         }
@@ -1118,6 +1007,7 @@ mod tests {
     }
 
     const TAILNET: &str = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+    const PUBLIC_STACK: &str = "https://api.s7.wdev.cmux.dev";
 
     /// The tag hand-off's file (`backend.json` in the bundle's folder), as review.sh writes it.
     fn write_tag_backend(home: &Home, bundle: &str, body: &str) {
@@ -1140,11 +1030,7 @@ mod tests {
         assert_eq!(default.name, "dev");
         assert_eq!(override_source(&default), serde_json::Value::Null);
         resolver.set(Environment::Staging).unwrap();
-        write_tag_backend(
-            &home,
-            bundle,
-            &format!(r#"{{"backend":"{TAILNET}","tag":"cnx-tag"}}"#),
-        );
+        write_tag_backend(&home, bundle, &format!(r#"{{"backend":"{TAILNET}","tag":"cnx-tag"}}"#));
         // The tag file beats the persisted picker choice...
         let tagged = resolver.resolve(None).unwrap();
         assert_eq!(tagged.api_origin, TAILNET);
@@ -1152,10 +1038,7 @@ mod tests {
         assert_eq!(override_source(&tagged), "tag_file");
         // ...its sign-in is its own, never the picker's or a legacy default's...
         assert!(!tagged.legacy_storage);
-        assert_eq!(
-            tagged.auth_storage_namespace.as_deref(),
-            Some(tagged.auth_namespace.as_str())
-        );
+        assert_eq!(tagged.auth_storage_namespace.as_deref(), Some(tagged.auth_namespace.as_str()));
         // ...its other services are the shared development deployment's.
         assert_eq!(tagged.platform_origin, DEVELOPMENT_PLATFORM);
         assert_eq!(tagged.stack_project_id, DEVELOPMENT_STACK_PROJECT);
@@ -1209,13 +1092,14 @@ mod tests {
             let resolver = Resolver::new(bundle, &home.0).unwrap();
             let selected = resolver.resolve(None).unwrap();
             assert_eq!(selected.name, "prod", "{bundle}");
-            assert_eq!(
-                override_source(&selected),
-                serde_json::Value::Null,
-                "{bundle}"
-            );
+            assert_eq!(override_source(&selected), serde_json::Value::Null, "{bundle}");
             assert!(resolver.resolve(Some(TAILNET)).is_err(), "{bundle}");
+            assert!(resolver.resolve(Some(PUBLIC_STACK)).is_err(), "{bundle}");
         }
+        // A dev bundle takes a tag stack's public origin, as its tailnet one.
+        let home = Home::new();
+        let dev = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
+        assert_eq!(dev.resolve(Some(PUBLIC_STACK)).unwrap().api_origin, PUBLIC_STACK);
         // NIGHTLY's picker cannot persist one either.
         let home = Home::new();
         let nightly = Resolver::new(NIGHTLY_BUNDLE, &home.0).unwrap();
@@ -1243,11 +1127,8 @@ mod tests {
         let dev = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
         let state = dev.state_path();
         std::fs::create_dir_all(state.parent().unwrap()).unwrap();
-        std::fs::write(
-            &state,
-            format!(r#"{{"name":"{TAILNET}","revision":3,"explicit":true}}"#),
-        )
-        .unwrap();
+        std::fs::write(&state, format!(r#"{{"name":"{TAILNET}","revision":3,"explicit":true}}"#))
+            .unwrap();
         assert_eq!(dev.resolve(None).unwrap().name, TAILNET);
     }
 
@@ -1270,11 +1151,7 @@ mod tests {
             "https://cmux-dev-backend-1.tail137216.ts.net/",
         ] {
             let parsed = Environment::parse(origin).unwrap();
-            assert_eq!(
-                parsed.configuration().api_origin,
-                origin.trim_end_matches('/'),
-                "{origin}"
-            );
+            assert_eq!(parsed.configuration().api_origin, origin.trim_end_matches('/'), "{origin}");
         }
         for origin in [
             "http://cmux-dev-backend-1.tail137216.ts.net:3850",
@@ -1285,6 +1162,16 @@ mod tests {
             "https://cmux-dev-backend-1.tail137216.ts.net?x=1",
             "https://user@cmux-dev-backend-1.tail137216.ts.net",
             "https://cmux_dev.tail137216.ts.net",
+            // Another tailnet's machine (a Funnel name is public) or a name under ours that is no machine.
+            "https://cmux-dev-backend-1.tail9999.ts.net:3850",
+            "https://evil.ts.net",
+            "https://a.b.tail137216.ts.net",
+            "https://.tail137216.ts.net",
+            // Under cmux.dev but no tag stack's API host.
+            "https://mobile.s7.wdev.cmux.dev",
+            "https://api.s7.wdev.cmux.dev:8443",
+            "https://api.s7.other.cmux.dev",
+            "https://cmux.dev",
         ] {
             assert!(Environment::parse(origin).is_err(), "{origin}");
         }
@@ -1298,11 +1185,7 @@ mod tests {
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         resolver.set(Environment::Staging).unwrap();
         assert_eq!(
-            fs::metadata(resolver.state_path())
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
+            fs::metadata(resolver.state_path()).unwrap().permissions().mode() & 0o777,
             0o600
         );
     }

@@ -3,9 +3,25 @@ import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
 import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import {
+  apnsConfig,
+  apnsTopics,
+  clean,
+  isSealedText,
+  MAX_MAILBOX_SEALED,
+  notifyFailures,
+  notifyLimitKey,
+  parseNotify,
+  pushTargets,
+  sendApns,
+  TURN_PUSH_WINDOW_MS,
+  turnPushKey,
+  wantedKinds,
+  notifyTargets,
+} from "./push.ts";
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
-import { userHubName, type Attachment } from "./team-hub.ts"
+import { StoreSchemaError } from "./store-mysql.ts"
+import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
@@ -37,12 +53,13 @@ export class CloudAttentionPush extends WorkerEntrypoint<Env> {
     const store = await openStore(this.env)
     try {
       const wanted = event.kind === "done" ? "completed" : event.kind
-      const targets = (await store.listOwnerPush(owner)).filter((target) => target.kinds.includes(wanted as PushKind))
+      // Cloud pushes go to the stable app's phones only: a dev build's space never receives them.
+      const targets = (await store.listOwnerPush("", owner)).filter((target) => target.kinds.includes(wanted as PushKind))
       if (targets.length === 0) return { accepted: true, correlation_id: `no-targets:${event.event_id}` }
       const { sendCloudAttention } = await import("./push.ts")
       const results = await sendCloudAttention(config, targets, event, Date.now())
       const dropped = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
-      if (dropped.length) await store.dropPushTokens(dropped)
+      if (dropped.length) await store.dropPushTokens("", dropped)
       const sent = results.find((r) => r.outcome === "sent" && r.status === 200 && !!r.apns_id)
       return { accepted: !!sent, ...(sent ? { correlation_id: `apns:${sent.apns_id}` } : {}) }
     } finally {
@@ -67,6 +84,8 @@ const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 const MACHINE_ID = /^[0-9a-f]{32}$/
 /** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
 const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
+/** A Mac's `quietMs` from its hub (PROTOCOL.md "Mac freshness"): only for an online Mac; an older hub sends none. */
+const quietOf = (p: { online: boolean; quietMs?: number } | undefined) => (p?.online && p.quietMs !== undefined ? { quietMs: p.quietMs } : {})
 /** Other builds' device ids one registration may name (`siblingDeviceIds`). */
 const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
@@ -88,6 +107,36 @@ class HttpError extends Error {
   ) {
     super(message)
   }
+}
+
+/**
+ * Build spaces (PROTOCOL.md "Build spaces"): a dev build of the app or the Mac host sends
+ * `X-Cmux-Build-Space: dev:<slug>` (its dev tag's slug, the same slug and 64-character cap as
+ * scripts/lib/mobile-attach.sh), and stable and nightly builds send nothing (space ""). Each space sees only
+ * its own devices, hubs, pushes and prefs.
+ */
+export const BUILD_SPACE_HEADER = "x-cmux-build-space"
+/** The `ENVIRONMENT` values (wrangler.jsonc vars, vitest.config.ts) whose Worker serves dev spaces. */
+const DEV_SPACE_ENVIRONMENTS: ReadonlySet<string> = new Set(["dev", "test", "local"])
+const BUILD_SPACE = /^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
+/**
+ * The caller's build space. An absent header is the stable space (""). A malformed value is refused (400),
+ * never read as stable: a dev build with a broken tag must not land in stable data. `dev:default` is refused
+ * too: the mobile-attach scripts reserve the `default` tag for the stable instance.
+ *
+ * Only the environments in `DEV_SPACE_ENVIRONMENTS` serve dev spaces; every other Worker, production included,
+ * refuses them (403 `build_space.not_allowed`) instead of serving them or dropping the header. It is an allow-list
+ * so a missing or misspelled `ENVIRONMENT` refuses too: production holds only stable data, and a dev build pointed
+ * at it by mistake then fails on its first request, before auth or any read, rather than reading or writing a
+ * person's real devices. Dev builds use the dev Worker (or a local one), where their spaces live.
+ */
+export const spaceOf = (req: Request, env: Pick<Env, "ENVIRONMENT">): string => {
+  const value = req.headers.get(BUILD_SPACE_HEADER)
+  if (value === null) return ""
+  if (!BUILD_SPACE.test(value) || value === "dev:default")
+    throw new HttpError(400, "build_space.invalid", `${BUILD_SPACE_HEADER} must be dev:<slug> (lowercase letters, digits and inner dashes, at most 64)`)
+  if (!DEV_SPACE_ENVIRONMENTS.has(env.ENVIRONMENT)) throw new HttpError(403, "build_space.not_allowed", "dev build spaces are not served by the production API; use the dev API")
+  return value
 }
 
 /** Workers rate limiting (PROTOCOL.md): a missing binding (tests, local) never limits. */
@@ -138,15 +187,17 @@ export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; 
   }
 }
 
-/** The caller's identity plus where a hub created by this request should live. */
-type Ctx = Caller & { readonly hint?: DurableObjectLocationHint; readonly t: Timing }
+/** The caller's identity, build space (`spaceOf`), and where a hub created by this request should live. */
+type Ctx = Caller & { readonly space: string; readonly hint?: DurableObjectLocationHint; readonly t: Timing }
 /**
  * The caller's own hub (PROTOCOL.md "Signaling WebSocket"): one per user, named by the owner key derived from
  * the verified token, never from a path or body value. Every hub call passes that key again, and the hub
  * refuses one that is not its owner's.
  */
 const userHub = (env: Env, caller: Ctx) =>
-  env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller))), caller.hint ? { locationHint: caller.hint } : undefined)
+  env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller), caller.space)), caller.hint ? { locationHint: caller.hint } : undefined)
+/** What every call into the caller's hub names: the owner key and build space, which must be the hub's own. */
+const hubOwner = (env: Env, caller: Ctx): HubOwner => ({ ownerKey: ownerKey(env, caller), space: caller.space })
 /**
  * Migration from team hubs (PROTOCOL.md 0.10.0). Hibernated sockets survive a deploy, so a socket can stay
  * parked in its old team hub (named by the team, `scoped(teamId)`) while its peers are in the user hub. Two
@@ -189,6 +240,8 @@ const retireOnce = async (env: Env, name: string, via: string, deviceIds: Readon
   }
 }
 const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string, deviceIds: ReadonlyArray<string> = []) => {
+  // Only stable builds ever used the team hubs; a dev build's request never wakes or closes them.
+  if (caller.space) return
   const name = scoped(env, caller, teamId)
   const hit = retireMemo.get(name)
   if (hit?.done) return
@@ -246,7 +299,7 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
   }
   let ok: boolean
   try {
-    ok = await caller.t.span("member", userHub(env, caller).isMember(teamId, { userId: caller.userId, projectId: caller.projectId, token: caller.token }, ownerKey(env, caller)))
+    ok = await caller.t.span("member", userHub(env, caller).isMember(teamId, { userId: caller.userId, projectId: caller.projectId, token: caller.token }, hubOwner(env, caller)))
   } catch (e) {
     console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
     throw new HttpError(502, "membership_unavailable", "could not check team membership")
@@ -256,7 +309,11 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
 
 const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Promise<T>): Promise<T> => {
   const t = timingFor(ctx)
-  const store = await t.span("db_connect", openStore(env))
+  const store = await t.span("db_connect", openStore(env)).catch((e: unknown) => {
+    // A Worker deployed before its migration: one clear answer instead of a SQL error from each statement.
+    if (e instanceof StoreSchemaError) throw new HttpError(503, "store.schema_outdated", e.message)
+    throw e
+  })
   try {
     return await t.span("db", f(store))
   } finally {
@@ -264,8 +321,11 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
   }
 }
 
-/** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
-const publicDevice = (env: Env, { machineId, ...d }: Device) => ({
+/**
+ * The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned), and the
+ * build space is the caller's own, so it is not returned either.
+ */
+const publicDevice = (env: Env, { machineId, space: _space, ...d }: Device) => ({
   ...d,
   ownerUserId: splitOwner(env, d.ownerUserId).userId,
   ...machineOf({ machineId })
@@ -274,6 +334,13 @@ const publicDevice = (env: Env, { machineId, ...d }: Device) => ({
 const colo = (req: Request): string | null => {
   const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
   return typeof c === "string" ? c : null
+}
+
+/** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
+const ingressOf = (req: Request): Ingress => {
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown } }).cf
+  const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
+  return { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent) }
 }
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
@@ -322,6 +389,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const path = url.pathname.replace(/\/+$/, "") || "/"
   const method = req.method
 
+  // Before auth and every route: a malformed space, or a dev space on production, is refused outright.
+  const space = spaceOf(req, env)
+
   if (path === "/v1/health" && method === "GET")
     return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id), colo: colo(req) })
 
@@ -331,8 +401,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const auth = await t.span("auth", authenticate(env, bearer.token))
   // The reason (expired, restricted, unknown_key, ...) names why without echoing the token.
   if (!("caller" in auth)) return fail(401, "unauthorized", `missing or invalid Stack access token (${auth.rejection})`)
-  const caller: Ctx = { ...auth.caller, t, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
+  const caller: Ctx = { ...auth.caller, space, t, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
   const me = ownerKey(env, caller)
+  const who = hubOwner(env, caller)
   await t.span("limit", limit(env.USER_LIMIT, me, "requests"))
 
   if (path === "/v1/ice" && method === "GET") {
@@ -348,7 +419,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const b = await readJson(req)
     if (typeof b.teamId !== "string") throw new HttpError(400, "bad_request", "teamId is required")
     const list = Array.isArray(b.devices) ? (b.devices as Array<Record<string, unknown>>).slice(0, 4) : []
-    const headers = { authorization: req.headers.get("authorization") ?? `Bearer ${bearer.token}`, "content-type": "application/json" }
+    // Each part runs in the caller's build space.
+    const headers: Record<string, string> = {
+      authorization: req.headers.get("authorization") ?? `Bearer ${bearer.token}`,
+      "content-type": "application/json",
+      ...(space ? { [BUILD_SPACE_HEADER]: space } : {})
+    }
     const part = async (method: string, path: string, body?: unknown) => {
       const sub = new Request(new URL(path, url), { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
       let res: Response
@@ -381,19 +457,19 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (e instanceof ReportError) throw new HttpError(400, "bad_request", e.message)
       throw e
     }
-    let who
+    let reporter
     try {
-      who = await t.span("stack_user", userEmail(env, caller))
+      reporter = await t.span("stack_user", userEmail(env, caller))
     } catch (e) {
       console.log(JSON.stringify({ msg: "connectivity report: user lookup failed", error: String(e) }))
       throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
     }
-    const audience = audienceOf(who.email, who.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    const audience = audienceOf(reporter.email, reporter.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
     if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
     // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
     // own Macs), so another user's Mac id finds nothing there.
     const liveness = await t
-      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
+      .span("hub", userHub(env, caller).macLiveness(who, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
       .catch((e) => {
         console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
         return null
@@ -401,14 +477,15 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
     const r = await t.span(
       "desk",
-      desk.report(report, { key: me, email: who.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
+      // A dev build's reports are their own reporter, so they never share a stable report's thread or cap.
+      desk.report(report, { key: space ? `${space}|${me}` : me, email: reporter.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
     )
     if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
     return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
   }
 
   if (path === "/v1/me/devices" && method === "GET") {
-    const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(me)), t.span("hub", userHub(env, caller).macs(me))])
+    const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(space, me)), t.span("hub", userHub(env, caller).macs(who))])
     // Presence for Macs from the caller's own hub.
     const live = new Map(presence.map((m) => [m.deviceId, m.online]))
     return json({
@@ -428,9 +505,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   }
 
   if (path === "/v1/me" && method === "DELETE") {
-    // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets.
-    const gone = await withStore(env, ctx, (s) => s.deleteOwner(me))
-    await userHub(env, caller).purge(me)
+    // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets. The
+    // stable app's deletion takes every build space with it (it is the person's account); a dev build's
+    // purges only its own space, never stable data.
+    const gone = await withStore(env, ctx, (s) => s.deleteOwner(me, space ? { space } : "all"))
+    const spaces = new Set([space, ...gone.map((d) => d.space)])
+    await Promise.all([...spaces].map((sp) => userHub(env, { ...caller, space: sp }).purge(hubOwner(env, { ...caller, space: sp }))))
     console.log(JSON.stringify({ msg: "account data deleted", devices: gone.length }))
     return json({ deleted: { devices: gone.length } })
   }
@@ -444,12 +524,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (itemId !== undefined && sub !== "mailbox") return fail(404, "not_found", "not found")
     if (sub === "mailbox") {
       // PROTOCOL.md "Reply mailbox": a phone's sealed reply for its own Mac. The Worker never opens it.
-      const mac = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      const mac = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
       if (!mac) throw new HttpError(404, "not_found", "no such device")
       if (mac.ownerUserId !== me || mac.kind !== "mac") throw new HttpError(403, "not_owner", "replies go to your own Mac")
       if (itemId !== undefined && method === "GET") {
         if (!UUID.test(itemId)) throw new HttpError(400, "bad_request", "the item id must be a UUID")
-        const state = await userHub(env, caller).mailboxState(me, deviceId, itemId)
+        const state = await userHub(env, caller).mailboxState(who, deviceId, itemId)
         if (!state) throw new HttpError(404, "not_found", "no such item")
         return json(state)
       }
@@ -460,10 +540,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (!UUID.test(id)) throw new HttpError(400, "bad_request", "id must be a UUID")
       if (!UUID.test(from)) throw new HttpError(400, "bad_request", "from must be your phone's device id")
       if (!isSealedText(b.sealed, MAX_MAILBOX_SEALED)) throw new HttpError(400, "bad_request", `sealed must be base64url of at most ${MAX_MAILBOX_SEALED} characters`)
-      const phone = await withStore(env, ctx, (s) => s.getDevice(from))
+      const phone = await withStore(env, ctx, (s) => s.getDevice(space, from))
       if (!phone || phone.ownerUserId !== me || phone.kind !== "phone") throw new HttpError(403, "not_owner", "replies come from your own phone")
       await limit(env.MAILBOX_LIMIT, me, "replies")
-      const r = await userHub(env, caller).mailboxPost(me, { id, mac: deviceId, from, sealed: b.sealed })
+      const r = await userHub(env, caller).mailboxPost(who, { id, mac: deviceId, from, sealed: b.sealed })
       if ("error" in r) {
         if (r.error === "full") throw new HttpError(429, "rate_limited", "this Mac has too many replies waiting; try again later")
         throw new HttpError(409, "conflict", "another reply already has this id")
@@ -471,18 +551,18 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       return json(r)
     }
     if (!sub && method === "DELETE") {
-      const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
+      const r = await withStore(env, ctx, (s) => s.deleteDevice(space, deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
       if (!r) throw new HttpError(404, "not_found", "no such device")
-      await userHub(env, caller).forgetDevice(me, deviceId)
+      await userHub(env, caller).forgetDevice(who, deviceId)
       return json({ deleted: true, deviceId })
     }
     if (sub === "push" && (method === "PUT" || method === "DELETE")) {
-      const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me) throw new HttpError(403, "not_owner", "this device belongs to another user")
       if (method === "DELETE") {
-        await withStore(env, ctx, (s) => s.deletePush(deviceId))
+        await withStore(env, ctx, (s) => s.deletePush(space, deviceId))
         return json({ deleted: true })
       }
       if (device.kind !== "phone") throw new HttpError(400, "bad_request", "only a phone takes push notifications")
@@ -506,32 +586,39 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (b.previews !== undefined && b.previews !== null && typeof b.previews !== "boolean") throw new HttpError(400, "bad_request", "previews must be true or false")
       const previews = b.previews !== false
       const r = await withStore(env, ctx, (s) =>
-        s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds, mutedMacs, previews })
+        s.setPush({ deviceId, space, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds, mutedMacs, previews })
       )
       return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, mutedMacs: r.mutedMacs, previews: r.previews, updatedAt: r.updatedAt } })
     }
     if (sub === "notify" && method === "POST") {
       const parsed = parseNotify(await readJson(req))
       if (typeof parsed === "string") throw new HttpError(400, "bad_request", parsed)
-      const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      const device = await withStore(env, ctx, (s) => s.getDevice(space, deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind, parsed.batch), "notifications")
       const config = apnsConfig(env)
       const kind = parsed.kind
-      const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))
+      const regs = await withStore(env, ctx, (s) => s.listOwnerPush(space, me))
       // The kinds some phone that has not muted this Mac wants: the Mac skips the rest (terminal, say).
       const wants = wantedKinds(regs, deviceId)
-      const targets = config ? pushTargets(regs, deviceId, kind).slice(0, 20) : []
-      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
+      // Every phone that wants it, however many: a Mac with more than MAX_SEALED_PHONES boxes splits one
+      // event into a lead and batches, and each phone is a target of exactly one of them.
+      const wanting = config ? pushTargets(regs, deviceId, kind) : []
+      if (!config || wanting.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
-      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
-      const key = turnPushKey(deviceId, parsed)
-      if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
+      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window; a batch
+      // follows a lead that passed it (the Mac sends no batch after a coalesced lead).
+      const key = parsed.batch ? undefined : turnPushKey(deviceId, parsed)
+      if (key && !(await userHub(env, caller).turnPushAllowed(who, key, TURN_PUSH_WINDOW_MS)))
         return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true, wants })
+      const targets = notifyTargets(wanting, parsed)
+      // `batches`: this Worker sends each phone one push across a lead and its batches (API 0.16.0), so the Mac
+      // may send the batches; an older Worker ignores `batch` and would push them to everyone again.
+      if (targets.length === 0) return json({ configured: true, sent: 0, failed: 0, dropped: 0, wants, batches: true })
       const results = await sendApns(config, targets, { ...parsed, macId: deviceId, macName: clean(device.name, 40) }, Date.now())
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
-      if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
+      if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(space, drop))
       const failed = results.filter((r) => r.outcome === "failed")
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
       // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
@@ -542,6 +629,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         failed: failed.length,
         dropped: drop.length,
         wants,
+        batches: true,
         ...(failures.length ? { failures } : {})
       })
     }
@@ -576,6 +664,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const r = await withStore(env, ctx, async (s) => {
       const up = await s.upsertDevice({
         deviceId: id,
+        space,
         ownerUserId: owner,
         teamId,
         kind,
@@ -583,19 +672,29 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         wgPublicKey: (wgPublicKey as string | null | undefined) ?? null,
         ...(machineId === undefined ? {} : { machineId: machineId as string })
       })
-      if (up === "not_owner") return up
+      if (typeof up === "string") return up
       // Other builds on this Mac (a deleted build's record that will never register again): this Mac's machine
       // id, only for the caller's own Macs that have none. Never another owner's device, never a phone.
-      const claimed = typeof machineId === "string" && siblings.length ? await s.claimSiblings(owner, machineId, siblings) : []
+      const claimed = typeof machineId === "string" && siblings.length ? await s.claimSiblings(space, owner, machineId, siblings) : []
       return { ...up, claimed }
     })
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
+    if (r === "other_space") throw new HttpError(409, "build_space.device_conflict", "this deviceId is registered by another user's build of the app")
+    // The caller's device moved here from another build space (Store.upsertDevice): that space's hub lets it go
+    // (presence `removed`, its old socket closed with 4002), so it is never listed or dialed there again.
+    if (r.movedFrom !== null) {
+      const from = r.movedFrom
+      await t
+        .span("hub_moved", env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(owner, from))).forgetDevice({ ownerKey: owner, space: from }, r.device.deviceId))
+        .catch((e: unknown) => console.log(JSON.stringify({ msg: "moved device: old hub unavailable", error: String(e) })))
+    }
     // The caller's hub notes the device (and its team; a team move closes its socket with 4001 `moved`).
     await t.span(
       "hub",
       userHub(env, caller).register({
         deviceId: r.device.deviceId,
         ownerKey: r.device.ownerUserId,
+        space,
         kind: r.device.kind,
         name: r.device.name,
         teamId,
@@ -612,7 +711,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // The caller's own Macs in every space they can reach (PROTOCOL.md): a phone finds its Mac whatever
     // team either side has selected. Only Macs the caller registered (the v1 admission rule), only teams
     // the caller still belongs to, presence from each team's hub.
-    const rows = await withStore(env, ctx, (s) => s.listOwnerMacs(ownerKey(env, caller)))
+    const rows = await withStore(env, ctx, (s) => s.listOwnerMacs(space, me))
     const teamIds = [...new Set(rows.map((d) => d.teamId))]
     let stackTeams: ReadonlySet<string> = new Set()
     if (teamIds.some((t) => !t.startsWith(PERSONAL))) {
@@ -625,12 +724,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     }
     const reachable = new Set(teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t))))
     for (const team of reachable) retireTeamHub(env, ctx, caller, team, rows.filter((d) => d.teamId === team).map((d) => d.deviceId))
-    const presence = new Map((await t.span("hub", userHub(env, caller).macs(me))).map((m) => [m.deviceId, m]))
+    const presence = new Map((await t.span("hub", userHub(env, caller).macs(who))).map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
       })
     })
   }
@@ -668,8 +767,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const subprotocol = bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cmux-mobile.v1")
     const hub = userHub(env, caller)
     // Fast path: the caller's hub knows the devices registered to the caller, so no database round trip.
-    const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: me, teamId }
-    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim) })
+    const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: me, teamId, space }
+    // Where the phone entered Cloudflare (its link_stat log lines, PROTOCOL.md "Link stats"); no address.
+    const ingress = JSON.stringify(ingressOf(req))
+    const fast = new Headers({ upgrade: "websocket", "x-cmux-mobile-claim": JSON.stringify(claim), "x-cmux-mobile-ingress": ingress })
     if (subprotocol) fast.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     const res = await t.span("hub", hub.fetch("https://team-hub/signal", { headers: fast }))
     if (res.status === 101) return res
@@ -677,12 +778,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (res.status !== 409) throw new HttpError(502, "hub_unavailable", "signaling is unavailable")
     // The hub has not seen this device, or has no Macs from the database yet (a new hub): check the database.
     // A 409 can also mean the device moved team since the hub saw it: the database decides.
-    const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(deviceId), s.listOwnerMacs(me)]))
+    const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(space, deviceId), s.listOwnerMacs(space, me)]))
     if (!device || device.ownerUserId !== me) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
+    await t.span("hub", hub.seed(who, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt, machineId: m.machineId }))))
     const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
-    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me })
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-mobile-attachment": JSON.stringify(att), "x-cmux-mobile-owner-key": me, "x-cmux-mobile-space": space, "x-cmux-mobile-ingress": ingress })
     if (subprotocol) headers.set("x-cmux-mobile-subprotocol", "cmux-mobile.v1")
     return t.span("hub", hub.fetch("https://team-hub/signal", { headers }))
   }
@@ -690,28 +791,28 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (action === "hub" && method === "GET") {
     // Diagnostics (PROTOCOL.md): where this request entered Cloudflare and where the caller's hub runs.
     await requireMember(env, teamId, caller)
-    const placed = await userHub(env, caller).placement(me)
+    const placed = await userHub(env, caller).placement(who)
     return json({ ingressColo: colo(req), hubColo: placed.colo, locationHint: caller.hint ?? null })
   }
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
     // Only the caller's own Macs in this team (PROTOCOL.md): a teammate's Macs are never listed.
-    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerMacs(me)), t.span("hub", userHub(env, caller).macs(me, teamId))])
+    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerMacs(space, me)), t.span("hub", userHub(env, caller).macs(who, teamId))])
     retireTeamHub(env, ctx, caller, teamId, rows.filter((d) => d.teamId === teamId).map((d) => d.deviceId))
     const byId = new Map(live.map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
       })
     })
   }
 
   if (action === "prefs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    return json(await withStore(env, ctx, (s) => s.getPrefs(ownerKey(env, caller), teamId)))
+    return json(await withStore(env, ctx, (s) => s.getPrefs(space, me, teamId)))
   }
 
   if (action === "prefs" && method === "PUT") {
@@ -735,13 +836,13 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const owner = ownerKey(env, caller)
     return json(
       await withStore(env, ctx, async (s) => {
-        const next = mergePrefs(await s.getPrefs(owner, teamId), patch)
+        const next = mergePrefs(await s.getPrefs(space, owner, teamId), patch)
         // Transparent only with an icon: the team must keep an icon or a color.
         if (patch.transparent && !next.transparent) throw new HttpError(400, "bad_request", "transparent needs an icon (a one-grapheme emoji)")
         // Writes only the requested fields, plus the flag when this PUT decides it (sets it, picks a color, or
         // removes the icon, so a later icon never brings it back), so a concurrent PUT of other fields keeps its edit.
         const decides = patch.transparent !== undefined || patch.color !== undefined || (patch.emoji !== undefined && !hasIcon(patch.emoji))
-        return s.putPrefs(owner, teamId, decides ? { ...patch, transparent: next.transparent } : patch)
+        return s.putPrefs(space, owner, teamId, decides ? { ...patch, transparent: next.transparent } : patch)
       })
     )
   }

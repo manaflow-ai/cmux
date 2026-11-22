@@ -215,6 +215,15 @@ def prepared_sha256(root):
 
 
 def bundled_client_commit(root, folder="app"):
+    return bundled_client_version(root, folder)[0]
+
+
+def bundled_client_version(root, folder="app"):
+    """(commit, tree key) from the app's cmux-tui.version; the key is "" when the file has none.
+    A build that bundled a fallback tree records that tree's key (app-bundle-cmux-tui-client.sh). The
+    restore step outputs it as cmux_tui_key; until nightly.yml passes it to the sign stage's marker gate
+    (INSTALLED_KEY, a nightly.yml change that needs its main twin), a resumed fallback build fails closed
+    there: it publishes nothing rather than the wrong client."""
     # The uploaded app artifact contains the precompressed unsigned tarball.
     # Open it only after the authenticated ZIP extraction and read the one
     # cmux-tui.version member, a regular file at a safe path, for the client
@@ -243,7 +252,8 @@ def bundled_client_commit(root, folder="app"):
     commit = fields.get("commit", "")
     require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
             "resumed unsigned app has no valid cmux-tui commit")
-    return commit
+    key = fields.get("key", "")
+    return commit, key if re.fullmatch(r"[0-9a-f]{40}", key) else ""
 
 
 def main():
@@ -259,7 +269,8 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
-        outputs["cmux_tui_commit"] = bundled_client_commit(args.out, "prepared" if receipt["prepared"] else "app")
+        outputs["cmux_tui_commit"], outputs["cmux_tui_key"] = bundled_client_version(
+            args.out, "prepared" if receipt["prepared"] else "app")
         outputs["prepared"] = "true" if receipt["prepared"] else "false"
         outputs["prepared_sha256"] = prepared_sha256(args.out) if receipt["prepared"] else ""
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")

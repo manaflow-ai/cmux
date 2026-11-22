@@ -225,6 +225,12 @@ struct BackgroundAccessoryPolicyTests {
             let settings = launch.settings
             let configURL = launch.configURL
             let presented = launch.presented
+            // Off by default (first-run audit row 14: a new user who closed the window lost cmux from the Dock);
+            // this test turns it on to check the menu bar mode it gives.
+            #expect(settings.snapshot.hideDockIconWithoutWindows == false, "Hide Dock Icon is off when unset")
+            try Data(#"{"app":{"hideDockIconWithoutWindows":true}}"#.utf8).write(to: configURL)
+            await settings.reload()
+            #expect(settings.snapshot.hideDockIconWithoutWindows == true)
             services.windows.restoreWhenLoaded()
             let windows = services.windows
             let hasWindow = { windows.active.flatMap { windows.registry.members(of: $0.state.id).first } != nil }
