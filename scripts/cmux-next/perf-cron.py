@@ -3949,7 +3949,8 @@ def cmd_run_linux_part(o):
         value = last_json_object(stdout) if code is not None else None
         if code is None:
             code = f"timeout ({LINUX_RUN_SECONDS} s)"
-        tail += [f"{name}: exit {code}"] + stderr.splitlines()[-10:]
+        # A script that prints its error to stdout (no stderr) still shows it.
+        tail += [f"{name}: exit {code}"] + (stderr.strip() or (stdout if code != 0 else "")).splitlines()[-10:]
         if before:
             load[name] = contention_factor(before + host_contention())
         if PART_BY_NAME[part]["kind"] == "webui":

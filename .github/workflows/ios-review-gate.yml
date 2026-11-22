@@ -212,11 +212,22 @@ jobs:
           set -euo pipefail
           # One full SHA for every job, so the lint, the walk and the caller's
           # upload all judge the same commit even when a branch moves mid-run.
+          # A branch resolves over git (ls-remote), which spends none of the
+          # installation's REST quota: run 45056656791's plan failed twice on
+          # "API rate limit exceeded for installation" on these reads
+          # (2026-11-22). Anything else (a tag, a short SHA) still asks the API.
+          resolve() {
+            local r="$1" s
+            s="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/heads/$r" 2>/dev/null | awk -v want="refs/heads/$r" '$2==want{print $1}')" || s=""
+            [[ "$s" =~ ^[0-9a-f]{40}$ ]] || s="$(gh api "repos/$GITHUB_REPOSITORY/commits/$r" --jq .sha)"
+            echo "$s"
+          }
           ref="${REF_INPUT:-$HEAD_SHA}"
           if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
             sha="$ref"
           else
-            sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq .sha)"
+            sha="$(resolve "$ref")"
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve $ref: $sha" >&2; exit 1; }
           lane="${LANE_INPUT:-appstore}"
@@ -228,7 +239,7 @@ jobs:
           # resolved once to a full SHA here.
           if [ "$CALLED" = true ]; then
             gate_ref="${GATE_REF_INPUT:-feat-cmux-next}"
-            gate_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$gate_ref" --jq .sha)"
+            gate_sha="$(resolve "$gate_ref")"
           else
             gate_sha="$GITHUB_SHA"
           fi
