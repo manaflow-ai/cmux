@@ -14,10 +14,11 @@
 //! On by default for every chat started from a local folder, whatever its size and whether or
 //! not it is a git repository: a chat started from a GitHub repository the person picked is
 //! cloned on the machine instead, by its own path, never this one. `cmux link project disable` (or
-//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes stays on the machine for now; bringing it back is the
-//! next slice.
+//! `CMUX_PROJECTED_FOLDERS=0`) turns it off, and `enable` turns it back on. What the agent writes
+//! stays on the machine until Bring Back applies it here ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
+//!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -89,9 +90,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
             _ => Err(anyhow::anyhow!("usage: cmux link project moves on|off")),
         },
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status | moves on|off"
+             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status | moves on|off"
         )),
     };
     match outcome {
@@ -295,7 +297,7 @@ fn servers_dir() -> anyhow::Result<PathBuf> {
 
 /// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
 /// served. Whether there was one to end.
-fn stop_server(remote: &str) -> anyhow::Result<bool> {
+pub(crate) fn stop_server(remote: &str) -> anyhow::Result<bool> {
     let dir = servers_dir()?;
     let server = name_of(remote);
     let pid_file = dir.join(format!("{server}.pid"));
@@ -500,6 +502,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     }
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
+    // What Bring Back plans against (project_back.rs): the manifest this session starts from.
+    if let Err(error) = super::project_back::record(&name, &at, &folder, &encoded) {
+        eprintln!("cmux link project: cannot keep the manifest for Bring Back: {error:#}");
+    }
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{answer}");
     let _ = stdout.flush();
