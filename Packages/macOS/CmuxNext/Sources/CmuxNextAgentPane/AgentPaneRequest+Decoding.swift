@@ -342,10 +342,9 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.warm":
-            // Sorted keys: one list has one text, so the pages of one list share one part (``AgentPaneNewTabShared``).
-            if let warm = params?["warm"] as? [String: Any],
-               let data = try? JSONSerialization.data(withJSONObject: warm, options: [.sortedKeys]),
-               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+            // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
+            // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
+            if let text = params?["warm"] as? String, !text.isEmpty, text.utf8.count <= AgentPaneNewTab.maximumWarmBytes {
                 self = .newTabWarm(text)
             } else {
                 self = .unsupported(method)
