@@ -74,22 +74,30 @@ pub(in crate::cli) fn apply(
             // the focused workspace.
             let parents_focused = |focus: &&Value| {
                 let named = |level: usize| {
-                    let (above, prefix) = LEVELS[level];
+                    let (above, prefix) = *LEVELS.get(level)?;
                     let parent = params.get(above).and_then(Value::as_str)?;
                     let own = focus.get(above).and_then(Value::as_str)?;
                     Some(names_object(parent, prefix, own))
                 };
                 (0..index).all(|level| {
-                    let Some(parent) = params.get(LEVELS[level].0).and_then(Value::as_str) else {
+                    let Some(parent) = LEVELS
+                        .get(level)
+                        .and_then(|(above, _)| params.get(*above))
+                        .and_then(Value::as_str)
+                    else {
                         return true;
                     };
                     named(level).unwrap_or_else(|| {
-                        from_focus[level] && parent == CURRENT && named(0) == Some(true)
+                        from_focus.get(level).copied().unwrap_or(false)
+                            && parent == CURRENT
+                            && named(0) == Some(true)
                     })
                 })
             };
             place = focus.filter(parents_focused);
-            from_focus[index] = true;
+            if let Some(filled) = from_focus.get_mut(index) {
+                *filled = true;
+            }
         } else if value != CURRENT {
             let names = |own: &str| names_object(&value, prefix, own);
             place =
