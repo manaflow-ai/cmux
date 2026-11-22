@@ -56,15 +56,11 @@ fn showing_work_to_the_user_finds_its_guide() {
 #[test]
 fn chief_prompt_guide_is_found_by_setup_words() {
     let topic = "Set up cmux with Chief: copyable setup prompts";
-    for query in
-        ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
-    {
+    for query in ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"] {
         assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
     }
     let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
-    for words in
-        ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
-    {
+    for words in ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"] {
         assert!(guide.text.contains(words), "{words}");
     }
     assert_eq!(guides("status").len(), 1);
