@@ -66,7 +66,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -92,7 +92,7 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Checkout the branch's CEF pin
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.resolve.outputs.sha }}
           fetch-depth: 1
@@ -171,7 +171,7 @@ jobs:
       sha256: ${{ steps.build.outputs.sha256 }}
     steps:
       - name: Checkout the branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 1
@@ -265,7 +265,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -287,7 +287,7 @@ jobs:
           fi
 
       - name: Checkout main's R2 upload
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1

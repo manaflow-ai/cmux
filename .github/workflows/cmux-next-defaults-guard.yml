@@ -67,7 +67,7 @@ jobs:
         .github/workflows/cmux-next-defaults-guard-review.yml
     steps:
       - name: Check out the trusted guard (base)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -143,7 +143,7 @@ jobs:
 
       - name: Check out the merge base's defaults (data)
         if: ${{ steps.inputs.outputs.touched != 'false' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.base.outputs.sha }}
           path: .defaults/base
@@ -154,13 +154,17 @@ jobs:
 
       - name: Check out the head's defaults (data, never run)
         if: ${{ steps.inputs.outputs.touched != 'false' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: .defaults/head
           fetch-depth: 1
           persist-credentials: false
+          # checkout v6.1.0+ refuses a fork head under pull_request_target. This step reads the
+          # fork's tree as data only (nothing checked out here runs, the token is not persisted and the
+          # job holds no secrets), so it opts in.
+          allow-unsafe-pr-checkout: true
           sparse-checkout: ${{ env.DEFAULTS_DATA }}
           sparse-checkout-cone-mode: false
 
