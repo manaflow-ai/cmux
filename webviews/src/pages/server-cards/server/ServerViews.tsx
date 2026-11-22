@@ -148,7 +148,7 @@ function Pill({
       type="button"
       className="sv-pill"
       data-prominent={prominent ? "" : undefined}
-      title={help}
+      aria-description={help}
       disabled={disabled}
       onClick={onClick}
       {...data}
