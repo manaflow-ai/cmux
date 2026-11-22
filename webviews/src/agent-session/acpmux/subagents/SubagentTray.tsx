@@ -664,7 +664,11 @@ export const SubagentTray = memo(function SubagentTray({
     const frame = { start: first.height, edges: first.edges, viewport: window.innerHeight };
     const startY = event.clientY;
     const rim = event.currentTarget;
-    rim.setPointerCapture(event.pointerId);
+    try {
+      rim.setPointerCapture(event.pointerId);
+    } catch {
+      // A pointer the browser no longer tracks: the rim's own listeners still follow it.
+    }
     event.preventDefault();
     let shown = open;
     // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
