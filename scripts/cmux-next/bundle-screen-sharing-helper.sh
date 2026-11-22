@@ -5,7 +5,15 @@
 #
 #   Contents/Library/<app name> Screen Sharing.app       ("cmux NIGHTLY Screen Sharing.app")
 #     Contents/MacOS/cmux-screen-sharing
+#     Contents/MacOS/cmux-screen-sharing-webrtc   the WebRTC host for an iPhone viewer
+#     Contents/Frameworks/libWebRTC.dylib         its libwebrtc
 #     Contents/Info.plist   <app bundle id>.screen-sharing, LSUIElement
+#
+# The WebRTC host (build-screen-sharing-webrtc.sh) runs only as the child of the helper's
+# `__webrtc-host`, so its capture and input are the helper's too. It comes from beside the helper
+# binary (build-screen-sharing-helper.sh --output puts it there), else from its own cache; a build
+# without it still bundles the helper (an iPhone viewer then cannot watch), unless
+# CMUX_NEXT_REQUIRE_SCREEN_WEBRTC=1 (the nightly and Release builds) makes that an error.
 #
 # Its own bundle id and signature make it its own app to macOS: the app starts it with
 # responsibility disclaimed (MacScreenHelper.swift), so Screen Recording and Accessibility are
@@ -197,6 +205,35 @@ chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
 write_plist "$staged/Contents/Info.plist" "$id.screen-sharing" "$name$SUFFIX" "$version" "$minimum"
 printf 'APPL????' > "$staged/Contents/PkgInfo"
 
+# The WebRTC host and its libwebrtc, beside the helper binary or in their own cache.
+WEBRTC=cmux-screen-sharing-webrtc
+WEBRTC_DYLIB=libWebRTC.dylib
+webrtc_dir="$(dirname "$src")"
+if [[ ! -x "$webrtc_dir/$WEBRTC" || ! -f "$webrtc_dir/$WEBRTC_DYLIB" ]]; then
+  webrtc_dir="$({ "$repo_root/scripts/cmux-next/build-screen-sharing-webrtc.sh" --cached-only --print-path; } 2>/dev/null || true)"
+fi
+if [[ -n "$webrtc_dir" && -x "$webrtc_dir/$WEBRTC" && -f "$webrtc_dir/$WEBRTC_DYLIB" ]]; then
+  for part in "$webrtc_dir/$WEBRTC" "$webrtc_dir/$WEBRTC_DYLIB"; do
+    /usr/bin/file -b "$part" | grep -q 'Mach-O' || { echo "error: the Screen Sharing WebRTC host part is not Mach-O: $part" >&2; exit 1; }
+    if command -v lipo >/dev/null 2>&1 && [[ -n "${ARCHS:-}" ]]; then
+      actual="$(lipo -archs "$part")"
+      for expected in $ARCHS; do
+        [[ " $actual " == *" $expected "* ]] || { echo "error: $(basename "$part") has '$actual', the app needs '$ARCHS'" >&2; exit 1; }
+      done
+    fi
+  done
+  mkdir -p "$staged/Contents/Frameworks"
+  cp "$webrtc_dir/$WEBRTC" "$staged/Contents/MacOS/$WEBRTC"
+  cp "$webrtc_dir/$WEBRTC_DYLIB" "$staged/Contents/Frameworks/$WEBRTC_DYLIB"
+  chmod 755 "$staged/Contents/MacOS/$WEBRTC" "$staged/Contents/Frameworks/$WEBRTC_DYLIB"
+  echo "bundled the Screen Sharing WebRTC host from $webrtc_dir"
+elif [[ "${CMUX_NEXT_REQUIRE_SCREEN_WEBRTC:-}" == 1 ]]; then
+  echo "error: no Screen Sharing WebRTC host for this build; run scripts/cmux-next/build-screen-sharing-webrtc.sh on CI or the fleet" >&2
+  exit 1
+else
+  echo "warning: the Screen Sharing helper carries no WebRTC host (no cached build of it); an iPhone viewer cannot watch this build" >&2
+fi
+
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 [[ -n "$identity" ]] || identity="-"
 flags=(--force --sign "$identity")
@@ -204,6 +241,11 @@ if [[ "$identity" != "-" ]]; then
   flags+=(--options runtime)
   if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then flags+=(--timestamp=none); else flags+=(--timestamp); fi
 fi
+# Inside out: the WebRTC host's libwebrtc and executable, then the helper app that seals them.
+for nested in "$staged/Contents/Frameworks/$WEBRTC_DYLIB" "$staged/Contents/MacOS/$WEBRTC"; do
+  [[ -f "$nested" ]] || continue
+  "$repo_root/scripts/codesign-retry.sh" "${flags[@]}" "$nested"
+done
 "$repo_root/scripts/codesign-retry.sh" "${flags[@]}" "$staged"
 rm -rf "$dest"
 mv "$staged" "$dest"

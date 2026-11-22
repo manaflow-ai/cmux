@@ -23,5 +23,6 @@ python3 scripts/ci/background_build.py join --state "$state" mobile-host
 env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
 python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper
+# The helper's WebRTC host (an iPhone viewer's session) was built beside it; a nightly without it fails here.
 env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
-  CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
+  CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 CMUX_NEXT_REQUIRE_SCREEN_WEBRTC=1 scripts/cmux-next/bundle-screen-sharing-helper.sh

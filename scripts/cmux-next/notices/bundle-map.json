@@ -83,6 +83,16 @@
       "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Library/* Screen Sharing.app/Contents/MacOS/cmux-screen-sharing-webrtc",
+      "what": "the Screen Sharing helper's WebRTC host for an iPhone viewer (Packages/Shared/CmuxVNCWebRTC, product cmux-screen-sharing-webrtc, with CmuxVNC; scripts/cmux-next/build-screen-sharing-webrtc.sh): first-party Swift and the system frameworks; libwebrtc is the dylib beside it in Contents/Frameworks, not linked in",
+      "notices": ["first-party", "section:manual-swift-package-dependencies"]
+    },
+    {
+      "path": "Contents/Library/* Screen Sharing.app/Contents/Frameworks/libWebRTC.dylib",
+      "what": "the same libwebrtc M154 as Contents/Frameworks/WebRTC.framework (stasel/WebRTC 154.0.0), shipped in the Screen Sharing helper as a plain dylib (build-screen-sharing-webrtc.sh); its BoringSSL, Opus, libvpx, libsrtp, Abseil, dav1d, libaom, libyuv, protobuf-lite and PFFFT notices are in Chromium 154's CREDITS.html",
+      "notices": ["section:manual-webrtc-mac-screen-streams", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz"]
+    },
+    {
       "path": "Contents/PlugIns/CmuxShare.appex/Contents/MacOS/CmuxShare",
       "what": "the Share extension (scripts/cmux-next/bundle-share-extension.sh): Packages/macOS/CmuxNext/ShareExtension, first-party Swift and the system frameworks only",
       "notices": ["first-party"]

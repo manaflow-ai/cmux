@@ -39,6 +39,12 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
   helpers=("$APP/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
   [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Screen Sharing.app" >&2; exit 1; }
+  # Its WebRTC host (an iPhone viewer's session) and libwebrtc, with the same slices.
+  helper_app="${helpers[0]%/Contents/MacOS/cmux-screen-sharing}"
+  for part in "$helper_app/Contents/MacOS/cmux-screen-sharing-webrtc" "$helper_app/Contents/Frameworks/libWebRTC.dylib"; do
+    [ -f "$part" ] || { echo "nightly-next's Screen Sharing helper is missing ${part#"$helper_app/"}" >&2; exit 1; }
+    helpers+=("$part")
+  done
   for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"

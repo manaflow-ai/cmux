@@ -44,7 +44,9 @@
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The Screen Sharing helper app under Contents/Library, stamped for the
-#      app's final bundle id and name, hardened runtime, no entitlements.
+#      app's final bundle id and name, hardened runtime, no entitlements: its
+#      WebRTC host (Contents/Frameworks/libWebRTC.dylib, then
+#      Contents/MacOS/cmux-screen-sharing-webrtc) first, then the helper.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
@@ -157,6 +159,10 @@ if [[ "$SIGN_MODE" == "all" ]]; then
     for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
       [[ -d "$screen_helper" ]] || continue
       echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
+      for nested in "$screen_helper/Contents/Frameworks/"*.dylib "$screen_helper/Contents/MacOS/cmux-screen-sharing-webrtc"; do
+        [[ -f "$nested" ]] || continue
+        "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$nested"
+      done
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
     done
   fi
@@ -244,7 +250,8 @@ for alias in cmux-tui acpmux; do
 done
 for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
-  /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
+  # --deep: the helper's own `__webrtc-host` runs its WebRTC host only when the seal holds.
+  /usr/bin/codesign --verify --strict --deep --verbose=2 "$screen_helper"
 done
 # One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
 # grant survives every update (an ad-hoc signing's requirement is a cdhash by design).

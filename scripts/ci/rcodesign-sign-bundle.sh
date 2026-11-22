@@ -78,7 +78,8 @@ for dir in bin libexec; do
 done
 
 # 2. The Screen Sharing helper app ("<app> Screen Sharing.app",
-# plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
+# plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements. rcodesign signs
+# its nested Mach-O (the WebRTC host in Contents/MacOS, libWebRTC.dylib) before the helper.
 # Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.
 for screen_share in "$APP/Contents/Library/"*" Screen Sharing.app"; do
   if [[ -d "$screen_share" ]]; then sign "$screen_share"; fi
