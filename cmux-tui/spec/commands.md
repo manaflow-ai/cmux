@@ -10110,6 +10110,7 @@ Result:
 object{
   agents: array<object{
     surface: Id,
+    terminal_id?: string,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     status?: "working"|"blocked"|"done"|"idle"|"unknown"|null,
     source: "plugin"|"detected"|"socket"|"hook",
@@ -10122,6 +10123,11 @@ object{
   }>
 }
 ```
+
+`surface` is the terminal's first tab placement (else the terminal itself, when no tab shows
+it); `agent-changed` names the same one. `terminal_id` is the terminal's public id (`term_…`):
+a terminal restored or reopened into a new tab keeps it, so a client matches a record to every
+tab that shows the terminal by it rather than by `surface` alone.
 
 `agent_session_id` is the harness's own session id that the agent's hooks reported
 (a `claude` or `codex` session id, at most 256 bytes of `[A-Za-z0-9._:-]`), or null.
