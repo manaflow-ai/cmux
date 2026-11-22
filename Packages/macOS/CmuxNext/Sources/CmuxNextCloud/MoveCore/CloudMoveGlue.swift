@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// The Cloud machines a chat start is bringing up now, from its connect until its agent runs (prod, 2026-11-05: the
 /// app's update of a just-resumed machine restarted its daemon mid-start, and the start failed "started but its
@@ -20,6 +21,46 @@ public final class CloudStartGate {
 
     /// Whether a start is bringing machine `machineID` up now.
     public func contains(_ machineID: String) -> Bool { starts[machineID] != nil }
+
+    /// How long a composer start holds its machine at most (``hold(_:until:bound:clock:)``): its chat's first token
+    /// ends the hold sooner. A start whose chat never answers lets the update run after this.
+    public static let firstTurnBound: Duration = .seconds(300)
+
+    /// Holds `machineID` as ``enter(_:)`` does, until ``Hold/end()``, `timeline`'s first token or `bound`, whichever
+    /// comes first. A composer start holds its machine through its chat's first turn, not only its own run: the page
+    /// sends the first prompt after the run returned, and an update then restarted the daemon under it (2026-11-22,
+    /// cmux#45953: "cloud-chats-16 to 6dccb41ed while busy: updated" two minutes into the start; its prompt never
+    /// reached the agent).
+    public func hold(_ machineID: String, until timeline: CloudSendTimeline? = nil, bound: Duration = firstTurnBound,
+                     clock: any Clock<Duration> = ContinuousClock()) -> Hold {
+        enter(machineID)
+        let hold = Hold(gate: self, machineID: machineID, timer: DemandTimer(owner: "cloud.start-gate", clock: clock))
+        hold.timer.schedule(after: bound) { @MainActor [hold] in hold.end() }
+        timeline?.whenFinished { Task { @MainActor [hold] in hold.end() } }
+        return hold
+    }
+
+    /// One start's hold of its machine (``hold(_:bound:clock:)``); ending it twice leaves once.
+    @MainActor
+    public final class Hold {
+        private weak var gate: CloudStartGate?
+        private let machineID: String
+        fileprivate let timer: DemandTimer
+        public private(set) var ended = false
+
+        fileprivate init(gate: CloudStartGate, machineID: String, timer: DemandTimer) {
+            self.gate = gate
+            self.machineID = machineID
+            self.timer = timer
+        }
+
+        public func end() {
+            guard !ended else { return }
+            ended = true
+            timer.cancel()
+            gate?.leave(machineID)
+        }
+    }
 }
 
 /// A Cloud move or bring-back failure, with the action its retry can safely take.

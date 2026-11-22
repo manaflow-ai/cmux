@@ -23,6 +23,7 @@ public final class CloudSendTimeline: Sendable {
         var marks: [(step: String, at: Int)] = []
         var machine: [String: Int]?
         var finished = false
+        var whenFinished: [@Sendable () -> Void] = []
     }
 
     private let now: @Sendable () -> ContinuousClock.Instant
@@ -45,17 +46,30 @@ public final class CloudSendTimeline: Sendable {
         state.withLock { $0.machine = phases }
     }
 
+    /// Runs `body` once the first token is marked (at once when it already was); a timeline that never ends never runs it.
+    public func whenFinished(_ body: @escaping @Sendable () -> Void) {
+        let now = state.withLock { state -> Bool in
+            guard !state.finished else { return true }
+            state.whenFinished.append(body)
+            return false
+        }
+        if now { body() }
+    }
+
     /// Marks `step` as ended now; answers the one line when `step` is ``firstToken``.
     @discardableResult
     public func mark(_ step: String) -> String? {
         let at = Int(CloudStartSteps.milliseconds(began.duration(to: now())))
-        return state.withLock { state in
-            guard !state.finished, !state.marks.contains(where: { $0.step == step }) else { return nil }
+        let (line, finished) = state.withLock { state -> (String?, [@Sendable () -> Void]) in
+            guard !state.finished, !state.marks.contains(where: { $0.step == step }) else { return (nil, []) }
             state.marks.append((step, at))
-            guard step == Self.firstToken else { return nil }
+            guard step == Self.firstToken else { return (nil, []) }
             state.finished = true
-            return Self.line(state.marks, machine: state.machine)
+            defer { state.whenFinished = [] }
+            return (Self.line(state.marks, machine: state.machine), state.whenFinished)
         }
+        for body in finished { body() }
+        return line
     }
 
     /// Each step's own time: from the step that ended before it (or the Send) to its end.
