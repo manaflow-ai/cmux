@@ -11,9 +11,10 @@
                            [--repo DIR] [--confirm-bad] [--max-probes 12]
         bisect one file over G..B: CMD runs under bash with BISECT_SHA and BISECT_FILE set (it checks out, installs
         and runs the file itself); exit 0 is green. Writes one entry of the "files" list below
-    webviews_bisect.py merge RESULT.json... --out CULPRITS.json [--bad SHA] [--summary FILE]
-                             [--repo-slug OWNER/REPO] [--run-url URL]
-        join the per-file results into CULPRITS.json and append a Markdown table to SUMMARY
+    webviews_bisect.py merge [RESULT.json...] --out CULPRITS.json [--bad SHA] [--summary FILE]
+                             [--repo-slug OWNER/REPO] [--run-url URL] [--expect TARGETS_JSON]
+        join the per-file results into CULPRITS.json and append a Markdown table to SUMMARY; a target in EXPECT (the
+        targets matrix, a JSON list of {"file", "good"}) whose job left no result is "unresolved"
 
 Why: the base batch runs every webview test file after several pull requests merge together, so a new red there
 names a range of merges, not a culprit. Each file bisects alone over the first-parent commits between its last
@@ -202,6 +203,18 @@ def read_result(path: str) -> dict:
             "probes": [], "rounds": 0, "reason": why}
 
 
+def missing(results: list[dict], expect: str, bad: str = "") -> list[dict]:
+    """An "unresolved" entry for each target in EXPECT (the targets matrix as JSON) that RESULTS has no entry for."""
+    try:
+        wanted = json.loads(expect) if expect else []
+    except ValueError:
+        wanted = []
+    have = {r.get("file") for r in results}
+    return [{"file": t["file"], "verdict": "unresolved", "good": t.get("good", ""), "bad": bad, "suspects": [],
+             "culprit": None, "probes": [], "rounds": 0, "reason": "its bisect job left no result"}
+            for t in wanted if isinstance(t, dict) and isinstance(t.get("file"), str) and t["file"] not in have]
+
+
 def merge(results: list[dict], bad: str = "", run_url: str = "") -> dict:
     """The CULPRITS.json document for per-file RESULTS."""
     if not bad:
@@ -272,7 +285,8 @@ def main(argv: list[str]) -> int:
     rn.add_argument("--confirm-bad", action="store_true")
     rn.add_argument("--max-probes", type=int, default=MAX_PROBES)
     mg = sub.add_parser("merge")
-    mg.add_argument("results", nargs="+")
+    mg.add_argument("results", nargs="*")
+    mg.add_argument("--expect", default="", help="the targets matrix (JSON): a target with no result is unresolved")
     mg.add_argument("--out", required=True)
     mg.add_argument("--bad", default="")
     mg.add_argument("--summary")
@@ -303,7 +317,9 @@ def main(argv: list[str]) -> int:
         write_json(args.out, result)
         print(f"{args.file}: {result['verdict']}: {result['reason']}", file=sys.stderr)
         return 0
-    doc = merge([read_result(path) for path in args.results], args.bad, args.run_url)
+    found = [read_result(path) for path in args.results]
+    found += missing(found, args.expect, args.bad)
+    doc = merge(found, args.bad, args.run_url)
     write_json(args.out, doc)
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as out:

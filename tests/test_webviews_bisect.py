@@ -190,6 +190,14 @@ class Targets(unittest.TestCase):
 
 
 class Merge(unittest.TestCase):
+    def test_a_target_with_no_result_is_unresolved(self) -> None:
+        expect = json.dumps([{"file": "a.test.ts", "good": "g1"}, {"file": "b.test.ts", "good": "g2"}])
+        have = [{"file": "a.test.ts", "verdict": "base-red"}]
+        out = wb.missing(have, expect, "bad")
+        self.assertEqual([(m["file"], m["verdict"], m["good"], m["bad"]) for m in out],
+                         [("b.test.ts", "unresolved", "g2", "bad")])
+        self.assertEqual(wb.missing(have, "not json"), [])
+
     def test_groups_by_culprit_oldest_first(self) -> None:
         commits = suspects(6)
 
