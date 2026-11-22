@@ -66,6 +66,12 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "The prompt bubble's corner radius. Unset: 12 px at the chat's text scale. A corner never changes the bubble's box."
+    },
+    {
+      "name": "--cv-code-edge-fade",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "How far a code block's long line fades at the card's right edge while more of it lies past. Unset: no fade, a hard edge. Paint only: the line's box does not change."
     }
   ]
 }

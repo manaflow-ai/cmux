@@ -24,10 +24,11 @@ pre, code, [data-code], [data-content], [data-line] { background: transparent !i
    it replaces is (StreamingCode.tsx), and the text under a closing fence does not move. */
 pre[data-file] { display: flow-root; }
 [data-code] { margin-bottom: calc(-1 * var(--diffs-scrollbar-gutter, 0px)); }
-/* A line running past the card's right edge fades out there while more of it lies past, as a tool
-   block's does (sideways.ts, HighlightedCode.tsx watches the box), never a hard cut that reads as
-   the line's end (a 720px column, examples/looks/paper). Scrolled to its end, the edge is hard again. */
-[data-code][${MORE_RIGHT}] { mask-image: linear-gradient(to left, transparent, #000 32px); }
+/* With a look that sets --cv-code-edge-fade (conversation.css :root, style-tokens.json), a line
+   running past the card's right edge fades out there while more of it lies past (sideways.ts,
+   HighlightedCode.tsx watches the box), never a hard cut that reads as the line's end (a 720px
+   column, examples/looks/paper). With none, --cv-code-edge-mask is unset and the edge stays hard. */
+[data-code][${MORE_RIGHT}] { mask-image: var(--cv-code-edge-mask); }
 `;
 
 /// An unlabeled card's first line keeps room after its end for the actions floating over its corner

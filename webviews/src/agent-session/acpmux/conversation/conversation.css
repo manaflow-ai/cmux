@@ -33,6 +33,11 @@
   --cv-codeblock-ring: var(--ds-surface-card-line);
   --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
   --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
+  /* --cv-code-edge-fade: a look's fade where a long code line runs past the card's right edge
+     (style-tokens.json). initial leaves it unset, so --cv-code-edge-mask is invalid and the card's
+     mask (highlightedCodeModel.ts) computes to none: no look, a hard edge as before. */
+  --cv-code-edge-fade: initial;
+  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade));
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
   --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */

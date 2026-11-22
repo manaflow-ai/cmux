@@ -32,6 +32,7 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-card-fill`, `--cv-card-ring` | the card level and its hairline: tool output, edit, error and permission cards, plans, the subagent card (code blocks keep their own fill); unset, the theme's text at 4% and 10% |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
+| `--cv-code-edge-fade` | how far a long code line fades at the card's right edge while more lies past; unset, a hard edge |
 
 ```css
 :root {
