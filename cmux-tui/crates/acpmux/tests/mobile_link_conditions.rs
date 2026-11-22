@@ -23,8 +23,19 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). It starts from a cleared
+// environment, so the bench's knobs are kept by name or every run takes the defaults.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "NETCOND_PROFILES",
+    "NETCOND_PROFILES_FILE",
+    "NETCOND_SCALES",
+    "NETCOND_RUNS",
+    "NETCOND_SEED_BASE",
+    "NETCOND_BW_PROFILE",
+    "NETCOND_BW_TURNS",
+    "NETCOND_BW_SECS",
+    "NETCOND_BW_APPS",
+]);
 
 #[path = "support/app_ws.rs"]
 mod app_ws;
