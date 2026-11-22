@@ -4,8 +4,11 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// How a finished turn's big fold plays (turnEndFold.ts `TurnEndLook`). Leo, 2026-11-22: "the big fold we
 /// do for claude is not good looking enough. it looks like a gash collapsing. you need to figure out more
-/// and more variations to deal with things." The shipped `fade` stays the default until he picks one by
-/// feel. A `data-turn-end-fold` attribute over the transcript (the gallery's variants) wins over this.
+/// and more variations to deal with things." Then: "you can decide on whatever you want". The fold matrix
+/// (scripts/fold-matrix.ts, median of 3 runs, 18 cells) picked `wipe`: on the base turn its largest step is
+/// 0 to 5 px against fade's 88 (350 at 120 calls), it opens no band (fade's gap: up to 462 px, the gash),
+/// and it draws no doubled text (snapshot's dissolve does for ~100 ms). A `data-turn-end-fold` attribute
+/// over the transcript (the gallery's variants) wins over this.
 /// Compare in `agent-pane.turn-end-fold` and `agent-pane.big-claude-fold`.
 export const turnEndFoldLook = defineExperiment({
   id: "turn-end-fold-look",
@@ -13,7 +16,7 @@ export const turnEndFoldLook = defineExperiment({
   description: "How the rows a finished turn folds away go, and how the rest closes over them.",
   arms: {
     fade: {
-      label: "Fade, then close (shipped)",
+      label: "Fade, then close",
       description: "The folded rows fade in 40 ms, then the rows around them close on the house settle.",
     },
     tuck: { label: "Tuck", description: "The folded rows slide up under the Worked for line as they fade." },
@@ -78,7 +81,7 @@ export const turnEndFoldLook = defineExperiment({
         "Nothing slides: the old frame, held as a picture, cross-dissolves into the new, which comes in faster than the old goes.",
     },
     wipe: {
-      label: "Wipe",
+      label: "Wipe (shipped)",
       description: `Nothing slides or fades: an edge runs down from the Worked for line over ${MOTION_MS.large} ms, the new frame above it, the old below.`,
     },
     sprout: {
@@ -91,22 +94,30 @@ export const turnEndFoldLook = defineExperiment({
       description: `The old frame stays until you scroll, type or click (at most ${MOTION_MS.large * 4} ms), then wipes.`,
     },
   },
-  defaultArm: "fade",
+  defaultArm: "wipe",
 });
 
 /// How the turn's closing recap card comes in as the turn folds (turnEndFold.ts `TurnEndRecap`). Leo,
-/// 2026-11-22: "that's the recap. you can decide on whatever you want, or r&d more animations."
+/// 2026-11-22: "that's the recap. you can decide on whatever you want, or r&d more animations." and "i think
+/// the fade in from the bottom is pretty awkward sometimes when you finish chats". Shipped: `place`, the card
+/// drawn whole where it lands (the fold matrix: full ink on its first frame, against the fade's 148 ms
+/// while the view follows it up, which read as a fade up from below).
 export const turnEndRecapLook = defineExperiment({
   id: "turn-end-recap-entrance",
   title: "Finished turn recap entrance",
   description: "How the wrap-up recap card comes in under the answer as a finished turn folds.",
   arms: {
-    hold: { label: "Fade (shipped)", description: "Waits until nothing crosses it, then fades in." },
+    hold: { label: "Fade", description: "Waits until nothing crosses it, then fades in." },
     rise: { label: "Rise", description: "Fades in as it rises half a line into its place." },
     unfurl: { label: "Unfurl", description: "Opens down from its top edge as it fades in." },
     bead: { label: "Bead", description: "Fades in as it grows from 96% from its top edge." },
+    place: { label: "In place (shipped)", description: "Drawn at full ink in its place at once, with no entrance." },
+    open: {
+      label: "Open",
+      description: "Full ink, its room opening down from its top as the rows above rise into it at a line a frame.",
+    },
   },
-  defaultArm: "hold",
+  defaultArm: "place",
 });
 
 /// How a subagent block gets to its place as a finished turn folds (turnEndFold.ts `TurnEndSubagent`).

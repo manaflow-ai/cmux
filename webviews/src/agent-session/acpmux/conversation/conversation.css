@@ -6370,6 +6370,14 @@ a.cv-sha:focus-visible {
     translate: none;
   }
 }
+@keyframes cv-recap-open {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
 @keyframes cv-recap-unfurl {
   from {
     opacity: 0.4;
@@ -6451,6 +6459,12 @@ a.cv-sha:focus-visible {
   }
   .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="unfurl"] {
     animation: cv-recap-unfurl var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="place"] {
+    animation: none;
+  }
+  .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="open"] {
+    animation: cv-recap-open var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;
   }
   .acpmux-scroll .acpmux-thread > .acpmux-row.acpmux-row--enter.acpmux-nextStep.acpmux-nextStep[data-recap-entrance="bead"] {
     animation: cv-recap-bead var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out) 0s both;

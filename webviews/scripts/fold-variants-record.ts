@@ -32,7 +32,9 @@ const WIDTH = 720;
 const HEIGHT = 640;
 
 type Row = [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number];
-type Sample = { t: number; folding: boolean; view?: number; rows: Row[] };
+type Sample = { t: number; folding: boolean; view?: number; rows: Row[]; all?: Turned[] };
+/** A mounted row, in view or not: key, top from the thread's top, height, kind (`opener`: it opens a turn). */
+type Turned = [key: string, offset: number, height: number, kind: string];
 type Run = {
   look: string;
   samples: Sample[];
@@ -225,6 +227,7 @@ export function measure(run: Run) {
     };
   })();
   return {
+    turnGrow: turnGrow(samples, run.marks ?? [], samples[lastChange]!.t),
     recapArrival: arrival,
     maxJumpPx: round(maxJump),
     maxJumpAnyInkPx: Math.round(maxJumpRaw * 10) / 10,
@@ -242,6 +245,64 @@ export function measure(run: Run) {
     foldStart: samples[first]!.t,
     foldEnd: samples[lastChange]!.t,
   };
+}
+
+/**
+ * The turn's tool rows growing at its end before they fold (Leo, 2026-11-22: "some sort of like... false grow
+ * then collapse with the tool calls on the end of turn folding you have"). The block is what lies between the
+ * last turn's opening prompt and its answer (or, with none, the row under the calls), as drawn; from the
+ * turn's end (its `turn_end` record, after which no call comes) to the fold's last change it must never get
+ * taller. `blockPx`: its most past its height at the turn's end; `answerPx`: the answer row's own growth over
+ * the same frames (the reply's action room); `rows`: what was taller than at the turn's end at the peak.
+ */
+export function turnGrow(samples: Sample[], marks: { t: number; label: string }[], foldEnd: number) {
+  const ended = [...marks].reverse().find((mark) => mark.label === "turn_end")?.t;
+  const final = samples.at(-1)?.all;
+  if (ended === undefined || !final) return undefined;
+  // The turn's opening prompt: the first prompt past the last earlier turn's summary line (a steer is a prompt
+  // inside the turn, so the block is the whole turn's).
+  const ordered = [...final].sort((a, b) => a[1] - b[1]);
+  const lastWhere = (rows: Turned[], test: (row: Turned) => boolean) => {
+    for (let index = rows.length - 1; index >= 0; index -= 1) if (test(rows[index]!)) return index;
+    return -1;
+  };
+  const lastPrompt = lastWhere(ordered, (row) => row[3] === "user" || row[3] === "opener");
+  const summaryBefore = lastWhere(ordered.slice(0, lastPrompt), (row) => row[0].startsWith("summary-turn"));
+  const opener = ordered.slice(summaryBefore + 1).find((row) => row[3] === "user" || row[3] === "opener");
+  if (!opener) return undefined;
+  const answer = final
+    .filter((row) => row[3] === "assistant" && row[1] > opener[1])
+    .sort((a, b) => b[1] - a[1])[0]?.[0];
+  const block = (all: Turned[]) => {
+    const open = all.find((row) => row[0] === opener[0]);
+    if (!open) return undefined;
+    const below = answer
+      ? all.find((row) => row[0] === answer)
+      : all.filter((row) => row[1] > open[1] && /^(thinking|summary-turn)/.test(row[0])).sort((a, b) => a[1] - b[1])[0];
+    return below ? below[1] - (open[1] + open[2]) : undefined;
+  };
+  const start = samples.findIndex((sample) => sample.t >= ended);
+  const base = start < 0 ? undefined : samples[start]!.all;
+  const baseBlock = base && block(base);
+  if (!base || baseBlock === undefined) return undefined;
+  const heights = new Map(base.map((row) => [row[0], row[2]]));
+  const answerBase = answer ? heights.get(answer) : undefined;
+  let blockPx = 0;
+  let answerPx = 0;
+  let rows: string[] = [];
+  for (const sample of samples.slice(start)) {
+    if (sample.t > foldEnd || !sample.all) break;
+    const now = block(sample.all);
+    if (now !== undefined && now - baseBlock > blockPx) {
+      blockPx = now - baseBlock;
+      rows = sample.all
+        .filter((row) => row[2] > (heights.get(row[0]) ?? 0) + 0.5)
+        .map((row) => `${row[0]} +${Math.round(row[2] - (heights.get(row[0]) ?? 0))}`);
+    }
+    const reply = answer && sample.all.find((row) => row[0] === answer);
+    if (reply && answerBase !== undefined) answerPx = Math.max(answerPx, reply[2] - answerBase);
+  }
+  return { blockPx: Math.round(blockPx * 10) / 10, answerPx: Math.round(answerPx * 10) / 10, rows };
 }
 
 /** A dev server for the recording page, warmed, and a headless Chrome: what every recording runs on. */

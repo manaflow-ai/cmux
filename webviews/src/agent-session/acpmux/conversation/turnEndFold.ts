@@ -143,8 +143,14 @@ export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 /// - `rise`: fades in as it rises half a line into its place, on the house ease-out;
 /// - `unfurl`: opens down from its top edge (a clip) as it fades in, as if poured into its room;
 /// - `bead`: fades in as it grows from 96% of its size from its top, the way a drop joins the surface.
-export type TurnEndRecap = "hold" | "rise" | "unfurl" | "bead";
-export const TURN_END_RECAPS: readonly TurnEndRecap[] = ["hold", "rise", "unfurl", "bead"];
+/// - `place`: drawn at full ink in its place in the frame it comes, no entrance at all.
+/// - `open`: full ink from its first frame, its room opening down from its top edge (a clip, no fade),
+///   while the rows above rise into the room on the follow's chase at a line a frame, instead of the
+///   card's whole height in one frame (VirtualTranscript `recapCame`). Nothing fades up from below.
+/// Leo, 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you finish
+/// chats. this is in relation to me calling the folding looking like a gash."
+export type TurnEndRecap = "hold" | "rise" | "unfurl" | "bead" | "place" | "open";
+export const TURN_END_RECAPS: readonly TurnEndRecap[] = ["hold", "rise", "unfurl", "bead", "place", "open"];
 export const TURN_END_RECAP_ATTR = "data-turn-end-recap";
 
 /// How a subagent block (it stays out of the fold, turns.ts `staysOut`) gets to its place under the
@@ -311,12 +317,12 @@ function snapshotOf(node: HTMLElement, id: string): HTMLElement {
   return copy;
 }
 
-/// The recap entrance set over `node`, else the dev setting's, else the shipped `hold`.
+/// The recap entrance set over `node`, else the dev setting's, else the shipped `place`.
 export function turnEndRecap(node: Element): TurnEndRecap {
   const set = node.closest(`[${TURN_END_RECAP_ATTR}]`)?.getAttribute(TURN_END_RECAP_ATTR);
   if (TURN_END_RECAPS.includes(set as TurnEndRecap)) return set as TurnEndRecap;
   const arm = experimentArm(turnEndRecapLook);
-  return TURN_END_RECAPS.includes(arm) ? arm : "hold";
+  return TURN_END_RECAPS.includes(arm) ? arm : "place";
 }
 
 /// The attribute a recap card that arrives live carries: its entrance (conversation.css plays it).
@@ -340,7 +346,7 @@ export function turnEndLook(node: Element): TurnEndLook {
   const set = node.closest(`[${TURN_END_LOOK_ATTR}]`)?.getAttribute(TURN_END_LOOK_ATTR);
   if (TURN_END_LOOKS.includes(set as TurnEndLook)) return set as TurnEndLook;
   const arm = experimentArm(turnEndFoldLook);
-  return TURN_END_LOOKS.includes(arm) ? arm : "fade";
+  return TURN_END_LOOKS.includes(arm) ? arm : "wipe";
 }
 
 /// `glide`'s curve: a soft start and a soft landing, so no one frame takes the move's biggest step first.
@@ -609,6 +615,12 @@ function recapEntrance(recap: TurnEndRecap, from: number, height: number): Keyfr
       { opacity: from, clipPath: clipBottom(Math.ceil(height)) },
       { opacity: 1, clipPath: clipBottom(0) },
     ];
+  if (recap === "place") return [{ opacity: 1 }, { opacity: 1 }];
+  if (recap === "open")
+    return [
+      { opacity: 1, clipPath: clipBottom(Math.ceil(height)) },
+      { opacity: 1, clipPath: clipBottom(0) },
+    ];
   if (recap === "bead")
     return [
       { opacity: from, scale: `${BEAD_SCALE}`, transformOrigin: "50% 0" },
@@ -836,7 +848,7 @@ function playReplace(
   const firstFrame = View?.requestAnimationFrame(() => {
     startsAt = now() + hold;
     // The clock starts with the first painted frame: every animation plays again on it.
-    for (const element of [...played.keys()]) drop(element);
+    for (const element of Array.from(played.keys())) drop(element);
     pass();
     arm();
   });
@@ -847,7 +859,7 @@ function playReplace(
     if (toStart() <= 0) return;
     hold = 0;
     startsAt = now();
-    for (const element of [...played.keys()]) drop(element);
+    for (const element of Array.from(played.keys())) drop(element);
     pass();
     arm();
   };
@@ -1072,12 +1084,18 @@ export function playTurnEnd(
       }
     });
     const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    // The ended turn's own footer (direct.ts `summary-TURN`) comes in with the swap where its live line was,
+    // and takes only that line's place, not its work's: a turn that ended on its calls, no answer under
+    // them, lost their copy on the fold's first frame, and the view stood blank 108 ms while the rows above
+    // fell in (the fold matrix's `ends-on-tool` cell; Leo, 2026-11-22: "tool calls at various times and
+    // turn ends at various").
+    const nextTurn = nodes.some((node, index) => arrives(node, index) && !node.dataset.rowId!.startsWith("summary-"));
     // The copies of what the ended turn drew under its last kept row (its live line) go once the next
     // turn's rows come in there: those rows take that place, and a copy fading under them drew its
     // text through theirs (the same replay: the new tool row over the old "Thinking" line, 107 px).
     if (Number.isFinite(lowest) && nodes.some(arrives))
       for (const row of gone)
-        if (row.top > lowestWas && fold.copies.has(row.copy!)) {
+        if (row.top > lowestWas && fold.copies.has(row.copy!) && (nextTurn || row.id === LIVE_LINE)) {
           for (const animation of copyMoves.get(row.copy!)?.animations ?? []) {
             animation.cancel();
             fold.animations.delete(animation);
