@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileModel
@@ -29,6 +30,8 @@ import SwiftUI
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
+/// - `notsent`: a chat message the Mac never took within the send deadline (``NotSentGallery``):
+///   A, the inline line the chat shows, then B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -65,6 +68,8 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
+            case "notsent":
+                NotSentGallery().background(CmuxMobileTheme.standard.colors.bg.color)
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             default:
@@ -193,12 +198,12 @@ public struct RecoveryGalleryRoot: View {
         }
         return ScrollView {
             VStack(spacing: 12) {
-                galleryLabel("A · picked · reconnecting")
-                list(.reconnecting)
+                galleryLabel("A · picked · reconnecting: nothing (Leo 2026-11-22)")
+                list(nil)
                 galleryLabel("A · past the bound, rows kept")
                 list(.stale)
-                galleryLabel("A · empty list, connecting")
-                CmuxSpinner(label: Text("Connecting to your Mac…")).frame(height: 120)
+                galleryLabel("A · empty list, loading")
+                CmuxSpinner(label: Text("Loading chats…")).frame(height: 120)
                 galleryLabel("B · floating pill")
                 list(nil)
                     .overlay(alignment: .bottom) {
