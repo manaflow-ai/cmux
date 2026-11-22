@@ -288,6 +288,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     // Wait for the actual no-harness chip; the page may mount before the catalog arrives.
     await page.locator(".acpmux-add-harness").waitFor();
     // An inherited home folder is not a saved project: the clean card must still offer Browse.
+    console.log("DBG", await page.locator(".nt-env").evaluate((n) => n.outerHTML).catch((e) => String(e)));
     expect(await page.locator('[data-action="browse-project"]').isVisible()).toBe(true);
     return page;
   }
