@@ -108,6 +108,11 @@ export type TurnEndCapture = {
   /// The view's offset then.
   scrollTop: number;
   sessionId?: string;
+  /// The turn ended where the reader cannot see it: the swap draws at once and no fold plays
+  /// (captureTurnEnd, rule 1). Captured all the same, so the turn's end still settles the fold
+  /// before it, the follow motion and the tail glide's held clip: with nothing captured at all, a
+  /// paused clip stayed on and hid the reply's last lines (review of cmux#41034).
+  silent?: boolean;
 };
 
 /// What a fold plays, so a later one (or the transcript unmounting) can settle it first.
@@ -181,7 +186,8 @@ export function captureTurnEnd(
     // The live header stays as the ended one in its slot (below): it does not go.
     return !(node.classList.contains(`acpmux-${WORKING}`) && kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`));
   };
-  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node)))) return undefined;
+  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node))))
+    return { rows: [], scrollTop: scroller.scrollTop, sessionId, silent: true };
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const priorId = node.dataset.rowId!;
@@ -363,23 +369,38 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
 /// Played on, every pass would turn the scroll into motion (a row the scroll mounts faded in, the
 /// scroll's own distance read as a row's move). The fold's `scroll` listener stays for the view's own
 /// scrolls (the bottom kept pinned).
-const READER_SCROLLS = ["wheel", "touchmove"] as const;
+const READER_SCROLLS = ["wheel", "touchmove", "pointerdown"] as const;
+/// The keys that scroll the view: a reader who reads by keyboard scrolls too (rule 4).
+const SCROLL_KEYS = new Set(["PageDown", "PageUp", "Home", "End", "ArrowDown", "ArrowUp", " ", "Spacebar"]);
 function endOnReaderScroll(
   thread: HTMLElement,
   scroller: HTMLElement | null | undefined,
   fold: TurnEndFold,
 ): () => void {
   if (!scroller) return () => {};
-  const end = () => settleTurnEnd(thread, fold);
-  // A press on the scroller itself is its scrollbar (rows and their parts are its children).
-  const press = (event: Event) => {
-    if (event.target === scroller) end();
+  // The input alone is not the reader's scroll. A wheel over a row's own scroller (a code block, a
+  // diff, a terminal), or at a bottom that cannot move, bubbles here while the view stays where it
+  // was; a press on the scroller is not only its scrollbar, since the space under a chat shorter than
+  // the view targets it too. So an input arms, and the view's own `scroll` from it ends the fold:
+  // the reader's scroll, never a reader who touched something else.
+  let from: number | undefined;
+  const arm = () => {
+    if (from === undefined) from = scroller.scrollTop;
   };
-  for (const name of READER_SCROLLS) scroller.addEventListener(name, end, { passive: true });
-  scroller.addEventListener("pointerdown", press, { passive: true });
+  const key = (event: Event) => {
+    if (SCROLL_KEYS.has((event as KeyboardEvent).key)) arm();
+  };
+  const moved = () => {
+    if (from === undefined || scroller.scrollTop === from) return;
+    settleTurnEnd(thread, fold);
+  };
+  for (const name of READER_SCROLLS) scroller.addEventListener(name, arm, { passive: true });
+  scroller.addEventListener("keydown", key, true);
+  scroller.addEventListener("scroll", moved, { passive: true });
   return () => {
-    for (const name of READER_SCROLLS) scroller.removeEventListener(name, end);
-    scroller.removeEventListener("pointerdown", press);
+    for (const name of READER_SCROLLS) scroller.removeEventListener(name, arm);
+    scroller.removeEventListener("keydown", key, true);
+    scroller.removeEventListener("scroll", moved);
   };
 }
 
@@ -425,7 +446,9 @@ export function playTurnEnd(
   sessionId: string | undefined,
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
-  if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
+  // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
+  // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
+  if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const { ms: settleMs, easing: settleEasing } = settle(thread);
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
