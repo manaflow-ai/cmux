@@ -1753,6 +1753,13 @@
       "keys": [
         "models.spreadUsage"
       ]
+    },
+    {
+      "agent": "settable",
+      "why": "Local calculator visibility only; no recorded spending or external action.",
+      "keys": [
+        "experiments.unitCost"
+      ]
     }
   ]
 }

@@ -6,6 +6,7 @@ nonisolated extension AcpmuxPaneMethods {
     /// exactly as the pane sends them (`webviews/src/agent-session/acpmux`). This is the pane's own
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
+        "_acpmux/unit_cost": (["seconds", "hourlyUsd", "busyPercent"], []),
         // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed` (cmux#46563).
         // schemas/agent-pane/initialize-params.json lists every initialize the page sends; refused,
         // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b).

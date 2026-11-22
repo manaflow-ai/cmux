@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.chatWidgets`: Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch("chatWidgets")). Off by default; off makes no route call and draws no card, so the chat is unchanged.
     public nonisolated static let chatWidgetsPath = ["experiments", "chatWidgets"]
     public nonisolated static let chatWidgetsDefault = false
+    /// `experiments.unitCost`: Local History calculator. Off by default; turning it off hides the calculator and makes no estimate request.
+    public nonisolated static let unitCostPath = ["experiments", "unitCost"]
+    public nonisolated static let unitCostDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.chatWidgetsDefault),
                 keywords: ["experiments", "experimental", "prototype", "extension", "extensions", "chat", "widget", "tool", "card"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.unitCostPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.unitCost", "Unit Cost"),
+                help: SettingsText.keyed("settings.experiments.unitCost.help", "Estimate a build, CI job or session cost in History using your own assumptions."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.unitCostDefault),
+                keywords: ["experiments", "labs", "cost", "estimate", "history"]
             ),
         ]
     }

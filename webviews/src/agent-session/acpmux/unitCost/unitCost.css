@@ -1,0 +1,5 @@
+.ucs { overflow:auto; padding:var(--ds-space-3); }
+.ucs label { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:var(--ds-space-3); font-size:var(--text-body); }
+.ucs .ui-input { min-width:0; width:100%; }
+.ucs-note { margin:0; color:var(--agent-muted); font-size:var(--text-detail); }
+.ucs output { font-size:var(--text-title); font-variant-numeric:tabular-nums; }
