@@ -149,7 +149,10 @@ def front_app() -> dict | None:
                                   capture_output=True, text=True, timeout=5).stdout
             pid = re.search(r'"pid"\s*=\s*(\d+)', info)
             bid = re.search(r'"CFBundleIdentifier"\s*=\s*"([^"]*)"', info)
-            return {"pid": int(pid.group(1)) if pid else None, "bundle": bid.group(1) if bid else None}
+            out = {"pid": int(pid.group(1)) if pid else None, "bundle": bid.group(1) if bid else None}
+            if not pid:
+                out["raw"] = (asn + " | " + info.strip())[:200]
+            return out
         if sys.platform.startswith("linux"):
             r = subprocess.run(["xdotool", "getactivewindow", "getwindowpid"], capture_output=True, text=True, timeout=5)
             return {"pid": int(r.stdout.strip())} if r.returncode == 0 and r.stdout.strip().isdigit() else None
@@ -296,12 +299,13 @@ def run(out_dir: str, rounds: int = 5) -> int:
     checks = report["checks"]
 
     # 1 frontmost
-    fronts = [f for f in sampler.fronts if f]
+    fronts = [f for f in sampler.fronts if f and f.get("pid")]
     changed = [f for f in fronts if f.get("pid") != person_pid]
     checks["frontmost"] = {
         "ok": bool(fronts) and not changed,
         "detail": f"{len(fronts)} samples, front was the person's app (pid {person_pid}) in "
-                  f"{len(fronts) - len(changed)}; others: {changed[:5]}" if fronts else "front app unreadable",
+                  f"{len(fronts) - len(changed)}; others: {changed[:5]}" if fronts
+                  else f"front app unreadable in all {len(sampler.fronts)} samples (lsappinfo front gave no pid)",
     }
 
     # 2 no-leak
@@ -352,12 +356,22 @@ def run(out_dir: str, rounds: int = 5) -> int:
     started = sorted({p for snap in sampler.classic for p in snap} - set(classic_before))
     classic_front = [f for f in fronts if f.get("bundle") == CLASSIC]
     launch = next(((r, e) for n, r, e in results if n == "launch_app"), (None, "not called"))
-    refused = bool(launch[0] and launch[0].is_error)
+    code = (launch[0].data or {}).get("code") if launch[0] and isinstance(launch[0].data, dict) else None
+    refused = bool(launch[0] and launch[0].is_error and code in ("app_denied", "app_protected"))
     checks["classic"] = {
         "ok": not started and not classic_front and refused,
         "detail": f"running before={classic_before} started during run={started} frontmost samples={len(classic_front)} "
-                  f"launch_app refused={refused} ({(launch[0].text()[:160] if launch[0] else launch[1])})",
+                  f"launch_app refused by policy={refused} code={code} ({(launch[0].text()[:160] if launch[0] else launch[1])})",
     }
+
+    reached = any(r and isinstance(r.data, dict) and r.data.get("driver") for _, r, _ in results)
+    if not reached:
+        why = next((r.data.get("code") for _, r, _ in results if r and isinstance(r.data, dict) and r.data.get("code")), None)
+        report["blocked"] = f"no Computer Use driver answered (first error code: {why}); every result came from the bridge"
+        for name in ("cursor", "driver", "classic"):
+            checks[name]["ok"] = False
+            checks[name]["detail"] = "BLOCKED: " + report["blocked"] + "; " + checks[name]["detail"]
+        print(f"DURESS blocked: {report['blocked']}")
 
     report["form_state"] = {k: form_state.get(k) for k in ("name", "counter", "saved", "first_visible")}
     report["person"] = {k: person.get(k) for k in ("keys_received", "focus_lost", "has_focus")}
