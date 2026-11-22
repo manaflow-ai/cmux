@@ -18,8 +18,12 @@
 use super::*;
 use crate::model_catalog::{self, Canonical};
 
-/// The mux record a rewrite leaves in the session's log: `{from, to, at}`.
+/// The mux record a rewrite leaves in the session's log, drawn as a notice row:
+/// `{from, to, at, text}`.
 pub(super) const REWRITE_RECORD: &str = "model_rewrite";
+/// The mux record an auto-reroute leaves (`auto_resume/model_reroute.rs`): `{from, to, turnId,
+/// text}`.
+pub(super) const REROUTE_RECORD: &str = "model_reroute";
 
 impl Hub {
     /// `model` for the harness profile `agent` (`profile`), as its catalog names it: the
@@ -59,21 +63,24 @@ impl Hub {
     ) -> Result<String, RpcError> {
         let canonical = self.canonical_model_for(agent, profile, model)?;
         if canonical.changed() {
-            let line = canonical.line();
             match session {
-                Some(s) => {
-                    tracing::info!(session = %s.id, harness = agent, "{at}: {line}");
-                    self.append(
-                        s,
-                        "mux",
-                        REWRITE_RECORD,
-                        json!({"from": canonical.given, "to": canonical.model, "at": at}),
-                    );
-                }
-                None => tracing::info!(harness = agent, "{at}: {line}"),
+                Some(s) => self.record_model_rewrite(s, &canonical, at),
+                None => tracing::info!(harness = agent, "{at}: {}", canonical.line()),
             }
         }
         Ok(canonical.model)
+    }
+
+    /// A rewrite, in the daemon's log and as a notice row in `session`'s transcript.
+    pub(super) fn record_model_rewrite(&self, session: &Session, canonical: &Canonical, at: &str) {
+        let line = canonical.line();
+        tracing::info!(session = %session.id, "{at}: {line}");
+        self.append(
+            session,
+            "mux",
+            REWRITE_RECORD,
+            json!({"from": canonical.given, "to": canonical.model, "at": at, "text": line}),
+        );
     }
 
     /// The model `session` is asked to run, as its catalog names it ([`Hub::rewrite_model`] for
@@ -119,4 +126,15 @@ impl Hub {
         }
         None
     }
+}
+
+/// Whether `session`'s `model` config option lists `model` as one of its values: the harness's
+/// own id, never rewritten.
+pub(super) fn option_lists(session: &Session, model: &str) -> bool {
+    let meta = session.meta();
+    meta.config_options
+        .as_deref()
+        .and_then(Value::as_array)
+        .and_then(|opts| opts.iter().find(|o| o["id"] == "model"))
+        .is_some_and(|o| model_catalog::choices(o).iter().any(|(id, _)| id == model))
 }

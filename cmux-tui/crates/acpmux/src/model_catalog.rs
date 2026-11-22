@@ -57,8 +57,10 @@ pub fn resolve(option: &Value, requested: &str) -> Result<String, String> {
 // lowercased, a leading `anthropic/`, `claude/`, `openai/` or `codex/` dropped, runs of space,
 // `_` and `-` as one `-`), then looked up under each of its keys (digit.digit as digit-digit and
 // back, a letter joined to a digit split, `fable5` as `fable-5`, with and without `claude-`)
-// against the keys of every model id and alias the harness's catalog entry lists. One id: that
-// id. A key two ids share: ambiguous, the only refusal. None: the name passes through unchanged,
+// against the keys of every model id and alias the harness's catalog entry lists, then against
+// derived spellings (`astra-6.2`, `gpt-6.2`, bare `claude`), then a family word alone, which goes
+// to the family's newest model (`astra` -> `gpt-6.2-astra`). One id: that id. A key two ids
+// share (`gpt-6.2`: astra or sol; bare `claude`): ambiguous, the only refusal. None: the name passes through unchanged,
 // and the harness decides. A trailing `[1m]`-style suffix is kept as given. A name the catalog
 // lists exactly (an id, or an alias such as `opus` that the harness takes itself) is never
 // rewritten.
@@ -188,7 +190,72 @@ fn split_suffix(name: &str) -> (&str, &str) {
     (name, "")
 }
 
+/// An id's parts: its head (`claude`, `gpt`), its family words (`fable`, `astra`; none for
+/// `gpt-5.6`) and its version (`[5, 2]` for `claude-fable-5-2` and `gpt-6.2-astra`).
+struct IdParts {
+    head: String,
+    words: Vec<String>,
+    version: Vec<u32>,
+}
+
+fn id_parts(id: &str) -> Option<IdParts> {
+    let folded = between_digits(&fold(id), '.', '-');
+    let mut tokens = folded.split('-');
+    let head = tokens.next()?.to_owned();
+    let (mut words, mut version) = (Vec::new(), Vec::new());
+    for token in tokens {
+        match token.parse::<u32>() {
+            Ok(n) => version.push(n),
+            Err(_) if token.chars().all(|c| c.is_ascii_lowercase()) => words.push(token.to_owned()),
+            Err(_) => return None,
+        }
+    }
+    Some(IdParts { head, words, version })
+}
+
+/// The derived spellings an id answers to beside its own: family then version (`astra-6.2`),
+/// head then version (`gpt-6.2`, which `gpt-6.2-sol` and `gpt-6.2-astra` share), and the bare
+/// head (`claude`, every Claude id's).
+fn derived_spellings(parts: &IdParts) -> Vec<String> {
+    let version: Vec<String> = parts.version.iter().map(u32::to_string).collect();
+    let version = version.join(".");
+    let mut out = vec![parts.head.clone()];
+    if !version.is_empty() {
+        out.push(format!("{}-{version}", parts.head));
+        if !parts.words.is_empty() {
+            out.push(format!("{}-{version}", parts.words.join("-")));
+        }
+    }
+    out
+}
+
+/// One tier of lookup: every key and the ids it reaches.
+#[derive(Default)]
+struct Tier<'a>(std::collections::BTreeMap<String, Vec<&'a str>>);
+
+impl<'a> Tier<'a> {
+    fn add(&mut self, spelling: &str, id: &'a str) {
+        for key in keys(spelling) {
+            let ids = self.0.entry(key).or_default();
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+
+    /// The ids the first of `wanted` this tier knows reaches.
+    fn find(&self, wanted: &[String]) -> Option<&Vec<&'a str>> {
+        wanted.iter().find_map(|k| self.0.get(k))
+    }
+}
+
 /// `name` as the models `(id, aliases)` spell it ([`canonical_model`] for one catalog harness).
+///
+/// Three tiers, first hit wins: the ids and aliases themselves (`fable5.2`, `GPT 5.6`); then
+/// their derived spellings (`Astra 6.2`, `gpt-6.2`, `claude`); then a family word alone, which
+/// goes to that family's newest model (`astra` -> `gpt-6.2-astra`, `sol` -> `gpt-6.2-sol`). In
+/// the first two tiers a key two ids share is ambiguous; in the third, only two newest of equal
+/// version are.
 pub fn canonical_among<'a, I>(models: I, name: &str) -> Result<Canonical, Ambiguous>
 where
     I: IntoIterator<Item = (&'a str, &'a [String])>,
@@ -198,16 +265,21 @@ where
     if base.is_empty() {
         return Ok(Canonical::unchanged(given));
     }
-    let mut index: std::collections::BTreeMap<String, Vec<&'a str>> = Default::default();
+    let (mut listed, mut derived) = (Tier::default(), Tier::default());
+    let mut families: std::collections::BTreeMap<String, Vec<(Vec<u32>, &'a str)>> =
+        Default::default();
     let mut exact = false;
     for (id, aliases) in models {
         for spelling in std::iter::once(id).chain(aliases.iter().map(String::as_str)) {
             exact |= spelling == base;
-            for key in keys(spelling) {
-                let ids = index.entry(key).or_default();
-                if !ids.contains(&id) {
-                    ids.push(id);
-                }
+            listed.add(spelling, id);
+        }
+        if let Some(parts) = id_parts(id) {
+            for spelling in derived_spellings(&parts) {
+                derived.add(&spelling, id);
+            }
+            if !parts.words.is_empty() {
+                families.entry(parts.words.join("-")).or_default().push((parts.version, id));
             }
         }
     }
@@ -215,18 +287,33 @@ where
     if exact {
         return Ok(Canonical { model: given.to_owned(), given: given.to_owned(), known: true });
     }
-    let wanted = keys(base);
-    if let Some(id) = wanted.iter().find_map(|k| index.get(k).filter(|ids| ids.len() == 1)) {
-        return Ok(Canonical {
-            model: format!("{}{suffix}", id[0]),
-            given: given.to_owned(),
-            known: true,
-        });
-    }
-    if let Some(ids) = wanted.iter().find_map(|k| index.get(k)) {
+    let found = |id: &str| Canonical {
+        model: format!("{id}{suffix}"),
+        given: given.to_owned(),
+        known: true,
+    };
+    let ambiguous = |ids: &[&str]| {
         let mut choices: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
         choices.sort();
-        return Err(Ambiguous { given: given.to_owned(), choices });
+        Ambiguous { given: given.to_owned(), choices }
+    };
+    let wanted = keys(base);
+    for tier in [&listed, &derived] {
+        if let Some(id) = wanted.iter().find_map(|k| tier.0.get(k).filter(|ids| ids.len() == 1)) {
+            return Ok(found(id[0]));
+        }
+        if let Some(ids) = tier.find(&wanted) {
+            return Err(ambiguous(ids));
+        }
+    }
+    if let Some(members) = wanted.iter().find_map(|k| families.get(k)) {
+        let newest = members.iter().map(|(v, _)| v).max().cloned().unwrap_or_default();
+        let top: Vec<&str> =
+            members.iter().filter(|(v, _)| *v == newest).map(|(_, id)| *id).collect();
+        return match top.as_slice() {
+            [id] => Ok(found(id)),
+            _ => Err(ambiguous(&top)),
+        };
     }
     Ok(Canonical::unchanged(given))
 }
