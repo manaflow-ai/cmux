@@ -97,7 +97,9 @@
   border: 0;
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-warning, var(--agent-accent)) 14%, transparent);
-  color: var(--agent-warning, var(--agent-accent));
+  /* The text ink, not the warning hue: the hue on its own 14% tint read 2.5-2.7:1 in light themes
+     (control-contrast-11, #ac9007 on #f3efdc). The tint and the warning mark beside it carry the meaning. */
+  color: var(--agent-text);
   font: inherit;
   font-weight: var(--font-weight-emphasis);
   font-variant-numeric: tabular-nums;
