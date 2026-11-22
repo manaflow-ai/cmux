@@ -50,7 +50,7 @@ fn the_apps_exec_answer_is_the_route() {
 #[test]
 fn parses_status_mode_and_route() {
     let (c, v) = parse(&words(&["status", "--personal"]), &env).unwrap();
-    assert_eq!(c.api, "https://api.cmux.test");
+    assert_eq!(c.api.as_deref(), Some("https://api.cmux.test"));
     assert_eq!(v, Verb::Status { personal: true });
     let (_, v) =
         parse(&words(&["mode", "gateway", "--gateway-machine", "vm_abcdefghij0123456789"]), &env)
@@ -149,4 +149,45 @@ fn reads_the_machine_probe() {
     );
     assert!(probe_command("claude").ends_with("/v1/cmux/route?agent=claude'"));
     assert!(!probe_command("claude").contains("x-cmux-inference-authorization"));
+}
+
+/// The app runs `inference gateway status` with its own environment, which names no API (hq#15762): with the app's
+/// token the verb asks the API that issued it; any other token still needs `--api`.
+#[test]
+fn status_with_no_api_asks_the_api_that_issued_the_apps_token() {
+    let none = |_: &str| None;
+    let (c, v) = parse(&words(&["status"]), &none).unwrap();
+    assert_eq!((c.api, c.token, v), (None, TokenSource::App, Verb::Status { personal: false }));
+    let token_env = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "tok".to_owned());
+    assert!(parse(&words(&["status"]), &token_env).unwrap_err().contains("--api"));
+    assert!(
+        parse(&words(&["status", "--token-file", "/tmp/t"]), &none).unwrap_err().contains("--api")
+    );
+
+    assert_eq!(
+        api_origin(None, Some("https://cloud-api.cmux.test")).unwrap(),
+        "https://cloud-api.cmux.test"
+    );
+    assert_eq!(
+        api_origin(Some("https://api.cmux.test"), Some("https://cloud-api.cmux.test")).unwrap(),
+        "https://api.cmux.test",
+    );
+    assert!(api_origin(None, Some("http://cloud-api.cmux.test")).is_err());
+    assert!(api_origin(None, None).unwrap_err().contains("named none"));
+}
+
+#[test]
+fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
+    use super::super::inference_gateway::credential_answer;
+    assert_eq!(credential_answer(" tok \n"), ("tok".to_owned(), None));
+    assert_eq!(
+        credential_answer(
+            r#"{"access_token":"tok","api_origin":"https://cloud-api.cmux.test","team":"t"}"#
+        ),
+        ("tok".to_owned(), Some("https://cloud-api.cmux.test".to_owned())),
+    );
+    assert_eq!(
+        credential_answer(r#"{"access_token":"tok","api_origin":""}"#),
+        ("tok".to_owned(), None)
+    );
 }

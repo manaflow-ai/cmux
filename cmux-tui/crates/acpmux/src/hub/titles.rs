@@ -138,18 +138,72 @@ fn prompt_gist(text: &str) -> PromptGist<'_> {
     PromptGist { line, body }
 }
 
-/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
-/// closes leaves nothing: its first line is no title.
+/// `text` without the `<tag>…</tag>` blocks and standing-rules sections it opens
+/// with. A block that never closes leaves nothing: its first line is no title.
 fn strip_leading_blocks(text: &str) -> &str {
     let mut rest = text.trim_start();
-    while let Some(tag) = opening_tag(rest) {
-        let close = format!("</{tag}>");
-        match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
-            None => return "",
+    loop {
+        if let Some(tag) = opening_tag(rest) {
+            let close = format!("</{tag}>");
+            match rest.find(&close) {
+                Some(at) => rest = rest[at + close.len()..].trim_start(),
+                None => return "",
+            }
+        } else if let Some(after) = skip_tagged_section(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
         }
     }
-    rest
+}
+
+/// What follows a standing-rules section `text` opens with, if it opens with one: a
+/// Markdown heading tagged with a kebab-case `[slug]`, the way a fleet brief's
+/// boilerplate starts ("## Restrictions you will hit [session-restrictions]",
+/// 2026-11-20: dozens of chats were titled after it, not their task). The section's
+/// paragraph and list run to the first blank line that a list item or an indented line
+/// does not continue.
+fn skip_tagged_section(text: &str) -> Option<&str> {
+    let (first, _) = text.split_once('\n').unwrap_or((text, ""));
+    if !is_tagged_heading(first.trim()) {
+        return None;
+    }
+    let mut at = first.len() + 1;
+    let (mut seen_text, mut blank) = (false, false);
+    for line in text.get(at..).unwrap_or("").split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() {
+            blank |= seen_text;
+        } else if blank && !continues_section(line) {
+            return Some(&text[at..]);
+        } else {
+            (seen_text, blank) = (true, false);
+        }
+        at += line.len();
+    }
+    Some("")
+}
+
+/// `## Title [kebab-slug]`: a heading whose last word is a bracketed slug with a dash.
+fn is_tagged_heading(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+    let Some(slug) = line.strip_suffix(']').and_then(|l| l.rsplit_once('[')).map(|(_, s)| s) else {
+        return false;
+    };
+    slug.contains('-')
+        && !slug.starts_with('-')
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A list item or an indented line carries a section on past a blank line.
+fn continues_section(line: &str) -> bool {
+    let t = line.trim_start();
+    line.starts_with([' ', '\t'])
+        || t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
 }
 
 /// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
@@ -734,5 +788,47 @@ mod tests {
     fn a_line_that_only_looks_like_a_tag_still_titles() {
         assert_eq!(prompt_gist("<3 this app, make it faster").line, "<3 this app, make it faster");
         assert_eq!(prompt_gist("a < b: why").line, "a < b: why");
+    }
+
+    /// The standing block a fleet brief opens with (leo-workspace `tools/session_restrictions.py`):
+    /// a heading tagged `[slug]`, a paragraph and a list, then a blank line and the task.
+    const RESTRICTIONS: &str = "## Restrictions you will hit [session-restrictions]\n\nAny of these ends a session mid-work: usage limits, a NIGHTLY install,\nhost drains and reboots.\n- Push a draft PR within 15 minutes of your first edit. Push again\n  at least every 30 minutes.\n- Post a one-line check-in every 30 minutes.\n";
+
+    #[test]
+    fn a_standing_rules_preamble_never_titles_a_chat() {
+        // 2026-11-20: dozens of sessions were titled "Session restrictions and stalled PR batch"
+        // or the preamble's heading itself, from the block every brief opens with.
+        let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
+        let gist = prompt_gist(&text);
+        assert_eq!(gist.line, "Task: rename live sessions after their task.");
+        assert!(
+            !gist.body.contains("Restrictions"),
+            "the title model never reads it: {}",
+            gist.body
+        );
+        assert!(gist.body.contains("More."));
+    }
+
+    #[test]
+    fn several_tagged_blocks_and_context_blocks_are_all_skipped() {
+        let text = format!(
+            "<chat>\nview\n</chat>\n{RESTRICTIONS}\n# Building what Leo asks [build-what-named]\n\n- Build exactly what he named.\n\nFix the sidebar spinner"
+        );
+        assert_eq!(prompt_gist(&text).line, "Fix the sidebar spinner");
+    }
+
+    #[test]
+    fn a_prompt_that_is_only_a_preamble_gives_no_title() {
+        assert_eq!(prompt_gist(RESTRICTIONS).line, "");
+    }
+
+    #[test]
+    fn an_untagged_heading_or_a_mere_mention_still_titles() {
+        assert_eq!(prompt_gist("## Fix the sidebar\n\nIt spins").line, "## Fix the sidebar");
+        assert_eq!(
+            prompt_gist("fix [session-restrictions] parsing").line,
+            "fix [session-restrictions] parsing"
+        );
+        assert_eq!(prompt_gist("## Ship it [wip]\n\nnow").line, "## Ship it [wip]");
     }
 }

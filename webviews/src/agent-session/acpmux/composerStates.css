@@ -353,6 +353,15 @@
   :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-shadow: var(--glass-material-depth-composer);
   }
+  /* Wallpaper lighting (glass.css WALLPAPER LIGHTING): a soft bloom of the picture's most colorful
+     color round the card, leaning toward the key light. An outer shadow, so it never covers the text,
+     and it moves only with the light field. */
+  :root[data-wallpaper-light]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-shadow:
+      var(--glass-material-depth-composer),
+      calc(14px * var(--wl-dx)) calc(10px * var(--wl-dy)) 56px 6px
+        color-mix(in srgb, var(--wl-bloom) calc(100% * var(--wl-bloom-alpha)), transparent);
+  }
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
     > .acpmux-composer-box.ui-glass-material {
@@ -665,6 +674,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-shell-field::placeholder {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
+}
+/* Over a see-through window the field is clear glass over art or the desktop: the light placeholder
+   ink fell to 1.8:1 there (fleet capture of 6015e301, the Great Wave). It takes the secondary tier,
+   as pageBase.css lifts tertiary text there and as the native Chief composer holds 4.5:1
+   (test/composer-placeholder-see-through.test.ts). An opaque window keeps the light ink. */
+:root[data-cmux-see-through] :is(.acpmux-shell, .ui-positioner) {
+  --acpmux-composer-placeholder: var(--acpmux-composer-dim);
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
    composerLocation.css draws it around the strip's seam). Focus is the same hairline a step

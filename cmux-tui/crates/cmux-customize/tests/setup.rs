@@ -43,6 +43,21 @@ impl Home {
 
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"density\": \"compact\" },\n  \"actions\": { \"mine\": { \"type\": \"command\", \"command\": \"ls\" } }\n}\n";
 
+#[test]
+fn inactive_archive_profile_applies_seven_days() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let customize = home.customize();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../examples/looks/claude-code/inactive-archive/cmux-setup.json");
+    let profile = customize.load_profile(file.to_str().unwrap()).unwrap();
+    customize.preview_profile(&profile, "cli", 1).unwrap();
+    assert!(customize.apply(None, "cli", 2).unwrap().recorded);
+    let settings = home.settings();
+    assert_eq!(settings["agents"]["chats"]["archiveInactive"], "7d");
+    assert_eq!(settings["appearance"]["density"], "compact");
+}
+
 /// The sample setup (ext-in-git-notes/sample-setup): a theme, one action,
 /// one extension.
 fn sample_repo(root: &Path) -> PathBuf {
@@ -485,4 +500,28 @@ fn removing_a_setup_never_deletes_a_library_entry_you_already_had() {
         customize.library().unwrap().entries.iter().any(|entry| entry.name == yours),
         "your entry is still in the library"
     );
+}
+
+/// A setup (a look add-on) that picks the corner treatment installs it into
+/// cmux-next.json and removing it puts the default back (Leo, 2026-11-18: the
+/// gooey look "we have as a toggle maybe, and we can like do more stuff with
+/// that").
+#[test]
+fn a_setup_that_picks_the_corner_treatment_keeps_it() {
+    let home = Home::new();
+    home.write("cmux-next.json", MINE);
+    let repo = sample_repo(home.dir.path());
+    let mut read = setup::read_dir(&repo).unwrap();
+    read.profile.settings.insert("appearance.cornerFlush".to_owned(), json!("flush-goo"));
+    let customize = home.customize();
+    customize.plan_setup(&read, "manaflow-ai", "0.0.0").expect("a look setting plans");
+    let installed = customize.install_setup(&read, "setup corner", "cli", 10).unwrap();
+    let settings = home.settings();
+    assert_eq!(settings["appearance"]["cornerFlush"], json!("flush-goo"));
+    assert_eq!(settings["appearance"]["density"], json!("compact"), "your own keys stay");
+
+    customize.record_setup(receipt(&read, &installed)).unwrap();
+    let found = customize.setup("manaflow-ai/cmux-setup-sample").unwrap().unwrap();
+    customize.remove_setup(&found, "cli", 20).unwrap();
+    assert_eq!(home.settings()["appearance"].get("cornerFlush"), None);
 }
