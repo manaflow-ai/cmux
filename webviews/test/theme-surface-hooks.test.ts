@@ -71,7 +71,7 @@ const HOOKS: Hook[] = [
   },
   {
     file: "agent-session/acpmux/subagents/subagents.css",
-    property: "border-radius",
+    property: "--acpmux-tray-radius",
     token: "--cmux-composer-hat-radius",
     today: "var(--acpmux-composer-radius, 11px)",
   },
