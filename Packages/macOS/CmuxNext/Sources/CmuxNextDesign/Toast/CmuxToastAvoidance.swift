@@ -82,11 +82,16 @@ public final class CmuxToastAvoidance {
     /// The gap between a toast and the view it avoids.
     public static let avoidanceGap: CGFloat = 8
 
-    /// The lowest bottom edge (window coordinates) a toast of `width`, centered in `bounds`, may
-    /// take in `window`: above every avoided rect under it, else `bounds.minY`.
+    /// The lowest bottom edge (window coordinates) a toast may take in `window`: above every shown avoided
+    /// rect in the window, wherever it lies across, else `bounds.minY`.
+    ///
+    /// The floor reads only how tall the avoided views stand, not where they sit across the window: a toast
+    /// rests at one height whatever the panes and the sidebar do under it (Leo 2026-11-21, on the selection
+    /// hint over a terminal: "it's also affected by layout. which makes it shift. which makes it shit"). It
+    /// used to clear only the views under the toast's own band, so a divider drag or a sidebar toggle that
+    /// slid a chat's composer into or out of the middle moved the toast by the composer's height.
+    /// `width` is kept for callers; it no longer changes the answer.
     public static func floor(width: CGFloat, in bounds: NSRect, window: NSWindow) -> CGFloat {
-        let band = NSRect(x: bounds.midX - width / 2 - avoidanceGap, y: bounds.minY,
-                          width: width + 2 * avoidanceGap, height: bounds.height)
         var floor = bounds.minY
         // Every shown view under the content view, a view before its subviews. An explicit stack,
         // not a recursive local function that captures `floor` (Swift 6.3.3's SendNonSendable pass
@@ -96,7 +101,7 @@ public final class CmuxToastAvoidance {
             guard !view.isHidden, view.alphaValue > 0.01 else { continue }
             if let avoiding = view as? any CmuxToastAvoiding {
                 let rect = avoiding.convert(avoiding.toastAvoidanceRect, to: nil)
-                if !rect.isEmpty, rect.intersects(band) { floor = max(floor, rect.maxY + avoidanceGap) }
+                if !rect.isEmpty, rect.maxX > bounds.minX, rect.minX < bounds.maxX { floor = max(floor, rect.maxY + avoidanceGap) }
             }
             pending.append(contentsOf: view.subviews.reversed())
         }
