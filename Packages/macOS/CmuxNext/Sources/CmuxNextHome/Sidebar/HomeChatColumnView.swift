@@ -1,11 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// The Home split's chat column: the page's chat (`content`, filling the column) with the Chats
-/// button (shows or folds the conversation list) and the chat's compose button over its top-left
-/// at every list width, as in Messages (compose hides only while the New Message page is on
-/// screen). The buttons are the content's siblings, so a conversation or the New Message page the
-/// page adds to `content` never covers them.
+/// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
+/// compose button over its top-left at every list width, as in Messages (hidden only while the New
+/// Message page is on screen). The Chats button stays hidden (#48467: the list shows beside the chat).
+/// The buttons are the content's siblings, so a conversation or the New Message page the page adds to
+/// `content` never covers them.
 final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     let content: NSView
     let compose: HomeChatComposeButton
@@ -23,6 +23,7 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
+        chats.isHidden = true // #48467: no Chats button; the list shows beside the chat
         addSubview(chats)
         compose.isHidden = true
         addSubview(compose)
@@ -78,8 +79,6 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
             frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
             frame.origin.y = (lights.midY - side / 2).rounded()
         }
-        // The Chats button is off (#48467: the list shows beside the chat again); compose takes its place.
-        chats.isHidden = true
         chats.frame = frame
         compose.frame = frame
     }

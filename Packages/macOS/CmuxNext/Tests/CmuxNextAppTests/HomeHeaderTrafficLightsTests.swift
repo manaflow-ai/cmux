@@ -200,8 +200,8 @@ import Testing
         column.showsCompose = true
         window.contentView?.addSubview(column)
         column.layoutSubtreeIfNeeded()
-        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
-        #expect(column.compose.frame.minX > column.chats.frame.maxX)
+        #expect(column.chats.isHidden, "the Chats button shows (#48467)")
+        #expect(column.compose.frame.minX == HomeChatColumnView.composeInset)
 
         column.setFrameOrigin(.zero)
         WindowControlsAvoiders.refresh(in: window)

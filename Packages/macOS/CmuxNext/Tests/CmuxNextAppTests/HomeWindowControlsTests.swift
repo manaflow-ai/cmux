@@ -119,18 +119,15 @@ struct HomeWindowControlsTests {
         win.contentView = root
         column.layoutSubtreeIfNeeded()
         let lights = try Self.lights(in: column)
-        // Chats (the list's toggle) leads, compose follows it on the same line.
-        for button in [column.chats as NSView, compose] {
-            #expect(!button.frame.intersects(lights), "\(button) sits on the traffic lights")
-            #expect(button.frame.minX >= lights.maxX)
-            #expect(abs(button.frame.midY - lights.midY) <= 1, "\(button) is not on the lights' line")
-        }
-        #expect(compose.frame.minX > column.chats.frame.maxX, "compose overlaps Chats")
-        // Beside the list (clear of the lights) Chats keeps its inset.
+        // Compose alone at the top-left (#48467: no Chats button), after the lights on their line.
+        #expect(column.chats.isHidden, "the Chats button shows")
+        #expect(!compose.frame.intersects(lights), "compose sits on the traffic lights")
+        #expect(compose.frame.minX >= lights.maxX)
+        #expect(abs(compose.frame.midY - lights.midY) <= 1, "compose is not on the lights' line")
+        // Beside the list (clear of the lights) compose keeps its inset.
         column.frame = NSRect(x: 320, y: 0, width: 680, height: 700)
         column.layoutSubtreeIfNeeded()
-        #expect(column.chats.frame.minX == HomeChatColumnView.composeInset)
-        #expect(compose.frame.minX > column.chats.frame.maxX)
+        #expect(compose.frame.minX == HomeChatColumnView.composeInset)
     }
 
     // MARK: The layout alone

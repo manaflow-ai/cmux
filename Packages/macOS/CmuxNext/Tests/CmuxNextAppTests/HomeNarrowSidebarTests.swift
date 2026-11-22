@@ -82,10 +82,9 @@ struct HomeNarrowSidebarTests {
         #expect(!button.isHidden)
         let frame = button.convert(button.bounds, to: p.content)
         let fromTop = p.content.isFlipped ? frame.minY : p.content.bounds.height - frame.maxY
-        // Chats sits at the chat's top-left (the Chief replaces Home, 2026-11-20), compose right after it.
-        let chats = p.split.chatColumn.chats.convert(p.split.chatColumn.chats.bounds, to: p.content)
-        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
-        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
+        // Compose alone at the chat's top-left (#48467: no Chats button).
+        #expect(p.split.chatColumn.chats.isHidden, "the Chats button shows")
+        #expect(frame.minX >= 4 && frame.minX <= 24, "compose sits \(frame.minX) pt from the chat's left edge")
         #expect(fromTop >= 4 && fromTop <= 20, "compose sits \(fromTop) pt under the chat's top")
         #expect(abs(frame.width - frame.height) < 0.5, "compose is no round button (\(frame.size))")
         // A chat the page shows later (a conversation, New Message) never covers it.

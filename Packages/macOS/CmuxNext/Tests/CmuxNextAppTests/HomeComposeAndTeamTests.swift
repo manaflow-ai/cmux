@@ -55,9 +55,9 @@ struct HomeComposeAndTeamTests {
         let button = try #require(HomeNarrowSidebarTests.chatCompose(in: split))
         #expect(!button.isHidden, "the chat has no compose at \(list) pt in a \(window) pt window")
         let frame = button.convert(button.bounds, to: content)
-        let chats = split.chatColumn.chats.convert(split.chatColumn.chats.bounds, to: content)
-        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
-        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
+        // Compose alone at the chat's top-left (#48467: no Chats button).
+        #expect(split.chatColumn.chats.isHidden, "the Chats button shows")
+        #expect(frame.minX >= 4 && frame.minX <= 24, "compose sits \(frame.minX) pt from the chat's left edge")
         split.composing = true
         #expect(button.isHidden)
     }

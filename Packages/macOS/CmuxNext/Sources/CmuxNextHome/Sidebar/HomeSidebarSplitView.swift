@@ -11,8 +11,8 @@ import Observation
 /// button shows at the chat's top-left instead (`HomeChatColumnView`). An avatar-only list that
 /// holds one conversation takes no column at all (`foldsLoneConversation`).
 ///
-/// The list is folded until the person shows it with the chat's Chats button (``showsList``): the Chief replaces
-/// Home (the person, 2026-11-20), so the Chief's chat fills the page and the other chats are one click away.
+/// The list shows beside the Chief's chat (``showsList``, on by default, #48467); the Chief panel folds it
+/// (``foldsList``).
 @MainActor
 public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// The window's key for its saved width (resolved on use: the window's
@@ -85,6 +85,12 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             needsLayout = true
             layoutSubtreeIfNeeded()
         }
+    }
+
+    /// Folds the list whatever ``showsList`` says: the floating or docked Chief panel borrows this view and shows
+    /// the Chief's chat alone (#48467 keeps the list beside the Chief on Home's page only).
+    public var foldsList = false {
+        didSet { if foldsList != oldValue { needsLayout = true } }
     }
 
     /// The Chats button: shows or folds the conversation list.
@@ -258,7 +264,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private func foldLoneConversation() -> Bool {
         // Another window may have shown or folded the list (one choice on this Mac): the button follows.
         if chatColumn.chats.isOn != widths.listShown { chatColumn.chats.isOn = widths.listShown }
-        let fold = !widths.listShown || foldsLoneConversation
+        let fold = foldsList || !widths.listShown || foldsLoneConversation
         if list.isHidden != fold {
             list.isHidden = fold
             // Shown again, the list goes back to its width below.
