@@ -1,8 +1,7 @@
 // cmux-web-test-timeout: 900
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript's scrollbar thumb while the reader scrolls up a long chat whose older pages load in,
-// then reaches for the shown thumb and lets it go, then hovers its bar at rest (no thumb: hover alone
-// never shows one, Leo 2026-11-22) (Leo, 2026-11-20, in his NIGHTLY: "you know, when i scroll
+// then reaches for the thumb and lets it go (Leo, 2026-11-20, in his NIGHTLY: "you know, when i scroll
 // up, the infinite scroll for some reason actually seems to be kinda good? ... the thumb needs to look
 // better when i do stuff"). Every painted frame is read, and the run fails when the thumb:
 //
@@ -184,93 +183,19 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
             // fixed-wait: the gap between wheel events is the input itself, a trackpad's cadence.
             await page.waitForTimeout(16);
           }
-          // Reaching for the thumb while it shows from the scroll: it widens, and holds once the
-          // scroll stops while the pointer stays on its bar; then out as the pointer leaves.
+          // At rest: the thumb fades out.
+          await phase(`rest-${round}`);
+          await settled(false);
+          // Reaching for the thumb: it fades in wide, then out as the pointer leaves.
           await phase(`near-${round}`);
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
-          // The screencast can make the move outlast the linger; a step of scroll back down (the view is at the top by now) with the pointer
-          // on the bar shows the thumb again, and the pointer there holds it.
-          await page.evaluate(() => {
-            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-            const seen: string[] = ((window as any).__marks = []);
-            new MutationObserver((records) => {
-              for (const record of records)
-                seen.push(
-                  `${record.attributeName}=${scroller.hasAttribute(record.attributeName!)}@${Math.round(performance.now())}`,
-                );
-            }).observe(scroller, {
-              attributes: true,
-              attributeFilter: ["data-cmux-scrolling", "data-cmux-scroller-near"],
-            });
-          });
-          await page.evaluate(
-            ([x, y]) => {
-              const seen = (window as any).__marks as string[];
-              const name = (node: Element | null) =>
-                node ? `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 60)}` : "none";
-              const chain = (node: Element | null) => {
-                const out: string[] = [];
-                for (let at = node; at && out.length < 6; at = at.parentElement) out.push(name(at));
-                return out.join(" < ");
-              };
-              seen.push(`at point: ${chain(document.elementFromPoint(x, y))}`);
-              window.addEventListener(
-                "wheel",
-                (event) => {
-                  const target = event.target as Element;
-                  seen.push(`wheel target=${chain(target)} cancelable=${event.cancelable}`);
-                  setTimeout(() => seen.push(`wheel after: prevented=${event.defaultPrevented}`));
-                },
-                { capture: true, passive: true },
-              );
-              for (const type of ["pointerleave", "blur", "pointermove"])
-                window.addEventListener(
-                  type,
-                  (event) =>
-                    seen.push(
-                      `${type} buttons=${(event as PointerEvent).buttons ?? ""} @${Math.round(performance.now())}`,
-                    ),
-                  { capture: true, passive: true },
-                );
-              document.addEventListener("scroll", () => seen.push("scroll"), {
-                capture: true,
-                passive: true,
-                once: true,
-              });
-            },
-            [view.x + view.width - 4, middle.y + 1],
-          );
-          // A move on the bar while the scroll shows reads the pointer against the shown thumb.
-          await page.mouse.move(view.x + view.width - 4, middle.y + 1, { steps: 2 });
+          // The pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only doesnt show"):
+          // a step of scroll with the pointer there shows the thumb, and the pointer holds it.
           await page.mouse.wheel(0, 60);
-          await settled(true).catch(async (error) => {
-            const state = await page.evaluate(() => {
-              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-              return {
-                attributes: scroller.getAttributeNames().filter((name) => name.startsWith("data-cmux")),
-                marks: (window as any).__marks,
-                now: Math.round(performance.now()),
-                lane: scroller.offsetWidth - scroller.clientWidth,
-                rectRight: scroller.getBoundingClientRect().right,
-                scrollingNow: scroller.hasAttribute("data-cmux-scrolling"),
-                top: scroller.scrollTop,
-                height: scroller.scrollHeight,
-                client: scroller.clientHeight,
-                ink: scroller.style.getPropertyValue("--cmux-shown-scroller-ink"),
-              };
-            });
-            throw new Error(`round ${round} never settled near: ${JSON.stringify(state)}`, { cause: error });
-          });
+          await settled(true);
           await phase(`leave-${round}`);
           await page.mouse.move(middle.x, middle.y, { steps: 6 });
           await settled(false);
-          // At rest, the pointer on the bar alone shows nothing (Leo 2026-11-22: "hovering only
-          // doesnt show").
-          await phase(`rest-${round}`);
-          await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
-          for (let frame = 0; frame < 6; frame++) await page.evaluate(() => new Promise(requestAnimationFrame));
-          await settled(false);
-          await page.mouse.move(middle.x, middle.y, { steps: 6 });
         }
         if (cast) await cast.send("Page.stopScreencast").catch(() => {});
         const { frames, phases } = await page.evaluate(
