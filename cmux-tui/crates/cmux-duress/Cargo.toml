@@ -22,3 +22,8 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 hex.workspace = true
+
+[dev-dependencies]
+# examples/duress_paths.rs: the generated load through the phone's Rust paths.
+cmux-agent-cli-render = { path = "../cmux-agent-cli-render" }
+ghostty-vt.workspace = true
