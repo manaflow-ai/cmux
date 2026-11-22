@@ -814,6 +814,9 @@ public final class TerminalModel {
         let size = CmuxMobilePreferences.terminalFontSize(defaults)
         let next = TerminalFontZoom(sizes: CmuxMobilePreferences.terminalFontSizes).step(size, larger: larger)
         guard next != size else { return }
+        // The page holds still until the Mac's grid at the new size is drawn
+        // (`TerminalViewController.zoomWillChange`).
+        controller?.zoomWillChange()
         defaults.set(next, forKey: CmuxMobilePreferences.Key.terminalFontSize)
     }
 
