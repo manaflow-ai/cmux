@@ -6,8 +6,7 @@
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-instant` element shows its tooltip with no hover delay (a cut name in a menu row), and a
 // `data-tooltip-force` one shows it even when its text is in full view (a name a control draws over).
-// A `data-tooltip-shortcut` shows after the text on a keycap, like the native tooltip's;
-// a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
+// A `data-tooltip-shortcut` shows after the text on a keycap, like the native tooltip's.
 // Below by default, as the native tooltip and macOS's (Lawrence 2026-11-20: one tooltip everywhere);
 // `data-tooltip-side="top"` prefers above, "left" the side of its popup.
 // It anchors at what the element draws, not its whole box: a row as wide as the pane shows its
@@ -16,9 +15,10 @@
 // draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
 // which floats over the pane.
-// Text the element cuts off shows in full, wrapping in the same compact bubble. Its lines wrap
-// balanced and the bubble narrows to the widest (ui/tooltipFit.ts); a text's own line breaks
-// ("\n") are rows (a stat list: a turn's tokens, TurnTokens.tsx).
+// A tooltip is one line, as the native one (Chief, 2026-11-21: "Make web tooltips one line, like
+// native"; TooltipContentView.swift): only the text's first line shows, a text wider than the widest
+// tooltip ends in an ellipsis, and the bubble is as narrow as its line (ui/tooltipFit.ts). What a
+// row cannot show whole goes on a hover card (agent-session/acpmux/chips/FactsHoverCard.tsx).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 import { PointerMotion } from "./pointerMotion";
 import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
@@ -254,26 +254,20 @@ export function installTooltips(
   /** Shows `target`'s tooltip: fading in and rising, or at once when `instant` (a warm group's). */
   const show = (instant = true) => {
     if (!target?.isConnected) return;
-    const text = textOf(target);
+    // One line: a text's second line never shows (TooltipContentView.firstLine, native).
+    const text = firstLine(textOf(target));
     if (!text) return;
     const shortcut = target.getAttribute("data-tooltip-shortcut");
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
     label.textContent = text;
-    // A `data-tooltip-detail` says what the control does, on its own line under the text.
-    const detail = target.getAttribute("data-tooltip-detail");
-    const note = detail ? doc.createElement("span") : undefined;
-    if (note) {
-      note.className = "ui-tooltip-detail";
-      note.textContent = detail;
-    }
     // The hint floats to the top right, so it comes first.
     if (shortcut) {
       const hint = doc.createElement("span");
       hint.className = "ui-tooltip-hint";
       hint.textContent = shortcut;
-      tip.replaceChildren(hint, label, ...(note ? [note] : []));
-    } else tip.replaceChildren(label, ...(note ? [note] : []));
+      tip.replaceChildren(hint, label);
+    } else tip.replaceChildren(label);
     const anchor = anchorBox(target);
     const scale = tooltipScale(doc);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
@@ -488,4 +482,9 @@ export function installTooltips(
     endFade();
     tip.remove();
   };
+}
+
+/** The first line of `text`, trimmed: a tooltip is one line (TooltipContentView.firstLine). */
+export function firstLine(text: string): string {
+  return (text.split(/\r?\n/).find((line) => line.trim() !== "") ?? "").trim();
 }

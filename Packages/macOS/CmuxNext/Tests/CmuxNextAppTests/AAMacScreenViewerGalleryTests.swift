@@ -33,6 +33,8 @@ struct AAMacScreenViewerGalleryTests {
         var bar: MacScreenToolbarBar?
         /// A host too old to name its profile (no `encode_profile`): the rate shows with no profile word.
         var oldHost = false
+        /// The toolbar's Record button shows a file being written (red, Stop Recording).
+        var recording = false
     }
 
     /// An ultra session (D10): the host streams at 148 Mbps, 120 of 120 fps, direct, 3 ms.
@@ -73,6 +75,7 @@ struct AAMacScreenViewerGalleryTests {
     static let states: [State] = [
         State(name: "connecting", scope: .full, phase: .connecting),
         State(name: "live", scope: .full, phase: .connected, hasFrame: true),
+        State(name: "live-recording", scope: .full, phase: .connected, hasFrame: true, recording: true),
         State(name: "live-view-only", scope: .view, phase: .connected, hasFrame: true),
         State(name: "live-control", scope: .full, phase: .connected, hasFrame: true, capturesKeyboard: true),
         State(name: "no-picture", scope: .view, phase: .failed(message: "", needsSignIn: false), linkConnected: true),
@@ -142,6 +145,10 @@ struct AAMacScreenViewerGalleryTests {
         pane.model.toolbarBarOverride = state.bar
         // The readout states show the host's numbers; the stats panel is the one Show Stats turns on.
         if state.readout == .hud { pane.session?.preferences.showStats = true }
+        if state.recording {
+            pane.model.recording.file = MacScreenRecording.fileURL(device: "Studio MacBook Pro", at: Date(timeIntervalSince1970: 1_795_320_000))
+            pane.model.recording.startedAt = Date(timeIntervalSince1970: 1_795_320_000)
+        }
         pane.session?.showPreviewState(phase: state.phase, failureCause: state.cause, linkConnected: state.linkConnected,
                                        frameSize: state.hasFrame ? remotePixels : .zero,
                                        stats: state.readout == nil ? nil : stats(for: state), path: state.readout == nil ? nil : "Direct")
@@ -174,6 +181,16 @@ struct AAMacScreenViewerGalleryTests {
         pane.view.layoutSubtreeIfNeeded()
         // The picture shows the state named: a control state with its controlling marks, the rest without.
         try #require(pane.model.capturesKeyboard == state.capturesKeyboard, "\(look.rawValue)-\(state.name): capturesKeyboard")
+        if state.recording {
+            // The Record button is drawn red with its Stop Recording tip, as while a file is being written.
+            // In every look, the pill included; a compact bar folds it into More.
+            let views = AANestedGroupsGalleryTests.all(root)
+            let record = try #require(views.first { $0.accessibilityIdentifier() == "macScreen.record" })
+            let more = try #require(views.first { $0.accessibilityIdentifier() == "macScreen.more" })
+            #expect(!record.isHidden || !more.isHidden, "\(look.rawValue)-\(state.name): Record reachable")
+            if size == Self.wide { #expect(!record.isHidden, "\(look.rawValue)-\(state.name): Record shown") }
+            #expect(pane.model.recording.isRecording)
+        }
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
