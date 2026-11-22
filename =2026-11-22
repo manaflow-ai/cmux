@@ -1,0 +1,19 @@
+lane-gh search: GitHub answered HTTP 422, not a broker check: Validation Failed; reason: [invalid] "" is not a recognized date/time format. Please provide an ISO 8601 date/time value, such as YYYY-MM-DD.; reason: [invalid] "" is not a recognized date/time format. Please provide an ISO 8601 date/time value, such as YYYY-MM-DD.
+{
+ "ok": false,
+ "status": 422,
+ "data": {
+  "message": "Validation Failed",
+  "errors": [
+   {
+    "message": "\"\" is not a recognized date/time format. Please provide an ISO 8601 date/time value, such as YYYY-MM-DD.",
+    "resource": "Search",
+    "field": "q",
+    "code": "invalid"
+   }
+  ],
+  "documentation_url": "https://docs.github.com/v3/search/",
+  "status": "422"
+ },
+ "error": "GitHub answered HTTP 422, not a broker check: Validation Failed; reason: [invalid] \"\" is not a recognized date/time format. Please provide an ISO 8601 date/time value, such as YYYY-MM-DD."
+}
