@@ -321,6 +321,8 @@ nonisolated struct BackdropShaderTarget: @unchecked Sendable {
 
 /// Whether a frame is on the renderer's queue: claimed on main, cleared on the queue.
 private nonisolated final class InFlightFrame: Sendable {
+    // carve-out: main claims the slot synchronously in its frame tick and the render queue clears it;
+    // an actor would make the claim an await and let two frames in.
     private let busy = Mutex(false)
 
     /// Claims the slot; false while a frame is still being encoded.
