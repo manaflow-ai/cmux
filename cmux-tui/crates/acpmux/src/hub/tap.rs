@@ -244,6 +244,9 @@ impl Hub {
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }
+                                "claude.system.task_started" => {
+                                    tap_hub.subagent_task_started(&tap_session, line)
+                                }
                                 "claude.system.background_tasks_changed" => {
                                     tap_hub.subagent_tasks_changed(&tap_session, line)
                                 }
