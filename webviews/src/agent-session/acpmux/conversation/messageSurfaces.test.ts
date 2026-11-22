@@ -36,8 +36,9 @@ test("transient surfaces share the generated role aliases", () => {
     expect(desktopCss).toContain(token);
   }
   expect(noticeCss).toContain("border-radius: var(--transient-surface-radius);");
-  expect(css).toContain(".ui-transient-error");
-  expect(css).toContain("--glass-tint: var(--transient-surface-veil);");
+  // The turn error card is a transcript card, not transient glass (design/chat-surfaces.md): only its
+  // actions take the transient roles.
+  expect(css).not.toContain(".ui-transient-error");
   expect(css).toContain("border-radius: var(--grid-cards-radius);");
   expect(css).toContain("background: var(--transient-action-fill);");
 });
@@ -55,7 +56,7 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
   const glass = rules(readFileSync(join(import.meta.dir, "../../../ui/glass/glass.css"), "utf8"));
   // Every mode's rim shadow is built only from these terms, and each but the edge scales with
   // --glass-rim, so --glass-rim 0 plus a clear edge on the bubble clears it in every mode.
-  const scaled = ["--glass-specular", "--glass-shade", "--glass-fringe-red", "--glass-fringe-cyan"];
+  const scaled = ["--glass-specular", "--glass-shade", "--glass-fringe-red", "--glass-fringe-cyan", "--glass-edge-top"];
   const modes = {
     lens: glass.filter(({ selector }) => selector === ":root, .ui-glass"),
     plain: glass.filter(({ selector }) =>

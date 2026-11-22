@@ -9,7 +9,7 @@
 // B, which the snapshot keys alike) still reads on the return. A read that answers after a newer one started, or after the
 // page unmounted, is dropped.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isOlderDaemon, readQueue, type QueueReply } from "./queueModel";
+import { isOlderDaemon, keptItems, readQueue, type QueueReply } from "./queueModel";
 
 export type QueueState =
   | { phase: "loading"; reply?: QueueReply }
@@ -102,7 +102,11 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
       (value) => {
         if (!alive.current || id !== request.current) return;
         cache?.readAt(cache.generation() === generation ? key : undefined);
-        setState({ phase: "ready", reply: readQueue(value) });
+        const reply = readQueue(value);
+        setState((previous) => {
+          const kept = "reply" in previous && previous.reply ? previous.reply.items : [];
+          return { phase: "ready", reply: { ...reply, items: keptItems(kept, reply.items) } };
+        });
       },
       (error: unknown) => {
         if (!alive.current || id !== request.current) return;

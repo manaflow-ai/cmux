@@ -6,7 +6,10 @@ nonisolated extension AcpmuxPaneMethods {
     /// exactly as the pane sends them (`webviews/src/agent-session/acpmux`). This is the pane's own
     /// param schema, not a mode list. The daemon's `modeFields` are an extra deny inside it.
     static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
+        // `peerRowBatches`: a peer's list comes as one `_acpmux/peer_rows_changed` (cmux#46563).
+        // schemas/agent-pane/initialize-params.json lists every initialize the page sends; refused,
+        // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b).
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
@@ -32,6 +35,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
+        // `known`: the digest of the usage answer the page holds; acpmux answers `unchanged` while it is current.
+        "_acpmux/usage": (["known"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
@@ -69,8 +74,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        // A list is read page by page (`limit`, then each page's `nextCursor` as `cursor`).
-        "_acpmux/process/list": (["sessionId", "limit", "cursor"], []),
+        // The page holds the running ones and the newest ended (`recent`); a daemon without it is
+        // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
+        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
@@ -105,10 +111,14 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // Placement names are local display labels; the optional source lets the page filter
+        // targets for a chat without exposing a host URL or session identity.
+        "_acpmux/move_targets": (["source", "sourceKind"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
+        "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers

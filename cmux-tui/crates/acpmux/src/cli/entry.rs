@@ -1,25 +1,31 @@
 //! The program behind the `acpmux` binary, callable from another binary.
-//! The cmux multicall binary runs it as `cmux acp …`; `display_name` names
+//! The cmux multicall binary runs it as `cmux agent …` or `cmux acp …`; `display_name` names
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, RouterCmd, flatten};
+use crate::cli::command::{Cli, Command, RouterCmd, aliases, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
 use anyhow::Result;
-use clap::{CommandFactory, FromArgMatches};
+use clap::{CommandFactory, FromArgMatches, Subcommand};
 use std::ffi::OsString;
 
 static ORIGINAL_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+static PROGRAM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// The acpmux arguments passed by its executable (also stripped of `cmux acp`).
+/// The command the caller used, for follow-up commands printed by the CLI.
+pub(crate) fn program() -> &'static str {
+    PROGRAM.get().map_or("acpmux", String::as_str)
+}
+
+/// The engine arguments, with the executable or cmux scope removed.
 pub(crate) fn original_args() -> Option<&'static [String]> {
     ORIGINAL_ARGS.get().map(Vec::as_slice)
 }
 
 pub struct Invocation {
-    /// `acpmux`, or `cmux acp` inside cmux.
+    /// The standalone binary or the invoking cmux scope.
     pub display_name: String,
     /// Arguments before `daemon run` when this program starts its daemon.
     pub daemon_prefix: Vec<OsString>,
@@ -89,9 +95,17 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
+    if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
+        return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
+    }
+    // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
+    if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
+        return crate::codex_repo_gate::main();
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
@@ -128,7 +142,7 @@ const STDIO_MCP_SERVERS: [&str; 9] = [
     "forum-mcp",
     "offer-mcp",
     "secret-mcp",
-    "cua-mcp",
+    "computer-use-mcp",
     "repo-mcp",
     "hosted-mcp",
     "github-mcp",
@@ -205,14 +219,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
-    let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
+    let name = PROGRAM.get_or_init(|| invocation.display_name.clone()).as_str();
+    let build_grammar = |front_door| {
+        crate::cli::help_examples::attach(Cli::command(), front_door).name(name).bin_name(name)
+    };
+    let mut grammar = build_grammar(false);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
         // A flag another command takes says which, and what this one does instead; a root word
         // a command group takes names that command; under --json any other is the envelope.
         Err(e) => {
+            // Only help and errors need front-door spellings. Normal calls use the
+            // unchanged engine grammar, including its canonical variant names.
+            let e = if name == "cmux agent" {
+                grammar = build_grammar(true);
+                grammar.try_get_matches_from_mut(argv.clone()).err().unwrap_or(e)
+            } else {
+                e
+            };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
                 .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
                 .or_else(|| {
@@ -300,7 +325,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 .with_target(false);
             // A logging thread only queues its line: a log output that takes no bytes (a full
             // pipe, a stalled disk) never stops the daemon (`log_sink.rs`).
-            match crate::log_sink::Sink::start(std::io::stdout()) {
+            // Under systemd, each line also goes to a bounded `daemon.log` in the home, so a
+            // daemon whose journal lines were dropped still leaves its evidence (`log_keep.rs`).
+            let out = crate::log_keep::Tee {
+                out: std::io::stdout(),
+                kept: crate::log_keep::Kept::for_service(&crate::config::home()),
+            };
+            match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
                     logs.with_writer(sink).init();
@@ -372,6 +403,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             after_echo,
             instructions,
             tty,
+            prints_only,
             command,
         }) => {
             crate::cli::cli_agent::run(crate::cli::cli_agent::Options {
@@ -381,16 +413,17 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 after_echo,
                 instructions,
                 tty,
+                prints_only,
             })
             .await
         }
-        Some(Command::UniichatAgent { url, home, whole_prompt }) => {
-            crate::cli::uniichat_agent::run(crate::cli::uniichat_agent::Options {
-                url,
-                home,
-                whole_prompt,
-            })
-            .await
+        Some(Command::UniichatAgent { action, url, home, whole_prompt }) => {
+            let options = crate::cli::uniichat_agent::Options { url, home, whole_prompt };
+            if action.as_deref() == Some("login") {
+                crate::cli::uniichat_login::run(options).await
+            } else {
+                crate::cli::uniichat_agent::run(options).await
+            }
         }
         Some(Command::Stdio { model, preset, effort, policy }) => {
             let (harness, model) = match model {
@@ -492,7 +525,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 errors::exit_with(&anyhow::Error::new(app), cli.json)
             }
         },
-        Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
+        Some(Command::ComputerUseMcp) => crate::computer_use::mcp::run(false).await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
@@ -501,6 +534,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
+        Some(Command::InboxRelay) => crate::claude_inbox_relay::serve().await,
         Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
@@ -544,6 +578,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
 }
 
+/// A command the session engine accepts, including compatibility spellings.
+/// The cmux CLI uses the same grammar when sharing its `agent` scope.
+pub fn is_command(word: &str) -> bool {
+    // Routing needs only the first word. Build the parser once the command has an owner.
+    matches!(word, "stop" | "--skill" | "--guide")
+        || Command::has_subcommand(word)
+        || aliases::GROUPS.iter().any(|group| group.contains(&word))
+}
+
 /// Index of the first argument after the program name that is not a global
 /// flag (`--json`, `--suppress-reads`); `argv.len()` when there is none.
 fn command_index(argv: &[OsString]) -> usize {
@@ -563,6 +606,38 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_router_recognizes_every_engine_command_and_alias() {
+        // Build the full grammar on the CLI stack. Run the router on the normal test thread.
+        let words = std::thread::Builder::new()
+            .stack_size(WORKER_STACK_BYTES)
+            .spawn(|| {
+                Cli::command()
+                    .get_subcommands()
+                    .flat_map(|cmd| {
+                        std::iter::once(cmd.get_name())
+                            .chain(cmd.get_all_aliases())
+                            .map(str::to_owned)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        for word in &words {
+            assert!(is_command(word), "{word}");
+        }
+        for &alias in aliases::GROUPS.iter().flat_map(|group| group.iter()) {
+            assert!(words.iter().any(|word| word == alias), "unregistered alias {alias}");
+        }
+        for word in ["stop", "--skill", "--guide"] {
+            assert!(is_command(word), "{word}");
+        }
+        for word in ["", "unknown-command", "open-terminal-as-chat"] {
+            assert!(!is_command(word), "{word}");
+        }
+    }
+
+    #[test]
     fn a_stdio_mcp_server_runs_on_a_small_runtime() {
         for name in [
             "acpmux-mcp",
@@ -570,7 +645,7 @@ mod tests {
             "forum-mcp",
             "offer-mcp",
             "secret-mcp",
-            "cua-mcp",
+            "computer-use-mcp",
             "repo-mcp",
             "hosted-mcp",
             "github-mcp",
