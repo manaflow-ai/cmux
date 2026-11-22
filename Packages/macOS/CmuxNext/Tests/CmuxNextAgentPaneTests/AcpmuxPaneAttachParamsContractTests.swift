@@ -30,7 +30,7 @@ struct AcpmuxPaneAttachParamsContractTests {
 
     @Test func everyAttachThePageSendsPassesTheParamsRule() throws {
         let attaches = try Self.contract()
-        #expect(attaches.count >= 4)
+        #expect(attaches.count >= 5)
         for attach in attaches {
             let name = attach["name"] as? String ?? "?"
             let params = try #require(attach["params"] as? [String: Any], "\(name) has no params")
@@ -43,6 +43,16 @@ struct AcpmuxPaneAttachParamsContractTests {
         let hold = try #require(try Self.contract().first { $0["name"] as? String == "hold" }?["params"] as? [String: Any])
         #expect(hold["hold"] as? Bool == true)
         #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(hold), modeFields: nil))
+    }
+
+    /// A reconnect that holds the chat asks only the records after `afterSeq` (attachParams.ts
+    /// plainAttach, cmux#47119). The rule did not know it: Leo's NIGHTLY refused each such attach
+    /// (`unknown param "afterSeq"`, 2026-11-21) and the reopened chat failed.
+    @Test func aReconnectsForwardAttachIsInTheContract() throws {
+        let forward = try #require(try Self.contract().first { $0["name"] as? String == "forward, local" }?["params"] as? [String: Any])
+        #expect(forward["afterSeq"] as? Int == 42)
+        #expect(forward["settled"] == nil)
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.frame(forward), modeFields: nil))
     }
 
     @Test func aKeyThePageDoesNotSendIsStillRefused() throws {

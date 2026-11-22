@@ -101,6 +101,11 @@ fn the_allowlist_is_what_the_page_sends() {
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");
+    // The Labs live tree preview (direct.ts `liveTreeStatus`, default off, #48507) asks
+    // `_acpmux/info`, which the relay never forwards: its answer holds every pending ask's full
+    // request, so the host reads it and hands the page only what it may see (AgentPanePendingAsks).
+    // That preview reads nothing in the app until it asks through a host method.
+    assert!(sent.remove("_acpmux/info"), "the live tree preview asks _acpmux/info");
     assert_eq!(sent, p.requests, "requests the page sends vs policy.json requests");
     // A frame the page writes itself: `jsonrpc: "2.0",` then its `method:`.
     let notifications: BTreeSet<String> = direct
@@ -415,4 +420,46 @@ fn trust_session_id_is_sent_and_scoped() {
             "{method}: a named session must be the pane's"
         );
     }
+}
+
+/// The top-level keys of every `this.request("method", { ... })` in direct.ts.
+fn literal_requests(dir: &Path, direct: &str, method: &str) -> BTreeSet<Vec<String>> {
+    let call = format!("this.request(\"{method}\",");
+    direct
+        .match_indices(&call)
+        .map(|(at, _)| {
+            let args = &direct[at + call.len()..];
+            let open = at + call.len() + args.find('{').expect("an object literal");
+            literal_keys(dir, direct, braced(direct, open)).into_iter().collect()
+        })
+        .collect()
+}
+
+/// schemas/agent-pane/bg-output-params.json lists every `_acpmux/bg/output` direct.ts sends (its
+/// `bgOutput` and `bgTail`), which AcpmuxPaneBgOutputParamsContractTests and tests/page_contracts.rs
+/// run through the hosts' params rule. `bgTail`'s `maxBytes` was refused by both (#48648): a
+/// "Background task finished" line never opened.
+#[test]
+fn the_bg_output_contract_is_what_the_page_sends() {
+    let dir = pane();
+    let direct = read(&dir, "direct.ts");
+    let sent = literal_requests(&dir, &direct, "_acpmux/bg/output");
+    assert!(sent.len() >= 2, "direct.ts bgOutput and bgTail: {sent:?}");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../schemas/agent-pane/bg-output-params.json");
+    let contract: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("bg-output-params.json"))
+            .unwrap();
+    let listed: BTreeSet<Vec<String>> = contract["output"]
+        .as_array()
+        .expect("output frames")
+        .iter()
+        .map(|frame| {
+            let mut keys: Vec<String> =
+                frame["params"].as_object().unwrap().keys().cloned().collect();
+            keys.sort();
+            keys
+        })
+        .collect();
+    assert_eq!(sent, listed, "direct.ts _acpmux/bg/output params vs bg-output-params.json");
 }

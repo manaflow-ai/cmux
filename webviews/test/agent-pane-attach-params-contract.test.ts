@@ -23,6 +23,9 @@ const sent: Record<string, object | undefined> = {
   "plain, peer": plainAttach("s", { settled: false, visible: false, local: false, maxBytes: 128 * 1024 }),
   "settled, local": plainAttach("s", { settled: true, visible: true, local: true, maxBytes: 128 * 1024 }),
   hold: holdAttach("s", true),
+  // A reconnect that holds the chat through seq 42 (direct.ts ForwardAttach, #47119): no settled view,
+  // only the records after it. The relay did not know `afterSeq`, and every such reconnect failed.
+  "forward, local": plainAttach("s", { settled: true, visible: true, local: true, maxBytes: 128 * 1024, afterSeq: 42 }),
 };
 
 describe("the page's _acpmux/attach params are the contract's", () => {
