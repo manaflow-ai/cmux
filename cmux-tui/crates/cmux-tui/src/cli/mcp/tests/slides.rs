@@ -162,7 +162,9 @@ fn slides_writes_opens_and_updates_a_deck_in_place() {
     let hash = base64::engine::general_purpose::STANDARD
         .encode(sha2::Sha256::digest(md_deck::runtime_script().as_bytes()));
     assert!(
-        head.contains(&format!("script-src 'sha256-{hash}' https://cdn.jsdelivr.net;")),
+        head.contains(&format!(
+            "script-src 'sha256-{hash}' https://cdn.jsdelivr.net/npm/pptxgenjs@4.0.1/dist/pptxgen.bundle.js;"
+        )),
         "{head}"
     );
     assert!(head.contains("connect-src 'self';"), "{head}");
