@@ -29,14 +29,17 @@ export async function readExtensions(store: SettingsStore): Promise<ExtensionsRe
 
 const HOSTS = new Set(["none", "starting", "running", "stopping", "restarting", "waiting"]);
 
-/** One meter in words: "Paused (over its batch rate) · Running · 2 views · 40 batches, 9 held". */
+/** The budget's step in words, shown at the row's end: "Paused (over its batch rate)". */
+export function meterStep(meter: ExtensionMeter): string {
+  return meter.step === "paused" && meter.paused
+    ? t("settingsPage.extensions.step.pausedWhy", meter.paused)
+    : t(`settingsPage.extensions.step.${meter.step}`);
+}
+
+/** The rest of a meter in words: "Running · 2 views · 40 updates, 9 held". */
 export function meterLine(meter: ExtensionMeter): string {
-  const step =
-    meter.step === "paused" && meter.paused
-      ? t("settingsPage.extensions.step.pausedWhy", meter.paused)
-      : t(`settingsPage.extensions.step.${meter.step}`);
   const host = HOSTS.has(meter.host) ? t(`settingsPage.extensions.host.${meter.host}`) : meter.host;
-  const parts = [step, host, t("settingsPage.extensions.views", String(meter.mounts))];
+  const parts = [host, t("settingsPage.extensions.views", String(meter.mounts))];
   parts.push(t("settingsPage.extensions.batches", String(meter.batches.in), String(meter.held)));
   if (meter.crashes > 0) parts.push(t("settingsPage.extensions.crashes", String(meter.crashes)));
   return parts.join(" · ");
@@ -94,7 +97,9 @@ export function ExtensionsView({
         {read.meters.map((meter) => (
           <div key={meter.app} data-extension-meter={meter.app} data-step={meter.step}>
             <ActionRow title={meter.app} help={meterLine(meter)}>
-              {null}
+              <span className="row-value" data-meter-step="">
+                {meterStep(meter)}
+              </span>
             </ActionRow>
           </div>
         ))}

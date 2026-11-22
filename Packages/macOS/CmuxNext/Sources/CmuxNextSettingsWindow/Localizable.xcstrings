@@ -101508,127 +101508,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Safe mode is on. Run half of your extensions at a time to find the one that breaks cmux."
+            "value": "Safe mode is on. Find the extension that breaks cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الوضع الآمن مفعّل. شغّل نصف إضافاتك في كل مرة للعثور على الإضافة التي تعطّل cmux."
+            "value": "الوضع الآمن مفعّل. اعثر على الإضافة التي تعطّل cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sigurni način je uključen. Pokrećite pola proširenja odjednom da pronađete ono koje kvari cmux."
+            "value": "Sigurni način uključen. Nađite proširenje koje kvari cmux."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sikker tilstand er slået til. Kør halvdelen af dine udvidelser ad gangen for at finde den, der ødelægger cmux."
+            "value": "Sikker tilstand er til. Find udvidelsen, der ødelægger cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der abgesicherte Modus ist an. Führe jeweils die Hälfte deiner Erweiterungen aus, um die zu finden, die cmux stört."
+            "value": "Abgesicherter Modus an. Finde die Erweiterung, die stört."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El modo seguro está activado. Ejecuta la mitad de tus extensiones cada vez para encontrar la que rompe cmux."
+            "value": "Modo seguro activado. Busca la extensión que rompe cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le mode sans échec est activé. Lancez la moitié de vos extensions à la fois pour trouver celle qui casse cmux."
+            "value": "Mode sans échec activé. Trouvez l'extension qui casse cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La modalità provvisoria è attiva. Esegui metà delle estensioni alla volta per trovare quella che guasta cmux."
+            "value": "Modalità provvisoria. Trova l'estensione che guasta cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セーフモードがオンです。拡張機能を半分ずつ動かして、cmux を壊すものを見つけます。"
+            "value": "セーフモード中。cmux を壊す拡張機能を探します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបសុវត្ថិភាពកំពុងបើក។ ដំណើរការកម្មវិធីបន្ថែមពាក់កណ្ដាលម្ដងៗ ដើម្បីរកមួយដែលធ្វើឲ្យ cmux ខូច។"
+            "value": "របៀបសុវត្ថិភាពបើក។ រកកម្មវិធីបន្ថែមដែលធ្វើឲ្យ cmux ខូច។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "안전 모드가 켜져 있습니다. 확장 프로그램을 절반씩 실행해 cmux를 망가뜨리는 것을 찾습니다."
+            "value": "안전 모드 켜짐. cmux를 망가뜨리는 확장 프로그램을 찾습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sikker modus er på. Kjør halvparten av utvidelsene om gangen for å finne den som ødelegger cmux."
+            "value": "Sikker modus er på. Finn utvidelsen som ødelegger cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tryb awaryjny jest włączony. Uruchamiaj połowę rozszerzeń naraz, aby znaleźć to, które psuje cmux."
+            "value": "Tryb awaryjny. Znajdź rozszerzenie, które psuje cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O modo seguro está ativado. Execute metade das extensões por vez para encontrar a que quebra o cmux."
+            "value": "Modo seguro ativado. Encontre a extensão que quebra o cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Безопасный режим включён. Запускайте половину расширений за раз, чтобы найти то, что ломает cmux."
+            "value": "Безопасный режим. Найдите расширение, ломающее cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โหมดปลอดภัยเปิดอยู่ เรียกใช้ส่วนขยายทีละครึ่งเพื่อหาตัวที่ทำให้ cmux เสีย"
+            "value": "โหมดปลอดภัยเปิดอยู่ หาส่วนขยายที่ทำให้ cmux เสีย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Güvenli mod açık. cmux'u bozanı bulmak için uzantılarının yarısını bir seferde çalıştır."
+            "value": "Güvenli mod açık. cmux'u bozan uzantıyı bul."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Безпечний режим увімкнено. Запускайте половину розширень за раз, щоб знайти те, що ламає cmux."
+            "value": "Безпечний режим. Знайдіть розширення, що ламає cmux."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chế độ an toàn đang bật. Chạy một nửa số tiện ích mở rộng mỗi lần để tìm cái làm hỏng cmux."
+            "value": "Chế độ an toàn đang bật. Tìm tiện ích làm hỏng cmux."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "安全模式已开启。每次运行一半扩展，找出导致 cmux 出问题的那个。"
+            "value": "安全模式已开启。找出导致 cmux 出问题的扩展。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "安全模式已開啟。每次執行一半延伸功能，找出讓 cmux 出問題的那個。"
+            "value": "安全模式已開啟。找出讓 cmux 出問題的延伸功能。"
           }
         }
       }
@@ -101640,127 +101640,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running now: %@. %@ extensions left to check. Use cmux, then say whether it broke."
+            "value": "Running: %@. %@ left to check. Did cmux break?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "قيد التشغيل الآن: %@. بقي %@ للفحص. استخدم cmux ثم أخبرنا إن تعطّل."
+            "value": "قيد التشغيل: %@. بقي %@. هل تعطّل cmux؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sada radi: %@. Preostalo za provjeru: %@. Koristite cmux pa recite je li se pokvario."
+            "value": "Radi: %@. Preostalo: %@. Je li se cmux pokvario?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kører nu: %@. %@ udvidelser tilbage at tjekke. Brug cmux, og sig så, om det gik i stykker."
+            "value": "Kører: %@. %@ tilbage. Gik cmux i stykker?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Läuft jetzt: %@. Noch %@ Erweiterungen zu prüfen. Nutze cmux und sag dann, ob es kaputtging."
+            "value": "Läuft: %@. Noch %@ offen. Ist cmux kaputtgegangen?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En ejecución: %@. Quedan %@ extensiones por revisar. Usa cmux y luego indica si falló."
+            "value": "En ejecución: %@. Quedan %@. ¿Falló cmux?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En cours : %@. %@ extensions restent à vérifier. Utilisez cmux, puis dites s'il a cassé."
+            "value": "En cours : %@. Reste %@. cmux a-t-il cassé ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In esecuzione: %@. Restano %@ estensioni da verificare. Usa cmux, poi indica se si è guastato."
+            "value": "In esecuzione: %@. Restano %@. cmux si è guastato?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "実行中：%@。残り %@ 個を確認します。cmux を使ってから、壊れたかどうかを選んでください。"
+            "value": "実行中：%@。残り %@ 個。cmux は壊れましたか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងដំណើរការ៖ %@។ នៅសល់ %@ ត្រូវពិនិត្យ។ ប្រើ cmux រួចប្រាប់ថាវាខូចឬអត់។"
+            "value": "កំពុងដំណើរការ៖ %@។ នៅសល់ %@។ cmux ខូចទេ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "지금 실행 중: %@. 확인할 확장 프로그램 %@개 남음. cmux를 사용한 뒤 문제가 생겼는지 알려 주세요."
+            "value": "실행 중: %@. %@개 남음. cmux에 문제가 생겼나요?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kjører nå: %@. %@ utvidelser igjen å sjekke. Bruk cmux, og si så om det gikk i stykker."
+            "value": "Kjører: %@. %@ igjen. Gikk cmux i stykker?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Teraz działa: %@. Zostało do sprawdzenia: %@. Użyj cmux, a potem powiedz, czy się zepsuł."
+            "value": "Działa: %@. Zostało: %@. Czy cmux się zepsuł?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Em execução: %@. Faltam %@ extensões para verificar. Use o cmux e diga se ele quebrou."
+            "value": "Em execução: %@. Faltam %@. O cmux quebrou?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сейчас работает: %@. Осталось проверить: %@. Поработайте в cmux и скажите, сломался ли он."
+            "value": "Работает: %@. Осталось: %@. cmux сломался?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังทำงาน: %@ เหลือตรวจ %@ รายการ ใช้ cmux แล้วบอกว่าเสียหรือไม่"
+            "value": "กำลังทำงาน: %@ เหลือ %@ cmux เสียไหม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Şu an çalışan: %@. Kontrol edilecek %@ uzantı kaldı. cmux'u kullan, sonra bozulup bozulmadığını söyle."
+            "value": "Çalışan: %@. Kalan: %@. cmux bozuldu mu?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Зараз працює: %@. Залишилося перевірити: %@. Скористайтеся cmux і скажіть, чи він зламався."
+            "value": "Працює: %@. Залишилось: %@. cmux зламався?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chạy: %@. Còn %@ tiện ích cần kiểm tra. Dùng cmux rồi cho biết nó có hỏng không."
+            "value": "Đang chạy: %@. Còn %@. cmux có hỏng không?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在运行：%@。还剩 %@ 个待检查。使用 cmux 后告诉我们它是否出了问题。"
+            "value": "正在运行：%@。还剩 %@ 个。cmux 出问题了吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在執行：%@。還剩 %@ 個待檢查。使用 cmux 後告訴我們它是否出了問題。"
+            "value": "正在執行：%@。還剩 %@ 個。cmux 出問題了嗎？"
           }
         }
       }
@@ -101772,127 +101772,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ breaks cmux. Roll it back or remove it, then end the search."
+            "value": "%@ breaks cmux. Roll it back or remove it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ يعطّل cmux. أرجعه إلى إصدار سابق أو أزله، ثم أنهِ البحث."
+            "value": "%@ يعطّل cmux. أرجعه أو أزله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ kvari cmux. Vratite ga ili uklonite, pa završite pretragu."
+            "value": "%@ kvari cmux. Vratite ga ili uklonite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ødelægger cmux. Rul den tilbage eller fjern den, og afslut så søgningen."
+            "value": "%@ ødelægger cmux. Rul den tilbage eller fjern den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ stört cmux. Setze sie zurück oder entferne sie und beende dann die Suche."
+            "value": "%@ stört cmux. Zurücksetzen oder entfernen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ rompe cmux. Revierte o elimínala y luego termina la búsqueda."
+            "value": "%@ rompe cmux. Reviértela o elimínala."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ casse cmux. Restaurez-la ou supprimez-la, puis terminez la recherche."
+            "value": "%@ casse cmux. Restaurez-la ou supprimez-la."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ guasta cmux. Ripristinala o rimuovila, poi termina la ricerca."
+            "value": "%@ guasta cmux. Ripristinala o rimuovila."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ が cmux を壊しています。元に戻すか削除してから、検索を終了してください。"
+            "value": "%@ が cmux を壊しています。戻すか削除してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ធ្វើឲ្យ cmux ខូច។ ត្រឡប់វាវិញ ឬលុបវា រួចបញ្ចប់ការស្វែងរក។"
+            "value": "%@ ធ្វើឲ្យ cmux ខូច។ ត្រឡប់វាវិញ ឬលុបវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 때문에 cmux에 문제가 생깁니다. 되돌리거나 제거한 뒤 찾기를 끝내세요."
+            "value": "%@ 때문에 cmux에 문제가 생깁니다. 되돌리거나 제거하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ødelegger cmux. Rull den tilbake eller fjern den, og avslutt så søket."
+            "value": "%@ ødelegger cmux. Rull den tilbake eller fjern den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ psuje cmux. Przywróć poprzednią wersję lub usuń je, a potem zakończ wyszukiwanie."
+            "value": "%@ psuje cmux. Przywróć lub usuń."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ quebra o cmux. Reverta ou remova e depois encerre a busca."
+            "value": "%@ quebra o cmux. Reverta ou remova."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ломает cmux. Откатите или удалите его, затем завершите поиск."
+            "value": "%@ ломает cmux. Откатите или удалите его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ทำให้ cmux เสีย ย้อนกลับหรือลบออก แล้วจบการค้นหา"
+            "value": "%@ ทำให้ cmux เสีย ย้อนกลับหรือลบออก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ cmux'u bozuyor. Geri al ya da kaldır, sonra aramayı bitir."
+            "value": "%@ cmux'u bozuyor. Geri al ya da kaldır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ ламає cmux. Відкотіть або видаліть його, потім завершіть пошук."
+            "value": "%@ ламає cmux. Відкотіть або видаліть його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ làm hỏng cmux. Hoàn tác hoặc gỡ nó, rồi kết thúc tìm kiếm."
+            "value": "%@ làm hỏng cmux. Hoàn tác hoặc gỡ nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 导致 cmux 出问题。回滚或移除它，然后结束查找。"
+            "value": "%@ 导致 cmux 出问题。请回滚或移除。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 讓 cmux 出問題。回復或移除它，然後結束尋找。"
+            "value": "%@ 讓 cmux 出問題。請回復或移除。"
           }
         }
       }

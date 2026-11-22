@@ -52,7 +52,8 @@ test("each installed extension is one row with its meter in words, and no bisect
       meters: [meter("acme/notes"), meter("local/spy", { step: "paused", paused: "over its batch rate", crashes: 2 })],
     },
   });
-  expect(row("acme/notes").textContent).toContain("Normal · Running · 1 views · 40 updates, 9 held");
+  expect(row("acme/notes").textContent).toContain("Running · 1 views · 40 updates, 9 held");
+  expect(row("acme/notes").querySelector("[data-meter-step]")!.textContent).toBe("Normal");
   expect(row("local/spy").dataset.step).toBe("paused");
   expect(row("local/spy").textContent).toContain("Paused (over its batch rate)");
   expect(row("local/spy").textContent).toContain("2 crashes");
@@ -66,7 +67,7 @@ test("in safe mode the bisect runs to the broken extension and ends", async () =
   expect(steps()).toEqual(["start"]);
   await click(step("start"));
   await settle();
-  expect(card()!.textContent).toContain("Running now: a/four, a/one.");
+  expect(card()!.textContent).toContain("Running: a/four, a/one.");
   expect(steps()).toEqual(["good", "bad", "reset"]);
   await click(step("bad"));
   await settle();
