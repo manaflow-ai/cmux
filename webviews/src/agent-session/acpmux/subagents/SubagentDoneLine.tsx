@@ -46,13 +46,7 @@ import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { useResume } from "./ResumeControl";
-import {
-  retryWords,
-  subagentRetry,
-  subagentRetryKey,
-  type RetryNote,
-  type SessionRetryFields,
-} from "./retryState";
+import { retryWords, subagentRetry, subagentRetryKey, type RetryNote, type SessionRetryFields } from "./retryState";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {

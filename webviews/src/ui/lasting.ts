@@ -57,6 +57,9 @@ export function useConnectionQuiet(down: boolean): boolean {
   return useLasting(down, defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS);
 }
 
+/// `useConnectionQuietKeys`'s answer: whether the row `key`, `down` now, has been down for the bound.
+export type ConnectionQuietKeys = (key: string, down: boolean) => boolean;
+
 /// When each keyed row's connection state was first drawn as down, shared by every surface that draws the row, so
 /// a row the tray, the summary and the end line all draw waits once and they never disagree.
 const downSince = new Map<string, number>();
@@ -65,7 +68,7 @@ const downSince = new Map<string, number>();
 /// rows go down and come back each on their own (a subagent's retry, a connector's connect). One timer per
 /// component, set to the soonest row still waiting; a row that comes back forgets when it went down. `now` is the
 /// clock (tests inject one). The gallery's zero grace (`setLastingGrace(0)`) shows every row at once.
-export function useConnectionQuietKeys(now: () => number = Date.now): (key: string, down: boolean) => boolean {
+export function useConnectionQuietKeys(now: () => number = Date.now): ConnectionQuietKeys {
   const [, redraw] = useState(0);
   const soonest = useRef(Number.POSITIVE_INFINITY);
   soonest.current = Number.POSITIVE_INFINITY;
@@ -88,4 +91,27 @@ export function useConnectionQuietKeys(now: () => number = Date.now): (key: stri
     soonest.current = Math.min(soonest.current, since + grace);
     return false;
   };
+}
+
+/// `useConnectionQuiet` for a state whose start the data knows (`since`, on the `now` clock): true once `down` has
+/// held for `CONNECTION_QUIET_MS` since then, so a state that began before the view drew shows as soon as it has
+/// lasted, not 10 s after the view. Without `since` the bound counts from when this view first saw it down.
+export function useConnectionQuietFrom(
+  down: boolean,
+  since: number | undefined,
+  now: () => number = Date.now,
+): boolean {
+  const [, redraw] = useState(0);
+  const seen = useRef<number | undefined>(undefined);
+  if (!down) seen.current = undefined;
+  else seen.current ??= now();
+  const from = since ?? seen.current;
+  const grace = defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS;
+  const left = down && from !== undefined ? from + grace - now() : 0;
+  useEffect(() => {
+    if (left <= 0) return;
+    const timer = setTimeout(() => redraw((n) => n + 1), left);
+    return () => clearTimeout(timer);
+  }, [down, from, left > 0]);
+  return down && left <= 0;
 }

@@ -10,6 +10,7 @@
 // remove the "ask parent to retry" if we haven't already").
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
+import type { ConnectionQuietKeys } from "../../../ui/lasting";
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
 import type { Subagent } from "./subagentFold";
@@ -165,7 +166,7 @@ export function retryLabel(t: Translate, retry: RetryState): string {
 /// (ui/lasting.ts) in the component that draws it. A retry heals on its own and offers nothing to do,
 /// so for its first `CONNECTION_QUIET_MS` the row reads as running, as it will once the retry runs
 /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
-export type RetryQuiet = (key: string, down: boolean) => boolean;
+export type RetryQuiet = ConnectionQuietKeys;
 
 /// The key a subagent's retry waits under (``RetryQuiet``), the same on every surface.
 export const subagentRetryKey = (agent: Pick<Subagent, "id">) => `agent:${agent.id}`;

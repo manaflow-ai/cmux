@@ -417,6 +417,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.connectors,
           reconnecting,
           imessage,
+          connectionQuiet,
         },
         actions,
         t,

@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample documents), not shipped UI.
 // The Customize recipes guide (docs/cmux-next/customize-recipes.md, written into the customize state
 // folder by `cmux customize recipes --open`) in the Markdown page, where each recipe's shell block
-// gets a Run button: the one-click Try it. Three layouts of the same ten recipes; the docs page is
+// gets a Run button: the one-click Try it. Three layouts of the same twelve recipes; the docs page is
 // the chosen one ("grouped"). References: extension browsers with one action per item, and Codex's
 // automation templates (the wish as an editable starting point).
 import { markdownPageEntry } from "../../gallery/format";
@@ -12,12 +12,12 @@ const DIR = "/Users/you/.local/state/cmux/customize/recipes";
 interface Recipe {
   name: string;
   title: string;
-  group: "Look" | "Layout" | "Type" | "Widgets" | "Keys";
+  group: "Look" | "Layout" | "Type" | "Widgets" | "Keys" | "App looks";
   line: string;
   ask: string;
 }
 
-// The same ten as cmux-customize-recipes' RECIPES, in the guide's order.
+// The same twelve as cmux-customize-recipes' RECIPES, in the guide's order.
 const RECIPES: Recipe[] = [
   {
     name: "tiling-look",
@@ -89,13 +89,27 @@ const RECIPES: Recipe[] = [
     line: "Control-Command-H, J, K and L move between panes, like Vim.",
     ask: "let me move between panes with ctrl-cmd-h, j, k and l",
   },
+  {
+    name: "codex-app",
+    title: "Like the Codex app",
+    group: "App looks",
+    line: "A gray sidebar of your chats by project, a white page, your prompts in gray pills, a large rounded composer.",
+    ask: "make cmux look and work like the Codex app",
+  },
+  {
+    name: "claude-code-app",
+    title: "Like the Claude desktop app",
+    group: "App looks",
+    line: "A #191919 page, a warm sidebar of sessions by project, a one-line composer, your prompt in a #252525 pill.",
+    ask: "make cmux look and work like the Claude desktop app's Code tab",
+  },
 ];
 
-const GROUPS = ["Look", "Layout", "Type", "Widgets", "Keys"] as const;
+const GROUPS = ["Look", "Layout", "Type", "Widgets", "Keys", "App looks"] as const;
 
 const INTRO = `# Customize recipes
 
-Ten ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
+Twelve ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
 once, as a preview. Nothing is kept until you apply it.
 
 - Keep it: \`cmux customize apply\`
@@ -145,12 +159,12 @@ export default markdownPageEntry({
   covers: ["page:cmux.markdown", "pages/markdown/MarkdownPage.tsx", "pages/markdown/runButtons.ts"],
   variants: {
     grouped: {
-      note: "Chosen version: grouped by what it changes (Look, Layout, Type, Widgets, Keys); each recipe has one line, its Run block (Try it) and the wish to ask instead. Ten Run buttons, one per recipe, and the groups keep a long page scannable.",
+      note: "Chosen version: grouped by what it changes (Look, Layout, Type, Widgets, Keys, App looks); each recipe has one line, its Run block (Try it) and the wish to ask instead. Twelve Run buttons, one per recipe, and the groups keep a long page scannable.",
       path: PATH,
       text: GROUPED,
     },
     flat: {
-      note: "Comparison: every recipe at the same level, no groups. Shorter outline, but ten same-weight sections read as one long list.",
+      note: "Comparison: every recipe at the same level, no groups. Shorter outline, but twelve same-weight sections read as one long list.",
       path: PATH,
       text: FLAT,
     },

@@ -39,7 +39,7 @@ import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVe
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryBusy, retryParts, retryShown, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
-import { useConnectionQuiet } from "../../../ui/lasting";
+import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
@@ -367,6 +367,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  retryAt,
   pulse,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
@@ -420,6 +421,9 @@ export function Thinking({
   /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that
   /// (`retryParts`), a model out of reach once it has lasted the shared bound (`retryShown`).
   retry?: AcpmuxTurnRetry;
+  /// When the retries began (the line's `retryAt`, conversation/turns.ts `withRetry`): the bound
+  /// counts from then; without it, from when the line first saw the retry.
+  retryAt?: number;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
 } = {}) {
@@ -512,7 +516,7 @@ export function Thinking({
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   // "Can't reach the model" waits out the shared bound; until then the line reads as it did.
-  const unreachableLasting = useConnectionQuiet(retry !== undefined && !retryBusy(retry));
+  const unreachableLasting = useConnectionQuietFrom(retry !== undefined && !retryBusy(retry), retryAt, now);
   const retrying = retryShown(retry, unreachableLasting);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
   const away = waiting !== undefined || retrying || startLook !== "thinking";
@@ -621,7 +625,7 @@ export function Thinking({
           {parts.count}
         </span>
         {parts.error && (
-          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+          <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
               ·
             </span>
@@ -709,6 +713,7 @@ export function Thinking({
             )}
           </output>
           {elapsed && (
+            // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.
             <span className={own ? "cv-worked__own" : "cv-worked__time"} title={turnTitle}>
               {elapsed}
             </span>
