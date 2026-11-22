@@ -27,6 +27,12 @@ open class ComposerReturnTextView: UITextView {
     /// plain text view offers no Paste for an image at all). The paste is the
     /// person's own action, so reading the pasteboard then asks nothing.
     public var onPasteAttachments: (() -> Void)?
+    /// A downward swipe inside the text, starting at its top, ends editing:
+    /// the keyboard goes down and the composer returns to its resting row
+    /// (`ComposerSwipeCollapse`). On by default in every composer.
+    public var collapsesOnSwipeDown = true
+    /// Called after a swipe down collapsed the composer.
+    public var onSwipeCollapse: (() -> Void)?
 
     private let placeholderLabel = UILabel()
     /// Set while this view inserts its own line break, so the delegate's
@@ -48,6 +54,10 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        swipeCollapse.addTarget(self, action: #selector(swipeCollapseChanged(_:)))
+        swipeCollapse.cancelsTouchesInView = false
+        swipeCollapse.delegate = swipeCollapseDelegate
+        addGestureRecognizer(swipeCollapse)
     }
 
     @available(*, unavailable)
@@ -180,6 +190,57 @@ open class ComposerReturnTextView: UITextView {
     public func updatePlaceholder() {
         placeholderLabel.isHidden = !(text ?? "").isEmpty
         accessibilityLabel = placeholder
+    }
+
+    // MARK: Swipe down to collapse
+
+    private let swipeCollapse = UIPanGestureRecognizer()
+    private let swipeCollapseDelegate = SwipeCollapseDelegate()
+    private let swipeCollapseRule = ComposerSwipeCollapse()
+    /// When the finger came down, and whether the text was at its top when the drag began.
+    fileprivate var touchDownTime: TimeInterval = 0
+    private var swipeBeganAtTop = false
+    private var swipeHeldFor: TimeInterval = 0
+
+    /// Whether the text shows its first line (a fitting draft always does).
+    private var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
+
+    @objc private func swipeCollapseChanged(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeBeganAtTop = atTop
+            swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
+        case .changed, .ended:
+            guard collapsesOnSwipeDown, isFirstResponder,
+                  swipeCollapseRule.collapses(translation: pan.translation(in: self), velocity: pan.velocity(in: self),
+                                              beganAtTop: swipeBeganAtTop, heldFor: swipeHeldFor) else { return }
+            // Stop this drag so it collapses once.
+            pan.isEnabled = false
+            pan.isEnabled = true
+            resignFirstResponder()
+            onSwipeCollapse?()
+        default:
+            break
+        }
+    }
+
+    /// Lets the swipe run beside the text view's own scroll, selection and
+    /// loupe gestures (a separate object: a UIScrollView subclass must not
+    /// become a recognizer delegate itself).
+    private final class SwipeCollapseDelegate: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        /// The finger came down (touch timestamps share `CACurrentMediaTime`'s clock).
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            (gestureRecognizer.view as? ComposerReturnTextView)?.touchDownTime = touch.timestamp
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let view = gestureRecognizer.view as? ComposerReturnTextView else { return false }
+            return view.collapsesOnSwipeDown && view.isFirstResponder
+        }
     }
 
     // MARK: Return
