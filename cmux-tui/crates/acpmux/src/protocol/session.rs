@@ -52,9 +52,9 @@ pub struct SessionSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
-    /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
-    /// older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    /// default. Always listed, false otherwise, so every row lists the same keys
+    /// (`hub/mesh_book.rs` `ROW_KEYS`); absent only from a peer on an older acpmux.
+    #[serde(default)]
     #[schemars(default)]
     pub name_given: bool,
     /// The names it had before its renames, oldest first: each still names it where no session
