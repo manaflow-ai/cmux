@@ -244,12 +244,12 @@ impl Reassembler {
             {
                 repair_sample = Some(now_us.saturating_sub(mark.at_us));
             }
-        }
-        if let Some(sample) = repair_sample {
-            self.on_repair_sample(sample);
             if entry.complete_us.is_none() && Self::decodable(entry) {
                 entry.complete_us = Some(now_us);
             }
+        }
+        if let Some(sample) = repair_sample {
+            self.on_repair_sample(sample);
         }
         self.expire(now_us);
         self.release_ready(now_us)
