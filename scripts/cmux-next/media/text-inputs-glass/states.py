@@ -127,7 +127,7 @@ def g_browser_find(tag):
              step("A browser tab", cmux("tab", "create", "browser", "--url", "https://example.com", "--name", name), shot=False, wait=4),
              step("Select it", cmux("tab", name, "focus"), shot=False, wait=1.5), KEY(),
              step("The window is key (activation lands a beat later)", rpc("debug.text_field", {"key": True}), shot=False, wait=2),
-             step("Browser find bar opens", cmux("action", "run", "find"), shot=False, wait=1)]
+             step("Browser find bar opens", cmux("action", "run", "find", "--target", name), shot=False, wait=1)]
     # The dark pass keeps the light pass's tab and its open bar (the appearance changes under it).
     if "dark" in tag: setup = [KEY()]
     return setup + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find in page"}), tag)
