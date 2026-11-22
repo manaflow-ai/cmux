@@ -36,7 +36,7 @@ pub async fn run(
         } else {
             println!(
                 "Subscribed to surge thread {}.",
-                reply["threadId"].as_str().unwrap_or(thread)
+                reply.get("threadId").and_then(Value::as_str).unwrap_or(thread)
             );
         }
         return Ok(());
@@ -53,7 +53,7 @@ pub async fn run(
         } else {
             println!(
                 "Unsubscribed from surge thread {}.",
-                reply["threadId"].as_str().unwrap_or(thread)
+                reply.get("threadId").and_then(Value::as_str).unwrap_or(thread)
             );
         }
         return Ok(());
@@ -64,12 +64,13 @@ pub async fn run(
         if json_out {
             print_json(&reply);
         } else {
-            let rows = reply["subscriptions"].as_array().cloned().unwrap_or_default();
+            let rows =
+                reply.get("subscriptions").and_then(Value::as_array).cloned().unwrap_or_default();
             if rows.is_empty() {
                 println!("No surge thread subscriptions.");
             } else {
                 for row in rows {
-                    println!("{}", row["threadId"].as_str().unwrap_or_default());
+                    println!("{}", row.get("threadId").and_then(Value::as_str).unwrap_or_default());
                 }
             }
         }
@@ -82,14 +83,15 @@ pub async fn run(
                 json!({"sessionId":id,"search":query,"before":before}),
             )
             .await?;
-        let hits = reply["hits"]
-            .as_array()
+        let hits = reply
+            .get("hits")
+            .and_then(Value::as_array)
             .ok_or_else(|| anyhow::anyhow!("this daemon does not support held-inbox search"))?;
         if json_out {
             print_json(&reply);
         } else {
             for hit in hits {
-                let field = |key: &str| hit[key].as_str().unwrap_or_default();
+                let field = |key: &str| hit.get(key).and_then(Value::as_str).unwrap_or_default();
                 println!(
                     "[{}] {} · {}\n{}",
                     field("promptId"),
@@ -101,7 +103,7 @@ pub async fn run(
             if hits.is_empty() {
                 println!("No matching held messages.");
             }
-            if let Some(next) = reply["next"].as_u64() {
+            if let Some(next) = reply.get("next").and_then(Value::as_u64) {
                 println!("Continue with --before {next}.");
             }
         }

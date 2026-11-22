@@ -32,6 +32,18 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Sets `key` on `v` when it is an object (a write that cannot panic, unlike `v[key] = ...`).
+pub(crate) fn set_key(v: &mut Value, key: &str, val: Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.insert(key.to_owned(), val);
+    }
+}
+
+/// The first `n` characters of a hex digest (ASCII, so a byte prefix; never a panic).
+pub(crate) fn hex_prefix(hex: String, n: usize) -> String {
+    hex.get(..n).map(str::to_owned).unwrap_or(hex)
+}
+
 /// Messages per batch: the model answers one short line each within [`MAX_TOKENS`].
 pub const MAX_BATCH: usize = 16;
 /// Batches one pass triages; the rest wait for the next pass, so a pass is bounded.
@@ -132,7 +144,7 @@ fn hash_ids<'a>(salt: &str, ids: impl IntoIterator<Item = &'a str>) -> String {
         h.update([0]);
         h.update(id.as_bytes());
     }
-    format!("{:x}", h.finalize())[..32].to_owned()
+    hex_prefix(format!("{:x}", h.finalize()), 32)
 }
 
 /// `recipient`'s pending messages in batches of at most [`MAX_BATCH`], oldest first, at most
@@ -343,10 +355,10 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
                 "fingerprint": m.map(|m| fingerprint(m)).unwrap_or_default(),
             });
             if let Some(o) = &d.owner {
-                v["owner"] = json!(o);
+                set_key(&mut v, "owner", json!(o));
             }
             if let Some(r) = &d.repeat_of {
-                v["repeatOf"] = json!(r);
+                set_key(&mut v, "repeatOf", json!(r));
             }
             v
         })
@@ -411,7 +423,7 @@ pub fn fingerprint(m: &Held) -> String {
         }
     }
     flush(&mut word, &mut norm);
-    format!("{:x}", Sha256::digest(norm.as_bytes()))[..16].to_owned()
+    hex_prefix(format!("{:x}", Sha256::digest(norm.as_bytes())), 16)
 }
 
 /// The subjects and conditions a chat's digests already told, by who was told: `(recipient,
