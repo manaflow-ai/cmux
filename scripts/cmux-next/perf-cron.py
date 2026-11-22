@@ -194,7 +194,7 @@ PARTS = [
     # part: seeding and measuring all three topologies is intentionally longer than the normal 15-minute tick.
     {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
-    # 1,000 and 5,000 workspaces, judged (workspace-scaling-bench.py --scale): new workspace, sidebar switch and scroll,
+    # 1,000 and 5,000 workspaces, judged (workspace-scaling-bench.py --scale): new workspace, open pane, sidebar switch and scroll,
     # and the sidebar's app CPU idle and with 15 agents ticking, each p95 over its smallest topology's (budget 1.10:
     # Leo, cost stays constant as workspaces grow, never linear), and the CPU rows also under the sidebar's 10 %. Its
     # own part, so the 1/100/1000 trend keeps its hour: two app launches, each growing one list to 5,000 rows.

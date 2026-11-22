@@ -12,7 +12,7 @@ For report-only use (and unit tests), pass ``--instant-report``, ``--sidebar-rep
 ``--typing-report``.  With ``--app`` the three probes are run for each count and their reports are
 loaded automatically.
 
-``--scale`` is the judged part (perf cron workspace-scale): new workspace, sidebar switch and scroll, and the sidebar's
+``--scale`` is the judged part (perf cron workspace-scale): new workspace, open pane (split right), sidebar switch and scroll, and the sidebar's
 app CPU at 1,000 and 5,000 workspaces, each as a ratio over its smallest topology (see SCALE_BASELINE). Replay it with
 ``--scale-instant-report`` and ``--scale-sidebar-report``.
 """
@@ -458,7 +458,7 @@ SCALE_INSTANT_COUNTS = (1, 1000, 5000)
 SCALE_SIDEBAR_COUNTS = (100, 1000, 5000)
 # The baseline topology per interaction: a new workspace at one workspace; the sidebar's scroll, switch and CPU at 100
 # (a shorter list does not scroll, and the 15 ticking agents need rows of their own).
-SCALE_BASELINE = {"new_workspace": 1, "switch": 100, "sidebar_scroll": 100,
+SCALE_BASELINE = {"new_workspace": 1, "open_pane": 1, "switch": 100, "sidebar_scroll": 100,
                   "sidebar_cpu_idle": 100, "sidebar_cpu_active": 100}
 SCALE_RATIO_MAX = LIMIT
 SIDEBAR_CPU_MAX = 10.0
@@ -490,7 +490,7 @@ def scale_values(instant, sidebar):
     values = {}
     for count in SCALE_INSTANT_COUNTS:
         for interaction, row in instant_rows(instant, count).items():
-            if interaction == "new_workspace":
+            if interaction in ("new_workspace", "open_pane"):
                 values.setdefault(interaction, {})[count] = row
     for count in SCALE_SIDEBAR_COUNTS:
         found = {**sidebar_rows(sidebar, count - 1), **sidebar_cpu_rows(sidebar, count - 1)}
@@ -558,9 +558,9 @@ def run_scale(opts):
     failures = []
     instant, sidebar = root / "instant", root / "sidebar"
     started = time.monotonic()
-    print(f"workspace-scale: new workspace at {SCALE_INSTANT_COUNTS} workspaces", flush=True)
+    print(f"workspace-scale: new workspace and open pane at {SCALE_INSTANT_COUNTS} workspaces", flush=True)
     code = run_probe(HERE / "instant-new-surfaces-bench.py",
-                     ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace",
+                     ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
                       "--workspaces", ",".join(map(str, SCALE_INSTANT_COUNTS)), "--empty-workspaces", "--exact-workspaces",
                       "--arms", "warm", "--phases", "idle", "--runs", "6",
                       "--out", str(instant), "--json", str(instant / "report.json")], root, opts.scale_instant_timeout,
@@ -572,12 +572,15 @@ def run_scale(opts):
     instant_report = read_report(instant / "report.json")
     summary = instant_report.get("summary") if isinstance(instant_report.get("summary"), dict) else {}
     for count in SCALE_INSTANT_COUNTS:
-        entry = summary.get(f"idle@{count}ws/new_workspace")
-        if not isinstance(entry, dict):
-            failures.append({"workspaces": count, "probe": "instant", "incomplete": "missing_summary"})
-        elif entry.get("missed") or (entry.get("n") or 0) < 6:
-            failures.append({"workspaces": count, "probe": "instant", "incomplete": "missed_samples",
-                             "samples": entry.get("n") or 0, "missed": entry.get("missed") or 0})
+        for command in ("new_workspace", "split_right"):
+            entry = summary.get(f"idle@{count}ws/{command}")
+            if not isinstance(entry, dict):
+                failures.append({"workspaces": count, "probe": "instant", "command": command,
+                                 "incomplete": "missing_summary"})
+            elif entry.get("missed") or (entry.get("n") or 0) < 6:
+                failures.append({"workspaces": count, "probe": "instant", "command": command,
+                                 "incomplete": "missed_samples", "samples": entry.get("n") or 0,
+                                 "missed": entry.get("missed") or 0})
     write_json(opts.json, scale_result(instant_report, {}, failures))
     started = time.monotonic()
     print(f"workspace-scale: sidebar at {SCALE_SIDEBAR_COUNTS} workspaces", flush=True)

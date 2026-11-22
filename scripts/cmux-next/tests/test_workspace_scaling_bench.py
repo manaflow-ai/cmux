@@ -307,11 +307,13 @@ def scale_sidebar_size(scroll, switch, idle, active):
             "ticks": {"idle": {"cpu_pct": idle}, "ticking": {"cpu_pct": active}}}
 
 
-def scale_instant(values):
+def scale_instant(values, split=None):
+    """An instant-new-surfaces report: new_workspace at `values` ms per count, split_right at `split` (default the same)."""
     summary, runs = {}, []
     for count, ms in values.items():
-        summary[f"idle@{count}ws/new_workspace"] = {"n": 6, "missed": 0}
-        runs += [{"phase": f"idle@{count}ws", "command": "new_workspace", "visible_ms": ms}] * 6
+        for command, value in (("new_workspace", ms), ("split_right", (split or values)[count])):
+            summary[f"idle@{count}ws/{command}"] = {"n": 6, "missed": 0}
+            runs += [{"phase": f"idle@{count}ws", "command": command, "visible_ms": value}] * 6
     return {"summary": summary, "runs": runs}
 
 
@@ -335,6 +337,24 @@ class WorkspaceScaleTests(unittest.TestCase):
         for name, row in rows.items():
             if ".ratio_" in name:
                 self.assertEqual((row["unit"], row["budget"]), ("x", bench.SCALE_RATIO_MAX), name)
+
+    def test_open_pane_is_judged_against_one_workspace(self):
+        result = bench.scale_result(scale_instant({1: 5.0, 1000: 5.0, 5000: 5.0}, split={1: 4.0, 1000: 4.2, 5000: 8.0}),
+                                    {}, [])
+        rows = {row["name"]: row for row in result["rows"]}
+        self.assertEqual(rows["workspace_scale.open_pane.5000"]["p95"], 8.0)
+        self.assertEqual(rows["workspace_scale.open_pane.ratio_1000"]["p95"], 1.05)
+        self.assertEqual(rows["workspace_scale.open_pane.ratio_5000"]["p95"], 2.0)
+        self.assertEqual(rows["workspace_scale.open_pane.ratio_5000"]["baseline_workspaces"], 1)
+        self.assertEqual(rows["workspace_scale.open_pane.ratio_5000"]["budget"], bench.SCALE_RATIO_MAX)
+
+    def test_a_run_without_open_pane_is_incomplete(self):
+        instant = scale_instant({1: 5.0, 1000: 5.0, 5000: 5.0})
+        instant["runs"] = [r for r in instant["runs"] if r["command"] != "split_right"]
+        for key in [k for k in instant["summary"] if k.endswith("/split_right")]:
+            del instant["summary"][key]
+        missing = bench.scale_result(instant, {}, [])["incomplete"][0]["missing"]
+        self.assertIn("workspace_scale.open_pane.ratio_5000", missing)
 
     def test_cpu_rows_carry_the_sidebar_budget_and_a_floored_ratio(self):
         rows, _ = self.rows()
