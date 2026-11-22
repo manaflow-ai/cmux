@@ -15,6 +15,7 @@ mod agent;
 mod degen;
 mod drive;
 mod event;
+mod fanin;
 mod generate;
 mod metrics;
 mod rng;
@@ -30,6 +31,7 @@ fn main() -> std::process::ExitCode {
     let result = match cmd {
         "gen" => generate::run(rest),
         "agent" => agent::run(rest),
+        "fanin" => fanin::run(rest),
         "drive" => drive::run(rest),
         "degen" => degen::run(rest),
         "report" => metrics::run(rest),
@@ -51,8 +53,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-const USAGE: &str =
-    "usage: coord-sim gen|agent|drive|degen|report|surface|shape ... (see src/main.rs)";
+const USAGE: &str = "usage: coord-sim gen|agent|drive|degen|report|surface|shape ... (see src/main.rs)";
 
 /// `--name value` from an argument list.
 pub fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {

@@ -4,6 +4,10 @@
 //! A script is NDJSON, one `SimEvent` per line, in time order. Payload text is filler made from the
 //! seed (`filler`), never transcript content; `bytes` is the size the payload must reach on the wire.
 
+// Shared model of the coord-sim subcommands: each of gen, agent, drive, degen, fanin and report reads its own
+// part (and the coord-shape.v1 schema fields stay whole), so one subcommand's build leaves the rest unread.
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

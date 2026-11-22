@@ -233,6 +233,39 @@ class PrimeAnchorTests(unittest.TestCase):
         result, _ = run(rows)
         self.assertEqual(result["head"]["failed"], [])
 
+    def test_a_window_with_nothing_in_front_is_no_front(self):
+        # cmux#47182's A/B, head arm (launch-ready on an M6 measure worker, 2026-11-20, session=stress3 front=tab): the
+        # app's daemon never connected, so every launch, the prime too, read a window with no workspace, tab or Home.
+        # Equal nulls read "LR-REOPENED head 5/5" and hid that no launch restored or attached anything.
+        empty = {"home": False, "page": None, "surface": None, "tab": None, "windows": 1, "workspace": None}
+        rows = [row("head", "prime", empty), row("head", "seed", empty)]
+        rows += [row("head", f"run{i}", empty, {}, "sidebar") for i in range(1, 6)]
+        result, lines = run(rows, "kept", "tab")
+        self.assertIn("prime", result["head"]["failed"])
+        self.assertTrue(any(l.startswith("LR-FAIL head prime front=tab not seeded") for l in lines))
+        self.assertNotIn("LR-REOPENED head 5/5 case=kept", lines)
+        self.assertTrue(any(l.startswith("LR-REOPENED head not-judged: seed front unreadable: no workspace, tab or Home")
+                            for l in lines), lines)
+        self.assertTrue(any(l.startswith("LR-SAME-FRONT invalid: head") for l in lines))
+        # Unseeded too: a null front after a real one is a failed reopen, not a match.
+        result, lines = run([row("head", "prime", TAB), row("head", "run1", empty, {}, "sidebar")])
+        self.assertEqual(result["head"]["failed"], ["run1"])
+        self.assertTrue(any(l.startswith("LR-FAIL head run1 no front: no workspace, tab or Home") for l in lines))
+
+    def test_the_stress3_seed_moves_a_seeded_anchor(self):
+        # The same A/B, base arm: front=tab primed one workspace's tab, the stress3 seed then made 120 workspaces and
+        # left the last one's tab in front, and every launch reopened that tab. Judged against the prime's tab, the arm
+        # read "LR-REOPENED base 0/5" though every launch reopened what the seed left.
+        rows = [row("base", "prime", TAB), row("base", "seed", OTHER_TAB)]
+        rows += [row("base", f"run{i}", OTHER_TAB, TAB_MARKS, "tabs") for i in range(1, 6)]
+        result, lines = run(rows, "kept", "tab")
+        self.assertEqual(result["base"]["failed"], [])
+        self.assertIn("LR-REOPENED base 5/5 case=kept", lines)
+        self.assertIn("LR-SAME-FRONT ok: base", lines)
+        rows[-1] = row("base", "run5", TAB, TAB_MARKS, "tabs")  # back on the prime's tab: not what the seed left
+        result, _ = run(rows, "kept", "tab")
+        self.assertEqual(result["base"]["failed"], ["run5"])
+
     def test_case_update_still_compares_with_the_launch_before(self):
         rows = [row("head", "prime", HOME), row("head", "old1", TAB), row("head", "run1", TAB, TAB_MARKS, "tabs")]
         result, _ = run(rows, "update")
@@ -261,6 +294,28 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(module.first_surface({"marks": {"launch_snapshot_shown": 1}}), "tabs")
         self.assertEqual(module.first_surface({"marks": {"home.first_page": 1}}), "home")
         self.assertEqual(module.first_surface({"marks": {}}), "none")
+
+    # A fresh launch's window readies its own regions (sidebar rows, the tab strip, the pane holding Home's page)
+    # before Home's page draws: marks from a real fresh run (cmux-ci step 8feecdfbb939cc88ee5f3023, 2026-11-21).
+    FRESH_MARKS = {"reveal.sidebar": 305.0, "reveal.tabs": 556.0, "reveal.pane": 584.0, "reveal.home": 972.0,
+                   "home.first_page": 972.0, "window_usable": 1128.0}
+
+    def test_regions_readied_before_home_are_not_a_surface(self):
+        r = row("head", "run1", None, self.FRESH_MARKS, "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
+        self.assertIsNone(module.judge(r, "home", None))
+
+    def test_a_terminal_drawn_before_home_is_tabs(self):
+        marks = dict(self.FRESH_MARKS, first_terminal_frame=700.0)
+        r = row("head", "run1", None, marks, "sidebar")
+        self.assertEqual(module.first_surface(r), "tabs")
+        self.assertIn("on a tab with no saved state", module.judge(r, "home", None))
+        snap = row("head", "run1", None, dict(self.FRESH_MARKS, launch_snapshot_shown=200.0), "sidebar")
+        self.assertEqual(module.first_surface(snap), "tabs")
+
+    def test_a_terminal_after_home_is_still_home(self):
+        r = row("head", "run1", None, dict(self.FRESH_MARKS, first_terminal_frame=3140.0), "sidebar")
+        self.assertEqual(module.first_surface(r), "home")
 
 
 class KeysTests(unittest.TestCase):

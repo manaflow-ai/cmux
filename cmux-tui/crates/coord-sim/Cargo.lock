@@ -15,7 +15,6 @@ name = "coord-sim"
 version = "0.1.0"
 dependencies = [
  "cmux-process",
- "libc",
  "serde",
  "serde_json",
 ]

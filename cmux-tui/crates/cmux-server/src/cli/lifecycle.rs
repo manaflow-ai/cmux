@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use cmux_server_core::InstallMode;
 use cmux_server_core::access::access_policy;
-use cmux_server_core::layout::Layout;
+use cmux_server_core::layout::{Layout, SYSTEMD_UNIT, ServiceKind};
 use cmux_server_core::reexec::{self, ReexecInput, ReexecPlan};
 use serde_json::{Value, json};
 
@@ -42,7 +42,15 @@ pub(super) fn config(layout: &Layout) -> Result<ServerConfig> {
 pub(super) fn services<'a>(ctx: &'a Context<'_>, layout: &'a Layout) -> Result<Services<'a>> {
     let uid = sys::uid();
     let user = host::current_user()?;
-    Ok(Services { layout, runner: ctx.runner, uid, user, session: None })
+    Ok(Services {
+        layout,
+        runner: ctx.runner,
+        uid,
+        user,
+        session: None,
+        linger: true,
+        announce: false,
+    })
 }
 
 pub(super) fn pg_options(args: &Args) -> PgOptions {
@@ -213,6 +221,14 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
             "cmux server install ssh://HOST runs from the cmux CLI; this binary installs only here",
         ));
     }
+    if args.has("user") && args.has("system") {
+        return Err(Error::usage("--user and --system do not go together"));
+    }
+    if args.has("label") {
+        return Err(Error::usage(
+            "--label names a machine set up over ssh://; it does not go with an install here",
+        ));
+    }
     let layout = mutating_layout(ctx, args.has("system"))?;
     let mode = layout.mode;
     // Flags that ask for the signed store keep its refusals; without them a
@@ -239,6 +255,10 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
     access::ensure(&access_policy(&layout), ctx.runner)?;
+    // One service command at a time, for the whole install (Services::lock).
+    let _service_lock = services(ctx, &layout)?.lock()?;
+    // Every refusal (a foreign unit, an unsafe directory) before the store changes.
+    services(ctx, &layout)?.preflight()?;
     let mut cfg = config(&layout)?;
     let (_, new_id) = cfg.ensure_install_id()?;
     let channel_changed = args.value("channel").is_some_and(|c| c != cfg.channel());
@@ -258,7 +278,7 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     }
     let mut warnings = Vec::new();
     ensure_shim(&layout, &mut warnings)?;
-    let svc = services(ctx, &layout)?;
+    let svc = Services { linger: !args.has("user"), ..services(ctx, &layout)? };
     // The service restarts for a new generation here, and for a changed
     // unit inside `install`.
     let service = svc.install(report.changed)?;
@@ -365,12 +385,54 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         ));
     }
     let layout = mutating_layout(ctx, false)?;
+    let mut svc = services(ctx, &layout)?;
+    // One service command at a time, for the whole uninstall, store and
+    // state removal included (Services::lock).
+    let _service_lock = svc.lock()?;
+    let session = super::session_service::installed(&svc);
+    // A session service is checked, renewed and stopped as the session unit
+    // cmux renders, not the store's unit (the same file name).
+    svc.session = super::session_service::installed_host(ctx, &svc);
+    // Uninstall ends the session's terminals: in one of them, it would end
+    // its own shell, and itself (SIGHUP), halfway through.
+    if let (Some(host), Some(socket)) = (&svc.session, &ctx.terminal_socket) {
+        use crate::service::TerminalSession;
+        match crate::service::terminal_session(socket, &host.session) {
+            TerminalSession::Other => {}
+            TerminalSession::This => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a terminal of session {:?}, and uninstall ends that session's terminals (this one too, before it could finish); nothing was changed. Run it from a terminal outside that session (another app's terminal, or a plain ssh login)",
+                    host.session
+                )));
+            }
+            TerminalSession::Unknown => {
+                return Err(Error::rejected(format!(
+                    "this command runs in a cmux terminal whose daemon listens on {} (not a default socket path), so cmux cannot tell whether it is a terminal of session {:?}, whose terminals uninstall ends (this one too, before it could finish); nothing was changed. Run it from a terminal outside cmux (another app's terminal, or a plain ssh login)",
+                    socket.display(),
+                    host.session
+                )));
+            }
+        }
+    }
+    // A unit cmux did not write (or one systemd loads from elsewhere): stop,
+    // disable, remove and purge nothing, not even the store or state a
+    // service of that name might use.
+    if let Some(path) = svc.foreign_units()?.first() {
+        return Err(Error::rejected(format!(
+            "{} was not written by cmux, so cmux leaves it, and everything it may use, alone; nothing was changed. Remove that unit yourself first if you want cmux server uninstalled",
+            path.display()
+        )));
+    }
     let purge = args.has("purge");
     let warning = postgres_guard(ctx, args, &layout, purge)?;
     let backup =
         if purge && !args.has("no-backup") { final_backup(ctx, args, &layout)? } else { None };
-    let svc = services(ctx, &layout)?;
+    let warnings: Vec<String> = warning.into_iter().collect();
     let mut removed: Vec<PathBuf> = svc.uninstall()?;
+    let notes = match &session {
+        Some(unit) => super::session_service::uninstall_notes(&svc, unit),
+        None => Vec::new(),
+    };
     stop_postgres(ctx, args, &layout)?;
     let shim = fsx::local(&layout.cli_shim);
     if std::fs::read_link(&shim).is_ok_and(|t| t == fsx::local(&layout.current_cmux)) {
@@ -389,11 +451,16 @@ pub fn uninstall(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     } else {
         Some(state)
     };
-    let warnings: Vec<String> = warning.into_iter().collect();
-    let json = json!({"removed": removed, "kept_state": kept_state, "backup": backup, "warnings": warnings});
+    let json = json!({
+        "removed": removed, "kept_state": kept_state, "backup": backup, "warnings": warnings,
+        "notes": notes,
+    });
     let mut human = String::from("cmux server: uninstalled\n");
     for w in &warnings {
         human.push_str(&format!("warning: {w}\n"));
+    }
+    for note in &notes {
+        human.push_str(&format!("  {note}\n"));
     }
     if let Some(path) = &kept_state {
         human.push_str(&format!("kept state: {}\n", path.display()));
@@ -563,4 +630,80 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         None => "cmux server: pin cleared\n".to_owned(),
     };
     Ok(Output::new(json!({"pinned": pinned}), human))
+}
+
+/// `cmux server logs [--lines N | -n N] [--follow | -f]`: the service's log. On Linux
+/// the unit's journal (`journalctl`), on macOS the LaunchAgent's log file.
+pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
+    let layout = layout(ctx, false)?;
+    let lines: u32 = match args.value("lines") {
+        None => 100,
+        Some(text) => {
+            text.parse().ok().filter(|n| (1..=1_000_000).contains(n)).ok_or_else(|| {
+                Error::usage(format!("--lines takes a number from 1 to 1000000, not {text:?}"))
+            })?
+        }
+    };
+    let follow = args.has("follow");
+    let lines_text = lines.to_string();
+    let (program, mut argv): (PathBuf, Vec<String>) = match &layout.service {
+        ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+            let program = find_program("journalctl").ok_or_else(|| {
+                Error::rejected(
+                    "journalctl is not on PATH; the service logs to the systemd journal",
+                )
+            })?;
+            let mut argv = Vec::new();
+            if matches!(layout.service, ServiceKind::SystemdUser { .. }) {
+                argv.push("--user".to_owned());
+            }
+            argv.extend(
+                ["--unit", SYSTEMD_UNIT, "--lines", &lines_text, "--no-pager"].map(str::to_owned),
+            );
+            if follow {
+                argv.push("--follow".to_owned());
+            }
+            (program, argv)
+        }
+        ServiceKind::LaunchAgent { .. } => {
+            let log = fsx::local(&layout.logs().join("server.log"));
+            if !follow {
+                let text = match std::fs::read_to_string(&log) {
+                    Ok(text) => text,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(e) => return Err(Error::io(log.display(), e)),
+                };
+                let all: Vec<&str> = text.lines().collect();
+                let tail = all.get(all.len().saturating_sub(lines as usize)..).unwrap_or_default();
+                let mut human = tail.join("\n");
+                if !human.is_empty() {
+                    human.push('\n');
+                }
+                return Ok(Output::new(json!({"log": log, "lines": tail}), human));
+            }
+            let program = PathBuf::from("/usr/bin/tail");
+            (program, vec!["-n".to_owned(), lines_text, "-F".to_owned(), log.display().to_string()])
+        }
+        other => {
+            return Err(Error::rejected(format!("no service log for {other:?} on this build")));
+        }
+    };
+    if args.json {
+        argv.retain(|a| a != "--follow");
+        argv.extend(["--output".to_owned(), "cat".to_owned()]);
+        let out = ctx.runner.check(&crate::process::Cmd::new(&program).args(&argv))?;
+        let text = out.stdout_text();
+        let lines: Vec<&str> = text.lines().collect();
+        return Ok(Output::new(json!({"unit": SYSTEMD_UNIT, "lines": lines}), String::new()));
+    }
+    let arg0 = program.display().to_string();
+    Err(ctx.exec.exec(&ExecRequest { program, arg0, args: argv, env: Vec::new() }))
+}
+
+fn find_program(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .chain(["/usr/bin", "/bin"].map(PathBuf::from))
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
 }
