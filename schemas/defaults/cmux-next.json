@@ -529,6 +529,7 @@
     "setting.computerUse.allowOwnMachines": true,
     "setting.computerUse.cursorTag": "hover",
     "setting.computerUse.deniedApps": ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole", "com.cmuxterm.app", "com.cmuxterm.app.*"],
+    "setting.computerUse.floatingPreview": false,
     "setting.computerUse.livePreview": true,
     "setting.computerUse.menus": "open",
     "setting.computerUse.mode": "fullAccess",

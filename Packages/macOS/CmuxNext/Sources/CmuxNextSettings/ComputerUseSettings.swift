@@ -42,6 +42,8 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `settle` (`adaptive`): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
+/// - `floatingPreview` (off, prototype): that live view also floats over every app in a panel that
+///   never takes focus; the menu bar's Computer Use menu shows and hides it.
 /// - `menus` (`open`): agents may open pop-up and context menus of background apps (`refuse`: never).
 ///
 /// `computerUse.enabled` and `computerUse.driver` are retired. An old file's
@@ -68,6 +70,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var cursorTag = ComputerUseSettings.cursorTagDefault
     public var settle = ComputerUseSettings.settleDefault
     public var livePreview = ComputerUseSettings.livePreviewDefault
+    public var floatingPreview = ComputerUseSettings.floatingPreviewDefault
     public var menus = ComputerUseSettings.menusDefault
     public init() {}
 
@@ -89,6 +92,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
         if let value = reader.choice("cursorTag", ComputerUseCursorTag.self) { settings.cursorTag = value }
         if let value = reader.choice("settle", ComputerUseSettle.self) { settings.settle = value }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.bool("floatingPreview") { settings.floatingPreview = value }
         if let value = reader.choice("menus", ComputerUseMenus.self) { settings.menus = value }
         diagnostics = reader.diagnostics
         if let value = root.value(at: deniedAppsPath) {

@@ -353,6 +353,31 @@
           ]
         },
         {
+          "key": "computerUse.floatingPreview",
+          "note": "Prototype: a floating, non-activating panel over every app with the live preview; the menu bar's Computer Use menu shows and hides it. Needs computerUse.livePreview (the worker streams no frame without it).",
+          "title": {
+            "key": "settings.computerUse.floatingPreview",
+            "text": "Floating Live Preview"
+          },
+          "help": {
+            "key": "settings.computerUse.floatingPreview.help",
+            "text": "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar."
+          },
+          "summary": {
+            "key": "settings.computerUse.floatingPreview.summary",
+            "text": "Shows the app an agent uses in a floating panel"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "live preview",
+            "floating",
+            "picture in picture",
+            "preview"
+          ]
+        },
+        {
           "key": "computerUse.menus",
           "note": "Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).",
           "title": {

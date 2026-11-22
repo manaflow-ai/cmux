@@ -1441,6 +1441,7 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
+        "computerUse.floatingPreview",
         "computerUse.menus"
       ]
     },

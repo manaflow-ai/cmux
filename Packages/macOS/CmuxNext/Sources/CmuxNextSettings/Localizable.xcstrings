@@ -55,6 +55,87 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "寬"}}
       }
     },
+    "settings.computerUse.floatingPreview": {
+      "comment": "Settings row title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Floating Live Preview"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "معاينة مباشرة عائمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Plutajući pregled uživo"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Svævende live-forhåndsvisning"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schwebende Live-Vorschau"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Vista previa en directo flotante"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aperçu en direct flottant"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Anteprima dal vivo mobile"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "フローティングライブプレビュー"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការមើលជាមុនផ្ទាល់អណ្តែត"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "플로팅 실시간 미리보기"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Flytende direkteforhåndsvisning"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pływający podgląd na żywo"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Pré-visualização ao vivo flutuante"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Плавающий живой просмотр"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ตัวอย่างสดแบบลอย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kayan Canlı Önizleme"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Плаваючий живий перегляд"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Xem trước trực tiếp nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "浮动实时预览"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "浮動即時預覽"}}
+      }
+    },
+    "settings.computerUse.floatingPreview.help": {
+      "comment": "Settings row help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "عرض مباشر للتطبيق الذي يستخدمه الوكيل، عائم فوق كل التطبيقات. اسحبه إلى أي مكان؛ وأخفه من شريط القوائم."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pregled uživo aplikacije koju agent koristi, iznad svih aplikacija. Prevucite ga bilo gdje; sakrijte ga s trake menija."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En livevisning af den app, en agent bruger, svævende over alle apps. Træk den hvorhen som helst; skjul den fra menulinjen."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eine Live-Ansicht der App, die ein Agent nutzt, schwebend über allen Apps. Überallhin ziehen; über die Menüleiste ausblenden."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Una vista en directo de la app que usa un agente, flotando sobre todas las apps. Arrástrala a cualquier lugar; ocúltala desde la barra de menús."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une vue en direct de l’app qu’utilise un agent, flottant au-dessus de toutes les apps. Faites-la glisser n’importe où ; masquez-la depuis la barre des menus."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Una vista dal vivo dell’app usata da un agente, sopra tutte le app. Trascinala ovunque; nascondila dalla barra dei menu."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが使うアプリのライブビューを、すべてのアプリの上に浮かべて表示します。どこへでもドラッグでき、メニューバーから隠せます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ទិដ្ឋភាពផ្ទាល់នៃកម្មវិធីដែលភ្នាក់ងារប្រើ អណ្តែតលើកម្មវិធីទាំងអស់។ អូសវាទៅកន្លែងណាក៏បាន លាក់វាពីរបារម៉ឺនុយ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트가 사용하는 앱의 실시간 화면을 모든 앱 위에 띄웁니다. 아무 곳으로나 드래그하고 메뉴 막대에서 숨길 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En direktevisning av appen en agent bruker, flytende over alle apper. Dra den hvor som helst; skjul den fra menylinjen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Podgląd na żywo aplikacji używanej przez agenta, nad wszystkimi aplikacjami. Przeciągnij go w dowolne miejsce; ukryj go z paska menu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma visualização ao vivo do app que um agente usa, flutuando sobre todos os apps. Arraste para qualquer lugar; oculte pela barra de menus."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Живой вид приложения, которым пользуется агент, поверх всех приложений. Перетащите куда угодно; скройте из строки меню."}},
+        "th": {"stringUnit": {"state": "translated", "value": "มุมมองสดของแอปที่เอเจนต์ใช้ ลอยอยู่เหนือทุกแอป ลากไปที่ใดก็ได้ ซ่อนได้จากแถบเมนู"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ajanın kullandığı uygulamanın canlı görünümü, tüm uygulamaların üzerinde. İstediğiniz yere sürükleyin; menü çubuğundan gizleyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Живий вигляд застосунку, яким користується агент, поверх усіх застосунків. Перетягніть будь-куди; сховайте з рядка меню."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chế độ xem trực tiếp ứng dụng mà tác tử dùng, nổi trên mọi ứng dụng. Kéo đến bất kỳ đâu; ẩn từ thanh menu."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "智能体所用应用的实时画面，浮在所有应用之上。可拖到任意位置，并可从菜单栏隐藏。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理所用 App 的即時畫面，浮在所有 App 之上。可拖到任意位置，並可從選單列隱藏。"}}
+      }
+    },
+    "settings.computerUse.floatingPreview.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Shows the app an agent uses in a floating panel"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض التطبيق الذي يستخدمه الوكيل في لوحة عائمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prikazuje aplikaciju koju agent koristi u plutajućem panelu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Viser den app, en agent bruger, i et svævende panel"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeigt die App eines Agenten in einem schwebenden Fenster"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Muestra la app que usa un agente en un panel flotante"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Affiche l’app qu’utilise un agent dans un panneau flottant"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra l’app usata da un agente in un pannello mobile"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが使うアプリをフローティングパネルに表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើក្នុងផ្ទាំងអណ្តែត"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트가 사용하는 앱을 플로팅 패널에 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Viser appen en agent bruker i et flytende panel"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pokazuje aplikację agenta w pływającym panelu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostra o app que um agente usa em um painel flutuante"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывает приложение агента в плавающей панели"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงแอปที่เอเจนต์ใช้ในแผงแบบลอย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajanın kullandığı uygulamayı kayan bir panelde gösterir"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Показує застосунок агента в плаваючій панелі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hiện ứng dụng tác tử dùng trong bảng nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在浮动面板中显示智能体所用的应用"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在浮動面板中顯示代理所用的 App"}}
+      }
+    },
     "settings.notifications.delivery.permissionRequest": {
       "extractionState": "manual",
       "localizations": {

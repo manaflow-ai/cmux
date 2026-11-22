@@ -26,6 +26,9 @@ extension ComputerUseSettings {
     /// `computerUse.livePreview`.
     public nonisolated static let livePreviewPath = ["computerUse", "livePreview"]
     public nonisolated static let livePreviewDefault = true
+    /// `computerUse.floatingPreview`: Prototype: a floating, non-activating panel over every app with the live preview; the menu bar's Computer Use menu shows and hides it. Needs computerUse.livePreview (the worker streams no frame without it).
+    public nonisolated static let floatingPreviewPath = ["computerUse", "floatingPreview"]
+    public nonisolated static let floatingPreviewDefault = false
     /// `computerUse.menus`: Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).
     public nonisolated static let menusPath = ["computerUse", "menus"]
     public nonisolated static let menusDefault: ComputerUseMenus = .open
@@ -226,6 +229,17 @@ nonisolated enum MachineSettingsSchema {
                 keywords: ["computer use", "live preview", "preview", "agent activity", "screenshot", "chat"]
             ),
             SettingDescriptor(
+                ComputerUseSettings.floatingPreviewPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.computerUse.floatingPreview", "Floating Live Preview"),
+                help: SettingsText.keyed("settings.computerUse.floatingPreview.help", "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar."),
+                summary: SettingsText.keyed("settings.computerUse.floatingPreview.summary", "Shows the app an agent uses in a floating panel"),
+                kind: .toggle,
+                default: .bool(ComputerUseSettings.floatingPreviewDefault),
+                keywords: ["computer use", "live preview", "floating", "picture in picture", "preview"]
+            ),
+            SettingDescriptor(
                 ComputerUseSettings.menusPath,
                 section: .general,
                 group: group,
@@ -339,50 +353,6 @@ extension MachineSettingsSchema {
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
             ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var mobile: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.mobile", "iPhone")
-        return [
-            SettingDescriptor(
-                MobileSettings.allowIPhoneConnectionsPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
-                summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
-                kind: .toggle,
-                default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
-                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
-                kind: .choice([
-                    SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
-                    SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
-                    SettingChoice(MobileTerminalSizing.latest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.latest", "Prefer the Active Device")),
-                    SettingChoice(MobileTerminalSizing.priority.rawValue, SettingsText.keyed("settings.choice.terminalSizing.priority", "Priority Order")),
-                ]),
-                default: .string(MobileSettings.terminalSizingDefault.rawValue),
-                keywords: ["iphone", "phone", "mobile", "terminal", "size", "sizing", "shared", "priority", "columns"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingOrderPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
-                kind: .stringList,
-                default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
-                keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
-            ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
 }

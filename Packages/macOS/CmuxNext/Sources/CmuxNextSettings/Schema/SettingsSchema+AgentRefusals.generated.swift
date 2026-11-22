@@ -132,7 +132,7 @@ extension SettingsSchema {
         "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
         "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,
         "computerUse.showCursor": .userOnly, "computerUse.cursorTag": .userOnly, "computerUse.settle": .userOnly,
-        "computerUse.livePreview": .userOnly, "computerUse.menus": .userOnly,
+        "computerUse.livePreview": .userOnly, "computerUse.floatingPreview": .userOnly, "computerUse.menus": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
