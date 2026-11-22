@@ -941,6 +941,8 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
             replay_history_rows: None,
             output_coalesce_ms: None,
             replay_history_start: None,
+            resume_offset: None,
+            resume_generation: None,
             snapshot: Default::default(),
         };
         let error = handle_command(&mux, client, command, &writer).unwrap_err();
@@ -959,6 +961,8 @@ fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
         replay_history_rows: None,
         output_coalesce_ms: None,
         replay_history_start: None,
+        resume_offset: None,
+        resume_generation: None,
         snapshot: Default::default(),
     };
     handle_command(&mux, client, command, &writer).unwrap();
@@ -1004,6 +1008,8 @@ fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
             replay_history_rows: None,
             output_coalesce_ms: None,
             replay_history_start: None,
+            resume_offset: None,
+            resume_generation: None,
             snapshot: Default::default(),
         },
         &writer,

@@ -57,15 +57,18 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
         ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
-    static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
-                               "browser.omnibar.glass", "app.uiScale"]
-    /// Look keys outside those prefixes: the terminal font; the sidebar's shape, edges, text, group headers and
-    /// buttons, and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's buttons and inactive
-    /// tabs; pane corners; and the agent chat's text sizes, sender marks and Session Info (Leo, 2026-11-18: "you
-    /// guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top
-    /// right buttons as well"). Keep in step with cmux-config's `LOOK_KEYS`.
+    /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's
+    /// families and face files).
+    static let lookPrefixes = ["appearance.", "agentPane.display.font.", "ui.animation", "ui.calm", "ui.paneAnimations",
+                               "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
+    /// Look keys outside those prefixes: the terminal font and the chat code font; the sidebar's shape, edges,
+    /// text, group headers and buttons, and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's
+    /// buttons and inactive tabs; pane corners; the agent chat's text sizes, sender marks and Session Info
+    /// (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
+    /// session info and the top right buttons as well"); and the transcript look and its tokens
+    /// (docs/cmux-next/transcript-customization.md). Keep in step with cmux-config's `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
-        "terminal.fontFamily", "terminal.fontSize",
+        "terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.look",
         "sidebar.density",
         "sidebar.textSize", "sidebar.groupHeader.background", "sidebar.groupPalette", "sidebar.groupGradient",
@@ -76,7 +79,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.scale",
         "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
-        "agentPane.display.trayHandle",
+        "agentPane.display.trayHandle", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
     ]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
@@ -238,7 +241,11 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
             let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
-            let value = pictures.contains(descriptor.path) ? picture(written) : written
+            var value = pictures.contains(descriptor.path) ? picture(written) : written
+            // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
+            if descriptor.path == AgentPaneDisplaySettingsSchema.facesPath, case .object(let faces) = written {
+                value = .object(faces.mapValues(picture))
+            }
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
             // A key written twice (nested and dotted) keeps the later one in key order.
             values.removeAll { $0.path == descriptor.path }
