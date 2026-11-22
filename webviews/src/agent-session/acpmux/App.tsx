@@ -12346,7 +12346,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   onSeenThrough={
                                                                     childRows || !shownSessionId
                                                                       ? undefined
-                                                                      : (seq) => directClient.current?.markSeenThrough(shownSessionId, seq)
+                                                                      : (seq) =>
+                                                                          directClient.current?.markSeenThrough(
+                                                                            shownSessionId,
+                                                                            seq,
+                                                                          )
                                                                   }
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}
                                                                   coldOpen={

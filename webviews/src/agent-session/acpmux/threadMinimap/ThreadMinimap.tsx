@@ -313,13 +313,16 @@ export function ThreadMinimap({
   cutoverSeq,
   onCutover,
   ...rest
-}: Omit<ThreadMinimapProps, "source" | "version"> & MinimapSourceValues & {
-  cutoverSeq?: number;
-  onCutover?: () => void;
-}) {
+}: Omit<ThreadMinimapProps, "source" | "version"> &
+  MinimapSourceValues & {
+    cutoverSeq?: number;
+    onCutover?: () => void;
+  }) {
   const source = useMinimapSource();
   const version = source.update({ rows, layout, scrollTop, scrolls, change });
-  return <ThreadMinimapRail source={source} version={version} cutoverSeq={cutoverSeq} onCutover={onCutover} {...rest} />;
+  return (
+    <ThreadMinimapRail source={source} version={version} cutoverSeq={cutoverSeq} onCutover={onCutover} {...rest} />
+  );
 }
 
 function ThreadMinimapView({
