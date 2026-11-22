@@ -27,8 +27,22 @@ struct AccessoryZoom: Equatable, Sendable {
     static let fadeEnd = 0.5
 
     static func presentation(phase: TabZoomState.Phase, progress: Double, offset: CGVector, path: ZoomRectPath) -> AccessoryZoom {
-        // Until the zoom carries it: the row is shown only on the settled page.
-        phase == .page ? .identity : AccessoryZoom(scale: 1, origin: .zero, opacity: 0, interactive: false, accessible: false)
+        switch phase {
+        case .page:
+            return .identity
+        case .overview:
+            // Kept laid out (opening the page again builds nothing) but
+            // invisible, untouchable and out of the accessibility tree.
+            return AccessoryZoom(scale: path.card.width / max(1, path.full.width), origin: path.card.origin, opacity: 0,
+                                 interactive: false, accessible: false)
+        case .animating, .interactive:
+            // The page's own rect (raw progress and the pinch's offset, as the
+            // page layer draws it), so the row shrinks into the card with it.
+            let rect = path.rect(progress: progress, offset: offset)
+            let scale = path.full.width > 0 ? max(0.01, rect.width / path.full.width) : 1
+            let faded = min(1, max(0, progress / fadeEnd))
+            return AccessoryZoom(scale: scale, origin: rect.origin, opacity: 1 - faded, interactive: false, accessible: true)
+        }
     }
 
     static func presentation(_ state: TabZoomState, path: ZoomRectPath) -> AccessoryZoom {
