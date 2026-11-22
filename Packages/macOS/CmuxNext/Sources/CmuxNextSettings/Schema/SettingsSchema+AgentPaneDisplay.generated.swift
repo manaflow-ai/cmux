@@ -93,6 +93,13 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.transcriptLook`: A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.
+    nonisolated static let transcriptLookPath = ["agentPane", "display", "transcriptLook"]
+    nonisolated static let transcriptLookDefault = "cmux"
+    nonisolated static let transcriptLookValues = ["cmux", "claude", "codex", "studio"]
+    /// `agentPane.display.transcriptTokens`: Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).
+    nonisolated static let transcriptTokensPath = ["agentPane", "display", "transcriptTokens"]
+    nonisolated static let transcriptTokensDefault: JSONValue = .object([:])
     /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
     nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
     nonisolated static let promptCoachDefault = true

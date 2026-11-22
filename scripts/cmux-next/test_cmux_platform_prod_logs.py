@@ -306,6 +306,19 @@ class IdFilterTests(unittest.TestCase):
                 self.assertEqual(rows_for([candidate], VM), [])
         self.assertEqual(rows_for([event({"msg": LISTED, "team": TEAM, "teamId": "team_foreign"})], TEAM), [])
 
+    def test_a_production_event_with_plain_message_text_keeps_its_source_id(self):
+        # Workers Logs' shape: $metadata.message is the line's msg text, source the parsed line. Every production
+        # team and vm read until 2026-11-22 kept 0 events (hq#18697, hq#18725) because the plain text failed closed.
+        own = event(LISTED)
+        own["source"] = {"msg": LISTED, "team": TEAM}
+        foreign = event(LISTED)
+        foreign["source"] = {"msg": LISTED, "team": "team_foreign"}
+        bare = event(LISTED)
+        self.assertEqual(len(rows_for([own, foreign, bare], TEAM)), 1)
+        dup = event(LISTED)
+        dup["source"] = '{"msg":"' + LISTED + '","team":"team_foreign","team":"' + TEAM + '"}'
+        self.assertEqual(rows_for([dup], TEAM), [])
+
     def test_scope_comes_before_counts(self):
         good = event({"msg": LISTED, "team": TEAM})
         bad = event({"msg": "private text from another team", "team": "team_foreign"})
