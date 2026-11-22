@@ -215,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    result = run_clippy(command, repo / ROOT, repo)
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo)
     report_lints(result.lints, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
@@ -234,6 +234,15 @@ def main(argv: list[str] | None = None) -> int:
         name_base_reds(repo, base if paths is not None else "", result.red_files)
         return 1
     return 0
+
+
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written. A replayed tree without the policy runs it as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
 
 
 def is_autofix_head(repo: Path, head: str) -> bool:
