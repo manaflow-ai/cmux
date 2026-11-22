@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Page } from "playwright";
 import { chromium, webkit } from "./browsers";
+import { SEND_POP_SHAPES } from "./send-pop-shapes";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -20,24 +21,7 @@ const flag = (name: string) => {
 const ENGINE = flag("--engine") ?? "chromium";
 const TURNS = Number(flag("--turns") ?? 4);
 const JSON_OUT = flag("--json");
-const LONG = Array.from({ length: 24 }, (_, index) => `line ${index + 1}: and the send behaviour too, it pops`).join(
-  "\n",
-);
-export const CASES: Record<
-  string,
-  { images?: number; file?: boolean; pastedText?: number; text?: string; streaming?: boolean }
-> = {
-  image: { images: 1 },
-  images: { images: 4 },
-  file: { file: true },
-  "pasted-text": { pastedText: 4000 },
-  "image-text": {
-    images: 1,
-    text: "here's an example with an attachment too, tho it doesnt necessarily change too much",
-  },
-  long: { text: LONG },
-  streaming: { streaming: true },
-};
+export const CASES = SEND_POP_SHAPES;
 const WANTED = (flag("--cases") ?? Object.keys(CASES).join(",")).split(",");
 const field = '.acpmux-composer-prompt [contenteditable="true"]';
 const webviews = path.resolve(import.meta.dir, "..");

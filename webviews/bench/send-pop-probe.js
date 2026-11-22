@@ -15,22 +15,31 @@
 //                sits inside the bubble's presentation wrapper, so the two are one transform
 //   lateness     every attachment and every picture is drawn (img.complete with pixels) from the row's first frame
 //   clipping     no attachment's box passes a clipping ancestor's box during the scale (px over, the most)
-//   reflow       each attachment's place in its bubble 450 ms after the pop starts equals its place at the end (px)
+//   reflow       each attachment's place in its bubble on the first frame after the pop equals its place at the end (px)
+//   heightJump   no attachment's height changes during the pop but by the bubble's scale (a late decode would)
 //   scroll       at the end the sent prompt is in view and the transcript is at its foot (px from it)
 //   frames       p50 and p95 frame gaps over the Return to 600 ms after, and dropped frames there
 (() => {
   const FIELD = ".acpmux-composer-prompt [contenteditable='true'], .ProseMirror.acpmux-md[contenteditable='true']";
   const ATTACHMENTS = "img, .acpmux-attachment, .acpmux-file-chip, .acpmux-paste-chip";
   const VSYNC = 1000 / 60;
-  const canvasFile = async (index) => {
+  // A picture: `size` [width, height]; `noise` fills it with random pixels, which compress badly and decode slowly,
+  // so a sent copy can still be decoding when its pop starts.
+  const canvasFile = async (index, size = [1600 + index * 200, 1000], noise = false) => {
     const canvas = document.createElement("canvas");
-    canvas.width = 1600 + index * 200;
-    canvas.height = 1000;
+    [canvas.width, canvas.height] = size;
     const context = canvas.getContext("2d");
-    context.fillStyle = ["#3a7bd5", "#d5573a", "#3ad58a", "#a03ad5"][index % 4]; // colour-allow: fixture pixels
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#f2f4f8"; // colour-allow: fixture pixels
-    context.fillRect(100, 100, canvas.width - 200, 140);
+    if (noise) {
+      const pixels = context.createImageData(canvas.width, canvas.height);
+      const words = new Uint32Array(pixels.data.buffer);
+      for (let at = 0; at < words.length; at++) words[at] = (Math.random() * 0xffffffff) | 0xff000000;
+      context.putImageData(pixels, 0, 0);
+    } else {
+      context.fillStyle = ["#3a7bd5", "#d5573a", "#3ad58a", "#a03ad5"][index % 4]; // colour-allow: fixture pixels
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#f2f4f8"; // colour-allow: fixture pixels
+      context.fillRect(100, 100, canvas.width - 200, 140);
+    }
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     return new File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
   };
@@ -76,9 +85,12 @@
   const state = { frames: [], rows: [], running: false };
 
   window.__sendPopProbe = {
-    async attach({ images = 0, file = false, pastedText = 0, text = "" } = {}) {
+    async attach({ images = 0, tall = false, decoding = false, file = false, pastedText = 0, text = "" } = {}) {
       const data = new DataTransfer();
       for (let index = 0; index < images; index++) data.items.add(await canvasFile(index));
+      // A very tall picture (a full-page screenshot), and one still decoding when the pop starts.
+      if (tall) data.items.add(await canvasFile(images, [900, 6000]));
+      if (decoding) data.items.add(await canvasFile(images + 1, [6000, 4000], true));
       if (file) data.items.add(new File(["name,value\nsend-pop,1\n".repeat(40)], "results.csv", { type: "text/csv" }));
       if (data.items.length) {
         paste(data);
@@ -179,9 +191,21 @@
           if (rest.w > 0) unitWorst = Math.max(unitWorst, Math.abs(a.w / rest.w - bubbleScale));
         });
       }
+      // A size that arrives mid-pop (a picture that decodes late): each attachment's height against its rest
+      // height times the bubble's scale, every frame; a uniform scale keeps it 0.
+      let heightJump = 0;
+      for (const row of rows) {
+        if (row.attachments.length !== count) continue;
+        const bubbleScale = row.bubble.w / restBubble.w;
+        row.attachments.forEach((a, index) => {
+          heightJump = Math.max(heightJump, Math.abs(a.h - last.attachments[index].h * bubbleScale));
+        });
+      }
       const popped = rows.filter((row) => row.popMs !== null);
-      // 450 ms into the pop (or its end) against the end: each attachment's place in its bubble.
-      const settled = rows.find((row) => row.at - state.sentAt >= 470) ?? last;
+      // The first frame after the pop ended (it starts on its first drawn frame, entranceClock.ts, so not a fixed
+      // time after the row came) against the end: each attachment's place in its bubble.
+      const lastPop = rows.findLastIndex((row) => row.popMs !== null);
+      const settled = rows[lastPop + 1] ?? last;
       let reflow = 0;
       settled.attachments.forEach((a, index) => {
         const end = last.attachments[index];
@@ -207,6 +231,32 @@
         lateDrawFrames: rows.filter((row) => !row.drawn.every(Boolean)).length,
         clippedPx: Number(Math.max(0, ...rows.flatMap((row) => row.clipped)).toFixed(2)),
         reflowPx: Number(reflow.toFixed(2)),
+        heightJumpPx: Number(heightJump.toFixed(2)),
+        // After the pop, the last frame in which an attachment's box in its bubble changed by over 0.5 px, and how.
+        settleMove: (() => {
+          let move = null;
+          for (let index = 1; index < rows.length; index++) {
+            const [before, now] = [rows[index - 1], rows[index]];
+            if (now.at <= settled.at || now.attachments.length !== before.attachments.length) continue;
+            now.attachments.forEach((a, k) => {
+              const b = before.attachments[k];
+              const d = {
+                dx: a.x - now.bubble.x - (b.x - before.bubble.x),
+                dy: a.y - now.bubble.y - (b.y - before.bubble.y),
+                dw: a.w - b.w,
+                dh: a.h - b.h,
+                bw: now.bubble.w - before.bubble.w,
+                bh: now.bubble.h - before.bubble.h,
+              };
+              if (Object.values(d).some((v) => Math.abs(v) > 0.5))
+                move = {
+                  ms: Math.round(now.at - state.sentAt),
+                  ...Object.fromEntries(Object.entries(d).map(([key, v]) => [key, Number(v.toFixed(2))])),
+                };
+            });
+          }
+          return move;
+        })(),
         endFootPx: Math.round(last.foot),
         endInView: last.inView,
         endRowBottomToViewPx: Math.round(last.rowBottomToView),
