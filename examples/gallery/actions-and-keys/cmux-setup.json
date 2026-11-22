@@ -1,0 +1,18 @@
+{
+  // Actions and shortcuts, no colors: what a team shares so every machine has the same commands.
+  // Each action registers as cmuxConfig.<name> (Command Palette, `cmux action run`, shortcuts);
+  // keybindings.json beside this file binds two of them.
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/starter-actions",
+  "name": "Starter Actions",
+  "tagline": "Three Command Palette actions and two shortcuts, the shape a team shares.",
+  "description": "Run tests, start a dev server and open Claude in a new tab, from the Command Palette or a shortcut. Remove it and your own actions and shortcuts are as they were.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "actions": {
+    "starter-tests": { "type": "command", "command": "npm test", "title": "Run Tests", "target": "newTabInCurrentPane" },
+    "starter-dev": { "type": "command", "command": "npm run dev", "title": "Start Dev Server", "target": "newTabInCurrentPane" },
+    "starter-claude": { "type": "agent", "agent": "claude", "title": "Claude in a New Tab", "target": "newTabInCurrentPane" }
+  }
+}

@@ -26,6 +26,15 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
+  // Settings > Customize: two switches, one on, one off (SF Symbol switch.2).
+  "switch.2": (
+    <>
+      <rect x="1.8" y="2.4" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="11.9" cy="4.7" r="1.2" fill="currentColor" />
+      <rect x="1.8" y="9" width="12.4" height="4.6" rx="2.3" />
+      <circle cx="4.1" cy="11.3" r="1.2" />
+    </>
+  ),
   "sidebar.left": (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />
@@ -111,7 +120,7 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.6 1.6v2M2.6 6.6h2M3.8 3.8l1.4 1.4M9.4 3.8 8 5.2" />
     </>
   ),
-  // Personalization: a wand with two stars (SF Symbol wand.and.stars).
+  // Ask cmux: a wand with two stars (SF Symbol wand.and.stars).
   "wand.and.stars": (
     <path d="M2.4 13.6 10 6M8.8 4.8l2.4 2.4M5.4 2.2l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4L3.5 4.1l1.4-.5.5-1.4ZM12.4 9.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3ZM12 1.8l.35 1 1 .35-1 .35-.35 1-.35-1-1-.35 1-.35.35-1Z" />
   ),
