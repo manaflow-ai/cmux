@@ -174,7 +174,10 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
         now = time.monotonic()
         if _rate_limit_deadline is None:
             _rate_limit_deadline = now + RATE_LIMIT_BUDGET_SECONDS
-        left = min(_rate_limit_deadline - now, _job_wait_left())
+        # The budget itself caps the wait, not only the deadline read back from it: a float
+        # `(now + budget) - now` can return a hair more than the budget (600.0000000000018 for a
+        # 600 s budget on some clocks), and a wait over the cap it was granted is a bug.
+        left = min(_rate_limit_deadline - now, _job_wait_left(), float(RATE_LIMIT_BUDGET_SECONDS))
         if error.wait is None:
             wanted = min(SECONDARY_FIRST_WAIT_SECONDS * 2 ** _secondary_waits, SECONDARY_MAX_WAIT_SECONDS)
             _secondary_waits += 1
