@@ -14,6 +14,8 @@ struct ChatTranscriptSource {
     /// window go to disk. A subagent's transcript holds what the store holds.
     var pagesHistory: Bool
     var mode: ChatTranscriptBuilder.Mode
+    /// A subagent transcript's first and last rows (its parent, its state), or nil.
+    var frame: () -> (parent: String, footer: SubagentFooter)? = { nil }
 
     /// An agent chat: the store's turns.
     static func chat(_ store: AgentChatStore) -> ChatTranscriptSource {
@@ -29,7 +31,12 @@ struct ChatTranscriptSource {
                              runningTurn: { [unowned store] in
                                  store.subagent(id).flatMap { $0.state == .running ? turn(of: $0).id : nil }
                              },
-                             pagesHistory: false, mode: .subagent)
+                             pagesHistory: false, mode: .subagent,
+                             frame: { [unowned store] in
+                                 guard let agent = store.subagent(id) else { return nil }
+                                 let parent = agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name
+                                 return (parent, SubagentFooter(agent, offline: store.isOffline))
+                             })
     }
 
     /// A subagent's transcript as a turn: its task is the prompt (none without a task).

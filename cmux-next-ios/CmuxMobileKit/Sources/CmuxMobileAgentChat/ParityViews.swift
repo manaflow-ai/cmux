@@ -445,6 +445,24 @@ public final class FollowProbe {
     }
 }
 
+/// A subagent transcript's first row: the agent that started it.
+struct SubagentOfPill: View {
+    let parent: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
+            Text("Subagent of \(parent)")
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(minHeight: 28)
+        .background(Color.cmuxMobileFill, in: .capsule)
+    }
+}
+
 /// A transcript row inside a subagent (no permission or question cards: those reach the parent).
 struct SubagentRowView: View {
     let row: TurnRow

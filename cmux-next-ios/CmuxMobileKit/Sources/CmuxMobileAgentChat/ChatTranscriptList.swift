@@ -814,6 +814,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let source = source
         withObservationTracking {
             _ = source.turns()
+            _ = source.frame()
             _ = store.pendingPermission?.request.id
             _ = store.pendingQuestion?.id
             _ = surface.permissionBarHidden
@@ -889,10 +890,18 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             if lookup.viewedShown[id] != ChatNativeRowActions.viewed(changes) { forced.insert(id) }
         }
         let turns = source.turns()
-        let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
+        var built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
                                   permissionBarHidden: surface.permissionBarHidden,
                                   earlierHistory: source.pagesHistory && store.hasEarlierHistory, foldsWork: foldsWork)
+        // A subagent transcript: its parent's pill first, its state last (each its own "turn",
+        // kept while its content is the same).
+        if let frame = source.frame() {
+            let pill = ChatRow(id: "subagent-of", turnID: "subagent-of", kind: .subagentOf(frame.parent), gap: 0)
+            let footer = ChatRow(id: "subagent-footer", turnID: "subagent-footer", kind: .subagentFooter(frame.footer), gap: 18)
+            built.insert(ChatTurnRows(turnID: pill.turnID, rows: [pill], generation: Self.frameGeneration(pill)), at: 0)
+            built.append(ChatTurnRows(turnID: footer.turnID, rows: [footer], generation: Self.frameGeneration(footer)))
+        }
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -1098,6 +1107,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if source.pagesHistory, store.hasEarlierHistory, !store.isLoadingEarlier {
             Task { @MainActor [weak self] in self?.readAheadIfNear() }
         }
+    }
+
+    /// A subagent frame row's generation: the same while its content is (negative, so never one
+    /// of the builder's counter values).
+    private static func frameGeneration(_ row: ChatRow) -> Int {
+        var hasher = Hasher()
+        hasher.combine(String(reflecting: row.kind))
+        return -abs(hasher.finalize() % 1_000_000_000) - 1
     }
 
     /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on
@@ -1570,7 +1587,8 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "chiefContext", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "worked", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "worked", "other",
+                                  "subagentOf", "subagentFooter"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1597,6 +1615,8 @@ extension ChatRow {
         case .nextStep: "nextStep"
         case .whoElse: "whoElse"
         case .worked: "worked"
+        case .subagentOf: "subagentOf"
+        case .subagentFooter: "subagentFooter"
         }
     }
 
@@ -1667,6 +1687,8 @@ extension ChatRow {
         case .subagents(let ids): return 45 + CGFloat(ids.count) * 52
         case .editedFiles(let changes): return 49 + CGFloat(changes.files.count) * 44
         case .stopped: return 18
+        case .subagentOf: return 28
+        case .subagentFooter: return 24
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64

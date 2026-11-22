@@ -55,6 +55,10 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
         /// the line when it is open.
         indirect case worked(WorkedFold)
+        /// A subagent transcript's first row: "Subagent of <its parent>".
+        case subagentOf(String)
+        /// A subagent transcript's last row: its state, or the Mac being offline.
+        case subagentFooter(SubagentFooter)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -264,7 +268,8 @@ final class ChatTranscriptBuilder {
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row;
         // nor does a subagent with no task.
         if turn.incoming?.messages.isEmpty != true, chat || !turn.prompt.isEmpty {
-            var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
+            // A subagent's task sits under its "Subagent of" pill.
+            var gap: Double = context.isFirst ? (chat ? 0 : 14) : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
             if turn.incoming == nil, let envelope = ChiefEnvelope(turn.prompt) {

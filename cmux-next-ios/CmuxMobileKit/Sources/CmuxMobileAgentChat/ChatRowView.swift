@@ -164,6 +164,17 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
+        case .subagentOf(let parent):
+            SubagentOfPill(parent: parent)
+        case .subagentFooter(let footer):
+            HStack(spacing: 8) {
+                SubagentStateGlyph(state: footer.glyph)
+                Text(footer.text)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chat.subagent.footer")
+            }
+            .padding(.top, 4)
         case .failed(_, let errorText):
             let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
             let turn = store.turns.last { $0.id == row.turnID }

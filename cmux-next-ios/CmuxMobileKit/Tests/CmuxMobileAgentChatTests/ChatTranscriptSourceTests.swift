@@ -43,7 +43,13 @@ import UIKit
             default: break
             }
         }
-        guard case .prompt(let text, _, _, let isLast)? = rows.first?.kind else { Issue.record("no task first: \(ids)"); return }
+        // The pill, the task, the work, the footer.
+        guard case .subagentOf(let parent)? = rows.first?.kind else { Issue.record("no pill first: \(ids)"); return }
+        #expect(parent == store.summary.name, "a top-level subagent is the chat's")
+        guard case .subagentFooter(let footer)? = rows.last?.kind else { Issue.record("no footer last: \(ids)"); return }
+        #expect(footer.state == state)
+        #expect(footer.text == (state == .running ? "Read b.swift" : state.label))
+        guard case .prompt(let text, _, _, let isLast)? = rows.dropFirst().first?.kind else { Issue.record("no task second: \(ids)"); return }
         #expect(text == "Check the dialer")
         #expect(!isLast, "a subagent's task offers no Edit and Resend")
         #expect(rows.contains { if case .thought = $0.kind { true } else { false } })
@@ -58,6 +64,25 @@ import UIKit
         let list = ChatTranscriptList(store: store, surface: AgentChatSurface(), source: .subagent("s", store: store))
         let rows = Self.shown(list).compactMap { list.row($0) }
         #expect(!rows.contains { if case .prompt = $0.kind { true } else { false } })
+    }
+
+    /// A nested subagent's pill names its parent subagent; a running subagent's footer says the
+    /// Mac is offline when it is, with no spinner.
+    @Test func aNestedSubagentsPillAndAnOfflineFooter() throws {
+        let store = Self.subagentStore(task: "t", state: .running)
+        store.apply(.subagent(AgentSubagentChange(id: "n", parent: "s", name: "Nested", task: "n", state: .running, at: Self.at)))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface(), source: .subagent("n", store: store))
+        let rows = Self.shown(list).compactMap { list.row($0) }
+        guard case .subagentOf(let parent)? = rows.first?.kind else { Issue.record("no pill"); return }
+        #expect(parent == "Probe")
+        var agent = try #require(store.subagent("s"))
+        agent.action = "Read b.swift"
+        let offline = SubagentFooter(agent, offline: true)
+        #expect(offline.text == "Mac offline")
+        #expect(offline.glyph == .disconnected)
+        #expect(SubagentFooter(agent, offline: false).glyph == .running)
+        agent.state = .completed
+        #expect(SubagentFooter(agent, offline: true).text == "Done", "a finished subagent's footer stays its state offline")
     }
 
     /// The subagent's records reach the list (it observes the subagent, not the chat's turns).
