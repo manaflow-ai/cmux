@@ -370,9 +370,9 @@ final class MacScreenCardView: MacScreenThemedView {
     /// so its offline and not-shared steps name its screen host instead.
     static func refusedBody(_ refusal: MacScreenHubRefusal, host name: String, platform: DevicePlatform? = nil) -> String {
         switch refusal {
-        case .hostOffline where platform == .linux:
-            L.t("macScreen.hub.offlineBodyLinux", "Make sure that Linux machine is on and its cmux screen host is running.")
-        case .hostOffline: L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in.")
+        // Zero touch (remote-screen-share-zero-touch Z7): no state sends the person to the other machine. Its daemon
+        // comes back on its own; the screen shows once it does.
+        case .hostOffline: L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
         case .notShared where platform == .linux:
             String(format: L.t("macScreen.hub.notSharedBodyLinux", "%@ does not share its screen. To share it, run cmux-rd linux-host share on there."), name)
         case .notShared: String(format: L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."), name)
