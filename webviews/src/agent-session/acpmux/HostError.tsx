@@ -121,6 +121,18 @@ export function HostUnavailableLine({
   );
 }
 
+/// Where the pane's host line lives: a zero-height box above the composer that is in the dock in every
+/// state, so what it holds (a Restart or Retry line) is positioned over the transcript's end instead of
+/// taking a row of its own and pushing the messages up (styles.css `.acpmux-host-slot`). Transient link
+/// states put nothing in it (Leo, 2026-11-22: "i want it to just connect").
+export function HostLineSlot({ children }: { children?: ReactNode }) {
+  return (
+    <div className="acpmux-host-slot" data-host-slot>
+      {children}
+    </div>
+  );
+}
+
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
 /// restart reloads every chat), so the person sees how long the pane has waited, and may decide:

@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostLineSlot, HostUnavailableLine, HostWaitingLine } from "./HostError";
 
 type Props = {
   message: string;
@@ -35,6 +35,29 @@ type Props = {
   /// (`named`), the time waited (`timed`), or the line before this change (`before`).
   outage?: "named" | "timed" | "before";
 };
+
+/// The pane's dock around the host line: three transcript rows above, the composer under. The slot sits
+/// between them, so a line in it shows where the line is drawn and that the rows never move.
+function MockDock({ children, slotted }: { children: ReactNode; slotted: boolean }) {
+  return (
+    <div className="acpmux-dock" style={{ width: "100%" }}>
+      {[0.9, 0.7, 0.5].map((width) => (
+        <p key={width} style={{ margin: "0 16px 8px", opacity: 0.7, width: `${width * 70}%` }}>
+          A line of the chat above the composer
+        </p>
+      ))}
+      {slotted ? <HostLineSlot>{children}</HostLineSlot> : children}
+      <div
+        style={{
+          height: 44,
+          margin: "0 16px",
+          border: "1px solid color-mix(in srgb, currentColor 18%, transparent)",
+          borderRadius: 12,
+        }}
+      />
+    </div>
+  );
+}
 
 /// The gallery's unshipped long-outage alternates, drawn with the shipped classes.
 function AlternateOutage({ kind }: { kind: NonNullable<Props["outage"]> }) {
@@ -114,45 +137,49 @@ function GalleryHostError({
 }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
   const [restarting, setRestarting] = useState(false);
+  // What the pane draws out of flow goes in the slot; the alternates and the before lines are rows.
+  const slotted = !pair && !outage && !alternate && !connecting && !harness;
   return (
     <div className="acpmux-shell" data-host-error-fixture>
-      {pair ? (
-        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
-          <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
-          <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
-        </div>
-      ) : outage ? (
-        <AlternateOutage kind={outage} />
-      ) : alternate ? (
-        <AlternateWaiting kind={alternate} waited="1:35" />
-      ) : connecting ? (
-        <output className="acpmux-host-line" aria-live="polite">
-          {connecting === "spinner" && <Spinner size={14} loading />}
-          <span className="acpmux-host-line-message">{message}</span>
-        </output>
-      ) : waitedMs !== undefined ? (
-        <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
-      ) : harness ? (
-        <HostError
-          message={message}
-          hint={harness.hint}
-          action={harness.action}
-          retrying={retrying}
-          onRetry={() => setRetrying(true)}
-        />
-      ) : (
-        shown && (
-          <HostUnavailableLine
+      <MockDock slotted={slotted}>
+        {pair ? (
+          <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+            <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
+            <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
+          </div>
+        ) : outage ? (
+          <AlternateOutage kind={outage} />
+        ) : alternate ? (
+          <AlternateWaiting kind={alternate} waited="1:35" />
+        ) : connecting ? (
+          <output className="acpmux-host-line" aria-live="polite">
+            {connecting === "spinner" && <Spinner size={14} loading />}
+            <span className="acpmux-host-line-message">{message}</span>
+          </output>
+        ) : waitedMs !== undefined ? (
+          <HostWaitingLine since={0} now={waitedMs} restarting={restarting} onRestart={() => setRestarting(true)} />
+        ) : harness ? (
+          <HostError
             message={message}
-            detail={detail}
+            hint={harness.hint}
+            action={harness.action}
             retrying={retrying}
-            onRetry={withRetry ? () => setRetrying(true) : undefined}
-            restarting={restarting}
-            onRestart={withRestart ? () => setRestarting(true) : undefined}
-            selfRetrying={selfRetrying}
+            onRetry={() => setRetrying(true)}
           />
-        )
-      )}
+        ) : (
+          shown && (
+            <HostUnavailableLine
+              message={message}
+              detail={detail}
+              retrying={retrying}
+              onRetry={withRetry ? () => setRetrying(true) : undefined}
+              restarting={restarting}
+              onRestart={withRestart ? () => setRestarting(true) : undefined}
+              selfRetrying={selfRetrying}
+            />
+          )
+        )}
+      </MockDock>
     </div>
   );
 }
@@ -193,7 +220,7 @@ export default componentEntry<Props>({
   id: "agent-pane.host-error",
   title: "Agent host error",
   area: "Agent pane",
-  height: 210,
+  height: 250,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
   covers: [
