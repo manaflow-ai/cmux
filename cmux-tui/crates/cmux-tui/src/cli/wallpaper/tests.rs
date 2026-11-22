@@ -431,3 +431,43 @@ fn every_write_passes_the_settings_schema() {
     assert!(missing.contains("appearance.noSuchWallpaperKey"), "{missing}");
     assert!(validate(&[Edit::Set(BACKGROUND, json!("folder:relative"))]).is_err());
 }
+
+#[test]
+fn back_and_recent_parse() {
+    assert_eq!(parse(&words("back")), Ok(Request::Back));
+    assert_eq!(parse(&words("recent")), Ok(Request::Recent { index: None }));
+    assert_eq!(parse(&words("recent 3")), Ok(Request::Recent { index: Some(3) }));
+    assert!(parse(&words("recent 0")).unwrap_err().contains("1 is the newest"));
+    assert!(parse(&words("recent x")).unwrap_err().contains("N is a number"));
+    assert!(parse(&words("back extra")).is_err());
+}
+
+/// Leo: "the choosing between rotating background folders and past selected".
+#[test]
+fn back_swaps_between_a_folder_and_a_picture_and_recent_picks_by_number() {
+    let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let recents = list(&["file:/p/a.jpg", "folder:/walls", "junk", "daily"]);
+    let back = plan_recent(&Request::Back, "folder:/walls", &recents).expect("back");
+    assert_eq!(back.edits, vec![Edit::Set(BACKGROUND, json!("file:/p/a.jpg"))]);
+    assert_eq!(back.mode, "picture");
+    // After the swap the store put the folder first: back again returns to it.
+    let after = list(&["folder:/walls", "daily"]);
+    let again = plan_recent(&Request::Back, "file:/p/a.jpg", &after).expect("back again");
+    assert_eq!(again.edits, vec![Edit::Set(BACKGROUND, json!("folder:/walls"))]);
+    assert_eq!(again.mode, "rotate");
+
+    assert_eq!(recent_choices("folder:/walls", &recents), list(&["file:/p/a.jpg", "daily"]));
+    let second = plan_recent(&Request::Recent { index: Some(2) }, "folder:/walls", &recents);
+    assert_eq!(second.expect("recent 2").edits, vec![Edit::Set(BACKGROUND, json!("daily"))]);
+    let past = plan_recent(&Request::Recent { index: Some(3) }, "folder:/walls", &recents);
+    assert!(past.unwrap_err().contains("there are 2"));
+
+    assert!(plan_recent(&Request::Back, "none", &[]).unwrap_err().contains("no earlier"));
+    assert!(
+        plan_recent(&Request::Recent { index: Some(1) }, "none", &[])
+            .unwrap_err()
+            .contains("no recent")
+    );
+    assert!(validate(&back.edits).is_ok());
+    assert_eq!(plan(&Request::Back, &Fixture::new("back").env()).unwrap_err(), "not a write");
+}

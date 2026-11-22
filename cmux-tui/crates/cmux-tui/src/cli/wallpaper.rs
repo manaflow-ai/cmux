@@ -17,13 +17,15 @@
 //! - `rotate FOLDER [--every INTERVAL]`: the pictures of a folder in turn.
 //! - `location LAT,LON|auto`: where the sun is reckoned from.
 //! - `off`: no picture.
+//! - `back`: the background shown before this one (twice comes back).
+//! - `recent [N]`: the recent backgrounds, newest first; with N, show the Nth.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use cmux_config::Schema;
 use cmux_config::domains::Domains;
-use cmux_config::schema::{Kind, accepts};
+use cmux_config::schema::{Kind, accepts, is_background, previous_background, recents_of};
 use cmux_config::{FileRead, State, Target};
 use serde_json::{Map, Value, json};
 
@@ -42,6 +44,8 @@ cmux wallpaper: the picture behind the window, and how it changes by itself.
   cmux wallpaper rotate FOLDER [--every 15m|30m|1h|daily|N]   the folder's pictures in turn (N minutes)
   cmux wallpaper location LAT,LON|auto               where sunrise and sunset are reckoned (auto: the time zone)
   cmux wallpaper off                                 no picture
+  cmux wallpaper back                                the background shown before this one (again: back)
+  cmux wallpaper recent [N]                          recent backgrounds, newest first; N shows the Nth
 BACKGROUND: an image or movie path, a YouTube video address (or youtube:<video id>), a folder,
   none, daily (shuffle paintings), desktop (your desktop picture), a painting id, or a macOS
   wallpaper name such as Sonoma.
@@ -58,7 +62,8 @@ pub(super) const SCHEDULE: &str = "appearance.backgroundSchedule";
 pub(super) const DYNAMIC: &str = "appearance.backgroundDynamic";
 pub(super) const LOCATION: &str = "appearance.backgroundLocation";
 pub(super) const ROTATION: &str = "appearance.backgroundRotation";
-const KEYS: [&str; 7] = [BACKGROUND, LIGHT, DARK, SCHEDULE, DYNAMIC, LOCATION, ROTATION];
+pub(super) const RECENTS: &str = "appearance.backgroundRecents";
+const KEYS: [&str; 8] = [BACKGROUND, LIGHT, DARK, SCHEDULE, DYNAMIC, LOCATION, ROTATION, RECENTS];
 
 /// Where macOS keeps its wallpapers.
 const SYSTEM_PICTURES: &str = "/System/Library/Desktop Pictures";
@@ -68,13 +73,34 @@ const SUN_EVENTS: [&str; 5] = ["sunrise", "sunset", "dawn", "dusk", "noon"];
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Request {
     Show,
-    Set { background: String },
-    FollowAppearance { light: Option<String>, dark: Option<String> },
-    Schedule { entries: Vec<(String, String)>, clear: bool },
-    MacosDynamic { name: Option<String>, follow: String },
-    Rotate { folder: String, every: Option<String> },
-    Location { value: String },
+    Set {
+        background: String,
+    },
+    FollowAppearance {
+        light: Option<String>,
+        dark: Option<String>,
+    },
+    Schedule {
+        entries: Vec<(String, String)>,
+        clear: bool,
+    },
+    MacosDynamic {
+        name: Option<String>,
+        follow: String,
+    },
+    Rotate {
+        folder: String,
+        every: Option<String>,
+    },
+    Location {
+        value: String,
+    },
     Off,
+    /// Leo: "it was cumbersome back then to switch back."
+    Back,
+    Recent {
+        index: Option<usize>,
+    },
 }
 
 /// `cmux [global options] wallpaper ...`.
@@ -172,6 +198,16 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         ("rotate", [folder]) => Request::Rotate { folder: folder.clone(), every },
         ("location", [value]) => Request::Location { value: value.clone() },
         ("off", []) => Request::Off,
+        ("back", []) => Request::Back,
+        ("recent", []) => Request::Recent { index: None },
+        ("recent", [n]) => match n.parse::<usize>() {
+            Ok(index) if index > 0 => Request::Recent { index: Some(index) },
+            _ => {
+                return Err(format!(
+                    "cmux wallpaper recent {n}: N is a number from `cmux wallpaper recent` (1 is the newest)"
+                ));
+            }
+        },
         _ => return Err(usage()),
     })
 }
@@ -576,7 +612,10 @@ pub(super) fn find_system_picture(
 /// The edits and summary for a write request. `Show` and the listing are not writes.
 pub(super) fn plan(request: &Request, env: &Env) -> Result<Plan, String> {
     Ok(match request {
-        Request::Show | Request::MacosDynamic { name: None, .. } => {
+        Request::Show
+        | Request::MacosDynamic { name: None, .. }
+        | Request::Back
+        | Request::Recent { .. } => {
             return Err("not a write".into());
         }
         Request::Off => Plan {
@@ -711,6 +750,44 @@ pub(super) fn plan(request: &Request, env: &Env) -> Result<Plan, String> {
     })
 }
 
+/// The recent backgrounds `back` and `recent N` pick from, newest first:
+/// the recorded list without the one shown now (and without junk), so
+/// `recent 1` is what `back` shows.
+pub(super) fn recent_choices(current: &str, recents: &[String]) -> Vec<String> {
+    recents.iter().filter(|item| item.as_str() != current && is_background(item)).cloned().collect()
+}
+
+/// The write for `back` or `recent N`, from the configured background and
+/// its recents (the settings write records the one replaced, so a second
+/// `back` comes back).
+pub(super) fn plan_recent(
+    request: &Request,
+    current: &str,
+    recents: &[String],
+) -> Result<Plan, String> {
+    let id = match request {
+        Request::Back => previous_background(current, recents).ok_or_else(|| {
+            "no earlier background yet: after a change (`cmux wallpaper set ...`), `cmux wallpaper back` swaps between the two".to_string()
+        })?,
+        Request::Recent { index: Some(index) } => {
+            let choices = recent_choices(current, recents);
+            choices.get(index - 1).cloned().ok_or_else(|| match choices.len() {
+                0 => "no recent backgrounds yet: they are kept as the background changes".to_string(),
+                count => format!(
+                    "cmux wallpaper recent {index}: there are {count} (run `cmux wallpaper recent` to list them)"
+                ),
+            })?
+        }
+        _ => return Err("not a recent background".into()),
+    };
+    let mode = mode_of(&id, None);
+    Ok(Plan {
+        mode,
+        summary: format!("wallpaper: {} (appearance.background = {id})", mode_words(mode)),
+        edits: vec![Edit::Set(BACKGROUND, json!(id))],
+    })
+}
+
 fn stem(path: &Path) -> String {
     path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -797,9 +874,18 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
     match &request {
         Request::Show => return show(global),
         Request::MacosDynamic { name: None, .. } => return list_dynamic(global, &env),
+        Request::Recent { index: None } => return list_recent(global),
         _ => {}
     }
-    let plan = match plan(&request, &env).and_then(|plan| validate(&plan.edits).map(|()| plan)) {
+    let planned = match &request {
+        Request::Back | Request::Recent { .. } => {
+            let settings = configured();
+            let current = settings.get(BACKGROUND).and_then(Value::as_str).unwrap_or("none");
+            plan_recent(&request, current, &recents_of(settings.get(RECENTS)))
+        }
+        _ => plan(&request, &env),
+    };
+    let plan = match planned.and_then(|plan| validate(&plan.edits).map(|()| plan)) {
         Ok(plan) => plan,
         Err(message) => return fail(global, "validation.invalid", message),
     };
@@ -860,6 +946,28 @@ fn list_dynamic(global: &GlobalArgs, env: &Env) -> i32 {
     let width = pictures.iter().map(|p| p.name.len()).max().unwrap_or(0);
     for picture in &pictures {
         println!("  {:width$}  {}", picture.name, picture.dynamic.unwrap_or_default());
+    }
+    0
+}
+
+fn list_recent(global: &GlobalArgs) -> i32 {
+    let settings = configured();
+    let current = settings.get(BACKGROUND).and_then(Value::as_str).unwrap_or("none");
+    let choices = recent_choices(current, &recents_of(settings.get(RECENTS)));
+    if is_json(global) {
+        return super::wire::print_local_success(
+            &json!({ "current": current, "recent": choices }),
+            global.output,
+        );
+    }
+    println!("now: {current}");
+    if choices.is_empty() {
+        println!("no recent backgrounds yet: they are kept as the background changes");
+        return 0;
+    }
+    println!("Recent backgrounds (cmux wallpaper recent N; back is 1):");
+    for (index, id) in choices.iter().enumerate() {
+        println!("  {:>2}  {id}", index + 1);
     }
     0
 }
