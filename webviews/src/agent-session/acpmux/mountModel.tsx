@@ -23,7 +23,6 @@ import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
-import { installTypingWarmFrames } from "./typingWarmFrames";
 
 // The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
 // page now, before the handshake, instead of keeping its loading state until the rows are read.
@@ -92,8 +91,6 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
   // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
-  // A key in the composer paints on the next frame, not after waking the frame clock (typingWarmFrames.ts).
-  installTypingWarmFrames(document);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>
       <PaneBoundary onRetry={() => window.location.reload()}>
