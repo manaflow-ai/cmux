@@ -15,7 +15,7 @@ import type { TurnActions } from "../conversation/turnActions";
 import type { AcpmuxDirectClient } from "../direct";
 import { CONNECT_ACTIONS, type OffloadKind } from "../environments";
 import type { HandoffStrings } from "../handoff/strings";
-import type { archiveRow, markUnreadRow } from "../header/archiveRow";
+import type { archiveRow, markUnreadRow, neverSettleRow } from "../header/archiveRow";
 import type { avatarRows } from "../header/avatarRow";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { deleteChatRow, moveMachineRow } from "../header/chatRows";
@@ -56,6 +56,7 @@ export type ChatMenuDeps = {
   lastForkSeq: number | undefined;
   localCwd: string | undefined;
   markUnread: ReturnType<typeof markUnreadRow>;
+  neverSettle: ReturnType<typeof neverSettleRow>;
   moveChatToMachine: (machine: string, session: string | undefined) => void;
   moveTargets: HeaderState["moveTargets"];
   moves: HeaderState["moves"];
@@ -103,6 +104,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
     lastForkSeq,
     localCwd,
     markUnread,
+    neverSettle,
     moveChatToMachine,
     moveTargets,
     moves,
@@ -443,6 +445,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         ? []
         : miniRow({ sessionId: snapshot.sessionId, mini: chatMini() }, (sessionId) => void showInMini(sessionId), t)),
       ...(markUnread ? [markUnread] : []),
+      ...(neverSettle ? [neverSettle] : []),
       ...(archive ? [archive] : []),
       ...remove,
       {

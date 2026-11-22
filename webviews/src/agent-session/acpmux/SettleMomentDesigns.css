@@ -1,0 +1,110 @@
+/* The settle moment's designs (SettleMomentDesigns.tsx): a sidebar column beside a chat's foot. */
+.smd {
+  display: flex;
+  height: 100%;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+}
+.smd-sidebar {
+  display: flex;
+  flex: 0 0 248px;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border-right: 1px solid var(--agent-border);
+}
+.smd-workspace,
+.smd-settled-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+}
+.smd-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.smd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+}
+.smd-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smd-pr,
+.smd-age,
+.smd-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.smd-pr[data-state="open"] .acpmux-session-info-pr__glyph {
+  color: var(--agent-status-success);
+}
+.smd-pr[data-state="merged"] .acpmux-session-info-pr__glyph,
+.smd-chip .acpmux-session-info-pr__glyph {
+  color: var(--agent-status-merged);
+}
+.smd-pr[data-state="draft"] .acpmux-session-info-pr__glyph {
+  color: var(--agent-status-warning);
+}
+/* (b) the Settled group at the list's foot: the row lands there dimmed. */
+.smd-settled {
+  margin-top: auto;
+  border-top: 1px solid var(--agent-border);
+  padding-top: var(--ds-space-1);
+}
+.smd-settled-count {
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+.smd-row[data-settled="fade"] {
+  color: var(--agent-muted);
+  animation: smd-settle-in var(--cmux-motion-standard) var(--cmux-ease-out) both;
+}
+@keyframes smd-settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+/* (c) the row stays put, dimmed, with the chip and Undo. */
+.smd-row[data-settled="chip"] .smd-row-title {
+  color: var(--agent-muted);
+}
+.smd-chip {
+  padding: 0 var(--ds-space-1);
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+}
+.smd-undo {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  background: none;
+  color: var(--agent-accent);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+.smd-chat {
+  flex: 1;
+  min-width: 0;
+}

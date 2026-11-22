@@ -30,3 +30,27 @@ export function markUnreadRow(
   if (!chat.sessionId || !chat.local || chat.archived || chat.unread) return undefined;
   return { key: "markUnread", label: t("chatMenu.markUnread"), icon: "unread.dot", onSelect: markUnread };
 }
+
+/// What the chat menu knows of a chat's own auto-settle (acpmux `_acpmux/auto_settle`): `never`
+/// is its Never Settle override, `on` whether any Settle Chats setting is on on its daemon.
+export type AutoSettleState = { sessionId: string; never: boolean; on: boolean };
+
+// The chat menu's Never Settle / Allow Settling (hub/auto_settle.rs, opt-in Settings > General >
+// Settle Chats): sets or removes the chat's own `autoSettle=never`. Shown only while a settle
+// setting is on, or on a chat already set to never (so it can be undone); with every setting off,
+// the default, the menu is as before.
+export function neverSettleRow(
+  chat: { sessionId: string | undefined; archived: boolean; local: boolean },
+  state: AutoSettleState | undefined,
+  setNever: (never: boolean) => void,
+  t: Translate = translate,
+): Exclude<ChatMenuItem, "separator"> | undefined {
+  if (!chat.sessionId || !chat.local || chat.archived) return undefined;
+  if (!state || state.sessionId !== chat.sessionId || !(state.on || state.never)) return undefined;
+  return {
+    key: "neverSettle",
+    label: t(state.never ? "settle.allow" : "settle.never"),
+    icon: "inbox",
+    onSelect: () => setNever(!state.never),
+  };
+}

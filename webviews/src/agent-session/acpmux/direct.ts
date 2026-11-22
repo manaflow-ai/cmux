@@ -12079,6 +12079,15 @@ export class AcpmuxDirectClient {
   async unsettle(sessionId: string): Promise<void> {
     await this.request("_acpmux/archive", { sessionId, archived: false });
   }
+  /// The chat menu's Never Settle of chat `sessionId` (hub/auto_settle.rs): `never` true sets its
+  /// `autoSettle=never`, false removes it, undefined only reads. Answers `{never, on}` (`on`: a
+  /// Settle Chats setting is on), or undefined from an acpmux that predates it.
+  async autoSettle(sessionId: string, never?: boolean): Promise<{ never: boolean; on: boolean } | undefined> {
+    const reply = await this.request("_acpmux/auto_settle", never === undefined ? { sessionId } : { sessionId, never });
+    const state = (reply as { autoSettle?: { never?: unknown; on?: unknown } } | undefined)?.autoSettle;
+    if (!state) return undefined;
+    return { never: state.never === true, on: state.on === true };
+  }
   /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
   /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
   /// `hub/cold_archive.rs`; opening the chat does too). acpmux answers the chat's summary, which
