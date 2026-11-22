@@ -2,3 +2,4 @@
 //! build.
 
 pub mod list_daemon;
+pub mod v1_list_scan;

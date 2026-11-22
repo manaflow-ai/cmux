@@ -316,6 +316,7 @@ impl Hub {
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
                     asked: opts.provenance.clone(),
                 },
+                device: opts.full_access_device.clone().filter(|_| control == Control::Web),
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
@@ -356,7 +357,8 @@ impl Hub {
         let agent_steer = !opts.send_now
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some();
-        // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
+        // A digest its drain asked to steer still goes into the person's own turn (`turns.rs`
+        // `persons_held`), but never ahead of the person's waiting prompt.
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
         // A sub-session family message still goes into the person's own turn (`turns.rs`).
         let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
@@ -379,7 +381,7 @@ impl Hub {
                 super::inbox::notice_held(session)
             } else if agent_steer && super::inbox::review_box(session) {
                 true
-            } else if agent_steer && !digest && super::inbox::persons_prompt_waits(session) {
+            } else if agent_steer && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
             } else if agent_steer && !digest && !family && super::inbox::persons_turn(session) {

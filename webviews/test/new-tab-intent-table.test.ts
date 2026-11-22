@@ -42,7 +42,7 @@ test("a bare single word stays a prompt", () => {
 // ask an agent with it or open it, and Return shows the address bar's refusal instead.
 test("a pairing link offers no web search, no Ask and no address", () => {
   const link = "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000";
-  const list = screenRows(link, { omnibar: EMPTY_OMNIBAR, ask, create: ["terminal", "browser", "chat"] });
+  const list = screenRows(link, { omnibar: EMPTY_OMNIBAR, ask });
   // Not even New chat or New browser tab: both would carry the field's text.
   expect(list).toEqual([]);
   expect(isAddress(link)).toBe(false);

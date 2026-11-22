@@ -110,7 +110,7 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
     let by = crate::hub::auto_resume::retry_turn::RetryBy {
         control: super::remote_guard::control_of(conn.origin, conn.auth, params),
         trust_gate: super::trust_gate::gated(conn.origin, params),
-        full_access_device: super::remote_guard::full_access_device(hub, conn, params),
+        full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await

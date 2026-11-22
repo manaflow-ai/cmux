@@ -20,6 +20,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { replyMotionProblems } from "./support/replyMotion";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -254,35 +255,38 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     }
     for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     if (route === "motion-off") await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
-    await page.evaluate(() => {
-      const samples: Sample[] = [];
-      (window as any).replySamples = samples;
-      let frames = 0;
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const view = scroller.getBoundingClientRect();
-        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")];
-        const reply = rows.find((row) => row.textContent?.includes("Fixed: the jitter now stays"));
-        const first = rows.find((row) => {
-          const at = row.getBoundingClientRect();
-          return at.height > 0 && at.bottom > view.top + 1;
+    await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const samples: Sample[] = [];
+        (window as any).replySamples = samples;
+        let frames = 0;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const view = scroller.getBoundingClientRect();
+          const rows = [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)];
+          const reply = rows.find((row) => row.textContent?.includes("Fixed: the jitter now stays"));
+          const first = rows.find((row) => {
+            const at = row.getBoundingClientRect();
+            return at.height > 0 && at.bottom > view.top + 1;
+          });
+          samples.push({
+            reply: reply ? reply.getBoundingClientRect().top - view.top : NaN,
+            topId: first?.dataset.rowId ?? "",
+            top: first ? first.getBoundingClientRect().top - view.top : NaN,
+            folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
+            // The answer's last paragraph, which comes with the turn's end, is drawn: the turn ended.
+            ended: Boolean(reply?.textContent?.includes("All of the retry tests pass again.")),
+            // The turn's running line is drawn (a turn of words alone draws none).
+            line: Boolean(scroller.querySelector('.acpmux-row[data-row-id="thinking-live"]')),
+            gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+          });
+          // Until well after the end: the test paints 80 frames after it, so sampling never stops early.
+          frames += 1;
+          return frames < 400;
         });
-        samples.push({
-          reply: reply ? reply.getBoundingClientRect().top - view.top : NaN,
-          topId: first?.dataset.rowId ?? "",
-          top: first ? first.getBoundingClientRect().top - view.top : NaN,
-          folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
-          // The answer's last paragraph, which comes with the turn's end, is drawn: the turn ended.
-          ended: Boolean(reply?.textContent?.includes("All of the retry tests pass again.")),
-          // The turn's running line is drawn (a turn of words alone draws none).
-          line: Boolean(scroller.querySelector('.acpmux-row[data-row-id="thinking-live"]')),
-          gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
-        });
-        // Until well after the end: the test paints 80 frames after it, so sampling never stops early.
-        frames += 1;
-        return frames < 400;
-      });
-    });
+      },
+      { TRANSCRIPT_ROW },
+    );
     endTurn!();
     await turnEnded;
     // Scrolled up, the reply may be out of the mounted window: the frames after the end are enough.

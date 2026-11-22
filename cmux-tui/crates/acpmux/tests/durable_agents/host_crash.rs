@@ -40,7 +40,17 @@ async fn answer(rpc: &mut Rpc, id: i64, within: Duration) -> Option<Value> {
 
 #[tokio::test]
 async fn agent_host_sigkill_mid_turn_keeps_the_harness_and_the_turn() {
-    let daemon = Daemon::with_env("hostkill", "approve-all", &[("ACPMUX_AGENT_HOLDER", "1")]);
+    sigkill_mid_turn("hostkill", &[("ACPMUX_AGENT_HOLDER", "1")]).await;
+}
+
+/// The agent holder is on by default: with no switch set, a host crash still keeps the turn.
+#[tokio::test]
+async fn agent_host_sigkill_mid_turn_keeps_the_turn_by_default() {
+    sigkill_mid_turn("hostkilld", &[]).await;
+}
+
+async fn sigkill_mid_turn(tag: &str, env: &[(&str, &str)]) {
+    let daemon = Daemon::with_env(tag, "approve-all", env);
     let session = new_session(&daemon).await;
     let mut client = daemon.rpc().await;
     let prompt = format!("ticking:{CHUNKS}:{CHUNK_MS}");

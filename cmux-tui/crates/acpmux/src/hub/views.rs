@@ -41,6 +41,7 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
 
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A packed row cuts the same with no parse (`PeerRow::changed_text`).
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
@@ -70,8 +71,7 @@ pub(super) fn summary_title(title: &str) -> String {
     }
 }
 
-/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
-pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+pub use crate::meta_fields::SPAWNED_BY_TAG;
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
 /// The direct parent has the same precedence as lineage_of(), without walking
@@ -711,7 +711,9 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
+            former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -764,11 +766,21 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
+            task_list: m.task_list.as_ref().map(crate::task_list::TaskList::summary),
+            rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
+            // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
+            has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            // Background work no turn shows: an idle app update waits for it too.
+            working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
+            // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
+            rate_limited_until: session.rate_hold.until(),
+            // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
+            rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -979,7 +991,8 @@ impl Hub {
         self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
+        v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
@@ -1008,7 +1021,7 @@ impl Hub {
         }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v.set("availableCommands", commands.clone());
+            v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
@@ -1111,11 +1124,18 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // What kind of device this machine is (`cmux-device-kind`), so the app draws This
+            // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
+            "device": cmux_device_kind::this_device().kind.as_str(),
+            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
             "personInstance": self.person.instance(),
             "home": crate::config::home(),
+            // The supervisor contract's health: this daemon's owner record, today's stops and
+            // their causes, and `restart-budget-exceeded` past the budget (`daemon/supervision.rs`).
+            "supervisor": crate::daemon::supervision::status(&crate::config::home()),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,

@@ -37,6 +37,25 @@ fn agent_hooks_flag_collects_providers() {
     assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
 }
 
+/// `--via-machine M` reaches a loopback daemon on another of the person's machines through
+/// acpmux's carrier; it owns the route's dial, so no tunnel flag may come with it.
+#[test]
+fn via_machine_names_the_machine_and_owns_the_dial() {
+    let args = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "mac"].map(str::to_string);
+    assert_eq!(parse_connect_flags(&args).unwrap().via_machine.as_deref(), Some("mac"));
+    let twice = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "a", "--via-machine", "b"]
+        .map(str::to_string);
+    assert!(parse_connect_flags(&twice).is_err());
+    for tunnel in ["--wireguard-hub", "--wireguard-config"] {
+        let both = ["ws://127.0.0.1:7781/v1/link", "--via-machine", "mac", tunnel, "/tmp/x"]
+            .map(str::to_string);
+        let error = parse_connect_flags(&both).err().expect("both flags must be rejected");
+        assert_eq!(error.to_string(), catalog().remote_client.via_machine_conflict);
+    }
+    // `exec` and `cp` take it as a value option, so its value is never the command.
+    assert!(REMOTE_VALUE_OPTIONS.contains(&"--via-machine"));
+}
+
 #[test]
 fn wireguard_config_and_hub_are_mutually_exclusive() {
     let both = [
@@ -2956,4 +2975,13 @@ fn tty_eof_releases_an_unterminated_line_first() {
     assert!(!exec_cp::pty_line_open(Some(b'\n')));
     assert!(!exec_cp::pty_line_open(Some(0x04)));
     assert!(exec_cp::pty_line_open(Some(b'o')));
+}
+
+#[test]
+fn a_route_without_a_scheme_says_how_to_write_one() {
+    let error = format!("{:#}", parse_route("127.0.0.1:47911", "route").unwrap_err());
+    assert!(error.starts_with("invalid route (write it with a scheme"), "{error}");
+    assert!(error.contains("ws://HOST:PORT/"), "{error}");
+    assert!(error.contains("cmux remote known-daemons"), "{error}");
+    assert!(parse_route("ws://127.0.0.1:47911/v1/link", "route").is_ok());
 }

@@ -3,7 +3,7 @@
 //! (`Upgrade::serve`), and read through the client's C entry points the way the Swift wrapper
 //! calls them. The gates measure it; the recorded streams are what the Swift tests replay.
 
-use super::{Limits, MAX_LINE_BYTES, SMALL_LINE_BYTES, read_lines};
+use super::{Limits, MAX_LINE_BYTES, SMALL_LINE_BYTES, Taken, read_lines};
 use crate::hub::{Hub, Session};
 use acpmux_book::index::{OriginState, Summary, SummaryIndex};
 use acpmux_client::ffi::{
@@ -304,7 +304,10 @@ fn serve(v2: Arc<V2>, daemon_id: &'static str) -> (DuplexStream, tokio::task::Jo
         let limits = Limits { line: MAX_LINE_BYTES, small: SMALL_LINE_BYTES };
         // A v1 hub with no book tee: the connection serves no chat stream, only the list.
         let v1 = memory_hub();
-        if let Some(upgrade) = read_lines(rd, in_tx, last, limits, Some(&v2)).await {
+        let piped = std::sync::atomic::AtomicBool::new(false);
+        if let Some(Taken::V2(upgrade)) =
+            read_lines(rd, in_tx, last, limits, Some(&v2), &piped).await
+        {
             let _ = upgrade.serve(wr, &v1, &v2, daemon_id.to_owned()).await;
         }
     });

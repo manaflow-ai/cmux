@@ -22,6 +22,24 @@ if [ "$#" -eq 3 ]; then
   fi
 fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# A fleet step builds with its pool's pinned Xcode (scripts/ci/xcode-pins.txt), as
+# package-test-lane.sh does, never the host's xcode-select default. On 2026-11-21
+# aws-m4pro-2 and -4 defaulted to Xcode 26.3 (Swift 6.2.4), whose generated
+# Bundle.module takes CmuxNext's MainActor default isolation, so every nonisolated
+# strings type failed to compile there (FileGridStrings first). The host default
+# stays as it is (CMUX_CI_SKIP_XCODE_SELECT); a caller's DEVELOPER_DIR wins.
+if [ -n "${CMUX_CI_STEP_KEY:-}" ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+  xcode_env="$(mktemp)"
+  GITHUB_ENV="$xcode_env" CMUX_CI_SKIP_XCODE_SELECT=1 \
+    "${CMUX_SELECT_CI_XCODE:-$script_dir/../select-ci-xcode.sh}" >&2 || { status=$?; rm -f "$xcode_env"; exit "$status"; }
+  DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$xcode_env" | tail -n 1)"
+  rm -f "$xcode_env"
+  if [ -z "$DEVELOPER_DIR" ]; then
+    echo "error: select-ci-xcode.sh selected no Xcode for this fleet step" >&2
+    exit 1
+  fi
+  export DEVELOPER_DIR
+fi
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
   if [ "$admission" -eq 1 ]; then
     echo "--repeat is for suites, not settings export" >&2
@@ -125,6 +143,13 @@ if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
     exit 2
   fi
   IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
+  # Before the build (11-58 min on the fleet): refuse a name the package's test
+  # sources never mention, a typo or another package's suite. The scan lets
+  # through anything it is unsure of; the check after `swift test list` decides.
+  # Only its exit 2 refuses; a scan that breaks lets the names through.
+  precheck_status=0
+  python3 "$script_dir/swift_suite_names_precheck.py" "$package_path" "${only_suites[@]}" || precheck_status=$?
+  [ "$precheck_status" -ne 2 ] || exit 2
 fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.

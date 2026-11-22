@@ -79,14 +79,21 @@ def timing(action):
 def swaps(case_a, case_b, n):
     steps = [timing("start")]
     for i in range(1, n + 1):
-        steps.append(strip(f"Run {i} {case_a}: Opt-Cmd-` chat to terminal, frames around it"))
-        steps.append(strip(f"Run {i} {case_b}: Opt-Cmd-` terminal to chat, frames around it"))
+        steps.append(strip(f"Run {i} {case_a}: Toggle chat to terminal, frames around it"))
+        steps.append(strip(f"Run {i} {case_b}: Toggle terminal to chat, frames around it"))
     steps.append(timing("stop"))
     return steps
 
 
+# acpmux lists a `claude` harness only when the capture Mac has Claude Code on PATH; without one the toggle's View Only
+# chat refuses to adopt the session ("unknown harness \"claude\"") and every swap measures an error page. The fixture
+# lists `claude` on every mini; a View Only watch reads the transcript and never runs it.
+CLAUDE_FIXTURE = {"harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude",
+                                           "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"}}}
+
+
 def tour(title, steps, **extra):
-    return {"title": title, **extra, "steps": steps}
+    return {"title": title, "harnessFixture": CLAUDE_FIXTURE, **extra, "steps": steps}
 
 
 def opened(title):
@@ -125,7 +132,37 @@ midturn_terminal = tour(
      write("Helper", "touch \"$HOME/swap-bench/stop\"\r", "The turn ends", 3.0),
      chat_state("After: the closing answer, once", ["Live done after"], 20)])
 
+# Held: the terminal face shows past the hidden chat's freeze (30 s) and idle release (60 s) before the swap back, so
+# a chat page let go behind its own terminal shows as a rebuild (a late settle) on the swap back.
+HOLD_S, RUNS_HOLD = 65, 1  # a capture drives at most 300 s and the setup takes most of it: one held run a capture, pool several
+
+
+def held_swaps(n):
+    steps = [timing("start")]
+    for i in range(1, n + 1):
+        steps.append(strip(f"Run {i} (e) held: Toggle chat to terminal, frames around it"))
+        # A tour step waits at most 30 s (tour.py), so the hold is cut into steps of up to 30 s.
+        left = HOLD_S
+        while left > 0:
+            part = min(left, 30)
+            steps.append(write("Helper", "true\r", f"Run {i}: the terminal face shows for {HOLD_S} s"
+                               + ("" if left == HOLD_S else f" ({left} s left)"), part))
+            left -= part
+        steps.append(strip(f"Run {i} (f) held {HOLD_S} s: Toggle terminal to chat, frames around it", 2500))
+    steps.append(timing("stop"))
+    return steps
+
+
+held = tour(
+    f"Toggle Terminal and Chat latency, held: the terminal face shows {HOLD_S} s before each swap back to the chat",
+    [*new_workspace("Helper"), *new_workspace("Swap"), seed("Swap", "5a7e5a7e-0000-4000-8000-000000002004"),
+     *opened("Toggle Terminal and Chat: the reported session opens as its View Only chat"),
+     chat_state("Before: the chat painted its newest turn", ["Answer 1999"], 30),
+     *held_swaps(RUNS_HOLD),
+     chat_state("After: the same newest turn", ["Answer 1999"])])
+
 out.mkdir(parents=True, exist_ok=True)
-for name, data in (("terminal-chat-toggle-idle", idle), ("terminal-chat-toggle-midturn", midturn_terminal)):
+for name, data in (("terminal-chat-toggle-idle", idle), ("terminal-chat-toggle-midturn", midturn_terminal),
+                   ("terminal-chat-toggle-held", held)):
     (out / f"{name}.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     print(name, len(data["steps"]), "steps")

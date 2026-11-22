@@ -201,7 +201,7 @@ pub enum Answer {
 }
 
 impl Answer {
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         matches!(self, Answer::Http { status: 200, body } if *body.field("ok") == true)
     }
 }
@@ -215,7 +215,7 @@ pub enum MachineState {
 }
 
 impl MachineState {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             MachineState::Running => "running",
             MachineState::Degraded => "degraded",
@@ -339,6 +339,17 @@ impl Reporter {
     pub fn set_state(&mut self, state: MachineState, now: u64) -> Option<OpRequest> {
         self.state = state;
         self.trigger("state", now)
+    }
+
+    /// The state the next report names.
+    pub fn state(&self) -> MachineState {
+        self.state
+    }
+
+    /// Replaces the state the next report names without making one due: the start report a
+    /// restarted service makes due next names it ([`super::session::Session::after_restart`]).
+    pub fn replace_state(&mut self, state: MachineState) {
+        self.state = state;
     }
 
     /// The answer to the request in flight. Returns the next request when

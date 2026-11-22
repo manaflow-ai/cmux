@@ -102,7 +102,7 @@ public final class FindPillView: NSView {
     ///   - accessibilityPrefix: Prefixes the field's and buttons' accessibility identifiers
     ///     (`<prefix>.field`, `.previous`, `.next`, `.close`, `.matchCase`), which UI tests use.
     public init(labels: FindPillLabels, icons: FindPillIcons, accessibilityPrefix: String) {
-        surface = Glass.makeOverlayPanel(cornerRadius: FindPillMetrics.height / 2)
+        surface = Glass.makeOverlayPanel(cornerRadius: FindPillMetrics.height / 2, tone: .neutralGlass(.transient))
         let previous = FindPillButton(image: icons.previous, target: nil, action: #selector(previousClicked))
         let next = FindPillButton(image: icons.next, target: nil, action: #selector(nextClicked))
         stepButtons = [previous, next]

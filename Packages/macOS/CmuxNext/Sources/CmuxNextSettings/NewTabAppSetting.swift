@@ -7,14 +7,12 @@ import Foundation
 public nonisolated struct NewTabAppSetting: Sendable {
     public init() {}
 
-    /// Whether `id` can name an app: `publisher/name`, each part non-empty, with no spaces,
-    /// control characters or further `/`.
+    /// Whether `id` can name an app: an id an app manifest may have, by the manifest schema's own
+    /// pattern (`SettingsSchema.appIDPattern`, generated from cmux-app.schema.json; the daemon's
+    /// cmux-config checks the same pattern).
     public static func isValidID(_ id: String) -> Bool {
-        let parts = id.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2, id.utf8.count <= 200 else { return false }
-        return parts.allSatisfy { part in
-            !part.isEmpty && !part.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }
-        }
+        // The whole string: ICU's `$` also matches before a final newline.
+        id.range(of: SettingsSchema.appIDPattern, options: .regularExpression) == id.startIndex..<id.endIndex
     }
 
     /// The app `root` names, nil when unset or not an app id (the schema check reports it).
