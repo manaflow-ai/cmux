@@ -476,3 +476,31 @@ fn auto_move_choices_and_confirmation_cross_the_ffi() {
     assert_eq!(moved["host"], "box");
     assert_eq!(moved["targetSessionId"], "new-chat");
 }
+
+#[test]
+fn a_session_moves_run_says_what_the_tab_opens() {
+    let run = |row: Value, status: i32, moved: &str, destination: &str, dry_run: bool| {
+        let stdout = serde_json::to_string_pretty(&json!({"moves": [row]})).unwrap();
+        ok(
+            c"cloud_move_ssh_move_run",
+            json!({"stdout": stdout, "stderr": "", "status": status, "moved": moved,
+                "destination": destination, "dryRun": dry_run}),
+        )
+    };
+    let done = json!({"moved": true, "host": "mini", "targetSessionId": "new"});
+    assert_eq!(
+        run(done.clone(), 0, "", "auto", false),
+        json!({"kind": "moved", "session": "mini/new"})
+    );
+    assert_eq!(run(done, 0, "chat-1", "local", false), json!({"kind": "moved", "session": "new"}));
+    let asks = json!({"error": "uncommitted changes", "errorCode": "dirty_worktree",
+        "preflight": {"running": false, "dirty": true}});
+    assert_eq!(
+        run(asks, 1, "box/chat-1", "box", false),
+        json!({"kind": "needs_confirmation", "code": "dirty_worktree", "dirty": true})
+    );
+    assert_eq!(
+        run(json!({"moved": false, "error": "nope"}), 1, "box/chat-1", "box", false),
+        json!({"kind": "failed", "message": "nope"})
+    );
+}
