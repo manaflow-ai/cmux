@@ -8,6 +8,8 @@ public import WebKit
 /// served on a change (``WebBundleServedViews``, the one list a web UI update also reloads). Does
 /// nothing unless ``WebDevOverride/isEnabled``.
 public final class WebDevOverrideWatcher {
+    // lint:allow singleton - the app has one web-dev.json and one set of served views; tests pass their own
+    // watcher to reloadPages(watcher:).
     public static let shared = WebDevOverrideWatcher()
 
     /// Runs after a page did not start from the overlay and every page fell back to the bundled ones
@@ -77,12 +79,25 @@ public final class WebDevOverrideWatcher {
 
     private func apply(_ value: WebDevOverride) {
         watchManifest(of: value.overlay)
+        let before = WebDevOverride.current
         guard WebDevOverride.update(value) else { return }
-        if let refusal = value.refusal {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").notice("overlay refused: \(refusal, privacy: .public)")
+        let after = WebDevOverride.current
+        let change = WebDevOverride.describeChange(from: before, to: after)
+        // Only a change of the overlay itself is its refusal's news: on 2026-11-22 06:41:33Z a dev server
+        // turned on, every page reloaded, and the one line logged was the unchanged overlay's refusal.
+        if let refusal = after.refusal, WebDevOverride.overlayChanged(from: before, to: after) {
+            Self.log.notice("overlay refused: \(refusal, privacy: .public)")
         }
-        Self.reloadPages()
+        // A file write that leaves every page where it loads from (a new token, the gallery, a refused
+        // install) reloads nothing: each reload blanks every chat until its document loads again.
+        guard before.source != after.source else {
+            Self.log.notice("web-dev.json changed (\(change, privacy: .public)); pages load from the same place, nothing reloaded")
+            return
+        }
+        Self.reloadPages(why: "web-dev.json: \(change)")
     }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev")
 
     /// Reloads every page and agent pane from where the override now says, in both engines: the
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
@@ -95,18 +110,25 @@ public final class WebDevOverrideWatcher {
     ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
+    ///   - why: What changed, for the log line that counts the views reloaded.
     /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
                             served: WebBundleServedViews = .shared,
-                            watcher: WebDevOverrideWatcher = .shared) -> Task<Void, Never>? {
+                            watcher: WebDevOverrideWatcher = .shared,
+                            why: String = "web source changed") -> Task<Void, Never>? {
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
-        served.reloadServed()
+        let webKit = served.reloadServed()
         let pages = pages ?? PageRegistry.pages()
+        // The counts of what follows: pages that move to WebKit, or Chromium pages that reload.
+        let moves = live && !chromiumLive && hosting != nil
+        let moving = moves ? pages.filter(\.isOnChromium).count : 0
+        let chromium = !moves && (chromiumLive || watcher.chromiumServedLive) ? pages.filter { $0.chromiumPage != nil }.count : 0
+        log.notice("\(why, privacy: .public): reloading \(webKit) WebKit views, \(chromium) Chromium pages, moving \(moving) to WebKit")
         defer { watcher.chromiumServedLive = chromiumLive }
         // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
         // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
