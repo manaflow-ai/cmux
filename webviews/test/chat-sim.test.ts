@@ -34,21 +34,35 @@ describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing f
   }
 });
 
-/** The gap over each head of turn 2 ("thinking", "working") in `name`, at the first step it is drawn. */
-const headGaps = (name: string) => {
-  const gaps: Record<string, number> = {};
-  for (const step of runSimulation(SCENARIOS[name]!()).traces)
-    for (const row of step.rows ?? []) if (row.head && row.turn === 2 && !(row.kind in gaps)) gaps[row.kind] = row.gap;
-  return gaps;
+/** Turn 2 of `name`: the kind of its head (the first one drawn), whether that head stands right over the
+ *  message that opened the turn, and the gap over each kind drawn first under that message. */
+const turnTwo = (name: string) => {
+  let head: { kind: string; overOpener: boolean } | undefined;
+  const under: Record<string, number> = {};
+  for (const step of runSimulation(SCENARIOS[name]!()).traces) {
+    const rows = step.rows ?? [];
+    rows.forEach((row, at) => {
+      if (!head && row.head && row.turn === 2)
+        head = { kind: row.kind, overOpener: rows[at + 1]?.opens === true && rows[at + 1]?.turn === 2 };
+      const above = rows[at - 1];
+      if (above?.opens && above.turn === 2 && row.turn === 2 && !(row.kind in under)) under[row.kind] = row.gap;
+    });
+  }
+  return { head, under };
 };
 
+// Since #49052 a turn another agent's message opened draws its "Working for" over that message from its
+// first frame, where "Worked for" lands when it ends (Leo: "the jostles and shifts and spacing are still
+// bad here"): Working for is the turn's head, and the live Thinking line is the first row under the message.
+// Rule (a) above checks the gap over Working for; the Thinking line under the message still stands the
+// head gap (Leo's screenshot).
 for (const name of ["incoming-notice-turn", "incoming-message-turn"])
-  test(`chat simulator: ${name}: Thinking and Working for stand the head gap under another agent's line (Leo's screenshot)`, () => {
-    const gaps = headGaps(name);
-    expect(Object.keys(gaps)).toEqual(expect.arrayContaining(["thinking", "working"]));
+  test(`chat simulator: ${name}: Working for heads the turn over another agent's line, and Thinking stands the head gap under it (Leo's screenshot)`, () => {
+    const { head, under } = turnTwo(name);
+    expect(head).toEqual({ kind: "working", overOpener: true });
     const want = ROW_GAP_LOOKS.shipped.workedAfterLine;
     expect(want).toBeGreaterThan(0);
-    expect({ thinking: gaps.thinking, working: gaps.working }).toEqual({ thinking: want, working: want });
+    expect(under.thinking).toBe(want);
   });
 
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
