@@ -80,6 +80,126 @@ pub(crate) struct AppControlMessages {
     pub chat_perf: ChatPerfMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
+    /// `cmux perf profile|compare|ab|sim` (cli/app/perf.rs).
+    pub perf: PerfMessages,
+}
+
+/// `cmux perf profile|compare|ab|sim`: the app profiler and load. Metric keys, units, source
+/// names and JSON keys stay English; `{name}` placeholders are filled by cli/app/perf.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PerfMessages {
+    /// Usage text.
+    pub usage: &'static str,
+    /// A bad `--seconds`: `{max}`.
+    pub seconds: &'static str,
+    /// A bad `--events`.
+    pub events: &'static str,
+    /// `--scale` out of range.
+    pub scale: &'static str,
+    /// No such sim profile: `{name}`.
+    pub unknown_profile: &'static str,
+    /// A file could not be read: `{path}`, `{error}`.
+    pub unreadable: &'static str,
+    /// Not a `cmux perf profile` report: `{path}`.
+    pub not_a_report: &'static str,
+    /// A sim shape file that does not parse: `{path}`.
+    pub bad_shape: &'static str,
+    /// A report could not be written: `{path}`, `{error}`.
+    pub write_failed: &'static str,
+    /// Where the report went: `{path}`.
+    pub wrote: &'static str,
+    /// The table's first line: `{label}`, `{seconds}`, `{bundle}`, `{version}`, `{pid}`.
+    pub profile_header: &'static str,
+    /// A value within its budget.
+    pub status_ok: &'static str,
+    /// A value over its budget.
+    pub status_over: &'static str,
+    /// A p95 from too few samples to judge: `{n}`.
+    pub status_low_n: &'static str,
+    /// `--probe-samples` out of range.
+    pub probe_samples: &'static str,
+    /// The probe rounds ran past the window: `{rounds}`, `{elapsed}`, `{seconds}`.
+    pub note_probe_extended: &'static str,
+    /// Above the list of sources that gave nothing.
+    pub unmeasured_header: &'static str,
+    /// A `debug.*` source: Debug builds only.
+    pub debug_only: &'static str,
+    /// The main-thread probe.
+    pub src_probe: &'static str,
+    /// No chat page was visible.
+    pub src_no_chat: &'static str,
+    /// The app has no `agent.chat.perf`.
+    pub src_missing: &'static str,
+    /// Interactions driven with action.run.
+    pub src_action: &'static str,
+    /// Interactions need `--probe`.
+    pub src_needs_probe: &'static str,
+    /// Composer typing is not measured.
+    pub src_composer: &'static str,
+    /// Host metrics.
+    pub src_host: &'static str,
+    /// The app's hang reports.
+    pub src_hang_files: &'static str,
+    /// The app is a Release build.
+    pub note_release: &'static str,
+    /// `--probe` found no sim terminal to type into.
+    pub note_no_sim_terminal: &'static str,
+    /// Compare verdict.
+    pub verdict_fixed: &'static str,
+    /// Compare verdict.
+    pub verdict_broke: &'static str,
+    /// Compare verdict.
+    pub verdict_within: &'static str,
+    /// Compare verdict.
+    pub verdict_over: &'static str,
+    /// Compare verdict.
+    pub verdict_better: &'static str,
+    /// Compare verdict.
+    pub verdict_worse: &'static str,
+    /// Compare verdict.
+    pub verdict_same: &'static str,
+    /// Compare verdict.
+    pub verdict_unmeasured: &'static str,
+    /// Compare verdict: a side's p95 came from too few samples.
+    pub verdict_low_n: &'static str,
+    /// The low-n verdict with its counts: `{before}`, `{after}`.
+    pub verdict_low_n_detail: &'static str,
+    /// `{before}`, `{after}`.
+    pub compare_header: &'static str,
+    /// `{fixed}`, `{broke}`, `{better}`, `{worse}`, `{over}`.
+    pub compare_summary: &'static str,
+    /// `cmux perf sim` without a named socket.
+    pub sim_needs_socket: &'static str,
+    /// `{profile}`, `{from}`, `{seconds}`, `{events}`.
+    pub sim_start: &'static str,
+    /// The PTY cap: `{max}`, `{used}`, `{headroom}`, `{cap}`, `{wanted}`, `{terminals}`.
+    pub sim_pty_cap: &'static str,
+    /// The build ended: `{build_s}`, `{terminals}`, `{seconds}`.
+    pub sim_built: &'static str,
+    /// The build hit its deadline: `{build_s}`, `{terminals}`, `{seconds}`.
+    pub sim_built_cut: &'static str,
+    /// No checkout with hot-apply.py.
+    pub ab_no_repo: &'static str,
+    /// Over ssh on macOS.
+    pub ab_ssh: &'static str,
+    /// `{label}`, `{seconds}`.
+    pub ab_profiling: &'static str,
+    /// `{error}`.
+    pub ab_plan_failed: &'static str,
+    /// A part that needs a build: `{kind}`, `{why}`.
+    pub ab_left: &'static str,
+    /// Nothing of the patch goes in live.
+    pub ab_nothing_live: &'static str,
+    /// `{sha}`, `{parts}`.
+    pub ab_applying: &'static str,
+    /// hot-apply failed.
+    pub ab_apply_failed: &'static str,
+    /// The plan leaves part of the patch out: `{sha}`, `{parts}`, `{files}`.
+    pub ab_partial: &'static str,
+    /// `--unsigned-daemon` breaks Cloud until rollback.
+    pub ab_unsigned: &'static str,
+    /// `--unsigned-daemon` without `--rollback`.
+    pub ab_unsigned_rollback: &'static str,
 }
 
 /// `cmux app launch-times`: the app's recorded launches. The JSON keys and the table's column
@@ -280,6 +400,64 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         empty: "no launches recorded yet in {path}",
         unreadable: "cannot read {path}: {error}",
     },
+    perf: PerfMessages {
+        usage: "usage: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe] [--probe-samples N]\n       cmux perf compare BEFORE.json AFTER.json\n       cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--probe-samples N] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi] [--unsigned-daemon] [--allow-partial]\n       cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  samples the app for N seconds (default 10) against a 120 Hz frame (8.33 ms): frames, main-thread\n           stalls, layout shifts, responsiveness (--probe drives tab, workspace, sidebar, palette and typing),\n           CPU, RAM, GPU and disk; each row names its source and whether a Release build has it\n  compare  two reports side by side with the change and a verdict per row\n  ab       profile, hot-apply SHA (scripts/cmux-next/hot-apply.py), profile, compare; --rollback undoes it\n  sim      drives load on the app behind --app-socket or --socket (required) and closes what it made on exit\nSee docs/cmux-next/perf-loop.md.",
+        seconds: "--seconds takes a whole number from 1 to {max}",
+        events: "--events takes a whole number from 1 to 1000000",
+        scale: "--scale takes a whole number from 1 to 100",
+        unknown_profile: "no sim profile named {name}: use cosmic-gray, unreasonable, a file in $CMUX_PERF_SIM_DIR (~/.local/share/cmux-perf-sim/), or --shape FILE",
+        unreadable: "cannot read {path}: {error}",
+        not_a_report: "{path} is not a cmux perf profile report",
+        bad_shape: "{path} is not a sim shape (see docs/cmux-next/perf-loop.md)",
+        write_failed: "cannot write {path}: {error}",
+        wrote: "wrote {path}",
+        profile_header: "cmux perf profile {label}: {seconds} s of {bundle} {version} (pid {pid}), budget 8.33 ms a frame (120 Hz)",
+        status_ok: "ok",
+        status_over: "OVER",
+        status_low_n: "low-n {n}",
+        probe_samples: "--probe-samples takes a whole number from 1 to 500",
+        note_probe_extended: "--probe took {rounds} rounds and ran {elapsed} s, past the {seconds} s asked, to get its samples",
+        unmeasured_header: "Not measured:",
+        debug_only: "registered only in Debug and bench-hook builds; a Release app does not answer it",
+        src_probe: "system.ping and agent.acpmux round trips: main-thread wait = main-actor reply minus off-main reply",
+        src_no_chat: "no chat page was visible during the window",
+        src_missing: "this app has no agent.chat.perf",
+        src_action: "action.run round trips for the interactive elements",
+        src_needs_probe: "pass --probe to drive and time the interactive elements",
+        src_composer: "no socket method reads the composer's key-to-paint time yet",
+        src_host: "proc_pid_rusage on the app process only, ioreg for GPU (host-wide)",
+        src_hang_files: "the app's hang reports (2 s or more) in ~/Library/Logs/<bundle id>/hangs",
+        note_release: "This app has no debug.* methods (a Release build): no native frame timings, no stall attributions under 2 s, no layout counters. Frames come from visible chat pages only; use a Debug or bench-hook build for the rest.",
+        note_no_sim_terminal: "--probe typed into no terminal: run `cmux perf sim` on this socket to give it terminals of its own",
+        verdict_fixed: "FIXED",
+        verdict_broke: "BROKE",
+        verdict_within: "within",
+        verdict_over: "over",
+        verdict_better: "better",
+        verdict_worse: "worse",
+        verdict_same: "same",
+        verdict_unmeasured: "unmeasured",
+        verdict_low_n: "low-n",
+        verdict_low_n_detail: "low-n (n {before} -> {after}), no verdict",
+        compare_header: "cmux perf compare: {before} -> {after}",
+        compare_summary: "{fixed} fixed, {broke} broke, {better} better, {worse} worse, {over} over budget after",
+        sim_needs_socket: "cmux perf sim needs the app named: pass --app-socket PATH (or --socket PATH); it never picks an app for you",
+        sim_start: "cmux perf sim: profile {profile} ({from}), {seconds} s, {events} lines a burst; Ctrl-C stops and cleans up",
+        sim_pty_cap: "cmux perf sim: {max} PTYs on this host, {used} in use, {headroom} kept free: at most {cap} terminals (the shape asks for {wanted}, building {terminals})",
+        sim_built: "cmux perf sim: built in {build_s} s ({terminals} terminals); running {seconds} s from now",
+        sim_built_cut: "cmux perf sim: build cut short at {build_s} s (--build-seconds) with {terminals} terminals; running {seconds} s from now",
+        ab_no_repo: "no cmux checkout here with scripts/cmux-next/hot-apply.py: run from one or pass --repo DIR",
+        ab_ssh: "Over ssh: hot-apply cannot restart sessions (--restart-sessions) from here; the daemon swap and web bundle still go in.",
+        ab_profiling: "profiling {label} for {seconds} s",
+        ab_plan_failed: "hot-apply.py plan failed: {error}",
+        ab_left: "needs a build, not in this A/B: {kind}: {why}",
+        ab_nothing_live: "Nothing of this patch can go into the running app; build it and profile that build instead. No after profile was taken.",
+        ab_applying: "applying {sha} ({parts})",
+        ab_apply_failed: "hot-apply.py apply failed; no after profile was taken (see steps in the JSON)",
+        ab_partial: "hot-apply.py plan puts only {parts} of {sha} into the running app and leaves this out, so the A/B would measure part of the patch:\n{files}\nBuild it and profile that build, or pass --allow-partial to A/B the live part alone.",
+        ab_unsigned: "--unsigned-daemon: this app is Team-signed and the published daemon is ad hoc, so the app verifies no connection to it: Cloud machines, Cloud starts and every user-origin call fail until `scripts/cmux-next/hot-apply.py rollback`.",
+        ab_unsigned_rollback: "Pass --rollback to put the signed daemon back when the A/B is done.",
+    },
     version: VersionLabels {
         cli: "CLI",
         app: "App",
@@ -452,6 +630,64 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         no_app: "この CLI の周りに cmux アプリがありません。アプリ同梱の CLI を実行するか、CMUX_BUNDLE_ID を設定してください",
         empty: "{path} にはまだ起動の記録がありません",
         unreadable: "{path} を読み取れません: {error}",
+    },
+    perf: PerfMessages {
+        usage: "使い方: cmux perf profile [--seconds N] [--out FILE.json] [--label L] [--probe] [--probe-samples N]\n        cmux perf compare BEFORE.json AFTER.json\n        cmux perf ab --patch SHA [--rollback] [--seconds N] [--probe] [--probe-samples N] [--out-dir DIR] [--repo DIR] [--parts web,rust,ffi] [--unsigned-daemon] [--allow-partial]\n        cmux perf sim [--profile cosmic-gray|unreasonable] [--scale N] [--seconds N] [--build-seconds N] [--events N] [--shape FILE.json]\n  profile  アプリを N 秒 (既定 10) 計測し、120 Hz のフレーム (8.33 ms) と比べます: フレーム、メインスレッドの停止、\n           レイアウトシフト、応答性 (--probe でタブ、ワークスペース、サイドバー、パレット、入力を操作)、\n           CPU、RAM、GPU、ディスク。各行に取得元と Release ビルドで取れるかを示します\n  compare  2 つのレポートを並べ、変化と行ごとの判定を表示します\n  ab       計測、SHA のホット適用 (scripts/cmux-next/hot-apply.py)、再計測、比較。--rollback で元に戻します\n  sim      --app-socket または --socket (必須) のアプリに負荷をかけ、終了時に作ったものだけを閉じます\n詳細は docs/cmux-next/perf-loop.md を参照してください。",
+        seconds: "--seconds には 1 から {max} までの整数を指定してください",
+        events: "--events には 1 から 1000000 までの整数を指定してください",
+        scale: "--scale には 1 から 100 までの整数を指定してください",
+        unknown_profile: "{name} という sim プロファイルはありません: cosmic-gray、unreasonable、$CMUX_PERF_SIM_DIR (~/.local/share/cmux-perf-sim/) のファイル、または --shape FILE を使ってください",
+        unreadable: "{path} を読み取れません: {error}",
+        not_a_report: "{path} は cmux perf profile のレポートではありません",
+        bad_shape: "{path} は sim の形状ファイルではありません (docs/cmux-next/perf-loop.md を参照)",
+        write_failed: "{path} に書き込めません: {error}",
+        wrote: "{path} に書き込みました",
+        profile_header: "cmux perf profile {label}: {bundle} {version} (pid {pid}) を {seconds} 秒、1 フレームの予算 8.33 ms (120 Hz)",
+        status_ok: "ok",
+        status_over: "超過",
+        status_low_n: "標本少 {n}",
+        probe_samples: "--probe-samples には 1 から 500 までの整数を指定してください",
+        note_probe_extended: "--probe は標本を集めるために {rounds} 回操作し、指定の {seconds} 秒を超えて {elapsed} 秒かかりました",
+        unmeasured_header: "計測できなかったもの:",
+        debug_only: "Debug ビルドとベンチフックビルドでのみ登録されます。Release のアプリは応答しません",
+        src_probe: "system.ping と agent.acpmux の往復: メインスレッドの待ち = メインアクターの応答 - メイン外の応答",
+        src_no_chat: "計測中に表示されたチャットページがありませんでした",
+        src_missing: "このアプリには agent.chat.perf がありません",
+        src_action: "操作要素への action.run の往復",
+        src_needs_probe: "--probe を付けると操作要素を操作して計測します",
+        src_composer: "コンポーザーのキー入力から描画までの時間を読むソケットメソッドはまだありません",
+        src_host: "アプリのプロセスのみに proc_pid_rusage、GPU は ioreg (ホスト全体)",
+        src_hang_files: "~/Library/Logs/<バンドル ID>/hangs にあるアプリのハングレポート (2 秒以上)",
+        note_release: "このアプリには debug.* メソッドがありません (Release ビルド): ネイティブのフレーム時間、2 秒未満の停止の原因、レイアウトカウンターは取れません。フレームは表示中のチャットページからのみです。残りは Debug またはベンチフックビルドで計測してください。",
+        note_no_sim_terminal: "--probe は入力先のターミナルがありませんでした: このソケットで `cmux perf sim` を実行すると専用のターミナルができます",
+        verdict_fixed: "修正",
+        verdict_broke: "悪化(予算超過)",
+        verdict_within: "予算内",
+        verdict_over: "超過",
+        verdict_better: "改善",
+        verdict_worse: "悪化",
+        verdict_same: "変化なし",
+        verdict_unmeasured: "未計測",
+        verdict_low_n: "標本少",
+        verdict_low_n_detail: "標本少 (n {before} -> {after})、判定なし",
+        compare_header: "cmux perf compare: {before} -> {after}",
+        compare_summary: "修正 {fixed}、予算超過に悪化 {broke}、改善 {better}、悪化 {worse}、変更後に予算超過 {over}",
+        sim_needs_socket: "cmux perf sim には対象アプリの指定が必要です: --app-socket PATH (または --socket PATH) を渡してください。アプリを自動では選びません",
+        sim_start: "cmux perf sim: プロファイル {profile} ({from})、{seconds} 秒、1 回のバーストで {events} 行。Ctrl-C で停止して片付けます",
+        sim_pty_cap: "cmux perf sim: このホストの PTY は {max} 個、使用中 {used} 個、空けておく分 {headroom} 個: ターミナルは最大 {cap} 個 (形状の要求は {wanted} 個、作成するのは {terminals} 個)",
+        sim_built: "cmux perf sim: {build_s} 秒で構築しました (ターミナル {terminals} 個)。ここから {seconds} 秒実行します",
+        sim_built_cut: "cmux perf sim: 構築を {build_s} 秒で打ち切りました (--build-seconds、ターミナル {terminals} 個)。ここから {seconds} 秒実行します",
+        ab_no_repo: "ここに scripts/cmux-next/hot-apply.py のある cmux チェックアウトがありません: その中で実行するか --repo DIR を渡してください",
+        ab_ssh: "ssh 経由: ここからはセッションの再起動 (--restart-sessions) はできません。デーモンの差し替えと Web バンドルは適用されます。",
+        ab_profiling: "{label} を {seconds} 秒計測しています",
+        ab_plan_failed: "hot-apply.py plan に失敗しました: {error}",
+        ab_left: "ビルドが必要なため、この A/B には含まれません: {kind}: {why}",
+        ab_nothing_live: "このパッチは実行中のアプリに適用できる部分がありません。ビルドしてそのビルドを計測してください。変更後の計測は行っていません。",
+        ab_applying: "{sha} を適用しています ({parts})",
+        ab_apply_failed: "hot-apply.py apply に失敗しました。変更後の計測は行っていません (JSON の steps を参照)",
+        ab_partial: "hot-apply.py plan は {sha} のうち {parts} だけを実行中のアプリに適用し、次の部分を除外します。この A/B はパッチの一部しか計測しません:\n{files}\nビルドしてそのビルドを計測するか、--allow-partial を付けて適用できる部分だけを A/B してください。",
+        ab_unsigned: "--unsigned-daemon: このアプリはチーム署名で、公開デーモンはアドホック署名のため、アプリはデーモンへの接続を検証できません。`scripts/cmux-next/hot-apply.py rollback` まで Cloud マシン、Cloud の起動、ユーザー起点の呼び出しはすべて失敗します。",
+        ab_unsigned_rollback: "--rollback を付けると、A/B の後に署名済みのデーモンに戻します。",
     },
     version: VersionLabels {
         cli: "CLI",
