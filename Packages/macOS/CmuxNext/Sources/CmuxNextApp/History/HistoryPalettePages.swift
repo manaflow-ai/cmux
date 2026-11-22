@@ -1,4 +1,3 @@
-import CmuxNextDesignTokens
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import CmuxNextPalette
@@ -54,50 +53,22 @@ enum HistoryPalettePages {
 
     private static func page(_ services: AppServices, id: String, title: String, placeholder: String, symbol: String,
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
-        // A list that is not complete yet (`pending_kinds`) shows its rows and the still-loading row, and is read again by itself.
-        // So is a read an owner did not answer: no Try Again (Leo, 2026-11-22: "vacuous decisions like that should be just
-        // done"); the palette reads again while it shows, and says the read failed only once failures last the quiet bound.
-        let failing = FailingSince()
+        // A list not complete yet (`pending_kinds`), or a read no owner answered (HistoryFailingSince), is read again by itself.
+        let failing = HistoryFailingSince()
         let provider = AsyncPaletteProvider.rereading(id: id, read: { [weak services] in
             guard let services else { return nil }
             let query = HistoryQuery(kinds: kinds, limit: 500)
-            let answer = await services.history.read(query)
-            let read = failing.shown(answer, kinds: kinds)
+            let read = failing.shown(await services.history.read(query), kinds: kinds)
             let rows = read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
             return (rows, !read.pending.isEmpty || read.unavailable)
         }, wait: { try await DaemonHistoryClient.waitForPending(afterReads: $0) })
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
 
-    /// A page's status row (`HistoryRead.status`), never a choice: a failed read is read again by itself, so its row has
-    /// no Try Again and leaves out the hint that names one.
+    /// A page's status row (`HistoryRead.status`), never a choice: a failed read is read again by itself.
     static func statusItem(_ status: HistoryRead.Status) -> PaletteItem {
         PaletteItem(id: status.id, title: status.title, subtitle: status.canRetry ? nil : status.detail, symbol: status.symbol,
                     isEnabled: false, primary: PaletteCommand(id: "status", title: status.title, effect: .performKeepingOpen {}))
-    }
-
-    /// One page open's failed reads: inside ``NoticeTiming/connectionQuiet`` from the first failure a read no owner
-    /// answered shows as still loading (it is read again either way); past it, as failed.
-    @MainActor
-    final class FailingSince {
-        private var since: ContinuousClock.Instant?
-        private let now: () -> ContinuousClock.Instant
-
-        init(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) { self.now = now }
-
-        func shown(_ read: HistoryRead, kinds: Set<HistoryEntry.Kind>) -> HistoryRead {
-            guard read.unavailable else {
-                since = nil
-                return read
-            }
-            let start = since ?? now()
-            since = start
-            guard start.duration(to: now()) < NoticeTiming.connectionQuiet else { return read }
-            var quiet = read
-            quiet.unavailable = false
-            quiet.pending.insert(kinds.first ?? .page)
-            return quiet
-        }
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {

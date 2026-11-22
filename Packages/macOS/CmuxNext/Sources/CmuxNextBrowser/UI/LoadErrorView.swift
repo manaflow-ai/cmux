@@ -30,7 +30,7 @@ final class LoadErrorView: NSView {
     private(set) var showsDetails = false
     private(set) var isCertificateInterstitial = false
     private let density = DensityBinding()
-    private var windowObservers: [MainActorObservation] = []
+    private weak var followedWindow: NSWindow?
     private var reportedSight: Bool?
 
     override init(frame: NSRect) {
@@ -90,13 +90,10 @@ final class LoadErrorView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        windowObservers = []
-        if let window {
-            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-                         NSWindow.didDeminiaturizeNotification] {
-                windowObservers.append(MainActorObservation(name, object: window) { [weak self] in self?.reportSight() })
-            }
-        }
+        if let followedWindow { FrameScheduler.unfollowSight(of: followedWindow, owner: self) }
+        followedWindow = window
+        // The app's one occlusion observer tells this view (minimizing changes occlusion too).
+        if let window { FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.reportSight() } }
         reportSight()
     }
 

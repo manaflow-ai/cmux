@@ -48,7 +48,7 @@ import Testing
 
     @Test func aFailedReadLooksStillLoadingInsideTheQuietBoundThenSaysItFailed() {
         var now = ContinuousClock.now
-        let failing = HistoryPalettePages.FailingSince(now: { now })
+        let failing = HistoryFailingSince(now: { now })
         let agents = HistoryQuery(kinds: [.agent])
         let failed = HistoryRead(entries: [], unavailable: true)
         #expect(failing.shown(failed, kinds: [.agent]).status(agents)?.id == "history.status.pending", "the first failure stays quiet")

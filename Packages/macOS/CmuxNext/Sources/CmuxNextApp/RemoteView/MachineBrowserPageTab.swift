@@ -8,10 +8,7 @@ import Observation
 
 /// The page of a `MachineBrowserRecord` tab while the machine's browser is
 /// not ready (cx-2cob slice 1): why, the address the person typed (it
-/// waits) and Open Locally Instead (this Mac's tab at that address, slice 1a).
-/// No Retry (Leo, 2026-11-22: "vacuous decisions like that should be just
-/// done"): while the tab shows, a page that is not ready checks the machine
-/// again by itself (``AutoRetry``). A native view, no engine, like `RemoteViewPageTab`.
+/// waits) and Open Locally Instead (slice 1a); no Retry: it checks again by itself while shown (``AutoRetry``).
 @MainActor
 @Observable
 final class MachineBrowserPageTab: BrowserTab {
@@ -34,8 +31,6 @@ final class MachineBrowserPageTab: BrowserTab {
     @ObservationIgnored var phase: MachineBrowserState? {
         didSet { settle() }
     }
-    /// Checks again while the page is not ready and the tab shows; a failed start reads as starting until the
-    /// failures last the quiet bound.
     @ObservationIgnored private let retry = AutoRetry(owner: "machineBrowserPage")
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
@@ -81,36 +76,23 @@ final class MachineBrowserPageTab: BrowserTab {
 
     /// Reload and each automatic check: checks the machine again and starts its browser when it can.
     func reload() {
-        if let onStart, !isStarting {
-            onStart()
-        } else {
-            settle()
-        }
+        if let onStart, !isStarting { onStart() } else { settle() }
     }
-
-    /// Shows the state and arms the next check: a page that may still become ready (the machine connects, its
-    /// browser is installed or updated, a failed start) is checked again; Cloud's "not available" is the platform's
-    /// for good and waits for nothing.
+    /// Shows the state and arms the next check while not ready and shown (``retry``).
     private func settle() {
-        let shown = phase ?? currentState()
-        switch shown {
+        switch phase ?? currentState() {
         case .ready: retry.succeeded()
         case .starting: break
-        case .unavailable: retry.stop()
+        case .unavailable: retry.stop() // for good
         case .notConnected, .notInstalled, .tooOld, .failed: retry.failed()
         }
         draw()
     }
-
-    /// The state as the page says it: a start that failed reads as still starting until the failures have lasted
-    /// the quiet bound (the next check after it says why).
+    /// A failed start reads as starting until the quiet bound.
     private func draw() {
         let shown = phase ?? currentState()
-        if case let .failed(name, _) = shown, !retry.showsNotice {
-            view.show(.starting(name), queued: queuedURL)
-        } else {
-            view.show(shown, queued: queuedURL)
-        }
+        if case let .failed(name, _) = shown, !retry.showsNotice { return view.show(.starting(name), queued: queuedURL) }
+        view.show(shown, queued: queuedURL)
     }
     func goBack() {}
     func goForward() {}

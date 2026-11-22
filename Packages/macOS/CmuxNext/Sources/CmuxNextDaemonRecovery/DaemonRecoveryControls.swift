@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
@@ -71,7 +72,7 @@ final class DaemonRecoveryControls: NSStackView {
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let restartButton = ThemedBezelButton(title: "", target: nil, action: nil)
     private var observation: Task<Void, Never>?
-    private var keyObservation: MainActorObservation?
+    private weak var followedWindow: NSWindow?
     /// The window shows a failure: the controls show only then.
     var isOffered = false { didSet { refresh() } }
 
@@ -114,15 +115,18 @@ final class DaemonRecoveryControls: NSStackView {
         button.setAccessibilityIdentifier(identifier)
     }
 
-    /// The person brought the failure's window forward: try to connect now rather than at the
-    /// next backoff step (what the removed Retry Now did, without asking for the click).
+    /// The failure's window came back into sight: try to connect now rather than at the next
+    /// backoff step (what the removed Retry Now did, without asking for the click). Told by the
+    /// app's one occlusion observer.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        keyObservation = window.map { window in
-            MainActorObservation(NSWindow.didBecomeKeyNotification, object: window) { [weak self] in
-                guard let self, isOffered, !isHidden, !recovery.isRestarting else { return }
-                recovery.retryNow()
-            }
+        if let followedWindow { FrameScheduler.unfollowSight(of: followedWindow, owner: self) }
+        followedWindow = window
+        guard let window else { return }
+        FrameScheduler.followSight(of: window, owner: self) { [weak self, weak window] in
+            guard let self, let window, !FrameScheduler.windowIsOutOfSight(window), isOffered, !isHidden,
+                  !recovery.isRestarting else { return }
+            recovery.retryNow()
         }
     }
 

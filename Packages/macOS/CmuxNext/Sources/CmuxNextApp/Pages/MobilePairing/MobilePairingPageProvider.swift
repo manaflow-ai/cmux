@@ -71,8 +71,7 @@ final class MobilePairingPageProvider: PageProvider {
             allowed: { [weak services] in services?.settings?.snapshot.mobile.allowIPhoneConnections ?? false },
             macName: { await MacName().displayName() },
             write: { [weak services] path, value in
-                // The switch flipped before Settings loaded (just after launch): the write waits for it, not the person.
-                let loaded: @MainActor @Sendable () -> Bool = { [weak services] in services?.settings != nil }
+                let loaded: @MainActor @Sendable () -> Bool = { [weak services] in services?.settings != nil } // just after launch: wait
                 if !loaded() { await ObservationDeadline(owner: "mobile-pairing-settings").until(loaded, limit: NoticeTiming.connectionQuiet) }
                 guard let settings = services?.settings else {
                     throw PageError(code: "cmux.mobilePairing.unavailable", message: MobilePairingStrings.settingsNotLoaded, retryable: true)
