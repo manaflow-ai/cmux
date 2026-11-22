@@ -2703,6 +2703,10 @@ class Target:
     # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
     # onto the label it waits on.
     rerun_side: str = ""
+    # The attempt a workflow_run `completed` event says has finished (completed_target()), or 0: its jobs are all
+    # listed, so watch() looks at once instead of FIRST_LOOK_SECONDS later. A later attempt the watch follows waits
+    # as before.
+    finished_attempt: int = 0
 
     @property
     def picker_job(self) -> str:
@@ -2826,7 +2830,11 @@ def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
     if run.get("path") != CMUX_NEXT_WORKFLOW_PATH:
         return (f"a finished run of {run.get('path') or 'an unknown workflow'}; only {CMUX_NEXT_WORKFLOW_PATH} "
                 "wakes a rescue when it finishes")
-    return sweep_target(run, repository, late=False)
+    target = sweep_target(run, repository, late=False)
+    if isinstance(target, Target) and target.attempt == int(run.get("run_attempt") or 0):
+        # 2026-11-21 23-01Z: about 270 wakes in 2 h each slept the 45 s first look on a finished run.
+        target = dataclasses.replace(target, finished_attempt=target.attempt)
+    return target
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
@@ -2897,7 +2905,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
-    sleep(FIRST_LOOK_SECONDS)
+    if target.finished_attempt != target.attempt:
+        sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
     picker_marker: bool | None = None

@@ -3433,7 +3433,7 @@ class SideLanes(unittest.TestCase):
         self.assertIsInstance(rescue.completed_target(fork, "manaflow-ai/cmux"), str)
 
     def test_a_completed_event_looks_at_once(self):
-        # 2026-11-22 23-01Z: about 270 of these wakes in 2 h, each holding a runner through the 45 s first look
+        # 2026-11-21 23-01Z: about 270 of these wakes in 2 h, each holding a runner through the 45 s first look
         # (FIRST_LOOK_SECONDS) at a run that had already finished; every job of it is already listed.
         red = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
         red.update(conclusion="failure", steps=[{"name": "Set up runner", "conclusion": "success"},
