@@ -72,5 +72,19 @@ class PageActivity(unittest.TestCase):
         self.assertNotIn("metrics_per_s", pages[0])
 
 
+class CefSwitches(unittest.TestCase):
+    def test_switches_reach_the_launch_env_after_the_home_is_prepared(self):
+        seen = []
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: seen.append(dict(e)), "disable-component-update")(env)
+        self.assertEqual(seen, [{"HOME": "/tmp/h"}])
+        self.assertEqual(env["CMUX_NEXT_CEF_EXTRA_SWITCHES"], "disable-component-update")
+
+    def test_no_switches_leave_the_env_alone(self):
+        env = {"HOME": "/tmp/h"}
+        idle_cpu.with_cef_switches(lambda e: None, "")(env)
+        self.assertNotIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", env)
+
+
 if __name__ == "__main__":
     unittest.main()
