@@ -3,26 +3,58 @@
 //! `user_allow_other` in `/etc/fuse.conf`). The session loop answers metadata itself; reads,
 //! writes and everything that may fetch from the Mac run on a small pool of threads, so one slow
 //! fetch does not stall `ls` or `stat`.
+//!
+//! What the kernel keeps (so a warm read or `stat` never reaches this process):
+//! - a file's pages across opens (`FOPEN_KEEP_CACHE`) while its [`Version`] is the one it had at
+//!   the last open; any other version (an upper file changed on the disk, a lower file copied up)
+//!   opens without it, which drops the pages, after its cached attributes are dropped too;
+//! - an answer about a path only in the manifest for [`LOWER_TTL`] (the manifest is fixed for the
+//!   life of the mount, and every change to the path comes through the mount, which tells the
+//!   kernel), an answer about an upper path for [`UPPER_TTL`] (the upper folder
+//!   is plain files on the machine's disk);
+//! - `FUSE_AUTO_INVAL_DATA`: pages go when a fresh `stat` shows another size or mtime.
+//!
+//! No writeback cache: edits must be on the upper folder's disk when the write returns, because
+//! Bring Back and the daemon restart read that folder directly, never through the mount.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
 use fuser::{
-    BackgroundSession, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate,
-    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
-    TimeOrNow,
+    BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
+    ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
-use crate::overlay::{Attr, Overlay, Set, Type, Who};
+use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
 use crate::upper::SetTime;
 
-/// How long the kernel may keep an answer.
-const TTL: Duration = Duration::from_secs(1);
+/// How long the kernel may keep an answer about a path only in the manifest.
+pub const LOWER_TTL: Duration = Duration::from_secs(3600);
+/// How long the kernel may keep an answer about an upper path (a missing path is never kept).
+pub const UPPER_TTL: Duration = Duration::from_secs(1);
+
+/// Whether `version` is an upper file whose last change is too recent to tell apart from the next.
+fn racy(version: &Version) -> bool {
+    let Version::Upper { ctime_ns, .. } = *version else { return false };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_nanos()).ok())
+        .unwrap_or(i64::MAX);
+    now.saturating_sub(ctime_ns) < 1_000_000_000
+}
+
+fn ttl(attr: &Attr) -> Duration {
+    if attr.upper { UPPER_TTL } else { LOWER_TTL }
+}
+
 /// Threads that run reads and writes.
 const WORKERS: usize = 16;
 
@@ -75,8 +107,10 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
 
 /// Mounts `overlay` at `at` (an existing, empty folder) as `options` say.
 pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow::Result<Mounted> {
-    let session =
-        fuser::spawn_mount2(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let session = fuser::spawn_mount2(fs, at, &mount_options(&options))?;
+    // Set before this returns, so before anything the caller starts opens through the mount.
+    let _ = notifier.set(session.notifier());
     Ok(Mounted { session: Some(session) })
 }
 
@@ -84,8 +118,10 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
 /// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
 pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
     let options = Options::default();
-    let mut session =
-        fuser::Session::new(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let mut session = fuser::Session::new(fs, at, &mount_options(&options))?;
+    // Set before the first request is read, so before any open.
+    let _ = notifier.set(session.notifier());
     mounted();
     session.run()?;
     Ok(())
@@ -105,7 +141,11 @@ fn mount_options(options: &Options) -> Vec<MountOption> {
     mount_options
 }
 
-fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
+/// The file system, and where its session's notifier goes once the session exists.
+fn filesystem(
+    overlay: Arc<Overlay>,
+    options: &Options,
+) -> anyhow::Result<(Fs, Arc<OnceLock<Notifier>>)> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -121,7 +161,15 @@ fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
         })?;
     }
     overlay.keep_atime(options.read_only || !options.disk_atime);
-    Ok(Fs { overlay, jobs: sender, listings: HashMap::new() })
+    let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
+    let fs = Fs {
+        overlay,
+        jobs: sender,
+        listings: HashMap::new(),
+        versions: Arc::new(Mutex::new(HashMap::new())),
+        notifier: notifier.clone(),
+    };
+    Ok((fs, notifier))
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -142,6 +190,9 @@ struct Fs {
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
+    /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
+    versions: Arc<Mutex<HashMap<u64, Version>>>,
+    notifier: Arc<OnceLock<Notifier>>,
 }
 
 fn file_type(kind: Type) -> FileType {
@@ -216,9 +267,52 @@ impl Fs {
     }
 }
 
+/// `FOPEN_KEEP_CACHE` when file `ino` is at the version it had at its last open (the kernel's
+/// pages are of these bytes), else nothing, which drops them. A changed file's cached attributes
+/// go first, so the opener's `fstat` sees its size now. No page is held during an open, so telling
+/// the kernel here, before the answer, cannot wait on this open.
+fn open_flags(
+    overlay: &Overlay,
+    versions: &Mutex<HashMap<u64, Version>>,
+    notifier: &OnceLock<Notifier>,
+    ino: u64,
+) -> u32 {
+    let mut versions = versions.lock().unwrap_or_else(PoisonError::into_inner);
+    let Ok(Some(now)) = overlay.version(ino) else {
+        versions.remove(&ino);
+        return 0;
+    };
+    // An upper file changed under a second ago is never recorded (git's "racily clean"): on a
+    // disk with coarse timestamps a same-size rewrite in the same tick leaves size, mtime and
+    // ctime as they were, so only a version seen a second or more after its change can later
+    // earn the kept cache.
+    let before = if racy(&now) { versions.remove(&ino) } else { versions.insert(ino, now) };
+    drop(versions);
+    let inval = || {
+        if let Some(notifier) = notifier.get() {
+            // ENOENT: the kernel holds nothing of it, which is fine.
+            let _ = notifier.inval_inode(ino, -1, 0);
+        }
+    };
+    match before {
+        Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
+        Some(_) => {
+            inval();
+            0
+        }
+        // A first open of an upper version (a copy-up since the lookup): drop the lower attrs
+        // the kernel keeps for an hour.
+        None if matches!(now, Version::Upper { .. }) => {
+            inval();
+            0
+        }
+        None => 0,
+    }
+}
+
 fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
     match made {
-        Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
+        Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
         Err(errno) => reply.error(errno),
     }
 }
@@ -231,13 +325,24 @@ fn empty(reply: ReplyEmpty, done: Result<(), i32>) {
 }
 
 impl Filesystem for Fs {
+    fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        // A kernel without it still works: an open of a changed file drops its pages anyway.
+        let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        Ok(())
+    }
+
+    fn forget(&mut self, _req: &Request<'_>, ino: u64, _nlookup: u64) {
+        // The kernel let the inode go, and its pages with it.
+        self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&ino);
+    }
+
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         entry(reply, name_of(name).and_then(|name| self.overlay.lookup(parent, name)));
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
         match self.overlay.getattr(ino) {
-            Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
+            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         }
     }
@@ -262,9 +367,11 @@ impl Filesystem for Fs {
     ) {
         let set =
             Set { size, mode, uid, gid, atime: atime.map(set_time), mtime: mtime.map(set_time) };
-        // A size or mode change may copy a lower file up (a fetch): off the session loop.
+        // A size or mode change may copy a lower file up (a fetch): off the session loop. A change
+        // through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's time that
+        // way) goes to the file that handle holds, without a lookup or an open.
         self.run(move |overlay| match overlay.setattr(ino, fh, set) {
-            Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
+            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         });
     }
@@ -372,9 +479,10 @@ impl Filesystem for Fs {
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        let (versions, notifier) = (self.versions.clone(), self.notifier.clone());
         // A write open copies a lower file up (a fetch): off the session loop.
         self.run(move |overlay| match overlay.open_handle(ino, flags) {
-            Ok(handle) => reply.opened(handle, 0),
+            Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
             Err(errno) => reply.error(errno),
         });
     }
@@ -418,7 +526,10 @@ impl Filesystem for Fs {
     }
 
     fn flush(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _owner: u64, reply: ReplyEmpty) {
-        reply.ok();
+        // Nothing is buffered here (every write is on the disk when it is answered) and there are
+        // no locks to drop: ENOSYS tells the kernel to stop sending a flush on every close, one
+        // round trip less per file a tool writes. The close itself succeeds.
+        reply.error(libc::ENOSYS);
     }
 
     fn release(
@@ -550,7 +661,11 @@ impl Filesystem for Fs {
     ) {
         let who = who(req);
         match name_of(name).and_then(|name| self.overlay.create(parent, name, mode & !umask, who)) {
-            Ok((attr, handle)) => reply.created(&TTL, &file_attr(&attr), 0, handle, 0),
+            Ok((attr, handle)) => {
+                // A new file: whatever the kernel held under this number is not of it.
+                self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&attr.ino);
+                reply.created(&ttl(&attr), &file_attr(&attr), 0, handle, 0);
+            }
             Err(errno) => reply.error(errno),
         }
     }

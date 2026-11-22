@@ -227,6 +227,13 @@ struct WorkspaceHoverCardContent: Equatable {
         if let reason = needsInputReason(workspace) {
             facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
         }
+        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): each usage
+        // rule acpmux found broken, with its number, and that notifications are muted.
+        for warning in workspace.usageWarnings {
+            facts.append(Fact(icon: .statusNeedsinput, text: warning, mark: "exclamationmark.triangle.fill", lines: 2,
+                              kind: usageWarningKind, iconTone: .attention))
+        }
+        if workspace.muted { facts.append(Fact(icon: .notification, text: Strings.notificationsMuted, mark: "bell.slash", kind: mutedKind)) }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
             facts.append(Fact(icon: .textDescription, text: notes, lines: 6, kind: "description"))
@@ -268,6 +275,10 @@ struct WorkspaceHoverCardContent: Equatable {
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
+        // Who made it and why, when an agent or a script did (Leo 2026-11-19: "acpmux should
+        // expose these a lot better"); a workspace the person made says nothing new.
+        let origin = WorkspaceHoverCardOrigin.shipped
+        if !WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         // Terminals the freeing tier ended at their prompt; showing the workspace starts them again.
         if case let freed = workspace.tabs.filter(\.isFreed).count, freed > 0 {
             facts.append(Fact(icon: .actionSnooze, text: Strings.freedTerminals(freed), lines: 2, kind: "freed"))
@@ -322,6 +333,7 @@ struct WorkspaceHoverCardContent: Equatable {
         case .empty:
             break
         }
+        if WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts, host: facts.first { $0.kind == "machine" },
@@ -344,7 +356,12 @@ struct WorkspaceHoverCardContent: Equatable {
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
     /// waits, what changed since the person looked, and where its chat stands with its next action.
-    static let keptOverHistory: Set<String> = ["needsInput", needsYouKind, sinceLookedKind, Fact.summaryKind, Fact.nextActionKind]
+    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind, Fact.summaryKind,
+                                                Fact.nextActionKind]
+    /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
+    static let usageWarningKind = "usageWarning"
+    /// The workspace's notifications are muted.
+    static let mutedKind = "muted"
 
     /// The fact kind of the preview's "Needs you" line.
     static let needsYouKind = "needsYou"
