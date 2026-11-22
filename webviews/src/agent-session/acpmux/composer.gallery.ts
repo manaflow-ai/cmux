@@ -222,17 +222,27 @@ async function pasteCompactImages(ctx: PlayContext, count: number, draft: string
       value: { files, types: ["Files"], getData: () => "" },
     });
     editor.dispatchEvent(paste);
-    await ctx.waitFor(
-      () =>
-        held.length === count &&
-        ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="loading"]:not([data-sizing])').length ===
-          count,
-    );
-    const loading = sameHeight("loading");
+    // The bundled gallery has no image worker (composer/imagePool.ts starts one only in the app or the
+    // Vite dev server), so the read runs on the page and nothing is held: measure the loading tiles
+    // when they show, and the ready ones either way.
+    const loadingTiles = () =>
+      ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="loading"]:not([data-sizing])').length;
+    const readyImages = () => ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="ready"] img').length;
+    let loading: ReturnType<typeof measure> | undefined;
+    await ctx.waitFor(() => {
+      if (loadingTiles() === count) {
+        loading = measure();
+        return true;
+      }
+      return readyImages() === count;
+    });
+    if (loading) {
+      for (const key of ["field", "box"] as const)
+        if (Math.abs(loading[key] - before[key]) > 1)
+          throw new Error(`loading: ${key} grew from ${before[key]}px to ${loading[key]}px after pasting an image`);
+    }
     for (const send of held.splice(0)) send();
-    await ctx.waitFor(
-      () => ctx.document.querySelectorAll('.acpmux-md-inline-chip[data-state="ready"] img').length === count,
-    );
+    await ctx.waitFor(() => readyImages() === count);
     await new Promise<void>((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(() => done())));
     const ready = sameHeight("ready");
     editor.setAttribute("data-image-height-proof", JSON.stringify({ before, loading, ready }));
