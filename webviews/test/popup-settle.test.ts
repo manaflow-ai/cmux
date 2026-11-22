@@ -72,7 +72,7 @@ class FakeView {
     );
   }
   fire(type: string, target: unknown = null) {
-    for (const listener of [...(this.listeners.get(type) ?? [])]) listener({ type, target });
+    for (const listener of this.listeners.get(type) ?? []) listener({ type, target });
   }
   /** Runs animation frames until none are queued. */
   frame() {

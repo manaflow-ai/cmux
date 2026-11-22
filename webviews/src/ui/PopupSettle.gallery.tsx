@@ -169,17 +169,17 @@ function LoadingScene() {
         className="popup-settle-loading"
         fade
       >
-        <div role="listbox" aria-label="Branches">
+        <ul aria-label="Branches" style={{ margin: 0, padding: 0, listStyle: "none" }}>
           {loaded ? (
             Array.from({ length: 12 }, (_, index) => (
-              <div key={index} role="option" aria-selected={false} style={{ padding: "4px 8px" }}>
+              <li key={index} style={{ padding: "4px 8px" }}>
                 feature/branch-{index + 1}
-              </div>
+              </li>
             ))
           ) : (
-            <div style={{ padding: "4px 8px" }}>Loading…</div>
+            <li style={{ padding: "4px 8px" }}>Loading…</li>
           )}
-        </div>
+        </ul>
       </Popover>
     </div>
   );
