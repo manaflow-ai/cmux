@@ -27,6 +27,7 @@ pub use superseded::{Superseded, starts_prompt};
 mod kind_heads;
 mod kind_index;
 mod segment_starts;
+#[cfg(test)]
 pub(crate) use kind_heads::KEYED_KINDS;
 pub use kind_heads::KindHead;
 pub use kind_index::{DIR as KIND_INDEX_DIR, INDEXED_KINDS};

@@ -381,8 +381,8 @@ impl KindHeads {
     /// past [`BUDGET`]. A chat's own heads are never evicted for its own: a keyed scan reads a
     /// chat's segments in order, and a least-recently-read eviction of a chat larger than the
     /// budget dropped each segment's heads just before the next scan asked for them, so every
-    /// scan read every copy whole again (cmux NEXT nightly, 2026-11-22: `read_kind_index`,
-    /// `fnv_on` and `Head::read` 21% of the daemon's CPU, under `prompt_with`'s resend reads of
+    /// scan read every copy whole again (cmux NEXT nightly, 2026-11-22: `prompt_with`'s resend
+    /// reads 23% of the daemon's CPU, `read_kind_index`, `fnv_on` and `Head::read` most of it, of
     /// a chat of 771 segments and 221,388 indexed lines). Such a chat keeps the heads it fit,
     /// its first segments, and the scan reads only the rest's copies.
     fn put(&self, id: &str, index: u32, heads: Arc<SegmentHeads>) {
