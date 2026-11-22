@@ -101,16 +101,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
-    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    /// The connection banner over kept rows, the states Workspaces' banner uses
+    /// (``ConnectionBannerState``). Its slot holds every state but a Mac known to be offline for
+    /// the shared quiet bound (``QuietConnectionBanner``): a retry or a redial that answers within
+    /// it draws nothing over the kept rows.
     private var homeBanner: ConnectionBannerState? {
         guard let status = connectionStatus, keptRowsShow else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
-        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
         switch status.kind {
         case .macOffline: return .macOffline(mac, identity: homeMacID)
-        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .unreachable, .connecting: return ConnectionBannerState.connectionFailed.identified(homeMacID)
         case .failed: return .refreshFailed(identity: homeMacID)
-        case .connecting: return .connecting(to: mac, identity: homeMacID)
         }
     }
 
@@ -123,8 +124,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
     @State private var autoRetriedFor: String?
 
-    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// Retry (the empty state's, or arriving at Home while it is not live). Nothing new is drawn
+    /// while it runs: the kept rows stay, and the empty state's Retry shows its spinner.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
         homeRetries += 1
@@ -441,25 +442,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes).
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                HStack(spacing: 6) {
-                    CmuxSpinner().controlSize(.small)
-                    Text("Updating…")
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .capsule)
-                .padding(.bottom, 8)
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("home.note.updating")
-            }
-        }
+        // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
+        // "just show the cache"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {

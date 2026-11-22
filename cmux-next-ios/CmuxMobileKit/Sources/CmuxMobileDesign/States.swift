@@ -245,9 +245,18 @@ extension View {
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
 /// dismissed state stays hidden until the state changes (to no banner, or to another one).
 private struct BannerHost: View {
-    let state: ConnectionBannerState?
+    let reported: ConnectionBannerState?
     let retry: (() -> Void)?
     @State private var dismissed: ConnectionBannerState?
+    /// Holds a state nobody can act on yet for the shared quiet bound (``QuietConnectionBanner``).
+    @State private var quiet = QuietConnectionBanner()
+
+    init(state: ConnectionBannerState?, retry: (() -> Void)?) {
+        reported = state
+        self.retry = retry
+    }
+
+    private var state: ConnectionBannerState? { quiet.shown }
 
     var body: some View {
         ZStack {
@@ -265,6 +274,7 @@ private struct BannerHost: View {
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
         .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+        .onChange(of: reported, initial: true) { _, new in quiet.update(new) }
     }
 }
 

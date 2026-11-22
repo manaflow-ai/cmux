@@ -16,6 +16,8 @@ public struct StreamedBrowserPage: View {
     @State private var raisedForField = false
     /// A JavaScript prompt's answer while its alert shows.
     @State private var promptText = ""
+    /// A reopen the page does on its own shows its line only past the shared quiet bound.
+    @State private var quiet = QuietStatusGate()
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
@@ -36,7 +38,7 @@ public struct StreamedBrowserPage: View {
             } else if case let .waiting(reason) = model.phase {
                 if model.canReopen {
                     reopen(reason)
-                } else {
+                } else if !model.healsQuietly || quiet.isShown {
                     status(reason)
                 }
             } else if model.phase == .connecting {
@@ -70,6 +72,7 @@ public struct StreamedBrowserPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
+        .onChange(of: model.healsQuietly, initial: true) { _, down in quiet.update(down: down) }
         .onAppear {
             model.setVisible(true)
             model.reconnect()

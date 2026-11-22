@@ -13,7 +13,7 @@ import Testing
     }
 
     @Test func anotherStateEndsTheDismissal() {
-        #expect(BannerDismissal.remembered(.offline, after: .reconnecting(to: "Mac")) == nil)
+        #expect(BannerDismissal.remembered(.offline, after: .macOffline("Mac")) == nil)
     }
 
     @Test func nothingDismissedStaysThatWay() {
@@ -24,7 +24,7 @@ import Testing
     /// Dismiss Offline, recover, go offline again: the second outage shows.
     @Test func aLaterEpisodeOfTheSameStateShows() {
         var dismissed: ConnectionBannerState? = .offline
-        for state in [ConnectionBannerState?.some(.connected), nil, .offline] {
+        for state in [ConnectionBannerState?.some(.signedOut), nil, .offline] {
             dismissed = BannerDismissal.remembered(dismissed, after: state)
         }
         #expect(dismissed != .offline)
