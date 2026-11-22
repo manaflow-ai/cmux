@@ -22,7 +22,8 @@ final class TerminalJumpToBottomUITests: XCTestCase {
 
         XCTAssertTrue(scrollUp(app, until: jump), "scrolled up: Jump to bottom shows\n\(app.debugDescription)")
         let window = app.windows.firstMatch.frame
-        XCTAssertLessThan(jump.frame.width, window.width / 2, "the element is the pill, not the full-width row")
+        // The pill plus its tap slop (`TerminalJumpToBottomRow.hitSlop` each side), never the full-width row.
+        XCTAssertLessThan(jump.frame.width, window.width * 0.75, "the element is the pill's target, not the full-width row: \(jump.frame)")
         XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "Jump to bottom is centered (was trailing)")
         XCTAssertLessThan(jump.frame.maxY, field.frame.minY, "it sits above the composer field")
         let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
