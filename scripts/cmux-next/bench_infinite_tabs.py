@@ -120,7 +120,7 @@ def build_workspace(app: bm.App, sock: str, chats: bm.FakeChats | None, index: i
     for url in urls:
         # Shown, as a person's open is: a page opened behind (the CLI's script origin) is never on screen, so it
         # has no leave picture and hibernates with no last frame.
-        opened = app.run("openBrowser.chromium", url=url, focus="true")
+        opened = app.action("openBrowser.chromium", focus=True, url=url)
         page = bw.created_tab(opened)
         if page is None:
             print(f"   workspace {index}: no page for {url}: {opened.get('error') or opened}", file=sys.stderr)
