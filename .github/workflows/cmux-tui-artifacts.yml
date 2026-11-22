@@ -872,7 +872,7 @@ jobs:
             cmux-pool-snapshot-
       - name: Look for a free mini for the macOS targets
         id: darwin-mac
-        if: steps.darwin-builder.outputs.builder == 'linux' && steps.inspect.outputs.place_macos == 'true'
+        if: false
         continue-on-error: true
         timeout-minutes: 2
         env:
