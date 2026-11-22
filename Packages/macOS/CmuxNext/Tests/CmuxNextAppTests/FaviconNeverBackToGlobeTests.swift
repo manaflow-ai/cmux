@@ -23,7 +23,7 @@ import Testing
 
     /// What a strip, sidebar row, hover card, new tab or history row reads: the face it draws for a page at `origin`.
     private static func face(_ fresh: TabImage?, _ origin: String?, _ keeper: OriginFaviconKeeper, persist: Bool = true) -> TabImage? {
-        FaviconKeeping.face(fresh: fresh, origin: origin, keeper: keeper, profile: .default, persist: persist)
+        keeper.face(fresh: fresh, origin: origin, profile: .default, persist: persist)
     }
 
     private static func tempDirectory() -> URL {
@@ -97,7 +97,7 @@ import Testing
         let keeper = OriginFaviconKeeper(directory: nil)
         let githubIcon = Self.icon()
         _ = Self.face(githubIcon, Self.github, keeper)
-        let shown = FaviconKeeping.face(fresh: githubIcon, origin: "https://example.org", keeper: keeper, profile: .default, persist: true, keeps: false)
+        let shown = keeper.face(fresh: githubIcon, origin: "https://example.org", profile: .default, persist: true, keeps: false)
         #expect(shown === githubIcon, "the old page is still on screen")
         #expect(Self.face(nil, "https://example.org", keeper) == nil, "example.org never gets GitHub's icon")
         #expect(Self.face(nil, Self.github, keeper) === githubIcon)
@@ -106,8 +106,7 @@ import Testing
     @Test func profilesDoNotShareKeptIcons() {
         let keeper = OriginFaviconKeeper(directory: nil)
         _ = Self.face(Self.icon(), Self.github, keeper)
-        #expect(FaviconKeeping.face(fresh: nil, origin: Self.github, keeper: keeper, profile: BrowserProfileID(rawValue: UUID()),
-                                    persist: true) == nil)
+        #expect(keeper.face(fresh: nil, origin: Self.github, profile: BrowserProfileID(rawValue: UUID()), persist: true) == nil)
     }
 
     @Test func anIncognitoTabsIconNeverReachesTheDisk() async throws {

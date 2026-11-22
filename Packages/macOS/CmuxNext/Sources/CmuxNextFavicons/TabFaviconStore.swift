@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextBrowser
 public import CmuxNextTabs
 import CmuxNextWakeups
+public import Foundation
 public import Observation
 
 /// Favicons for tab strips, per browser profile: the live page's icon or,
@@ -80,8 +81,8 @@ public final class TabFaviconStore {
     public func face(for address: String?, profile: BrowserProfileID, tab: (any BrowserTab)? = nil, page: URL? = nil,
                      origin: String? = nil, persist: Bool = true, fetching: Bool = true) -> TabImage? {
         let fresh = fetching ? image(for: address, profile: profile, tab: tab) : address.flatMap { cachedImage(for: $0, profile: profile) }
-        return FaviconKeeping.face(fresh: fresh, origin: origin ?? FaviconKeeping.origin(of: page), keeper: kept, profile: profile, persist: persist,
-                                   keeps: FaviconKeeping.keeps(tab))
+        return kept.face(fresh: fresh, origin: origin ?? OriginFaviconKeeper.origin(of: page), profile: profile, persist: persist,
+                         keeps: OriginFaviconKeeper.keeps(tab))
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads

@@ -3,6 +3,7 @@ public import CmuxNextBrowser
 import CmuxNextCompat
 public import CmuxNextTabs
 import CryptoKit
+public import Foundation
 import ImageIO
 public import Observation
 import UniformTypeIdentifiers
@@ -107,35 +108,30 @@ public final class OriginFaviconKeeper {
 
 /// The one rule every reader of a page's favicon follows: the fresh icon when there is one (and it becomes the
 /// origin's kept icon), else the origin's last good icon, else nil (the globe) for an origin that never had one.
-public enum FaviconKeeping {
+extension OriginFaviconKeeper {
     /// `https://host[:port]` of `page`, the key a site's icon is kept under (nil for an address without a host).
     public nonisolated static func origin(of page: URL?) -> String? {
         guard let page, let scheme = page.scheme?.lowercased(), let host = page.host()?.lowercased(), !host.isEmpty else { return nil }
         return "\(scheme)://\(host)" + (page.port.map { ":\($0)" } ?? "")
     }
 
-    /// ``face(fresh:origin:keeper:profile:persist:keeps:)`` for the page at `page`.
-    @MainActor
-    public static func face(fresh: TabImage?, page: URL?, keeper: OriginFaviconKeeper, profile: BrowserProfileID, persist: Bool,
-                            keeps: Bool = true) -> TabImage? {
-        face(fresh: fresh, origin: origin(of: page), keeper: keeper, profile: profile, persist: persist, keeps: keeps)
+    /// ``face(fresh:origin:profile:persist:keeps:)`` for the page at `page`.
+    public func face(fresh: TabImage?, page: URL?, profile: BrowserProfileID, persist: Bool, keeps: Bool = true) -> TabImage? {
+        face(fresh: fresh, origin: Self.origin(of: page), profile: profile, persist: persist, keeps: keeps)
     }
 
     /// `keeps` off while the page's address and its icon may belong to different documents (a navigation not committed
     /// yet: the address is the new site's, the icon still the old one's), so one origin's icon is never kept for another.
-    @MainActor
-    public static func face(fresh: TabImage?, origin: String?, keeper: OriginFaviconKeeper, profile: BrowserProfileID,
-                            persist: Bool, keeps: Bool = true) -> TabImage? {
+    public func face(fresh: TabImage?, origin: String?, profile: BrowserProfileID, persist: Bool, keeps: Bool = true) -> TabImage? {
         guard let origin else { return fresh }
         if let fresh {
-            if keeps { keeper.keep(fresh, origin: origin, profile: profile, persist: persist) }
+            if keeps { keep(fresh, origin: origin, profile: profile, persist: persist) }
             return fresh
         }
-        return keeper.kept(origin: origin, profile: profile)
+        return kept(origin: origin, profile: profile)
     }
 
     /// Whether `tab`'s address and icon belong to one committed document (the icon may be kept for its origin).
-    @MainActor
     public static func keeps(_ tab: (any BrowserTab)?) -> Bool {
         guard let tab else { return true }
         switch tab.state.phase {
