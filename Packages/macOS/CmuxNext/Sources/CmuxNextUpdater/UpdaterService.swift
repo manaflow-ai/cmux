@@ -276,6 +276,16 @@ public final class UpdaterService {
     /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
     /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
     @ObservationIgnored public var debugLastInput: Date?
+    /// Update When Idle's automatic installs declined in a row (the app did not quit for them) and when the
+    /// last was: the Rust rule backs the next try off (`update_idle::retry_after_seconds`).
+    @ObservationIgnored var idleDeclinedInstalls = 0
+    @ObservationIgnored var idleDeclinedAt: Date?
+    /// The away reading Update When Idle's last "install" acted on ("screen locked", "no input for 14 min"),
+    /// for the updater log's line about the relaunch.
+    @ObservationIgnored var idleAwayReading: String?
+    /// Settings > Updates' Next Check rule (set by the App: cmux-window-rules `update_idle::next_check_in`):
+    /// seconds from now given the seconds since the last check and the interval; nil when checks are off.
+    @ObservationIgnored public var nextCheckRule: (@MainActor (_ sinceLastCheck: Double?, _ interval: Double) -> Double?)?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.

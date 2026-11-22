@@ -3,11 +3,15 @@ public import Foundation
 /// Update When Idle (`updates.installWhenIdle`): the App hands the updater the question it asks Rust
 /// (`UpdateIdleGate.hold`, cmux-window-rules `update_idle`), and the updater asks it only while the setting is on.
 extension UpdaterService {
-    /// `hold(minutes, lastInput)` answers why a staged install waits (a cmux-window-rules hold reason), nil to install.
-    public func useIdleGate(_ hold: @escaping @MainActor (_ idleMinutes: Double, _ lastInput: Date?) -> String?) {
+    /// `hold(minutes, lastInput, declined, sinceDecline)` answers why a staged install waits (a cmux-window-rules
+    /// hold reason, nil to install) and, when it installs, the away reading it acted on.
+    public func useIdleGate(_ hold: @escaping @MainActor (_ idleMinutes: Double, _ lastInput: Date?, _ declined: Int,
+                                                          _ sinceDecline: Double?) -> (hold: String?, away: String?)) {
         idleInstallGate = { [weak self] in
             guard let self, let window = installWhenIdle else { return .unknown }
-            return .idleHold(hold(window / .seconds(60), debugLastInput))
+            let answer = hold(window / .seconds(60), debugLastInput, idleDeclinedInstalls, idleDeclinedAt.map { Date().timeIntervalSince($0) })
+            if answer.hold == nil { idleAwayReading = answer.away }
+            return .idleHold(answer.hold)
         }
     }
 

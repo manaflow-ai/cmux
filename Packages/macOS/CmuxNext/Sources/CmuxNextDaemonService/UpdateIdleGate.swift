@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 public import CmuxNextWindowRules
 import CmuxUpdater
+import CoreGraphics
 public import Foundation
 
 /// Update When Idle (`updates.installWhenIdle`, off by default; Leo, 2026-11-19: "when it's idle, it's able to ...
@@ -23,20 +24,39 @@ public final class UpdateIdleGate {
         self.newChatDrafts = newChatDrafts
     }
 
-    /// Why the staged update waits now, nil when it installs. `lastInput` stands in for the Mac's input time
-    /// (the update-idle harness: a fleet Mac has no person).
-    public func hold(idleMinutes: Double, lastInput: Date? = nil) -> WindowRules.UpdateIdleHold? {
+    /// Why the staged update waits now (nil when it installs) and the away reading an install acts on. Away is
+    /// leo-workspace `tools/host_presence.py`'s: input idle past the idle time OR the screen locked (Leo,
+    /// 2026-11-22: the Mac should update while he is away from the keyboard). `lastInput` stands in for the
+    /// Mac's input time (the update-idle harness: a fleet Mac has no person), and then the screen lock is not
+    /// read, so a locked fleet Mac does not count as away over the harness's "input now".
+    /// `declined`/`sinceDecline`: automatic installs declined in a row and seconds since the last (the backoff).
+    public func hold(idleMinutes: Double, lastInput: Date? = nil, declined: Int = 0,
+                     sinceDecline: Double? = nil) -> (hold: WindowRules.UpdateIdleHold?, away: String?) {
         let inputIdle = lastInput.map { Date().timeIntervalSince($0) } ?? DaemonService.secondsSinceInput()
-        var facts = WindowRules.UpdateIdleFacts(enabled: true, idleMinutes: idleMinutes, inputIdleSeconds: inputIdle)
-        // The idle time first: while the person is at the Mac nothing else is read.
-        if case .notIdle? = rules.updateIdleHold(facts) { return .notIdle }
-        guard let daemon else { return .unknown }
+        var facts = WindowRules.UpdateIdleFacts(enabled: true, idleMinutes: idleMinutes, inputIdleSeconds: inputIdle,
+                                                screenLocked: lastInput == nil ? Self.screenLocked() : nil,
+                                                declinedInstalls: declined, secondsSinceDecline: sinceDecline)
+        // Away first: while the person is at the Mac nothing else is read.
+        switch rules.updateIdleHold(facts) {
+        case .notIdle?: return (.notIdle, nil)
+        case .backoff?: return (.backoff, nil)
+        default: break
+        }
+        guard let daemon else { return (.unknown, nil) }
         let blockers = activity.applying(to: daemon.currentRelaunchBlockers(quietInput: nil))
         if let agents = Self.agentFacts(census: activity.census, blockers: blockers, newChatDrafts: newChatDrafts()) {
             facts.runningTurns = agents.runningTurns
             facts.unsentDrafts = agents.unsentDrafts
         }
-        return rules.updateIdleHold(facts)
+        return rules.updateIdleDecision(facts)
+    }
+
+    /// Whether this login session's screen is locked (`CGSSessionScreenIsLocked` in the current session's
+    /// dictionary, what host_presence.py reads through `ioreg`); nil when the session cannot be read, which is
+    /// never evidence of away. An unlocked session omits the key: false.
+    nonisolated static func screenLocked() -> Bool? {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return nil }
+        return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
     }
 
     /// This Mac's agent turns and unsent drafts, nil when any of them is unknown (the rule then holds).
