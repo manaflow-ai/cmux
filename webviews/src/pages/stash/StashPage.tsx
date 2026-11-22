@@ -36,6 +36,7 @@ import {
 import type { StashNotice, StashStore } from "./store";
 import type { StashGroup, StashMember } from "./types";
 import { intl } from "../../ui/intl";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Row and group-header heights before the first of their kind is measured (styles.css). */
 const ROW_ESTIMATE = 28;
@@ -478,20 +479,24 @@ const StashRow = memo(function StashRow({
       onContextMenu={(event) => onMenu(stash, member, event)}
       onKeyDown={(event) => onMenuKey(stash, member, event)}
     >
-      <button
-        type="button"
-        className="stash-row-main"
-        disabled={off}
-        aria-description={workspace ? tabs.join("\n") : member.url}
-        onClick={() => onRestore(stash, member)}
-      >
-        <span className="stash-row-icon">
-          <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
-        </span>
-        <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
-        {aside && <span className="stash-row-aside">{aside}</span>}
-        <span className="stash-row-time">{time}</span>
-      </button>
+      <WithFacts facts={[{ value: (workspace ? tabs.join("\n") : member.url) ?? "" }]}>
+        {(facts) => (
+          <button
+            {...facts}
+            type="button"
+            className="stash-row-main"
+            disabled={off}
+            onClick={() => onRestore(stash, member)}
+          >
+            <span className="stash-row-icon">
+              <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
+            </span>
+            <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
+            {aside && <span className="stash-row-aside">{aside}</span>}
+            <span className="stash-row-time">{time}</span>
+          </button>
+        )}
+      </WithFacts>
     </div>
   );
 });
