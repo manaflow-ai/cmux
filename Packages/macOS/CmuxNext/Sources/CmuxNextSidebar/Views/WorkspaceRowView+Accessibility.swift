@@ -112,7 +112,8 @@ extension WorkspaceRowView {
         if let detail { parts.append(detail) }
         if let meta = content.meta { parts.append(meta) }
         // The chip's word (never drawn: no status words on a row), else the one-line status the row draws.
-        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) }) ?? content.trailingStatus { parts.append(s) }
+        if let s = content.chip.map({ SidebarPriorityRowView.chipText($0, now: Date()) })
+            ?? content.tasks.map({ Strings.taskProgress(done: $0.done, total: $0.total) }) ?? content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
