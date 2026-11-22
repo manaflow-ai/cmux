@@ -42,33 +42,39 @@ import UIKit
         /// inset, 8 pt above and below): the before number, and proof the check catches it.
         var legacy = false
 
+        // As the Workspaces list (Screens.swift) and Home use it: the banner on the screen's
+        // content inside its NavigationStack, under the navigation bar.
         var body: some View {
+            NavigationStack {
+                placed
+                    .navigationTitle("Workspaces")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+
+        @ViewBuilder private var placed: some View {
             if legacy {
-                page.safeAreaInset(edge: .top, spacing: 0) {
+                rows.safeAreaInset(edge: .top, spacing: 0) {
                     if let state {
                         ConnectionBanner(state, retry: {}).padding(.vertical, 8).frame(maxWidth: .infinity)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.indicator = $0 }
                     }
                 }
             } else {
-                page.cmuxMobileBanner(state, retry: {})
+                rows.cmuxMobileBanner(state, retry: {})
             }
         }
 
-        private var page: some View {
-            NavigationStack {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // test: a fixed page of rows.
-                        ForEach(0 ..< ConnectionStateLayoutShiftTests.rows, id: \.self) { index in
-                            Text(verbatim: "Workspace \(index)")
-                                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.rows[index] = $0 }
-                        }
+        private var rows: some View {
+            ScrollView {
+                VStack(spacing: 0) {
+                    // test: a fixed page of rows.
+                    ForEach(0 ..< ConnectionStateLayoutShiftTests.rows, id: \.self) { index in
+                        Text(verbatim: "Workspace \(index)")
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.rows[index] = $0 }
                     }
                 }
-                .navigationTitle("Workspaces")
-                .navigationBarTitleDisplayMode(.inline)
             }
         }
     }
