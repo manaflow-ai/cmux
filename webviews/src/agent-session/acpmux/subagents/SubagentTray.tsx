@@ -547,11 +547,16 @@ export const SubagentTray = memo(function SubagentTray({
   useLayoutEffect(() => {
     const box = planBox.current;
     const step = box?.querySelector<HTMLElement>('.cv-plan__item[data-status="in_progress"]');
-    if (!box || !step || box.scrollHeight <= box.clientHeight) return;
-    const shown = box.getBoundingClientRect();
-    const at = step.getBoundingClientRect();
-    if (at.top < shown.top) box.scrollTop += at.top - shown.top;
-    else if (at.bottom > shown.bottom) box.scrollTop += at.bottom - shown.bottom;
+    if (!box || !step) return;
+    // Measured against the box's own cap, not its drawn height: the hat's open fold starts it at
+    // nothing, which would scroll the step out of the view it then grows into.
+    const cap = Number.parseFloat(getComputedStyle(box).maxHeight);
+    const room = Math.min(box.scrollHeight, Number.isFinite(cap) ? cap : box.scrollHeight);
+    if (box.scrollHeight <= room) return;
+    const top = step.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    const bottom = top + step.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = top;
+    else if (bottom > box.scrollTop + room) box.scrollTop = bottom - room;
   }, [plan, open]);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   // A lone item's header draws its own mark, as its line does.

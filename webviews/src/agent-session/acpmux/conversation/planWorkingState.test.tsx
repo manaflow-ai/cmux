@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PlanList } from "./PlanList";
 import { planHeadMark } from "../subagents/subagentTrayModel";
-import type { AcpmuxPlanEntry } from "../model";
+import type { AcpmuxPlanEntry, AcpmuxRow } from "../model";
+import { liveTurnClockStart } from "./turns";
 
 const plan: AcpmuxPlanEntry[] = [
   { content: "Read prior fixes, find real cause", status: "in_progress" },
@@ -60,4 +61,17 @@ test("the hat shows a six-step plan whole", () => {
   const rule = /\.acpmux-running-tray__plan \{[^}]*max-height: calc\((\d+) \* var\(--ui-row-height/.exec(subagentsCss);
   expect(rule).not.toBeNull();
   expect(Number(rule![1])).toBeGreaterThanOrEqual(plan.length);
+});
+
+test("the hat's clock counts the turn's current stretch, as the transcript's live line does", () => {
+  const T = 1_790_000_000_000;
+  const prompt: AcpmuxRow = { id: "p", version: 1, at: T, kind: "user", text: "fix it" };
+  const reply: AcpmuxRow = { id: "r", version: 1, at: T + 1_000, kind: "assistant", text: "done" };
+  const notice: AcpmuxRow = { id: "n", version: 1, at: T + 60_000, kind: "user", text: "task ended", untyped: true };
+  // The harness's start leads; the prompt's time is the fallback.
+  expect(liveTurnClockStart([prompt], T - 5)).toBe(T - 5);
+  expect(liveTurnClockStart([prompt])).toBe(T);
+  // A notice that set the agent going again after it replied starts a new stretch.
+  expect(liveTurnClockStart([prompt, reply, notice], T)).toBe(T + 60_000);
+  expect(liveTurnClockStart([])).toBeUndefined();
 });

@@ -3063,6 +3063,18 @@ export function continuationStart(rows: readonly AcpmuxRow[], start: number): nu
   return from;
 }
 
+/// When the running turn's current stretch began, for a clock outside the transcript (the composer
+/// hat's plan header, cmux#51039): the harness's turn start, else the person's last prompt, moved on
+/// to the latest notice that set the agent going again (`continuationStart`), so it reads as the
+/// transcript's live line does. Undefined without a known start.
+export function liveTurnClockStart(rows: readonly AcpmuxRow[], turnStartedAtMs?: number): number | undefined {
+  let index = rows.length - 1;
+  while (index >= 0 && !sentByPerson(rows[index]!)) index -= 1;
+  const opened = turnStartedAtMs ?? rows[index]?.at;
+  if (opened === undefined || !hasTimestamp(opened)) return undefined;
+  return continuationStart(index < 0 ? rows : rows.slice(index + 1), opened);
+}
+
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
 /// no stop, nothing to resume or continue.
 const isButtonFooter = (row: AcpmuxRow | undefined): row is AcpmuxRow =>
