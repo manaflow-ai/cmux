@@ -1,0 +1,63 @@
+/* Session-mark hill-climb (SessionMarkHillClimbGallery.tsx): the same transcript under four marks, at row
+   size, on four page fills. Spacing, radii and icon sizes are design-system tokens; the fills come from the
+   scheme's system colors, tinted for the paper and midnight themes. */
+.session-mark {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ds-space-3, 12px);
+  padding: var(--ds-space-4, 16px);
+  background: Canvas;
+  color: CanvasText;
+  font-size: 13px;
+  line-height: 20px;
+}
+.session-mark[data-scheme="light"] { color-scheme: light; }
+.session-mark[data-scheme="dark"] { color-scheme: dark; }
+.session-mark[data-scheme="paper"] { color-scheme: light; background: color-mix(in srgb, Canvas 86%, wheat); }
+.session-mark[data-scheme="midnight"] { color-scheme: dark; background: color-mix(in srgb, Canvas 70%, midnightblue); }
+.session-mark__look {
+  margin: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--ds-space-1, 4px);
+  padding: var(--ds-space-2, 8px);
+  border-radius: var(--ds-radius-lg, 8px);
+  border: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+}
+.session-mark__look[data-look="d"] { border-color: color-mix(in srgb, CanvasText 30%, transparent); }
+.session-mark__look figcaption { display: grid; font-weight: 600; margin-bottom: var(--ds-space-1, 4px); }
+.session-mark__look figcaption small { font-weight: 400; opacity: 0.6; font-size: 11px; line-height: 14px; }
+.session-mark__row { display: flex; align-items: center; gap: var(--ds-space-2, 8px); min-width: 0; }
+.session-mark__row[data-hooked] { padding-left: var(--ds-space-2, 8px); gap: var(--ds-space-1, 4px); }
+.session-mark__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-icon-16, 16px);
+  height: var(--ds-icon-16, 16px);
+  color: color-mix(in srgb, CanvasText 62%, transparent);
+}
+.session-mark__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-mark__text b { font-weight: 600; }
+.session-mark__toned { color: var(--agent-tone-ink, var(--agent-tone, currentColor)); }
+.session-mark__slot { position: relative; display: grid; width: 16px; height: 16px; }
+.session-mark__corner {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: Canvas;
+  padding: 1px;
+}
+/* Claude Code's own nesting mark (⎿): a hook from the parent row's icon column down into the child. */
+.session-mark__hook {
+  flex: none;
+  width: 6px;
+  height: 10px;
+  margin-top: -10px;
+  border-left: 1.25px solid color-mix(in srgb, CanvasText 35%, transparent);
+  border-bottom: 1.25px solid color-mix(in srgb, CanvasText 35%, transparent);
+  border-bottom-left-radius: 3px;
+}
