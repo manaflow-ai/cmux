@@ -809,13 +809,12 @@ fn reattach(path: &Path, target: &Target, mode: AttachMode) -> Round {
                     term = Some(ClientTerm::Bytes(Box::new(fresh)));
                     served.get_or_insert(AttachMode::Bytes);
                 }
-                Some("snapshot") => {
-                    if message["phase"] == "ready" {
-                        term = Some(ClientTerm::Snapshot(SnapshotTerm::restore(&decode("data"))));
-                        served.get_or_insert(AttachMode::Snapshot);
-                    }
-                    // History chunks (deflate) restore scrollback only: the
-                    // viewport never shows them, so they only count as bytes.
+                // Only the ready snapshot sets the screen. History chunks
+                // (deflate) restore scrollback only: the viewport never shows
+                // them, so they fall to the last arm and count as bytes.
+                Some("snapshot") if message["phase"] == "ready" => {
+                    term = Some(ClientTerm::Snapshot(SnapshotTerm::restore(&decode("data"))));
+                    served.get_or_insert(AttachMode::Snapshot);
                 }
                 Some("output") => {
                     if let Some(term) = term.as_mut() {

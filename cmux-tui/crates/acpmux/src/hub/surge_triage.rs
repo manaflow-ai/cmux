@@ -393,6 +393,12 @@ impl Hub {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
 
+    /// Turns surge admission on or off for this hub, whatever the settings file says (tests).
+    #[cfg(test)]
+    pub(crate) fn set_surge_inbox(&self, on: Option<bool>) {
+        *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) = on;
+    }
+
     /// `session`'s journal, read up to its newest record: the cached one past its cursor, or,
     /// after a restart, the chat's records once.
     fn surge_journal(&self, session: &Session) -> Result<Journal, RpcError> {
@@ -739,7 +745,16 @@ impl Hub {
             Some(triage_with) => triage_with(prompt),
             None => {
                 let timeout = Duration::from_millis(triage::TIMEOUT_MS);
-                match self.complete_own(harness, prompt, triage::MAX_TOKENS, timeout).await {
+                match self
+                    .complete_own(
+                        harness,
+                        prompt,
+                        triage::MAX_TOKENS,
+                        timeout,
+                        super::complete::ModelFallback::SmallOnly,
+                    )
+                    .await
+                {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::info!(

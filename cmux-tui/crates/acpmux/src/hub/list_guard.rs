@@ -157,6 +157,22 @@ impl Events {
         self.streamed.lock().unwrap_or_else(|e| e.into_inner()).every = every;
     }
 
+    /// Stops the window's clock at now: from here only [`Self::advance_stream_clock`] moves it,
+    /// so a test's window passes when the test says, never because the runner was slow.
+    #[cfg(test)]
+    pub(super) fn freeze_stream_clock(&self) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).frozen =
+            Some(std::time::Instant::now());
+    }
+
+    /// Moves the window's clock on by `by`, from now when it was not frozen, and stops it there.
+    #[cfg(test)]
+    pub(super) fn advance_stream_clock(&self, by: std::time::Duration) {
+        let mut streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+        let at = streamed.frozen.unwrap_or_else(std::time::Instant::now);
+        streamed.frozen = Some(at + by);
+    }
+
     /// Whether `session`'s row waits to be told for its agent's stream.
     #[cfg(test)]
     pub(super) fn stream_untold(&self, session: &str) -> bool {
@@ -168,11 +184,11 @@ impl Events {
     fn tell_untold(&self) {
         let mut untold =
             std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
-        let due = self
-            .streamed
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .due(&untold, std::time::Instant::now());
+        let due = {
+            let mut streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+            let now = streamed.now();
+            streamed.due(&untold, now)
+        };
         untold.extend(due);
         for session in untold {
             self.tell_row(&session);
@@ -374,11 +390,28 @@ pub(crate) struct StreamedRows {
     /// rows told in the last `every`.
     told: std::collections::HashMap<String, std::time::Instant>,
     pub(super) every: std::time::Duration,
+    /// A test's stopped clock (`Events::freeze_stream_clock`).
+    #[cfg(test)]
+    frozen: Option<std::time::Instant>,
 }
 
 impl StreamedRows {
     fn new(every: std::time::Duration) -> Self {
-        Self { waiting: HashSet::new(), told: Default::default(), every }
+        Self {
+            waiting: HashSet::new(),
+            told: Default::default(),
+            every,
+            #[cfg(test)]
+            frozen: None,
+        }
+    }
+
+    fn now(&self) -> std::time::Instant {
+        #[cfg(test)]
+        if let Some(at) = self.frozen {
+            return at;
+        }
+        std::time::Instant::now()
     }
 
     /// At a read: the waiting rows to tell now (none told within `every`), beside `telling`, the
