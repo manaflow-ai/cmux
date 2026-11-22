@@ -1,21 +1,21 @@
 {
   "cmuxProfile": 1,
   "name": "codex-app",
-  "description": "Looks like the Codex app: a near-black page, a quiet sidebar of chats by project, white ink and grays with no color accent, a rounded composer.",
+  "description": "Looks and works like the Codex app: a gray sidebar of chats by project, a white page, your prompts in gray pills, a large rounded composer.",
   "settings": {
     "appearance.themeFile": "codex-app",
     "sidebar.groupBy": "folder",
-    "sidebar.groupHeader.background": "sections",
-    "sidebar.groupHeader.memberCount": false,
-    "sidebar.workspaceRow.icon": false,
-    "sidebar.showColors": false,
-    "sidebar.showTimestamps": false,
-    "sidebar.detailedStatusIcons": false,
+    "sidebar.showTimestamps": true,
+    "sidebar.density": "comfortable",
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
     "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
     "agentPane.display.font.ui": "system-ui",
-    "agentPane.display.font.size": 14,
-    "agentPane.display.width": 760,
+    "agentPane.display.font.size": 15,
+    "agentPane.display.width": 1000,
     "agentPane.display.minimap": "off",
-    "agentPane.display.harnessPlacement": "compact"
+    "agentPane.editedFiles.show": "collapsed"
   }
 }

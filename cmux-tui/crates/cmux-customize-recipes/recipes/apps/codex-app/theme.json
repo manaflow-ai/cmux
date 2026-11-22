@@ -1,32 +1,24 @@
-// The Codex app, dark: a near-black #151515 page, a #1c1c1c sidebar with no edge, white ink, grays for
-// everything secondary and no color accent at all; selection and focus are a lighter gray. Picked to
-// match the app's look by eye from its public screenshots, not measured.
+// The Codex app: a gray sidebar beside a white page, near-black text, gray accents, no borders.
 {
   "name": "Codex app",
-  "description": "A near-black #151515 page, a #1c1c1c sidebar, white ink and grays, no color accent.",
+  "description": "A gray sidebar beside a white page, near-black text, no borders.",
 
-  "appearance.theme": "Builtin Dark",
+  "appearance.theme": "Builtin Light",
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "accent": "#5d5d5d" },
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#151515", "foreground": "#ededed", "selection": "#2e2e2e", "accent": "#ededed" },
   "appearance.accent": "neutral",
 
   "appearance.background": "none",
-  "appearance.backgroundBlur": "none",
-  "appearance.chromeStyle": "flat",
   "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#1c1c1c",
-  "appearance.surfaces.sidebar.opacity": 1,
-  "appearance.surfaces.agentPane.color": "#151515",
+  "appearance.surfaces.sidebar.color": "#d9d9d9",
+  "appearance.surfaces.sidebar.opacity": 0.92,
+  "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#151515",
-  "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.newTabPage.color": "#151515",
-  "appearance.surfaces.newTabPage.opacity": 1,
   "sidebar.sectionLook": "quiet",
   "appearance.statusIndicator.style": "dot",
-  "appearance.statusIndicator.color": "#ededed",
 
-  "appearance.density": "compact"
+  "appearance.density": "comfortable"
 }
