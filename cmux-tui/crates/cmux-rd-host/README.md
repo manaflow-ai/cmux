@@ -60,6 +60,18 @@ scripts/screen-share-vs.py run --host SHARED_MAC --viewer VIEWING_MAC --host-ip 
 scripts/screen-share-vs.py compare before.jsonl after.jsonl
 ```
 
+`--host-arg=ARG` adds a `cmux-rd serve` flag and `--viewer-arg=ARG` a `cmux-rd bench` flag, each
+repeatable and in the `=` form (the value starts with `-`). Only an allowlist passes
+(`--resolution-ladder`, `--max-qp N`, `--max-kbps N`; `--caps LIST`); anything else
+is refused. Both lists go into every output line and the table headers, so `compare` shows what
+differed. A head run with the resolution ladder on:
+
+```
+scripts/screen-share-vs.py run ... --label ladder --out ladder.jsonl \
+  --host-arg=--resolution-ladder --host-arg=--max-qp=40 --host-arg=--max-kbps=1000 \
+  --viewer-arg=--caps=video.scaled
+```
+
 The shared Mac runs the rig (`screen-share-vs.py rig`) inside an app that holds Screen Recording
 and Accessibility. The Apple leg is a headless RFB client: it never opens Screen Sharing.app or
 any window. A row that cannot be measured yet prints null with its reason under the table; the
