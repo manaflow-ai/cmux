@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { pageError } from "../shared/pageClient";
 import { AppsOps } from "./types";
-import { MockAppsProvider } from "./mockProvider";
+import { MockAppsProvider, sampleApps } from "./mockProvider";
 import { AppsStore } from "./store";
 import { userMessage } from "../shared/userMessage";
 
@@ -120,5 +120,47 @@ describe("AppsStore deep link after a catalog failure", () => {
   test("without a client a deep link is idle, not loading", () => {
     const store = new AppsStore(null, "#/discover?app=cmux.github-prs");
     expect(store.getSnapshot().detailStatus).toBe("idle");
+  });
+});
+
+describe("AppsStore shelves", () => {
+  // Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps". Discover lists the store
+  // shelf; the SDK examples only when the owner offers them; a `cmux ext dev` app never.
+  const shelved = (examples: boolean) => {
+    const data = sampleApps();
+    data.details["acme.caffeinate"]!.shelf = "example";
+    data.details["someone.weather"]!.shelf = "local";
+    return new MockAppsProvider({ ...data, examples });
+  };
+  const ids = (store: AppsStore) => store.getSnapshot().visible.map((app) => app.id);
+
+  test("Discover shows only the store shelf, and a developer's Examples shows only the examples", async () => {
+    const store = new AppsStore(shelved(true), "#/discover");
+    await store.start();
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    expect(store.getSnapshot().examplesOffered).toBe(true);
+
+    store.setShelf("example");
+    expect(ids(store)).toEqual(["acme.caffeinate"]);
+    expect(store.getSnapshot().categories).toEqual(["productivity"]);
+    store.setShelf("store");
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    store.stop();
+  });
+
+  test("without the owner's offer, Examples never opens, even from a deep link", async () => {
+    const store = new AppsStore(shelved(false), "#/discover?shelf=examples");
+    await store.start();
+    expect(store.getSnapshot().shelf).toBe("store");
+    store.setShelf("example");
+    expect(ids(store)).toEqual(["cmux.github-prs", "cmux.coderouter"]);
+    store.stop();
+  });
+
+  test("a listing from an owner older than shelves stays on Discover", async () => {
+    const store = new AppsStore(new MockAppsProvider(), "#/discover");
+    await store.start();
+    expect(ids(store)).toContain("someone.weather");
+    store.stop();
   });
 });

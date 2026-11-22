@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { StartRecovery } from "./StartRecovery";
 import { useT } from "./i18n";
 import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
 import type { AcpmuxSnapshot } from "./model";
@@ -58,9 +59,8 @@ export function SwitchNotice({
   const t = useT();
   const actionsRef = useRef<HTMLDivElement>(null);
   const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
-  if (!switching || switching.phase === "starting") return null;
-  if (switching.phase === "deferred")
-    return <output className="acpmux-switch-notice">{t("switch.deferred", { agent: switching.name })}</output>;
+  // A switch picked mid-turn (`deferred`) says nothing: the agent chip already shows the pick.
+  if (!switching || switching.phase !== "failed") return null;
   const view = startFailureView(t, switching);
   const refusal = startRefusalAction(switching.code);
   const signIn =
@@ -77,6 +77,17 @@ export function SwitchNotice({
   const hint = refusal === "signIn" && signIn === undefined && !installs ? t("switch.signInElsewhere") : undefined;
   return (
     <div className="acpmux-host-error acpmux-switch-failed" role="alert">
+      {(action === "install" || action === "signIn") && onAction && (
+        <StartRecovery
+          key={`${switching.harness}:${switching.code ?? ""}:${switching.error ?? ""}`}
+          kind={action}
+          sentence={view.sentence}
+          label={
+            action === "signIn" ? t("switch.action.signInTo", { harness: switching.name }) : t("switch.action.install")
+          }
+          onAction={() => onAction(action)}
+        />
+      )}
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{view.sentence}</p>
         {(machineShare.line ?? hint) && <p className="acpmux-host-error-hint">{machineShare.line ?? hint}</p>}

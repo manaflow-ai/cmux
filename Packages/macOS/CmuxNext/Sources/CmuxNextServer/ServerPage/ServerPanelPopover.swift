@@ -1,18 +1,20 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextPages
+public import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
 /// The menu bar item's popover: the server card page (`cmux.server-cards`) on the server panel,
 /// Health or pairing route, made once and kept warm, so a later opening swaps the route and never
-/// loads a page. The page drives the popover's size (`cmux.card.resize`, as in ``WebCardPanel``):
+/// loads a page. The page drives the popover's size (`cmux.card.resize`):
 /// a route it measured before shows at once at that size; a first opening waits for the page's
 /// first size (or ``firstSizeWait``), so the popover never draws at a wrong height and then jumps.
 /// A later size (Health opened from the panel, an alert resolved) applies in the same frame, and
 /// the popover keeps its edge under the menu bar while its bottom moves.
 @MainActor
 public final class ServerPanelPopover: NSObject, NSPopoverDelegate {
+    /// A transparent page that takes the first click (the popover is not key when the person clicks into it).
+    public static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true)
     static let firstSizeWait: Duration = .milliseconds(400)
     /// The size before the page reports one (the panel's width, a header's height).
     static let initialSize = NSSize(width: 340, height: 120)
@@ -35,7 +37,7 @@ public final class ServerPanelPopover: NSObject, NSPopoverDelegate {
         guard let page = PageWebView(descriptor: .serverCards,
                                      routes: [PageRoute(prefix: provider.prefix, provider: provider),
                                               PageRoute(prefix: Sizer.prefix, provider: sizer)],
-                                     options: WebCardPanel.engineOptions) else { return nil }
+                                     options: Self.engineOptions) else { return nil }
         self.page = page
         self.sizer = sizer
         super.init()

@@ -24,6 +24,7 @@ mod apps {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let mut dirs = Vec::new();
         for folder in ["samples/apps", "examples/extensions"] {
+            // affected-reads: samples/apps examples/extensions
             let root = repo.join(folder);
             dirs.extend(
                 std::fs::read_dir(&root)
@@ -33,6 +34,7 @@ mod apps {
                     .map(|p| (p, V2)),
             );
         }
+        // affected-reads: first-party-apps
         let root = repo.join("first-party-apps");
         dirs.extend(
             std::fs::read_dir(&root)
@@ -100,6 +102,25 @@ mod apps {
                     );
                 }
             }
+        }
+    }
+
+    /// Every first-party app's manifest validates. The host drops a package that fails, so
+    /// one listing over a length cap (CodeRouter's description, cmux#44805) takes the whole
+    /// app out of cmux with no error anywhere a person sees.
+    #[test]
+    fn first_party_apps_are_valid_manifest_v2_packages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+            .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
+            .map(|e| e.expect("entry").path())
+            .filter(|p| p.join(V2).is_file())
+            .collect();
+        dirs.sort();
+        assert!(dirs.len() >= 3, "expected the first-party apps, found {dirs:?}");
+        for dir in dirs {
+            let report = validate_package_file(&dir, V2);
+            assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
         }
     }
 }

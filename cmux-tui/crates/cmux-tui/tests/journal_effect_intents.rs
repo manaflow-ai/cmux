@@ -1,10 +1,9 @@
-//! Registry commits ride the journal writer's batch on a real headless
-//! daemon: under terminal output, a terminal create commits its terminal
-//! records (reserved, ready) and its effect receipt as writer intents, and a
-//! topology write (`rename-workspace`) commits its resource patch as one (one
-//! shared fsync per batch). None of them runs its own transaction on the
-//! request thread, and the journal writer never takes the workspace registry
-//! lock while requests wait for its receipts.
+//! Registry commits run on their request thread on a real headless daemon
+//! (`registry_intent`, PL-daemon b5): under terminal output, a terminal
+//! create commits its terminal records (reserved, ready) and its effect
+//! receipt, and a topology write (`rename-workspace`) commits its resource
+//! patch, each in its own transaction, none through the journal writer's
+//! batch; and the journal writer never takes the workspace registry lock.
 #![cfg(unix)]
 
 use std::fs;
@@ -18,7 +17,7 @@ use cmux_tui_core::platform::transport;
 /// Creates measured under output load. Each create commits two terminal
 /// records (reserved, ready) and one effect receipt with its topology patch.
 const CREATES: usize = 8;
-/// Writer intents per create: terminal reserved, terminal ready, effect.
+/// Registry commits per create: terminal reserved, terminal ready, effect.
 const INTENTS_PER_CREATE: usize = 3;
 /// Topology writes measured under output load, one resource patch each.
 const RENAMES: usize = 6;
@@ -178,17 +177,15 @@ fn terminal_creates_under_output_commit_effect_receipts_in_writer_batches() {
     let delta = |name: &str| counter(&after, name) - counter(&before, name);
     let expected = (CREATES * INTENTS_PER_CREATE + RENAMES) as u64;
     assert!(
-        delta("effect_intents") >= expected,
+        delta("request_effect_commits") >= expected,
         "{CREATES} creates and {RENAMES} renames committed only {} of {expected} registry \
-         commits as writer intents: {after}",
-        delta("effect_intents")
+         commits on their request thread: {after}",
+        delta("request_effect_commits")
     );
-    assert!(delta("effect_intent_batches") > 0, "no writer batch carried an intent: {after}");
-    assert_eq!(delta("effect_intent_failures"), 0, "writer intents failed: {after}");
     assert_eq!(
-        delta("request_effect_commits"),
+        counter(&after, "effect_intents"),
         0,
-        "creates or renames committed on the request thread: {after}"
+        "a registry commit rode the journal writer's batch: {after}"
     );
     assert_eq!(
         counter(&after, "writer_registry_locks"),

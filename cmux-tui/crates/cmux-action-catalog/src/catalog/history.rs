@@ -221,9 +221,12 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: the person picked the one site to forget, and that pick is the
+        // confirmation (removing history entries asks nothing in Chrome either). Clear History
+        // and Clear Recently Closed, which remove everything, still ask. `--confirm` is still
+        // taken and changes nothing.
         arguments: &[args::SITE_HOST, args::CONFIRM.optional()],
         cli_name: "history remove-site",
-        is_destructive: true,
         request: Some(Request {
             lane: RequestLane::Session,
             operation: "history.site.remove",
@@ -257,9 +260,9 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: one picked item, as Remove Site from History.
         arguments: &[args::CLOSED_ITEM, args::CONFIRM.optional()],
         cli_name: "closed delete",
-        is_destructive: true,
         request: Some(Request {
             lane: RequestLane::Session,
             operation: "closed.delete",

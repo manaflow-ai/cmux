@@ -82,7 +82,22 @@ mkdir -p "$fp/v1-fixture" && printf '{ "id": "cmux/v1" }\n' > "$fp/v1-fixture/cm
 if out=$("$sync" --store 2>&1); then fail "a STORE app with a v1 manifest"; fi
 [[ "$out" == *"has a STORE marker but no manifest v2"* ]] || fail "the v1 message: $out"
 rm -rf "$fp/v1-fixture"
+printf '{ "manifestVersion": "2", "id": "cmux/v1s" }\n' > "$TMP/v1s.json"
+mkdir -p "$fp/v1s-fixture" && cp "$TMP/v1s.json" "$fp/v1s-fixture/cmux-app.json" && touch "$fp/v1s-fixture/STORE"
+if "$sync" --store >/dev/null 2>&1; then fail "a STORE app whose manifestVersion is the string \"2\""; fi
+rm -rf "$fp/v1s-fixture"
 pass "a name clash and a v1 STORE app are refused"
+
+# 3b. A manifest v2 cmux-app.json is read as JSON: spaces around the colon and line breaks still count.
+mkdir -p "$fp/spaced-fixture/dist"
+printf '{\n  "id": "cmux/spaced",\n  "manifestVersion"\n    :\n    2\n}\n' > "$fp/spaced-fixture/cmux-app.json"
+printf 'function render() {}\n' > "$fp/spaced-fixture/dist/main.js"
+touch "$fp/spaced-fixture/STORE"
+"$sync" --store >/dev/null || fail "a manifest v2 cmux-app.json formatted with spaces and newlines"
+[[ -f "$store/spaced-fixture/cmux-app.v2.json" ]] || fail "the spaced manifest lands as cmux-app.v2.json"
+rm -rf "$fp/spaced-fixture" "$store/spaced-fixture"
+"$sync" --store >/dev/null
+pass "a manifest v2 cmux-app.json is parsed, not matched as text"
 
 # 4. build-web-bundles.sh: --verify refuses a missing store/; a dev build writes it even without bun.
 bundles="$tree/scripts/cmux-next/build-web-bundles.sh"
@@ -100,6 +115,14 @@ PATH="$nobun" CMUX_WEB_BUNDLES_TOOLS_OPTIONAL=1 "$bundles" >/dev/null 2>&1 \
 if out=$("$bundles" --verify 2>&1); then fail "--verify passes with no web bundle stamp"; fi
 [[ "$out" != *"App Store packages"* ]] || fail "--verify passes the store packages once written: $out"
 pass "build-web-bundles.sh writes store/, --verify refuses a tree without it"
+# A scratch tree with only the bundle scripts (the --from and ensure-web-bundles tests) has no app
+# platform: no store step runs there (cmux#45083 review P2-F1).
+bare="$TMP/bare"
+mkdir -p "$bare/scripts/cmux-next"
+cp "$ROOT/scripts/cmux-next/build-web-bundles.sh" "$bare/scripts/cmux-next/"
+if out=$("$bare/scripts/cmux-next/build-web-bundles.sh" --verify 2>&1); then fail "--verify passes a bare tree with no stamp"; fi
+[[ "$out" != *"sync-app-runtime"* && "$out" != *"App Store packages"* ]] || fail "a bare tree runs no store step: $out"
+pass "a tree without sync-app-runtime.sh runs no store step"
 
 # 5. check-app-bundle.sh on a built app's layout.
 app="$TMP/cmux DEV fixture.app"

@@ -8,7 +8,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
-    /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// keychain would prompt on every rebuild. Every other build keeps
+    /// Chromium's key in cmux's own item (`CEFKeychainItem`), and falls back to
+    /// this when the fork does not take that item (`CEFRuntime.applyKeychainItem`).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -49,6 +51,16 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// into CEF's feature list.
     static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
 
+    /// Renderers start V8's young generation at 32 MB a semi-space instead of growing it from 1 MB. A streaming
+    /// chat makes short-lived garbage on every token, and a long chat's renderer scavenged far more often than a
+    /// short one's (309 against 92 over one replay, median 30 ms against 14). On the paired transcript replay
+    /// (god chat, 34,641 rows, against a small one; 8 rounds on the build fleet, CPU clock) the god / small p95
+    /// went from 1.41 to 1.07 for thought updates and from 1.49 to 1.37 for tokens, and the god chat's thought
+    /// p95 from 8.37 to 5.64 ms. The renderer's memory did not grow: 153 MB with one chat and 472 MB with ten,
+    /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
+    /// "no perceivable difference" from a small one (within 1.2x).
+    static let youngGeneration = "js-flags=--min-semi-space-size=32"
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -82,6 +94,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        result.append(Self.youngGeneration)
         result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
@@ -113,6 +126,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
         // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
         result.append(Self.processPerSitePageSchemes)
+        // One renderer per site put every chat in one renderer: one renderer crash or out-of-memory
+        // kill reloaded every open chat (Leo, 2026-11-14: "separate the health of the overall process
+        // from the falliability of crash prone bits"). The fork (cmux_process_per_site_main_frame_cap)
+        // puts a page in the oldest renderer of its site that holds fewer than this many pages, or a
+        // new one, and keeps it there, so a crash reloads at most that many chats. The cap keeps the
+        // origin, so the pages' localStorage and every origin check stay as they are. Older forks
+        // ignore the switch.
+        result.append(Self.processPerSitePageCap)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -193,6 +214,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// (`PageDescriptor.scheme`; `cmux-process-per-site-schemes`, chrome_content_browser_client_cef.cc).
     static let processPerSitePageSchemes = "cmux-process-per-site-schemes=cmux-page"
 
+    /// The most cmux pages one renderer holds: the size of the WebKit fallback's groups
+    /// (`WebProcessGroups.pagesPerProcess`, `PageOverlayProcess`), so both engines lose at most 8
+    /// pages to one process end. Each renderer past the first costs its base once per 8 pages.
+    static let pagesPerRenderer = 8
+
+    /// The fork's switch: at most ``pagesPerRenderer`` pages per renderer of a
+    /// ``processPerSitePageSchemes`` site (fork patch cmux_process_per_site_main_frame_cap).
+    static let processPerSitePageCap = "cmux-process-per-site-main-frame-cap=\(pagesPerRenderer)"
+
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",
@@ -217,6 +247,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        #if DEBUG
+        // Verification of the real keychain path (cmux's own item) in a development bundle.
+        let realKeychain = environment["CMUX_NEXT_REAL_KEYCHAIN"] == "1"
+        #else
+        let realKeychain = false
+        #endif
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -229,7 +265,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            useMockKeychain: dev,
+            useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,

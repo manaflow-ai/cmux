@@ -88,6 +88,11 @@ import Testing
 
     @Test(arguments: Kind.allCases) func aLoadingTabKeepsItsIconAndShowsTheIndicatorOnTheRight(kind: Kind) throws {
         let cell = Self.cell(kind, unread: true, busy: true, audio: true)
+        // The order of every trailing mark, so the look that draws the unread dot beside the spinner
+        // (TabBusyUnreadMarkTests covers the one combined mark the default draws).
+        var metrics = cell.metrics
+        metrics.busyUnreadMark = .pair
+        cell.metrics = metrics
         let icon = Self.iconFrame(cell)
         #expect(cell.iconLayer.opacity == 1, "\(kind): the loading indicator hides the icon")
         let marks = Self.marks(cell)

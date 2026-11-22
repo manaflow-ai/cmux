@@ -76,6 +76,19 @@ const TARGETLESS: &[&str] = &[
     "api-key-revoke",
     "move",
     "bring-back",
+    "transfer-local",
+    "team-sessions",
+    "team-session",
+    "copy-session-link",
+    "follow",
+    "unfollow",
+    "reassign",
+    "archive-session",
+    "show-team-section",
+    "team-members",
+    "group-members",
+    "group-member-set",
+    "group-member-remove",
     "move-to-machine",
     "sign-in",
     "sign-out",
@@ -175,9 +188,15 @@ fn quick_start_commands_parse() {
                     && !line.contains('<')
                     && !line.contains(" | ")
             })
-            // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
-            // `cloud_environment.rs` (`the_help_env_lines_parse`).
-            .filter(|line| !line.contains("secret") && !line.contains("client-session"))
+            // These (secrets, client sessions, team keys, model connections) run in this CLI, not through the app's catalog;
+            // `cloud env` lines parse in `cloud_environment.rs` (`the_help_env_lines_parse`), `cloud connect` and
+            // `cloud connections` lines in `cloud_connect.rs` (`the_help_connect_lines_parse`).
+            .filter(|line| {
+                !line.contains("secret")
+                    && !line.contains("client-session")
+                    && !line.contains("team-keys")
+                    && !line.starts_with("cmux vm connect")
+            })
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
         // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and eight machine lines,
@@ -284,7 +303,9 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 3, "{examples:?}");
+    // The fourth: the composer's picks (cmux#46701: --effort and --no-folder parse too).
+    assert_eq!(examples.len(), 4, "{examples:?}");
+    assert!(examples.iter().any(|line| line.contains("--effort") && line.contains("--no-folder")));
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();
@@ -342,7 +363,9 @@ fn every_usage_flag_is_a_catalog_argument_and_back() {
                 let flag = word.strip_prefix("--")?;
                 // `--yes` reaches the app as its `--confirm` (vm.rs `yes_as_confirm`).
                 let flag = if flag == "yes" { "confirm" } else { flag };
-                (!["target", "focus", "arg"].contains(&flag)).then(|| camel(flag))
+                // `--focus` and `--no-focus` set the request's `focus` (app.rs `run_action`), not an
+                // argument the app takes.
+                (!["target", "focus", "no-focus", "arg"].contains(&flag)).then(|| camel(flag))
             })
             .collect::<BTreeSet<_>>();
         assert_eq!(flags, args, "{}: usage {:?}", verb.name, verb.usage);

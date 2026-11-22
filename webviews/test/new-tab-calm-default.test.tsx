@@ -67,7 +67,7 @@ afterAll(async () => {
 
 const noop = () => {};
 
-test("the default stage shows the composer, create buttons and five recent chats", async () => {
+test("the default stage shows the composer and five recent chats with no fixed create buttons", async () => {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -99,15 +99,11 @@ test("the default stage shows the composer, create buttons and five recent chats
       chats: host.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length,
     };
     expect(page).toEqual({ tools: 0, closed: 0, allChatsTable: 0, chats: 5 });
-    expect([...host.querySelectorAll(".nt-create button")].map((button) => button.textContent)).toEqual([
-      "New terminal",
-      "New browser tab",
-      "New chat",
-    ]);
+    expect(host.querySelector(".nt-create")).toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
     expect(showAll).toBe(1);
 
-    // The All Chats layouts keep the buttons: their suggestions no longer list the create actions.
+    // The All Chats layouts also leave creation in the searchable suggestions.
     for (const template of ["threads", "console"] as const) {
       await act(async () =>
         root.render(
@@ -129,10 +125,7 @@ test("the default stage shows the composer, create buttons and five recent chats
         ),
       );
       expect(host.querySelector(".nt-screen[data-all-chats]"), template).not.toBeNull();
-      expect(
-        [...host.querySelectorAll(".nt-create button")].map((button) => button.textContent),
-        template,
-      ).toEqual(["New terminal", "New browser tab", "New chat"]);
+      expect(host.querySelector(".nt-create"), template).toBeNull();
     }
     await act(async () =>
       root.render(
