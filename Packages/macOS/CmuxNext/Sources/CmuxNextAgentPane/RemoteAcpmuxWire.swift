@@ -142,6 +142,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         self.ownerCloud = ownerCloud
         self.cloudRepositoryRequest = cloudRepository
         self.cloudRepositoryStart = cloudRepositoryStart
+        // carve-out: the wire's callbacks are synchronous (AcpmuxPaneWire), so its state is a Mutex, not an actor.
         state = Mutex(State(client: client, session: session))
     }
 
@@ -163,6 +164,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         self.ownerCloud = ownerCloud
         self.cloudRepositoryRequest = cloudRepository
         self.cloudRepositoryStart = cloudRepositoryStart
+        // carve-out: the wire's callbacks are synchronous (AcpmuxPaneWire), so its state is a Mutex, not an actor.
         state = Mutex(State())
     }
 
