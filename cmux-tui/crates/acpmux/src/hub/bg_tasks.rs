@@ -285,16 +285,8 @@ impl Hub {
     /// of an earlier folder of this name never shows here.
     pub(super) fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
         let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
-        let mut records: Vec<Record> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                bg_run::read_record(dir, name.strip_suffix(".json")?)
-            })
-            .filter(|r| r.generation == generation)
-            .collect();
+        let mut records: Vec<Record> =
+            bg_run::list_records(dir).into_iter().filter(|r| r.generation == generation).collect();
         records.sort_by_key(|r| r.started_at);
         records
     }
