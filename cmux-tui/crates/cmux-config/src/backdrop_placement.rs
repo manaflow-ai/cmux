@@ -245,12 +245,11 @@ pub fn placement_key(picture_id: &str) -> Option<&str> {
         return None;
     }
     if let Some(path) = id.strip_prefix("system:")
-        && let Some(cut) = path.rfind("|frame:")
+        && let Some((file, moment)) = path.rsplit_once("|frame:")
     {
-        let moment = &path[cut + "|frame:".len()..];
         let frame = moment.strip_suffix("|light").or_else(|| moment.strip_suffix("|dark"));
         if frame.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
-            return Some(&id[..("system:".len() + cut)]);
+            return id.get(.."system:".len() + file.len());
         }
     }
     Some(id)
