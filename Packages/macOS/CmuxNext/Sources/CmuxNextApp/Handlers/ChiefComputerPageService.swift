@@ -176,62 +176,15 @@ extension AppServices: ChiefComputerHost {
 
     func chiefComputerLiveFeed(machine: String, name: String, agentActs: @escaping () -> Bool) -> (any HomeChiefComputerLiveFeed)? {
         guard machines.session(machine)?.machine.opensCarrierDesktop == true else {
-            MachineLiveFeed.logger.error("computer live: machine serves no carrier desktop")
+            RemoteDesktopWatchFeed.logger.error("computer live: machine serves no carrier desktop")
             return nil
         }
         guard let transport = cloudDesktopRdTransport(machine: machine)?(false) else {
-            MachineLiveFeed.logger.error("computer live: no transport")
+            RemoteDesktopWatchFeed.logger.error("computer live: no transport")
             return nil
         }
-        return MachineLiveFeed(name: name, transport: transport, agentActs: agentActs)
+        return RemoteDesktopWatchFeed(name: name, transport: transport, agentActs: agentActs)
     }
 }
 
-/// A Chief's Cloud machine's desktop stream, watching only: the same `cmux-rd` session Open Desktop's viewer runs.
-/// The person's input while they hold control still goes through the screen's own route.
-private final class MachineLiveFeed: HomeChiefComputerLiveFeed {
-    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief.computer")
-    private let pane: RemoteDesktopPane
-    private let transport: RemoteRdStreamTransport
-    private let agentActs: () -> Bool
-    private var cursor: RemoteCursorState?
-    var onChange: (() -> Void)?
-
-    init(name: String, transport: RemoteRdStreamTransport, agentActs: @escaping () -> Bool) {
-        self.transport = transport
-        self.agentActs = agentActs
-        pane = RemoteDesktopPane(hostName: name, source: transport, inputSink: nil, initialMode: .view, scaling: .fit,
-                                 viaCloudTunnel: true, modeControl: .takeOver)
-        pane.view.showsChrome = false
-        pane.onStateChange = { [weak self] in
-            guard let self else { return }
-            let line = debugStatus
-            if line != lastStatus {
-                lastStatus = line
-                MachineLiveFeed.logger.notice("computer live: \(line, privacy: .public)")
-            }
-            onChange?()
-        }
-        pane.onCursor = { [weak self] in
-            self?.cursor = $0
-            self?.onChange?()
-        }
-        pane.start()
-        transport.connect()
-    }
-
-    private var lastStatus = ""
-    var debugStatus: String { "\(String(describing: pane.state.status)) hasFrame=\(pane.state.hasFrame) overlay=\(String(describing: pane.state.overlay))" }
-    var view: NSView { pane.view }
-    var isLive: Bool { pane.isShowingFrames }
-    var pixels: CGSize { pane.framePixels }
-    var pointer: CGPoint? {
-        guard agentActs(), let cursor, cursor.visible else { return nil }
-        return cursor.position
-    }
-
-    func stop() {
-        pane.stop()
-        transport.stop()
-    }
-}
+extension RemoteDesktopWatchFeed: HomeChiefComputerLiveFeed {}
