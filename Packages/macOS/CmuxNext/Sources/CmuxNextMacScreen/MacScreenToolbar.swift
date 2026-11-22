@@ -374,6 +374,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         guard let session = model.session else { return menu }
+        // The whole stats line first, codec and frame size included: the bar's label drops them when it is short of
+        // room and shows no tooltip (a control that shows text has none), so its own control says them (Chief,
+        // 2026-11-21: what the cut tooltip said shows somewhere visible).
+        if session.phase == .connected {
+            let stats = NSMenuItem(title: Self.statsLines(session).full, action: nil, keyEquivalent: "")
+            stats.isEnabled = false
+            menu.addItem(stats)
+            menu.addItem(.separator())
+        }
         for quality in ScreenQuality.allCases {
             menu.addItem(NSMenuItem.macScreen(Self.qualityTitle(quality), checked: session.preferences.quality == quality) { [weak self] in
                 self?.actions.setQuality(quality)

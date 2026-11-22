@@ -333,11 +333,42 @@ install_cmux_rd() {
       rd_failed "checksum verification failed for cmux-rd ($got, the channel says $rd_want)"
       return 0
     }
-    mkdir -p "$bin_dir"
-    install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"
-    # A symlink to a directory would take the new file inside it.
-    [ ! -L "$rd" ] || rm -f "$rd"
-    mv -f "$bin_dir/.cmux-rd.new" "$rd"
+    # Each step checked: under `set -e` a read-only or full ~/.local would end the join here.
+    # A symlink to a directory would take the new file inside it, so it goes first.
+    if ! { mkdir -p "$bin_dir" &&
+      install -m 755 "$tmp/cmux-rd" "$bin_dir/.cmux-rd.new"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
+    # The file that is moved into place is the one checked: the copy in bin, not only the
+    # download (another writer of bin, a short write).
+    got="$(sha256 "$bin_dir/.cmux-rd.new" 2>/dev/null || true)"
+    [ "$got" = "$rd_want" ] || {
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "checksum verification failed for the copy in $bin_dir ($got, the channel says $rd_want)"
+      return 0
+    }
+    # Only a file (or nothing) is replaced: mv onto a directory moves the file inside it.
+    # A directory that appeared since the first look is named, never filled.
+    if [ ! -L "$rd" ] && [ -e "$rd" ] && [ ! -f "$rd" ]; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "$rd is not a file: remove it, then run the line again"
+      return 0
+    fi
+    if ! { { [ ! -L "$rd" ] || rm -f "$rd"; } &&
+      mv -f "$bin_dir/.cmux-rd.new" "$rd"; } 2>/dev/null; then
+      rm -f "$bin_dir/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "cannot write it to $bin_dir"
+      return 0
+    fi
+    # What is at $rd now is what the daemon runs: a regular executable file, or nothing
+    # installed (a directory that appeared between the look and the mv took the file).
+    if [ -L "$rd" ] || [ ! -f "$rd" ] || [ ! -x "$rd" ]; then
+      [ ! -d "$rd" ] || [ -L "$rd" ] || rm -f "$rd/.cmux-rd.new" 2>/dev/null || true
+      rd_failed "$rd is not a file: remove it, then run the line again"
+      return 0
+    fi
     say "installed cmux-rd to $rd"
   elif [ ! -x "$rd" ]; then
     chmod 755 "$rd" || {
@@ -711,7 +742,8 @@ if [ "$os" != Linux ]; then
 elif [ "$is_joined" != 1 ]; then
   # Only a join's daemon sets cmux-rd's host up (acpmux share_host/linux.rs).
   printf '%s\n' "This machine is not joined, so its screen is not shared."
-elif [ -x "$rd" ]; then
+elif [ -f "$rd" ] && [ -x "$rd" ]; then
+  # A regular executable file (a directory is executable too, and runs nothing).
   # The daemon runs cmux-rd's enable at its start, and within a minute of
   # cmux-rd arriving or changing (acpmux share_host/linux.rs).
   printf '%s\n' "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."

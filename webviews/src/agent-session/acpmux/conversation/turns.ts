@@ -21,6 +21,7 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
+import { cutLongRuns } from "./runParts";
 import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -1357,7 +1358,9 @@ function shapedTurn(
       ...line,
     ];
     // What was still going when the person sent into the running turn draws after the prompt.
-    if (live) shaped = afterSends(shaped, clockOffset);
+    // A run that keeps many cards in sight (a coordinator's Agent calls) draws as rows of a few
+    // each, so the transcript mounts only those near the window (runParts.ts).
+    if (live) shaped = cutLongRuns(afterSends(shaped, clockOffset));
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -2899,7 +2902,7 @@ function shapeLiveTurn(
   // ended turn's card (`card` in shapedTurn), so the row stays when the turn ends.
   const wrapUp = liveWrapUp(kept);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs);
+  const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt);
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -2972,6 +2975,7 @@ function shapeLiveRows(
   sessionStatus: boolean,
   trayAgents: number,
   turnStartedAtMs: number | undefined,
+  foldsPrompt: boolean,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
