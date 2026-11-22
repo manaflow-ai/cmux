@@ -122,8 +122,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
+
+// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
+// A smaller explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
+const CHAT_START_SIZE = Object.freeze({ cpu: 4, memory_mb: 16384, disk_mb: 65536 });
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -256,6 +261,7 @@ export function preclaimPublicMeta(): Record<string, string> {
 
 export class Journey {
   readonly steps: Step[] = [];
+  readonly guestDiagnostics: GuestDiagnostics[] = [];
   readonly secrets: string[] = [];
   readonly firstText = new FirstTextTiming();
   preclaimRows: PreclaimClaimRecord[] | null = null;
@@ -291,12 +297,13 @@ export class Journey {
     if (!this.outDir) return;
     const meta = this.publicSafe ? preclaimPublicMeta() : this.meta;
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
+    writeFileSync(path.join(this.outDir, "guest-updater.json"), `${JSON.stringify({ schema: 1, observations: this.guestDiagnostics }, null, 2)}\n`);
     const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
     writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
   }
 }
 
-type Answer = { status: number; body: any };
+type Answer = { status: number; body: any; headers?: Headers };
 
 /**
  * The request died on its socket before any answer came back: the peer reset or closed it (Bun: ECONNRESET "The
@@ -344,7 +351,35 @@ export async function http(method: string, url: string, body: unknown, headers: 
   } catch {
     parsed = { raw: text.slice(0, 300) };
   }
-  return { status: res.status, body: parsed };
+  return { status: res.status, body: parsed, headers: res.headers };
+}
+
+/** Lets a provider request still running after 60 s answer 202 instead of being held open (see settleBackground). */
+export const BACKGROUND_AFTER = { "x-freestyle-background-after-secs": "60" } as const;
+const BACKGROUND_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+/**
+ * The final answer of a provider request sent with BACKGROUND_AFTER. Freestyle's edge cuts a request it holds open at
+ * about 120 s (an exec-await of a 290 s command answered 524 after 125 s, production 2026-11-21), so a request still
+ * running after 60 s answers 202 with a request id, and GET /v5/background-requests/{id} (with the same `headers`)
+ * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Five failed
+ * polls in a row (no answer, 429 or 5xx), or no answer by `deadlineAt`, throw: the command may have run. cmux-vm
+ * (workers/cmux-vm/src/upstream/live-background.ts) and the CLI (cmux-cloud-api background.rs) do the same.
+ */
+export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http): Promise<Answer> {
+  if (answer.status !== 202) return answer;
+  const id = answer.headers?.get("x-freestyle-background-request-id") ?? answer.body?.requestId ?? answer.body?.request_id;
+  if (typeof id !== "string" || !BACKGROUND_ID.test(id)) throw new Error("background request: the 202 names no request");
+  const url = `${apiBase.replace(/\/+$/, "")}/v5/background-requests/${id}`;
+  let failures = 0;
+  while (Date.now() + pollMs < deadlineAt) {
+    await new Promise((r) => setTimeout(r, pollMs));
+    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, deadlineAt - Date.now()))).catch(() => null);
+    if (poll && poll.status === 202) failures = 0;
+    else if (poll && poll.status !== 429 && poll.status < 500) return poll;
+    else if (++failures >= 5) break;
+  }
+  throw new Error(`background request ${id}: no answer by the deadline (the command may have run)`);
 }
 
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
@@ -1060,7 +1095,7 @@ const EXEC_PROBE_IDLE_S = [5, 5, 15, 15, 30, 30, 65, 65];
 const EXEC_PROBE_LOAD_START = "for i in 1 2; do setsid timeout 900 yes </dev/null >/dev/null 2>&1 & echo $! >> /tmp/.cmux-exec-probe-load; done; true";
 const EXEC_PROBE_LOAD_STOP = "kill $(cat /tmp/.cmux-exec-probe-load) 2>/dev/null; rm -f /tmp/.cmux-exec-probe-load; true";
 export type ExecProbeKind = "short" | "idle" | "wait";
-export type ExecProbeRun = { condition: EnsureBenchCondition; kind: ExecProbeKind; run: number; nonce: string; ms: number; status: number | null; code: string; cause: string; ranOnGuest: boolean | null };
+export type ExecProbeRun = { condition: EnsureBenchCondition; kind: ExecProbeKind; run: number; nonce: string; ms: number; status: number | null; code: string; cause: string; ranOnGuest: boolean | null; at?: number };
 
 /** A probe's command: its nonce first, then `holdS` seconds of waiting (an `acp wait` read is about 20 s), then `ok`. */
 export function execProbeCommand(nonce: string, holdS: number): string {
@@ -1084,6 +1119,12 @@ export async function execProbe(post: (body: unknown, timeoutMs: number) => Prom
     const e = error as any;
     return { ms: Date.now() - t0, status: null, code: String(e?.code ?? e?.cause?.code ?? e?.name ?? "error"), cause: String(e?.message ?? error).slice(0, 200) };
   }
+}
+
+/** The fields of a machine row that say who stopped it (CloudIdle pause_reason, SpendCap paused_by), not the whole row. */
+export function machineStopFields(m: any): Record<string, unknown> {
+  const keep = ["status", "pause_reason", "paused_by", "paused_at", "stopped_at", "status_reason", "reason", "error", "last_op", "transport", "platform", "provider", "updated_at"];
+  return Object.fromEntries(keep.filter((k) => m?.[k] !== undefined).map((k) => [k, m[k]]));
 }
 
 /** Where a failed probe ended, from its answer (MachineGuest.ts names each refusal) or, with none, the guest's nonces. */
@@ -1185,7 +1226,7 @@ export async function runStartBench(args: {
 }): Promise<StartSample[]> {
   const samples: StartSample[] = [];
   const notes: string[] = [];
-  const size = { cpu: 2, memory_mb: 4096, disk_mb: 16384 };
+  const size = CHAT_START_SIZE;
   const write = () => {
     const md = `${startBenchMarkdown(samples, `Start bench (${args.backend}, N=${args.n})`)}${notes.length ? `\n${notes.map((n) => `- ${n}`).join("\n")}\n` : ""}`;
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "start-bench.md"), md); }
@@ -1253,7 +1294,7 @@ export async function runStartBench(args: {
   const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
   const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
   const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
-    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
+    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, resources: { vcpus: size.cpu, memoryMib: size.memory_mb, diskMib: size.disk_mb }, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
     if (r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`POST /v1/vms: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
     const id = r.body?.id ?? r.body?.vm?.id;
     if (typeof id !== "string") throw new Error(`POST /v1/vms answered no id: ${short(r.body)}`);
@@ -1375,9 +1416,15 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   const answer = await args.api.op("cloud.machine.create", { name: `cloud ensure bench ${args.tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-ensure-bench`);
   const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
   if (typeof machine !== "string") throw new Error(`create answered no machine: ${short(answer)}`);
+  const created = Date.now();
+  boot.machine = machine;
   // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
   boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
+    // The uploader keeps only header, rows and failures, so each failed probe's time since create rides in the header.
+    const failed = probes.filter((r) => execProbeHop(r) !== null).map(({ condition, kind, run, at, ms, status, code }) => ({ condition, kind, run, at, ms, status, code }));
+    // The first 30 keep it under the header's 4000-character cut, so the JSON stays whole.
+    if (failed.length) boot.probe_failures = JSON.stringify(failed.slice(0, 30));
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
     if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length, probes: probes.length, probes_failed: probes.filter((r) => execProbeHop(r) !== null).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows, probes: probes.map((r) => ({ ...r, cause: scrub(r.cause, args.journey.secrets) })) }, null, 2)}\n`);
@@ -1388,7 +1435,16 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
     const post = (body: unknown, timeoutMs: number) => args.api.raw("POST", `/v1/cloud/machines/${machine}/exec`, body, timeoutMs);
     const probe = async (condition: EnsureBenchCondition, kind: ExecProbeKind, run: number, holdS: number) => {
       const nonce = `${args.tag}-${condition}-${kind}-${run}`.replace(/[^A-Za-z0-9_.-]/g, "-");
-      probes.push({ condition, kind, run, nonce, ranOnGuest: null, ...(await execProbe(post, nonce, holdS)) });
+      const at = Date.now() - created;
+      const r = await execProbe(post, nonce, holdS);
+      probes.push({ condition, kind, run, nonce, ranOnGuest: null, at, ...r });
+      // Run 43983037186: the machine stopped during a 20 s exec and every probe after was 409 vm_not_running. Who
+      // stopped it: the platform's row (status, pause_reason, paused_by) at the first one, with ms since create, so
+      // a VM-side idle timeout (cmux-vm DEV_TEST_MAX_IDLE_SECONDS) shows against the probe times.
+      // One read per distinct 409 refusal, so an unrelated conflict first does not hide vm_not_running.
+      const key = `first_409_${r.code.replace(/[^A-Za-z0-9_]/g, "_")}`.slice(0, 64);
+      if (r.status === 409 && boot[key] === undefined)
+        boot[key] = JSON.stringify({ at: Date.now() - created, code: r.code, row: await args.api.read("cloud.machine.get", { machine }).then(machineStopFields, (e) => `read failed: ${String((e as Error)?.message ?? e)}`) });
     };
     // Short execs back to back, 20 s holds like an `acp wait` read, and (settled) one after each idle gap, where a
     // pooled connection the far end already closed would be reused.
@@ -1656,7 +1712,7 @@ export async function runPreclaimBurst(args: {
       const { spare, leaseId } = prepared;
       const claimSentAt = Date.now();
       step = "claim";
-      const answer = await api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${args.tag}-preclaim-${index}`);
+      const answer = await api.op("cloud.machine.create", { name: `cloud preclaim ${args.tag} ${index}`, size: CHAT_START_SIZE }, `${args.tag}-preclaim-${index}`);
       const machine = typeof answer?.machine === "string" ? answer.machine : answer?.machine?.id ?? answer?.machine_id ?? answer?.id ?? null;
       claimedMachine = typeof machine === "string" ? machine : null;
       claimedBehind = spareFields(answer).claimed_behind;
@@ -1865,7 +1921,7 @@ export async function finishJourney(cleanup: () => Promise<void>, observer: Prom
 }
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-export function directExec(api: Api, machine: string, journey: Journey): Exec {
+export function directExec(api: Api, machine: string, journey: Journey, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
@@ -1890,7 +1946,10 @@ export function directExec(api: Api, machine: string, journey: Journey): Exec {
       journey.secrets.push(session!.token);
     }
     const s = session!;
-    const r = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { "x-freestyle-identity-access-token": s.token }, timeoutMs + 15_000);
+    const identity = { "x-freestyle-identity-access-token": s.token };
+    const deadlineAt = Date.now() + timeoutMs + 15_000;
+    const sent = await http("POST", `${s.api_base_url.replace(/\/+$/, "")}/v5/vms/${s.vm_id}/exec-await`, { command, linuxUser: s.linux_user, timeoutMs }, { ...identity, ...BACKGROUND_AFTER }, timeoutMs + 15_000);
+    const r = await settleBackground(sent, s.api_base_url, identity, deadlineAt, backgroundPollMs);
     if (r.status < 200 || r.status >= 300) throw new Error(`exec-await: HTTP ${r.status}`);
     const rawCode = r.body.statusCode ?? r.body.exitCode ?? r.body.code;
     // Freestyle leaves statusCode null or missing when the command timed out; the cmux CLI maps that to 124.
@@ -3271,7 +3330,9 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       const r = must("cloud start-chat", run(["cloud", "start-chat", "--target", target, "--prompt", prompt, "--agent", agent, "--wait", "--timeout", "600", "--json"], 700_000));
       const reply = String(r.json?.reply ?? "");
       if (!reply.trim()) throw new Error(`no reply in ${short(r.json)}`);
-      return { value: null, detail: reply.slice(0, 280) };
+      // The CLI's own start marks (cmux-tui start_stages.rs), named as this journey's create_marks_ms.
+      const stages = r.json?.stages && typeof r.json.stages === "object" ? ` stages ${JSON.stringify(r.json.stages)}` : "";
+      return { value: null, detail: `${reply.slice(0, 280)}${stages}` };
     });
   } finally {
     if (!machine && createRan) {
@@ -3565,7 +3626,7 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
 }
 
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
-async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
+export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
     "x-stack-access-type": "client",
     "x-stack-project-id": stack.project,
@@ -3827,6 +3888,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let createSentAt: number | null = null;
   // The chat machine's exec once the run has one, for the failure facts below.
   let machineExec: Exec | null = null;
+  let guestFinalRead = false;
+  const guestDiagnosticsAbort = new AbortController();
+  const readGuestDiagnostics = async (phase: "journey-facts" | "before-cleanup") => {
+    if (phase === "before-cleanup") {
+      if (guestFinalRead) return;
+      guestFinalRead = true;
+    }
+    const observation = await collectGuestDiagnostics(machineExec, phase, 18_000, guestDiagnosticsAbort.signal);
+    J.guestDiagnostics.push(observation);
+    try {
+      J.record({ step: `guest updater (${phase})`, status: "skip", ms: observation.duration_ms,
+        detail: `${observation.status}; updater=${observation.updater.look.outcome}; first_ready=${observation.updater.first_ready.outcome}; full evidence: guest-updater.json` });
+    } catch { console.warn("Guest updater evidence could not be written; continuing cleanup"); }
+  };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
@@ -3874,6 +3949,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = sharedCleanup(async () => {
+    await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
     if (preclaimStateDir) {
       rmSync(preclaimStateDir, { recursive: true, force: true });
@@ -3941,6 +4017,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // The runner kills the job about 10 s after a cancel; the facts reads (up to 27 s) would lose the delete. A
     // cancel deletes first and reads no facts.
     factsRead = true;
+    guestFinalRead = true;
+    guestDiagnosticsAbort.abort();
     for (const dial of carrierDials) dial.kill("SIGTERM");
     for (const dir of carrierStateDirs) rmSync(dir, { recursive: true, force: true });
     void cleanup().finally(() => {
@@ -4141,11 +4219,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!validLogin("claude", login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
           preclaimStateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-login-"));
           const scopeTeam = team ?? install.team ?? String(user?.personal_team ?? user?.team ?? "");
-          const scope = { platform: backend.api, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
+          // The platform the app sends a warm to: client-config's platform_origin, as the burst does. The API host
+          // forwards no /v1/machines/reservations and answers an empty 404, so every production run from 11-18 to 11-20
+          // skipped this step and measured a cold create.
+          const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          const scope = { platform, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
           const account = `${String(user?.id ?? user?.user?.id ?? "")}/${team ?? String(user?.personal_team ?? user?.team ?? "")}`;
           prepared = await prepareSpareLogin({
             api, cmux: preclaimLoginCmux, stateDir: preclaimStateDir, installToken: install.token,
-            request: { platform: backend.api, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
+            request: { platform, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
             programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), login,
             ownerScope: team ? "owner or team" : "owner", index: 0, journey: J, readyBudgetMs: 120_000,
           });
@@ -4166,7 +4248,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
-          const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
+          const v = await api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
@@ -4237,6 +4319,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
       }
 
+      await readGuestDiagnostics("journey-facts");
       // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md).
       // First, from here, what the app's Set Up GitHub reads: the team's connection (GET /v1/integrations/github/status)
       // and its repository list (GET /v1/integrations/github/repos), counts only. Then
@@ -4916,6 +4999,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
         const results = await runChaos({
           cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+          // The machine holds no login with a launch credential: the chaos chats start on it, as the journey's own did.
+          credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
         }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
@@ -4968,6 +5053,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
     }
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
+    await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
     if (!keep) {
       await J.step("delete", async () => {

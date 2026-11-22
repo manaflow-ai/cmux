@@ -98,6 +98,12 @@ impl TaskPlan {
                 let id = result.and_then(|r| r.pointer("/task/id")).and_then(|v| {
                     v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string()))
                 })?;
+                // Claude Code resets its list once every task in it is done, and the next
+                // create starts a new one: the finished list goes here too, so it never
+                // heads the next plan as old done steps (design/chat-plan-lifecycle.md).
+                if self.tasks.iter().all(|task| task.status == "completed") {
+                    self.tasks.clear();
+                }
                 if self.tasks.iter().any(|task| task.id == id) {
                     return None;
                 }

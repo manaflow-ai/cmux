@@ -97,7 +97,7 @@
   box-sizing: border-box;
   border-radius: var(--acpmux-attach-radius);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 /* Select All in the prompt selects the strip's attachments too (Leo, 2026-11-01): each wears the
    selection's tint, as the chips placed in the text do (markdownField.css). */
@@ -269,9 +269,6 @@
   justify-content: center;
   width: 104px;
 }
-.acpmux-attachment-file.acpmux-attachment-pending {
-  gap: 4px;
-}
 /* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
    width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
    128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
@@ -349,17 +346,6 @@
   width: 100%;
   min-width: 0;
   max-width: none;
-}
-.acpmux-attachment-file.acpmux-attachment-failed {
-  max-width: min(260px, 70vw);
-  /* Room for its x on the right, as a file chip has. */
-  padding: 0 32px 0 8px;
-}
-.acpmux-attachment-failed-name {
-  overflow: hidden;
-  color: var(--agent-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
    button on the composer's own surface, like the tile's × beside it. */
@@ -618,6 +604,10 @@
 }
 .acpmux-attachment:hover .acpmux-attachment-remove,
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
+  opacity: 1;
+}
+/* A failed chip in the prompt keeps its remove control visible. */
+.acpmux-md-inline-chip > .acpmux-attachment-failed .acpmux-attachment-remove {
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
@@ -1032,7 +1022,7 @@ button.acpmux-attachment-pasted-open:hover {
   height: 20px;
   border-radius: var(--ds-radius-md);
   background: var(--agent-control);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 .acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
   padding-top: calc(var(--ds-space-3) + 12px);
@@ -1073,6 +1063,34 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-chip[data-chip-kind="ui"] .acpmux-paste-chip__label > .acpmux-paste-chip__part[data-part="kind"] {
   color: var(--agent-muted);
+}
+
+/* A browser pick (composer/BrowserPickChip.tsx): its number in a round badge, the number its pin
+   shows on the page, then the person's comment as the title, the element and page under it. The
+   badge sits in the glyph slot, so a row of picks lines up like a numbered list. */
+.acpmux-browser-pick-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  padding: 0 4px;
+  border-radius: 999px;
+  /* The accent role and the text the theme draws on it. */
+  background: var(--agent-accent);
+  color: var(--agent-on-accent, var(--agent-page-bg, #fff));
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--ds-icon-16);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="comment"] {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A pick in a sent message (conversation/SentUIPick.tsx): the composer's chip in the message's one
@@ -1144,6 +1162,15 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-file-chip--removable { padding-right: 32px; }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
+.acpmux-file-chip > .acpmux-file-chip__status {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  overflow: visible;
+  color: var(--agent-muted);
+}
 .acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
 .acpmux-file-chip .acpmux-file-chip__head {
   min-width: 0;

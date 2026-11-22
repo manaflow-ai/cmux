@@ -21,9 +21,6 @@ export interface SetupState {
    * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
    * its disk image, so nothing installs until it runs from Applications; `installing`: an install runs. */
   cli: "missing" | "other" | "installed" | "foreign" | "fromImage" | "installing";
-  /** Chats from other agents on this Mac (the host found some): the row opens the history import; `done` once
-   * that page showed or the row was dismissed. Null or absent: none found (the row does not show). */
-  history?: { done: boolean } | null;
   /** Whether cmux may add its tools (its MCP server, Computer Use included) to the person's coding
    * agents (`agents.cmuxMcp`): the agents found, by name, and the answer (`ask` until the person
    * answers on this card; `on` or `off` after). Null or absent: nothing to ask (no agent found, or it
@@ -31,9 +28,22 @@ export interface SetupState {
   tools?: { agents: readonly string[]; choice: "ask" | "on" | "off"; applying: boolean } | null;
   /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
   classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
+  /** The app's text size and density (Set Up cmux's Text Size and Density row; David Beyer, Nov 20): `textSize` is
+   * appearance.metrics.chromeFontSize in points or null (the density's own), `density` the density's id, `body` its
+   * chrome body text in points. Null or absent: an app that has no such row (the row does not show). */
+  look?: { textSize: number | null; density: string; body: number } | null;
+  /** The card's Chief form (first-run findings rows 1 and 4): shown in Chief's chat because the agent Chief
+   * answers through (Claude Code) is missing or signed out. Only the agents row, under a title that says why. */
+  forChief?: boolean;
 }
 
-export type SetupStepID = "agents" | "tools" | "history" | "account" | "cli" | "classic";
+/** The card's title: what Chief needs in its Chief form, else Set Up cmux. */
+export function setupTitle(state: SetupState, { t, format }: Strings): string {
+  const agent = state.forChief ? state.agents[0] : undefined;
+  return agent ? format("home.setup.chiefNeeds", agent.name) : t("home.setup.title");
+}
+
+export type SetupStepID = "agents" | "tools" | "account" | "cli" | "classic" | "look";
 
 /** What a row's button asks the host to do. */
 export type SetupAction =
@@ -42,10 +52,10 @@ export type SetupAction =
   | { kind: "confirmAgent"; id: string }
   | { kind: "signInAccount" }
   | { kind: "installCLI" }
-  | { kind: "importHistory" }
-  | { kind: "declineHistory" }
   | { kind: "addTools" }
   | { kind: "declineTools" }
+  | { kind: "setTextSize"; points: number | null }
+  | { kind: "setDensity"; id: string }
   | { kind: "importClassic" }
   | { kind: "declineClassic" };
 
@@ -64,6 +74,9 @@ export interface SetupStep {
   tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
+  /** A choice, not a to-do (Text Size and Density): never counted in the progress, never the next step, and its
+   * controls sit under its words instead of in the slot. */
+  optional?: boolean;
 }
 
 /** The agent a person is closest to talking to: signed in, else signed out, else the first. */
@@ -80,8 +93,7 @@ function agentAction(agent: SetupAgent, { format }: Strings): { label: string; r
 }
 
 /** The rows in their order: classic first when found (its answer decides what Home holds), then
- * agents, cmux's tools in those agents when there is something to ask, the chat history when found,
- * account and the command line. */
+ * agents, cmux's tools in those agents when there is something to ask, account and the command line. */
 export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
@@ -143,6 +155,8 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
         }
       : other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });
+  // Chief's form: the agents row is the whole card.
+  if (state.forChief) return steps;
   if (state.tools) {
     const { agents, choice, applying } = state.tools;
     const done = choice !== "ask" && !applying;
@@ -162,19 +176,6 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
           action: { label: t("home.setup.tools.add"), run: { kind: "addTools" } as const },
           secondary: { label: t("home.setup.notNow"), run: { kind: "declineTools" } as const },
         }),
-    });
-  }
-  if (state.history) {
-    const { done } = state.history;
-    steps.push({
-      id: "history",
-      done,
-      title: t("home.setup.history"),
-      detail: t("home.setup.history.detail"),
-      ...(!done && {
-        action: { label: t("home.setup.import"), run: { kind: "importHistory" } as const },
-        secondary: { label: t("home.setup.notNow"), run: { kind: "declineHistory" } as const },
-      }),
     });
   }
   steps.push({
@@ -206,15 +207,25 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
       },
     }),
   });
+  // Text Size and Density: a choice offered at the first run, never a to-do (its controls are the row's own).
+  if (state.look)
+    steps.push({
+      id: "look",
+      done: true,
+      optional: true,
+      title: t("home.setup.look"),
+      detail: t("home.setup.look.detail"),
+    });
   return steps;
 }
 
 /** The first row not done; undefined when every row is. */
 export function nextStep(steps: readonly SetupStep[]): SetupStep | undefined {
-  return steps.find((step) => !step.done);
+  return steps.find((step) => !step.done && !step.optional);
 }
 
 /** Rows done of rows shown. */
 export function setupProgress(steps: readonly SetupStep[]): { done: number; total: number } {
-  return { done: steps.filter((step) => step.done).length, total: steps.length };
+  const todos = steps.filter((step) => !step.optional);
+  return { done: todos.filter((step) => step.done).length, total: todos.length };
 }
