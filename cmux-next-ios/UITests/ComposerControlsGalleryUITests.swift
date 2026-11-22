@@ -58,10 +58,10 @@ final class ComposerControlsGalleryUITests: XCTestCase {
             let tile = app.descendants(matching: .any)["terminal.attachment"].firstMatch
             XCTAssertTrue(tile.waitForExistence(timeout: 40), "the attachment shows\n\(app.debugDescription)")
             sleep(4)
-            let attach = app.buttons["terminal.composer.attach"]
-            if attach.exists {
-                XCTAssertGreaterThan(tile.frame.minX, attach.frame.maxX, "the tile is inside the field, right of +")
-            }
+            // The + is a Menu: match it as any element, and never skip the placement check when it is missing.
+            let attach = app.descendants(matching: .any)["terminal.composer.attach"].firstMatch
+            XCTAssertTrue(attach.exists, "the + shows\n\(app.debugDescription)")
+            XCTAssertGreaterThan(tile.frame.minX, attach.frame.maxX, "the tile is inside the field, right of +")
             // The composer's own text view: `textViews.firstMatch` is the terminal's, far offscreen.
             let field = app.textViews["terminal.composer.field"]
             XCTAssertTrue(field.exists, "the composer field shows\n\(app.debugDescription)")
