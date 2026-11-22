@@ -10,7 +10,7 @@ import Foundation
 import Testing
 
 /// The floating prompts as the person meets them: the card at the top right of the screen over another app, in a
-/// real floating dialog panel, composited by the window server over a busy backdrop (Leo 2026-11-22 on air-blue: "im
+/// real floating dialog panel, composited by the window server over a busy backdrop (Leo 2026-11-22: "im
 /// not sure what was up with the glass on it, and the lack of theming on it too"). Three prompts (the join consent's
 /// control ask, a device asking to control this Mac, Computer use acting as me), each over a wallpaper and over a
 /// light page, in Soft Blue Light, Soft Blue and Dracula. Written under `floating-prompt-gallery/` with one sheet per
@@ -81,7 +81,7 @@ import Testing
     static func capture(_ prompt: String, look: CmuxDialogView.PromptLook, theme: String, dark: Bool,
                         backdrop: String) throws -> CGImage {
         _ = NSApplication.shared
-        CmuxDialogView.galleryPromptLook = look
+        setenv("CMUX_GALLERY_PROMPT_LOOK", look.rawValue, 1)
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input(theme))
         let panel = CmuxFloatingDialogPanel(identifier: "gallery.floatingPrompt")
@@ -116,7 +116,7 @@ import Testing
         Motion.reduceMotionOverride = true
         defer {
             Motion.reduceMotionOverride = nil
-            CmuxDialogView.galleryPromptLook = .identity
+            unsetenv("CMUX_GALLERY_PROMPT_LOOK")
         }
         let root = AANestedGroupsGalleryTests.packageRoot
         let out = root.appending(path: "floating-prompt-gallery")
