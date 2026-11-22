@@ -13,6 +13,7 @@
 // which the picture is ordered just above (0: in front). Writes `shown` (the pictures' window numbers) once they are up.
 // Removes the folder when it ends. Ends at `painted`, at the deadline (a short fade), or when the folder disappears.
 ObjC.import('Cocoa');
+ObjC.import('CoreGraphics');
 
 function run(argv) {
   const dir = argv[0];
@@ -40,13 +41,24 @@ function run(argv) {
     view.imageScaling = $.NSImageScaleAxesIndependently;
     view.image = image;
     win.contentView = view;
+    // Drawn (the PNG decoded) before it is ordered in, so its first frame on screen is the picture.
+    win.display;
     if (w.above > 0) win.orderWindowRelativeTo($.NSWindowAbove, w.above); else win.orderFrontRegardless;
     shown.push(win);
   }
   // A click the person asked for comes back in front (the new copy activates); an unclicked one stays where it was.
   if (plan.activates) app.activateIgnoringOtherApps(true);
   const loop = $.NSRunLoop.currentRunLoop;
-  loop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.02));
+  // `shown` only once the window server lists every picture on screen (a commit can lag the order by a frame or more).
+  const numbers = shown.map((w) => Number(w.windowNumber));
+  for (let i = 0; i < 60; i++) {
+    loop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(1 / 120));
+    const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0))) || [];
+    const up = new Set(list.map((w) => w.kCGWindowNumber));
+    if (numbers.every((n) => up.has(n))) break;
+  }
+  // One more frame: listed is committed, this is presented.
+  loop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(1 / 60));
   // The old copy waits for this file before its own windows go (never a frame with neither on screen). A file, not
   // stdout: the old copy may be gone by the time anything here writes, and a write to its pipe would end this process.
   $(shown.map((w) => w.windowNumber).join(',')).writeToFileAtomicallyEncodingError(dir + '/shown', true, $.NSUTF8StringEncoding, null);
