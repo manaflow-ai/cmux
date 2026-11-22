@@ -224,8 +224,18 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
+
+    def debt_in_dir(entries: dict, folder: str) -> int:
+        return sum(e.get("count", 0) for k, e in entries.items()
+                   if os.path.dirname(k) == folder and not str(e.get("reason", "")).startswith("safe:"))
+
     for rel, entry in sorted(allow.get(rule, {}).items()):
         was = old.get(rel, {}).get("count", 0)
+        # A test module moved out of its file (foo.rs -> foo_tests.rs) takes its entry along: the folder's debt
+        # did not grow, so the new row is not new debt.
+        if rel.endswith(("_tests.rs", "/tests.rs")) and \
+                debt_in_dir(allow[rule], os.path.dirname(rel)) <= debt_in_dir(old, os.path.dirname(rel)):
+            continue
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
                        f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
