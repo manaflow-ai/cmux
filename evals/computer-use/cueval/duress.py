@@ -111,6 +111,10 @@ def mac_windows() -> list[dict]:
         key = lambda s: cf.CFStringCreateWithCString(None, s.encode(), 0x08000100)
         keys = {k: key(k) for k in ("kCGWindowNumber", "kCGWindowOwnerPID", "kCGWindowOwnerName", "kCGWindowLayer")}
         arr = cg.CGWindowListCopyWindowInfo(1 | 16, 0)  # on screen only, excluding desktop elements
+        if not arr:  # no window server session: say so, never dereference NULL
+            for v in keys.values():
+                cf.CFRelease(v)
+            return [{"error": "CGWindowListCopyWindowInfo returned NULL (no window server session)"}]
         out = []
         for i in range(cf.CFArrayGetCount(arr)):
             d = cf.CFArrayGetValueAtIndex(arr, i)

@@ -47,4 +47,4 @@ if [[ -z "${CUEVAL_CMUX_CU_COMMAND:-}" ]]; then
   export CUEVAL_CMUX_CU_COMMAND
 fi
 cd "$root/evals/computer-use"
-python3 -m cueval duress --out "$out"
+python3 -X faulthandler -m cueval duress --out "$out"
