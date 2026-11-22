@@ -94,6 +94,7 @@
           "session_info_update",
           "status",
           "subsession",
+          "usage_limits",
           "usage_update"
         ],
         "visible": true
