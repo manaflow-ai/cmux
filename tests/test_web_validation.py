@@ -279,7 +279,9 @@ class WebValidationTests(unittest.TestCase):
             with self.subTest(step=step):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
-                self.assertIn("if: matrix.shard == 1", body)
+                # Shard 1 only; a same-input receipt hit (#49946, react_shard_receipt.py) may also skip it.
+                self.assertRegex(body, r"\n        if: (matrix\.shard == 1|\$\{\{ matrix\.shard == 1 && "
+                                       r"steps\.receipt\.outputs\.hit != 'true' \}\})\n")
 
     def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
         """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
@@ -291,7 +293,10 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("${{ !cancelled() && steps.engines.outcome != 'failure' && ", step("Test webviews"))
+        # The tests run unless cancelled, the engines failed or a same-input receipt (#49946) already holds their
+        # results: each is a top-level && term of the condition.
+        self.assertRegex(step("Test webviews"), r"\$\{\{ !cancelled\(\) (&& steps\.receipt\.outputs\.hit != 'true' )?"
+                                                r"&& steps\.engines\.outcome != 'failure' && ")
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
         # A pull request's shard whose gate check failed is red whatever its tests say: it skips them (11-21:
         # 50 of 52 shard 1 jobs red on one gate, then 40 min of tests). A push still runs every test.
