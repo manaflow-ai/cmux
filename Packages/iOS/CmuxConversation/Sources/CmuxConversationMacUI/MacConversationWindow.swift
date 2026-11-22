@@ -260,7 +260,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         let show = !isConversationDetailsShown
         if show { selected?.details.rebuildIfNeeded() }
         if view.window?.isVisible == true {
-            inspectorItem.animator().isCollapsed = !show
+            inspectorItem.animatorUnlessReduceMotion().isCollapsed = !show
         } else {
             inspectorItem.isCollapsed = !show
         }
@@ -300,7 +300,7 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
 
     /// Edit > Search > Find… (⌘F): Messages searches every conversation from the sidebar.
     @objc func searchConversations(_ sender: Any?) {
-        if let item = splitViewItems.first, item.isCollapsed { item.animator().isCollapsed = false }
+        if let item = splitViewItems.first, item.isCollapsed { item.animatorUnlessReduceMotion().isCollapsed = false }
         view.window?.makeFirstResponder(sidebar.searchField)
     }
 

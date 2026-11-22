@@ -242,6 +242,22 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var lastTurnEndedAt: Date?
     /// `lastTurn.errorText`: why the last turn failed, in the agent's words.
     public var lastTurnError: String?
+    /// `agentSessionId`: the harness's own session id the chat resumes or watches; Toggle Terminal and
+    /// Chat pairs the chat with the terminal whose agent reports it.
+    public var agentSessionID: String?
+    /// `watching`: a View Only chat of a conversation another app (a terminal) runs.
+    public var watching = false
+
+    /// The name a person gave the chat, or nil when it is an id the system made: the Chief's own
+    /// sessions (optchat-chief names them `optchat-<home>-<n>`, `optchat-sub-<home>-a<n>`,
+    /// `optchat-compact-…`; the Mac reads its roles from them, `ChiefSessionRole`). Never shown.
+    public var shownName: String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty || name.hasPrefix("optchat-") ? nil : name
+    }
+
+    /// What a list calls the chat: its name, else the agent ("Claude", "Codex").
+    public var displayName: String { shownName ?? DaemonTree.agentName(harness) }
 
     init?(_ value: JSONValue) {
         guard let id = value["sessionId"]?.stringValue else { return nil }
@@ -261,6 +277,8 @@ public struct AcpmuxSession: Hashable, Sendable {
         lastTurnID = value["lastTurn"]?["turnId"]?.stringValue
         lastTurnEndedAt = value["lastTurn"]?["endedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         lastTurnError = value["lastTurn"]?["errorText"]?.stringValue
+        agentSessionID = value["agentSessionId"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        watching = value["watching"]?.stringValue.map { !$0.isEmpty } ?? false
         updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 

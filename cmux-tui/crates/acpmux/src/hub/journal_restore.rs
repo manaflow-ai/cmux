@@ -12,7 +12,9 @@
 //! `lastSeq`. Once they are in, the chat's log is read again as after a restart (`log_load.rs`
 //! `settle_restored`): a turn the old machine was running when it went away is settled as cut
 //! and continued, and a prompt it had queued waits in this queue again, under its own id, so a
-//! resend of that id joins it instead of running it twice.
+//! resend of that id joins it instead of running it twice. The agent resumes its own session
+//! from that older disk too, so its next prompt carries the turns after where the journal ended
+//! (`SessionMeta::agent_behind_seq`, `transcript.rs` `missed_turns`).
 //!
 //! Design (sixth and seventh reviews of #37284): a restore is one exclusive operation on its
 //! chat, from the owner's first try until every record it holds is in and flushed, or the
@@ -543,10 +545,20 @@ impl Hub {
             }
             let last = durable.iter().map(|r| r.seq).max().unwrap_or(at);
             meta.last_seq = last;
+            // The agent's own session came from the same disk as this journal: it ends where
+            // the journal did, and its next prompt carries the turns after (`transcript.rs`).
+            if last > at {
+                meta.agent_behind_seq = Some(meta.agent_behind_seq.map_or(at, |s| s.min(at)));
+            }
             drop(meta);
             session.seq.store(last, Ordering::SeqCst);
             (at, failed, flushed.err())
         };
+        // The records put back dated the chat and moved its counts with no record of the hub's
+        // own: told before the next list read, so the kept list order places it again
+        // (`list_order.rs`) and the usage pass finds it among the chats of the last day
+        // (`usage_view.rs`).
+        self.events.row_changed(session);
         // Its counts and end are on disk before it answers, or it stops short (review of #37284
         // at a088585e: a failed save was logged, and the restore answered done).
         if !self.at_a088()
@@ -1067,27 +1079,27 @@ fn refused(reason: &str, why: &str, session: &Session) -> RpcError {
         .with_data(json!({"reason": reason, "lastSeq": last}))
 }
 
-/// Debug builds only: the restore of chat `id` fails once, after its first record (a disk that
+/// Debug and test builds only: the restore of chat `id` fails once, after its first record (a disk that
 /// fills midway), so a test sees a partial restore answered as one and finished by a retry. Armed
 /// per chat, so tests that run at once do not take each other's failure (review of #37284 at
 /// dd52b1d3, F2).
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 static FAIL_ONCE: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_after_first_record(id: &str) {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).push(id.to_owned());
 }
 
 /// Whether the failure [`fail_once_after_first_record`] armed for chat `id` has not happened yet.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 #[doc(hidden)]
 pub fn fail_once_armed(id: &str) -> bool {
     FAIL_ONCE.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|armed| armed == id)
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, test))]
 fn test_fails_here(id: &str, past_first: bool) -> bool {
     if !past_first {
         return false;
@@ -1102,7 +1114,7 @@ fn test_fails_here(id: &str, past_first: bool) -> bool {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), not(test)))]
 fn test_fails_here(_: &str, _: bool) -> bool {
     false
 }

@@ -30,6 +30,18 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 /// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
 /// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    // `--machine <Cloud VM>`: the whole request goes to the VM's daemon over the app's link
+    // (cloud_route.rs); the local daemon has no such machine.
+    #[cfg(unix)]
+    let global = match super::cloud_route::route(&global, &plan) {
+        Some(super::cloud_route::Route::Link { socket, .. }) => {
+            super::cloud_route::routed(&global, &socket)
+        }
+        Some(super::cloud_route::Route::Refused(error)) => {
+            return print_local_error(&error, global.output, 1);
+        }
+        Some(super::cloud_route::Route::Local) | None => global,
+    };
     if !plan.stream
         && plan.operation.class() == OperationClass::Mutation
         && plan.idempotency_key.is_none()
@@ -663,15 +675,19 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines and the team's joined machines join the
-                    // daemon's machine list.
+                    // The app's Cloud machines, the team's joined machines and the machines
+                    // acpmux reaches itself join the daemon's machine list: each is a
+                    // `cmux chat --on` target.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::machine_join::merge(
+                        ) => super::machine_join::merge_peers(
                             global,
-                            super::cloud_machines::merge(global, result),
+                            super::machine_join::merge(
+                                global,
+                                super::cloud_machines::merge(global, result),
+                            ),
                         ),
                         // The app's Cloud machines' workspaces join the daemon's list.
                         WireOperation::Typed(
@@ -964,10 +980,18 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     ) {
         return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
-    let personal = matches!(
+    let workspaces = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    );
+    if workspaces
+        && plan.filter.tree
+        && let Some(rows) = result.as_array()
+    {
+        return std::borrow::Cow::Owned(list_filter::tree_human_rows(rows));
+    }
+    let personal =
+        workspaces && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
@@ -1297,6 +1321,12 @@ pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_create
 /// CLI shows a daemon's own words).
 pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
     sanitize_human_block(value)
+}
+
+/// A remote-supplied string for one line or table cell of human output: controls become inert and
+/// line breaks a visible `\n`.
+pub(in crate::cli) fn sanitize_remote_cell(value: &str) -> String {
+    sanitize_human_cell(value)
 }
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;

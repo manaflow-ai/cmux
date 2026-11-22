@@ -17,6 +17,7 @@ from unittest import mock
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
+import chat_open_frames as cof  # noqa: E402
 import chat_open_summary as cos  # noqa: E402
 
 
@@ -305,6 +306,138 @@ class TableTests(unittest.TestCase):
         self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
 
 
+    def test_the_table_says_the_page_engine_of_each_cases_opens(self):
+        # Decision 2026-11-16: a measure says its engine. The app's trace has it; the table and the click
+        # records dropped it, so a run in WebKit read as a run in the default engine.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar,click")
+        opens = [{**open_(100, 10), "engine": "cef"}, {**open_(120, 10), "engine": "cef"}, open_(90, 10)]
+        clicks = [{"first_content_ms": 80, "trace": {"engine": "webkit:chromium-unavailable"}}]
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
+                                "raw": {"idle": {"sidebar": opens, "click": clicks}}})
+        self.assertIn("page engine, sidebar idle: cef 2/3, not said 1/3", table)
+        self.assertIn("page engine, click idle: webkit:chromium-unavailable 1/1", table)
+        self.assertIsNone(cos.page_engines([]))
+        self.assertIsNone(cos.page_engines([{"error": "arm: none"}]))  # an open that never ran says nothing
+
+    def test_a_clicks_record_keeps_the_engine_of_its_trace(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click")
+        self.assertIn("engine", bench.CLICK_TRACE_KEYS)
+        for kept in ("marks_ms", "order", "frames", "first_content_ms", "longest_empty_ms", "timed_out", "page_timing"):
+            self.assertIn(kept, bench.CLICK_TRACE_KEYS)
+
+
+def click_(first, **extra):
+    """A click's record that settled (chat_open_frames.valid)."""
+    return {"settled": True, "first_content_ms": first, "final_frame_ms": first + 40, "transcript_ms": first + 20, **extra}
+
+
+class FakeRun:
+    def __init__(self, reply):
+        self.reply = reply
+        self.calls = []
+
+    def rpc(self, method, params=None, timeout=40):
+        self.calls.append((method, params))
+        return self.reply
+
+
+class PageEngineRuleTests(unittest.TestCase):
+    """Decision 2026-11-16: with an asked engine (`--page-engine`), an open in another engine is no number. Its
+    case reads FAILED and gives no median, and the memory of the case's kept pages is no number."""
+
+    def test_an_open_in_another_engine_than_asked_fails_its_case(self):
+        other = cos.judge_engine({**open_(100, 10), "engine": "webkit:chromium-unavailable"}, "cef")
+        self.assertEqual(other["engine_fault"], "page engine webkit:chromium-unavailable, asked: cef")
+        self.assertEqual(cos.invalid_reason(other), "other_engine")
+        asked = [cos.judge_engine({**open_(ms, 10), "engine": "cef"}, "cef") for ms in (90, 95)]
+        self.assertTrue(all("engine_fault" not in record for record in asked))
+        summary = cos.summarize(asked + [other])
+        self.assertFalse(summary["complete"])
+        self.assertIsNone(summary["first_content_ms"]["median"])
+        self.assertEqual(summary["invalid"], {"other_engine": 1})
+        self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (2/3 valid; other_engine 1)")
+
+    def test_a_measure_of_webkit_refuses_an_open_in_chromium(self):
+        self.assertEqual(cos.judge_engine({**open_(100, 10), "engine": "cef"}, "webkit")["engine_fault"],
+                         "page engine cef, asked: webkit")
+        self.assertNotIn("engine_fault", cos.judge_engine({**open_(100, 10), "engine": "webkit:own-host"}, "webkit"))
+
+    def test_any_engine_refuses_no_open(self):
+        for name in ("cef", "webkit:chromium-unavailable", None):
+            record = cos.judge_engine({**open_(100, 10), "engine": name}, "any")
+            self.assertNotIn("engine_fault", record)
+            self.assertIsNone(cos.invalid_reason(record))
+
+    def test_an_open_with_content_whose_engine_was_not_said_is_refused(self):
+        record = cos.judge_engine(open_(100, 10), "cef")
+        self.assertEqual(record["engine_fault"], "page engine not read (unknown: not said), asked: cef")
+        self.assertEqual(cos.invalid_reason(record), "other_engine")
+
+    def test_an_open_that_showed_nothing_keeps_its_own_reason(self):
+        # No page showed: there is no time to refuse, and the open's own reason is the one to read.
+        blank = cos.judge_engine({"timed_out": False, "first_content_ms": None, "longest_empty_ms": 4800.0}, "cef")
+        self.assertNotIn("engine_fault", blank)
+        self.assertEqual(cos.invalid_reason(blank), "no_content")
+        errored = cos.judge_engine({"error": "arm: None"}, "cef")
+        self.assertNotIn("engine_fault", errored)
+        self.assertEqual(cos.invalid_reason(errored), "error")
+
+    def test_a_clicks_engine_is_its_traces_or_the_one_read_after_the_click(self):
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "trace": {"engine": "cef"}}), "cef")
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "trace": {"engine": None}, "engine": "cef"}), "cef")
+        self.assertEqual(cos.engine_of({"first_content_ms": 80, "engine": "webkit:own-host"}), "webkit:own-host")
+        self.assertIsNone(cos.engine_of({"first_content_ms": 80}))
+
+    def test_a_click_in_another_engine_fails_its_case(self):
+        good = cos.judge_engine(click_(80, trace={"engine": "cef"}), "cef")
+        other = cos.judge_engine(click_(60, trace={"engine": "webkit:chromium-unavailable"}), "cef")
+        self.assertTrue(cof.valid(good))
+        self.assertFalse(cof.valid(other))
+        summary = cof.summarize([good, other])
+        self.assertFalse(summary["complete"])
+        self.assertIsNone(summary["first_content_ms"])
+        self.assertEqual(cof.cell(summary), "FAILED (1/2 settled; other_engine 1)")
+        self.assertEqual(cof.cell(cof.summarize([good, click_(70, settled=False)])), "FAILED (1/2 settled)")
+
+    def test_the_bench_takes_the_asked_engine_and_any_is_its_default(self):
+        self.assertEqual(load_bench("--conditions", "idle", "--cases", "click").opts.page_engine, "any")
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        self.assertEqual(bench.opts.page_engine, "cef")
+        self.assertIn("engine_fault", bench.judged({**open_(100, 10), "engine": "webkit:chromium-unavailable"}))
+        self.assertNotIn("engine_fault", bench.judged({**open_(100, 10), "engine": "cef"}))
+
+    def test_a_click_with_no_trace_reads_its_engine_from_the_app_after_the_click(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        run = FakeRun({"pane": "p1", "engine": "webkit:chromium-unavailable"})
+        record = bench.click_engine(run, click_(80))
+        self.assertEqual(run.calls, [("debug.agent_pane", {"action": "engine"})])
+        self.assertEqual(record["engine"], "webkit:chromium-unavailable")
+        # A traced click has its engine, and a click that failed showed no page: neither asks.
+        for known in (click_(80, trace={"engine": "cef"}), {"error": "frame_strip: no window"}):
+            run = FakeRun({"pane": "p1", "engine": "cef"})
+            bench.click_engine(run, known)
+            self.assertEqual(run.calls, [])
+        # An answer that names no engine is kept with its reason, and the rule refuses the click.
+        unread = bench.judged(bench.click_engine(FakeRun({"error": "no pane shows an agent tab"}), click_(80)))
+        self.assertEqual(unread["engine_fault"],
+                         "page engine not read (unknown: no pane shows an agent tab), asked: cef")
+
+    def test_the_memory_of_a_case_with_a_refused_open_is_no_number(self):
+        bench = load_bench("--conditions", "idle", "--cases", "click", "--page-engine", "cef")
+        kept = [bench.judged(click_(80, trace={"engine": "cef"})) for _ in range(3)]
+        self.assertEqual(bench.kept_page_memory(400.0, 430.0, kept),
+                         {"before_footprint_mb": 400.0, "after_footprint_mb": 430.0, "kept_pages": 3, "per_kept_page_mb": 10.0})
+        mixed = kept[:2] + [bench.judged(click_(60, trace={"engine": "webkit:chromium-unavailable"}))]
+        memory = bench.kept_page_memory(400.0, 430.0, mixed)
+        self.assertIsNone(memory["per_kept_page_mb"])
+        self.assertEqual(memory["refused_for_engine"], 1)
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {}, "page_engine_asked": "cef",
+                                "raw": {"idle": {"click": mixed}}, "memory": {"idle": {"click": memory}}})
+        self.assertIn("memory per kept chat page (idle): click no number (1 of its 3 opens in another engine than asked)", table)
+        self.assertIn("page engine, click idle: cef 2/3, webkit:chromium-unavailable 1/3 (asked: cef)", table)
+        self.assertNotIn("None MB", table)
+
+
 class ClickRowTests(unittest.TestCase):
     """The click cases read workspace ids from debug.sidebar_rows, whose keys are SidebarRowKey descriptions."""
 
@@ -394,8 +527,8 @@ class SeedCacheTests(unittest.TestCase):
     def peer_chats(self):
         return self.last_peer.chats
 
-    def run_seed(self, *flags):
-        bench = load_bench("--conditions", "idle", "--cases", "big", "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
+    def run_seed(self, *flags, cases="big,subagent"):
+        bench = load_bench("--conditions", "idle", "--cases", cases, "--runs", "1", "--turns", "5", "--small-turns", "3", *flags)
         bench.icl = self.fake_icl()
         real = self.Peer.__init__
         test = self
@@ -473,10 +606,69 @@ class SeedCacheTests(unittest.TestCase):
         self.assertIn("before its spawn", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
         self.assertIn("spawned 5 of 6", bench.subagent_template_fault({"id": sid, "events": {"000000.ndjson": events}}, 6))
 
+    def test_relaunched_alone_seeds_no_subagent_chat(self):
+        # 2026-11-16: the seed agent spawned 0 of 5 subagents, and a `--cases=relaunched` A/B, which opens no
+        # subagent chat, stopped as "seed invalid" on both arms. A seed agent whose subagent turns are all bad
+        # must not stop a run that never opens one.
+        self.Peer.bad = 99
+        _home, per, seeded = self.run_seed("--no-seed-cache", cases="relaunched")
+        self.assertNotIn("subagent", seeded["seed_cache"])
+        self.assertNotIn("subagent", seeded["template_bytes"])
+        self.assertEqual(seeded["subagent_template"], "ok")
+        self.assertEqual(self.Peer.bad, 99)  # no subagents turn was ever sent
+        self.assertEqual(len(per["idle"]["relaunched"]), 1)
+        self.assertEqual(per["idle"]["subagent"], [])
+
     def test_a_new_turn_count_seeds_only_the_big_chat(self):
         self.run_seed()
         _home, _per, seeded = self.run_seed("--turns", "6")
         self.assertEqual(seeded["seed_cache"], {"small": "hit", "subagent": "hit", "big": "miss", "store": "hit"})
+
+
+def seed_agent_prompt(text, first=False):
+    """A prompt as the bundled acpmux stores it (seen in a seeding daemon's log, 2026-11-16). `acpmux send` from a
+    program: a sender line marked `attribution` (hub/prompt_attribution.rs), then the text. A first turn
+    (`acpmux new ... TEXT`): the text, then the context blocks acpmux adds."""
+    if first:
+        blocks = [{"type": "text", "text": text},
+                  {"_meta": {"acpmux": {"context": True, "contextSource": "cmux-default"}}, "type": "text",
+                   "text": "<cmux-default-context>Before each tool step, list what you need next.</cmux-default-context>"},
+                  {"_meta": {"acpmux": {"context": True, "contextSource": "cmux-guidance"}}, "type": "text"}]
+    else:
+        blocks = [{"_meta": {"acpmux": {"attribution": True}}, "type": "text",
+                   "text": "From the program chat-open-bench.py on a Mac (acpmux checked its process), not the person:"},
+                  {"type": "text", "text": text}]
+    return {"sessionId": "chat-1", "prompt": blocks}
+
+
+class SeedAgentTests(unittest.TestCase):
+    """chat_open_agent.py, the seed agent, answers its commands as acpmux sends them: past the sender line ahead of a
+    program's prompt and the context beside a first turn."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("chat_open_agent", HERE / "chat_open_agent.py")
+        self.agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.agent)
+        self.out = []
+        self.agent.fake.send = self.out.append
+
+    def kinds(self):
+        return [((m.get("params") or {}).get("update") or {}).get("sessionUpdate") for m in self.out]
+
+    def test_a_sent_subagents_prompt_spawns_its_subagents(self):
+        # 2026-11-16: every seed of the subagent chat answered "echo: subagents: 5" and spawned none, so a
+        # chat-open run stopped as "seed invalid" (spawned 0 of 5 subagents).
+        self.agent.handle_prompt(7, seed_agent_prompt("subagents: 5"))
+        self.assertEqual(self.kinds().count("subagent_spawned"), 5)
+
+    def test_a_sent_turn_prompt_is_a_whole_turn(self):
+        self.agent.handle_prompt(7, seed_agent_prompt("turn: 3"))
+        self.assertGreaterEqual(self.kinds().count("tool_call"), 2)
+        self.assertNotIn("echo:", "".join(str(m) for m in self.out))
+
+    def test_a_first_turn_with_acpmux_context_is_a_whole_turn(self):
+        self.agent.handle_prompt(7, seed_agent_prompt("turn: 0", first=True))
+        self.assertGreaterEqual(self.kinds().count("tool_call"), 2)
 
 
 if __name__ == "__main__":

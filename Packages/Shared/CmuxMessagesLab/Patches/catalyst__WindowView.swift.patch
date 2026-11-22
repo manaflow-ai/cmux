@@ -566,14 +566,14 @@
          // Paging changes rows far from the viewport: visible cells keep their
          // content and window position, so they need no new configuration.
          phase("morph+thread")
-@@ -1100,7 +1406,19 @@
+@@ -1100,9 +1406,21 @@
      private func deriveRows(_ action: Action, _ state: AppState, _ old: AppState, _ t: Double) -> (cut: Int, tail: [RowSpec]) {
          let msgs = state.conversation.messages
          let now = store.date(at: t)
 -        guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
 +        guard let points = dirtyPoints(action, state, old) else {
-+            return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
-+        }
+             return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
+         }
 +        // cmux: the changed messages far above the newest change (a "Read" that moved down from my last read
 +        // message, a thread root and its other replies) re-derive alone, with their neighbours; the rows between
 +        // them stay. From the highest of them down, a send's "Read" re-derived every message the Chief posted
@@ -584,9 +584,11 @@
 +        let islands = points.local.filter { $0 < tailFrom }
 +        if !islands.isEmpty, let rows = islandRows(state, islands: islands, tailFrom: max(0, tailFrom - 1), now: now) { return rows }
 +        guard var from = (points.tail + points.local).min().map({ max(0, $0 - 1) }), from > 0, from < msgs.count else {
-             return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
-         }
++            return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale))
++        }
          // A deleted message (tombstone) owns no rows: the cut below must start at a message
+         // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
+         // send after a delete showed empty bands, self-test coverage step).
 @@ -1127,6 +1445,68 @@
          return (cut, RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: cut > 0 ? above : nil, width: bounds.width, scale: renderScale))
      }
@@ -684,7 +686,7 @@
 +                for (i, m) in msgs.enumerated() { positions[m.id] = i }
 +            }
 +            return positions[id]
-+        }
+         }
 +        var idx: [Int] = [], local: [Int] = []
 +        // cmux: a receipt row moves only when a message or its status changes. The typing dots, the
 +        // host's status line and a stream's text change neither, so their commits re-derive only the
@@ -698,7 +700,7 @@
 +        // re-derived every message below my last read one (Markdown measure, link detection, thread
 +        // previews: ~10 ms a frame with ~150 Chief messages under it, 2026-10-30 HomeStateChangePerfTests).
 +        let receiptsMove: Bool
-+        switch action {
+         switch action {
 +        case .typing, .setNotice, .streamBegin, .streamSet, .streamAppend, .streamEnd(_, nil): receiptsMove = false
 +        default: receiptsMove = true
 +        }
@@ -707,8 +709,8 @@
 +            let after = RowBuilder.receiptTargets(msgs, me: s.me)
 +            for (id, r) in before where after.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
 +            for (id, r) in after where before.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
-         }
-         switch action {
++        }
++        switch action {
          case .send, .receive, .streamEnd(_, _?):
              idx.append(max(0, old.conversation.messages.count - 1))
              // A reply re-derives its root and the message above it: a root's first reply moves the root into its
@@ -1136,17 +1138,17 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2252,12 +2819,29 @@
+@@ -2252,8 +2819,25 @@
                  let r = cell.convert(cell.bounds, to: self)
                  if pv.outgoing {
                      if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
 -                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
 +                } else if p.x <= r.minX + pv.cmuxLeft + max(pv.box.width, 90) { return pv.root } // cmux: group indent
              }
-         }
-         return nil
-     }
- 
++        }
++        return nil
++    }
++
 +    /// cmux: the key of the transcript row under `p` (a visible cell), or nil.
 +    func rowKey(at p: CGPoint) -> String? {
 +        for case let cell as RowCell in collection.visibleCells where cell.convert(cell.bounds, to: self).contains(p) {
@@ -1160,13 +1162,9 @@
 +    func rowFrame(key: String) -> CGRect? {
 +        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key {
 +            return cell.convert(cell.bounds, to: self)
-+        }
-+        return nil
-+    }
-+
-     func threadContentContains(_ p: CGPoint) -> Bool {
-         threadViews.contains { $0.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) }
-             || threadHeaderView?.frame.contains(p) == true
+         }
+         return nil
+     }
 @@ -2284,7 +2868,8 @@
              return .handled
          }
@@ -1177,7 +1175,28 @@
              return .handled
          }
          let s = store.state
-@@ -2317,6 +2902,9 @@
+@@ -2299,11 +2884,19 @@
+         for (v, spec) in zip(threadViews, threadSpecs) where v.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) {
+             switch spec.kind {
+             case let .replies(_, ref, _):
++                // cmux: only the "N Replies" words drill in; the rest of the line is empty space, whose click closes
++                // the view (PaneThread.clicked, Lawrence 2026-11-18: "clicking some space fails to close it").
++                guard MessagesWindowView.threadRowControl(spec, frame: v.frame)?.contains(p) == true else { continue }
+                 return .dispatch(.openThreadPath([root] + ThreadTree.path(to: ref, root: root, in: s.conversation.messages)))
+             case let .separator(bold, rest) where spec.key == MessagesWindowView.crumbKey:
+                 // The breadcrumb: "< Back" pops one branch; a name opens that level (the last is this one).
+                 let x = p.x - v.frame.minX
+-                guard let target = MessagesWindowView.crumbTarget(x: x, bold: bold, rest: rest, names: threadCrumbNames, spec: spec) else { return .handled }
++                guard let target = MessagesWindowView.crumbTarget(x: x, bold: bold, rest: rest, names: threadCrumbNames, spec: spec) else {
++                    // cmux: between the breadcrumb's words nothing happens; beside them the line is empty space, whose
++                    // click closes the view (PaneThread.clicked, Lawrence 2026-11-18).
++                    if MessagesWindowView.crumbWords(bold: bold, rest: rest, spec: spec).contains(x) { return .handled }
++                    continue
++                }
+                 let path = s.ui.threadPath
+                 let keep = target < 0 ? path.count - 1 : target
+                 guard keep >= 0, keep < path.count else { return .handled }
+@@ -2317,6 +2910,9 @@
  
      /// The host's thread header changed (title, status, owner): the open thread view asks
      /// `HostHooks.threadHeader` again.
@@ -1187,7 +1206,21 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2515,12 +3103,21 @@
+@@ -2417,6 +3013,13 @@
+ 
+     /// Which breadcrumb item is under `x` (row coordinates): -1 the back control, i the i-th name
+     /// (0: the root), nil none. The same widths as the separator drawing (RowDraw.drawStatic).
++    /// cmux: the x span (row coordinates) the breadcrumb's words cover, as `crumbTarget` reads them, 8 pt wider each side.
++    static func crumbWords(bold: String, rest: String, spec: RowSpec) -> ClosedRange<CGFloat> {
++        let total = RowDraw.receiptParts(bold, " " + rest).reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: RowDraw.captionKern) }
++        let x0 = spec.metrics.centerX - total / 2
++        return (x0 - 8)...(x0 + total + 8)
++    }
++
+     static func crumbTarget(x: CGFloat, bold: String, rest: String, names: [String], spec: RowSpec) -> Int? {
+         let parts = RowDraw.receiptParts(bold, " " + rest)
+         guard let b = parts.first, let r = parts.last else { return nil }
+@@ -2515,12 +3118,21 @@
          return l
      }
  
@@ -1210,7 +1243,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2529,7 +3126,6 @@
+@@ -2529,7 +3141,6 @@
          if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
          tint.add(t, forKey: "thread")
          if let blur {
@@ -1218,7 +1251,7 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +3323,7 @@
+@@ -2727,7 +3338,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)

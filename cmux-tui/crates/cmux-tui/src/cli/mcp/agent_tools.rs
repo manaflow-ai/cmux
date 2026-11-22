@@ -365,11 +365,13 @@ impl AgentTool {
                 properties.insert(
                     "workspace".into(),
                     id_schema(
-                        "The workspace whose focused pane (else its first) gets the chat (ws_ id).",
+                        "The workspace whose focused pane (else its first) gets the chat (ws_ id, unique prefix or name).",
                     ),
                 );
-                properties
-                    .insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
+                properties.insert(
+                    "pane".into(),
+                    id_schema("The pane that gets the chat (pane_ id or name)."),
+                );
                 properties.insert(
                     "top".into(),
                     json!({"type": "boolean",

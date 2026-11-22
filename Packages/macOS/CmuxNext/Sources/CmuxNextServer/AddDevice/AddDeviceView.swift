@@ -166,7 +166,7 @@ public final class AddDeviceView: NSView {
         }
         let rowHeight: CGFloat = 34
         let height = min(CGFloat(computers.count) * (rowHeight + Metrics.space1), Self.listMaxHeight)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = computers.count * Int(rowHeight + Metrics.space1) > Int(Self.listMaxHeight)
         scroll.autohidesScrollers = true

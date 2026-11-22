@@ -13,6 +13,11 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 import { tickLength } from "../src/agent-session/acpmux/threadMinimap/model";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -52,10 +57,10 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
     );
   const closeSessionInfo = async (page: Page) => {
     await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
-    const toggle = page.locator("button.acpmux-session-info-toggle");
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
     await toggle.waitFor({ timeout: 10_000 });
     if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click({ force: true });
-    await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
+    await page.locator(SESSION_INFO).waitFor({ state: "detached", timeout: 5_000 });
   };
 
   /// The rail's spacing on its side, in px, each measured from that side's pane edge (the scroller's
@@ -134,9 +139,9 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
     });
 
   const openSessionInfo = async (page: Page) => {
-    const toggle = page.locator("button.acpmux-session-info-toggle");
-    if ((await page.locator("aside.acpmux-session-info").count()) === 0) await toggle.click({ force: true });
-    await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
+    if ((await page.locator(SESSION_INFO).count()) === 0) await toggle.click({ force: true });
+    await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
     await settle(page);
   };
   for (const width of [1600, 1400, 1200, 1100, 1000])
@@ -152,7 +157,7 @@ await requireBrowserLane("thread-rail-left-spacing.test.ts", async () => {
             await openSessionInfo(page);
             sides[side] = {
               ...(await spacing(page)),
-              placement: await page.locator("aside.acpmux-session-info").getAttribute("data-placement"),
+              placement: await page.locator(SESSION_INFO).getAttribute("data-placement"),
             };
             if (process.env.FAST_CHECKS_OUT) {
               const out = path.join(process.env.FAST_CHECKS_OUT, "rail-spacing");

@@ -24,7 +24,7 @@ struct WorkspaceAutoNameWiring {
             allowsLegacyDefaults: { [weak services] workspace in
                 services?.machines.daemon(holding: workspace).map { !$0.supports(DaemonCapability.workspaceNameSource.rawValue) } ?? true
             },
-            homeShellTitle: { [weak services] in services?.machines.daemon(holding: $0).flatMap { MachineRegistry.isCloudMachineID($0.machineID) ? Strings.untitledTerminal : nil } })
+            homeShellTitle: { [weak services] in services?.machines.daemon(holding: $0).flatMap { MachineRegistry.isCloudMachineID($0.machineID) ? Strings.untitledTerminal : nil } }, cloudStarts: services.cloudStartTitles)
     }
 
     /// Variant B's focused-chat naming (`WorkspaceAutoNamer`) on every daemon that

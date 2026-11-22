@@ -84,10 +84,16 @@ extension FloatingGlassStyle {
     /// The sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil.
     nonisolated public static let group = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.06, lightVeilAlpha: 0.2,
                                                          darkRim: (0.24, 0.04), lightRim: (0.75, 0.08), castsShadow: false)
-    /// Toasts: a rounded rect, never a capsule, even on one line.
-    nonisolated public static let toast = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
-                                                         darkRim: (0.3, 0.06), lightRim: (0.85, 0.1), castsShadow: true,
-                                                         veilTakesThemeTint: true)
+    /// Toasts share the transient material without changing the held chat appearance.
+    nonisolated public static let toast = FloatingGlassStyle.transient
+    /// The find pill's glass: the transient material, its dark veil at least 70 %. A pill holds a
+    /// field, not a list, and at the 42 % veil its field came out (78, 69, 57) over bright art in dark,
+    /// its placeholder 4.00:1 (Terminal Find on the Great Wave; terminal-find-art at 71726c94).
+    nonisolated public static var findPill: FloatingGlassStyle {
+        var style = FloatingGlassStyle.transient
+        style.darkVeilAlpha = max(style.darkVeilAlpha, 0.7)
+        return style
+    }
     /// Dialogs, confirms, prompt bars and sheets: a little denser veil for longer text.
     nonisolated public static let dialog = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
                                                          darkRim: (0.28, 0.05), lightRim: (0.85, 0.1), castsShadow: true)

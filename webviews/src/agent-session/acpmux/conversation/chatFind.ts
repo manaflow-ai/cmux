@@ -22,7 +22,6 @@ import { sentPromptFindText } from "./sentUIPickModel";
 import { chiefEnvelope } from "./chiefEnvelope";
 import { sentPasteJoin } from "./sentPasteJoin.experiment";
 import { experimentArm } from "../../../experiments/experiment";
-import { type AttachmentView, composerSettingsSnapshot, useComposerSettings } from "../composerSettings";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
 import { agentCall } from "./agentCalls";
@@ -30,6 +29,7 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
+import { isRunPart } from "./runPartId";
 import { rowsWithLiveOutput } from "../liveToolOutput";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
@@ -190,25 +190,20 @@ function searchableActivityText(item: AcpmuxActivity): string {
   return text;
 }
 
-/// What a prompt's bubble draws depends on (bubbleParts.ts): the pane's attachment view, which
-/// moves attachments to the band and so joins the words on either side, and the paste join.
-type PromptLook = { view: AttachmentView; join: PasteJoin };
-const promptLook = (view: AttachmentView = composerSettingsSnapshot().attachmentView): PromptLook => ({
-  view,
-  join: experimentArm(sentPasteJoin),
-});
-const lookKey = (look: PromptLook) => `${look.view}\n${look.join}`;
+/// What a prompt's bubble draws depends on (bubbleParts.ts): the paste join. Its attachments draw
+/// in the block above it in every attachment view, so the view changes nothing Find reads.
+type PromptLook = { join: PasteJoin };
+const promptLook = (): PromptLook => ({ join: experimentArm(sentPasteJoin) });
+const lookKey = (look: PromptLook) => look.join;
 
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
 function rowText(row: AcpmuxRow, look: PromptLook): string | undefined {
-  // A prompt its bubble draws in its parts' order, in the pane's attachment view: the words it
-  // draws, and a text file's body where its chip opens to it (the chip opens to a match,
-  // InlinePromptContent.tsx PromptTextFile). One whose parts are only for its bands draws its
-  // recorded text, as any prompt does, and a Chief's draws its own bubble (ChiefPromptBubble.tsx),
-  // as the row's estimate reads it (model.ts).
-  const parts =
-    row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) ? bubbleParts(row, look.view) : undefined;
+  // A prompt its bubble draws in its parts' order: the words it draws, and a text file's body
+  // where its chip opens to it (the chip opens to a match, InlinePromptContent.tsx PromptTextFile).
+  // One whose parts are only for its bands draws its recorded text, as any prompt does, and a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx), as the row's estimate reads it (model.ts).
+  const parts = row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) ? bubbleParts(row) : undefined;
   if (parts) return drawnPromptText(parts, look.join);
   // A legacy prompt's inspector picks draw as their chips (PromptText.tsx PromptTyped): Find reads
   // their reports, not the names and fences they went with.
@@ -234,16 +229,14 @@ function searchableText(row: AcpmuxRow, look: PromptLook, key: string): string |
   return text;
 }
 
-/** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order.
- * Prompts read as they draw in attachment view `view` (the pane's, by default). */
+/** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
 export function findMatchesIncremental(
   rows: readonly AcpmuxRow[],
   query: string,
   previous?: FindMatchesCache,
-  view?: AttachmentView,
 ): FindMatchesResult {
   const needle = foldFind(query);
-  const look = promptLook(view);
+  const look = promptLook();
   const key = lookKey(look);
   if (!needle) {
     return { matches: [], cache: { needle, look: key, rows, matches: [] }, scannedRows: 0 };
@@ -271,8 +264,8 @@ export function findMatchesIncremental(
   return { matches, cache: { needle, look: key, rows, matches }, scannedRows: rows.length - prefix };
 }
 
-export function findMatches(rows: readonly AcpmuxRow[], query: string, view?: AttachmentView): FindMatch[] {
-  return findMatchesIncremental(rows, query, undefined, view).matches;
+export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
+  return findMatchesIncremental(rows, query).matches;
 }
 
 export type ChatFind = {
@@ -305,16 +298,14 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [active, setActive] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
-  // A prompt reads as its bubble draws in the pane's attachment view, so switching it finds again.
-  const { attachmentView } = useComposerSettings();
   const matches = useMemo(() => {
     if (!open) return NO_MATCHES;
     // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
     // command's output from before it opened is in liveToolOutput.ts, not `rows`.
-    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current, attachmentView);
+    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current);
     matchesCache.current = result.cache;
     return result.matches;
-  }, [open, rows, query, attachmentView]);
+  }, [open, rows, query]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
   // Where focus was when the bar opened, so closing it puts the reader back there.
@@ -395,12 +386,39 @@ const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.m
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
   (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
+/// The id suffix of the part of a run that ended after a prompt the person sent (turns.ts
+/// `afterSends`): what was still going left its run for one under the prompt, which names the rows
+/// it came from in `joined`.
+export const AFTER_SEND = ":after:";
+
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
- * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */
-export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number {
+ * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. A row a
+ * prompt sent mid-turn split (AFTER_SEND), or a long run cut into parts (RUN_PART), draws in several
+ * places: `holds` picks the one with the match. Any other row draws in one place, the first, as before. */
+export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string, holds?: (row: AcpmuxRow) => boolean): number {
   const at = rows.findIndex((row) => isFindRow(row, rowId));
-  return at >= 0 ? at : rows.findIndex((row) => isCardOf(row, rowId));
+  if (at < 0) return rows.findIndex((row) => isCardOf(row, rowId));
+  if (!holds || holds(rows[at]!)) return at;
+  for (let next = at + 1; next < rows.length; next += 1)
+    if (
+      (rows[next]!.id.includes(AFTER_SEND) || isRunPart(rows[next]!)) &&
+      isFindRow(rows[next]!, rowId) &&
+      holds(rows[next]!)
+    )
+      return next;
+  return at;
 }
+
+/** Whether `row`'s work holds `needle` (folded as Find folds it) or call `toolId`: the part of a
+ * split row a match or a count's reveal goes to (findRowIndex). */
+export const rowHolds =
+  (target: { needle?: string; toolId?: string }) =>
+  (row: AcpmuxRow): boolean =>
+    target.toolId !== undefined
+      ? Boolean(row.items?.some((item) => item.tool?.id === target.toolId))
+      : target.needle
+        ? Boolean(row.items?.some((item) => searchableActivityText(item).includes(foldFind(target.needle!))))
+        : true;
 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
