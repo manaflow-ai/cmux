@@ -1302,6 +1302,20 @@ class Workflow(unittest.TestCase):
         self.assertIn('base-replay-files', compare["run"])
         self.assertIn('base-known.json', compare["run"])
 
+    def test_every_run_the_history_job_records_writes_the_inputs_key(self):
+        # Keyed on push alone, batch ticks wrote no key and their history job failed "no single inputs key"
+        # (run 44980099868), so the base reds froze and pull request shards alone-retried base reds to the deadline.
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["react-apps-check-shard"]["steps"]
+        test = next(s for s in steps if s.get("id") == "webview-tests")
+        upload = next(s for s in steps if s.get("id") == "history-upload")
+        recorded = upload["if"].removeprefix("${{ !cancelled() && ").removesuffix(" }}")
+        self.assertEqual(test["env"]["CMUX_WEB_TEST_RECORD_HISTORY"], "${{ " + recorded + " && '1' || '0' }}")
+        self.assertIn(recorded, jobs["webviews-test-history"]["if"])
+        self.assertIn('if [ "${CMUX_WEB_TEST_RECORD_HISTORY:-0}" = 1 ]; then\n'
+                      '  python3 ../scripts/ci/webviews_test_history.py inputs >', test["run"])
+
     def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
         # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).
         shard = self.job("react-apps-check-shard")
