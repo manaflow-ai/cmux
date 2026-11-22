@@ -70,7 +70,7 @@ export function useLastingKeys(keys: readonly string[], graceMs: number = defaul
     const present = new Set(joined ? joined.split("\u0000") : []);
     const map = since.current;
     const start = Date.now();
-    for (const key of [...map.keys()]) if (!present.has(key)) map.delete(key);
+    for (const key of map.keys()) if (!present.has(key)) map.delete(key);
     for (const key of present) if (!map.has(key)) map.set(key, start);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const settle = () => {

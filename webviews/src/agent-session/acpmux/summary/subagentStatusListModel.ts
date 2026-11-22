@@ -36,7 +36,7 @@ export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>, no
   return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
 }
 
-/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Disconnected),
+/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Stopped),
 /// as its transcript row does.
 /// A running subagent quiet past ``IDLE_AFTER_MS`` with no call open, and not retrying.
 export function isIdle(agent: Subagent, now: number): boolean {

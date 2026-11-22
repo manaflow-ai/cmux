@@ -1,12 +1,13 @@
 // The automatic retry line (AutoResumeNotice.tsx): it says the daemon waits to retry, never that a
 // turn already resumed (a fixed condition is no notice).
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { NoticeSlot } from "./NoticeSlot";
 import { AutoResumeNotice } from "./AutoResumeNotice";
 import { settleReact } from "../../../test/support/domTeardown";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -40,6 +41,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   await settleReact();
@@ -64,8 +66,11 @@ async function render(container: HTMLElement, state: Parameters<typeof AutoResum
 }
 
 test("the retry line shows while the daemon waits to retry, and nothing once the turn resumed", async () => {
+  jest.useFakeTimers();
   const container = installDom();
   await render(container, { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 });
+  // The wait has lasted the shared bound (connection-quiet-agent-session.test.tsx holds the blip).
+  await act(async () => jest.advanceTimersByTime(CONNECTION_QUIET_MS));
   expect(container.querySelector('[data-auto-resume="waiting"]')).not.toBeNull();
   // The retry ran and the turn went on: the condition is fixed, so the pane says nothing about it.
   await render(container, { attempt: 2 });

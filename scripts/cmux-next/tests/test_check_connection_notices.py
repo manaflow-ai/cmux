@@ -254,6 +254,31 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_per_key_hold_at_the_bound_passes(self):
+        """useConnectionQuietKeys (ui/lasting.ts) holds each pending row for the bound, as useConnectionQuiet does."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", HELD_NOTICE.replace(
+            "useConnectionQuiet } from", "useConnectionQuietKeys } from").replace(
+            "useConnectionQuiet(retry !== undefined)", "useConnectionQuietKeys(retry ? [\"r\"] : []).has(\"r\")"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_the_text_for_a_failed_send_or_start_is_an_outcome(self):
+        """The words for a send or start the person asked for that did not go through answer their action."""
+        for name in ("failedSendText", "startFailureNotice"):
+            with self.subTest(name=name):
+                tree = Tree(self)
+                tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+                tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", name))
+                code, out = tree.check()
+                self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", "failedSendBadge"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
