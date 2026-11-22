@@ -7,7 +7,7 @@
   background: Canvas;
   color: CanvasText;
   --ds-surface-ink: CanvasText;
-  font-size: var(--text-caption, 12px);
+  font-size: var(--text-caption);
 }
 .icon-hillclimb[data-scheme="light"] { color-scheme: light; }
 .icon-hillclimb[data-scheme="dark"] { color-scheme: dark; }
@@ -33,7 +33,7 @@
   display: flex;
   align-items: center;
   gap: var(--ds-space-2, 8px);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 20px;
 }
 .icon-hillclimb-sizes { display: flex; align-items: center; gap: var(--ds-space-3, 12px); }

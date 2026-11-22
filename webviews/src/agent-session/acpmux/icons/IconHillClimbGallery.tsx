@@ -194,7 +194,7 @@ export function IconHillClimbGallery({ scheme }: IconHillClimbGalleryProps) {
                   <span className="icon-hillclimb-button">
                     <Glyph candidate={candidate} size={16} />
                   </span>
-                  <Glyph candidate={candidate} size={13} />
+                  <Glyph candidate={candidate} size={12} />
                   <Glyph candidate={candidate} size={24} />
                 </div>
                 <figcaption>
