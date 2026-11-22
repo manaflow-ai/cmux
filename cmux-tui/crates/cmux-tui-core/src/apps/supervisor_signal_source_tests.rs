@@ -41,6 +41,23 @@ fn sources_fixture(floor: u64) -> Fixture {
     f
 }
 
+/// How many source changes `app` has logged. Read from the app's log, not the event stream: the
+/// fan-out runs inside the publish call, so a reader's log line can come before the call's own
+/// result, and `Fixture::call` drops the events it passes over while it waits for that result.
+fn changes(f: &Fixture, app: &str) -> usize {
+    let lines = f.supervisor.logs(CLIENT, app, false)["lines"].clone();
+    lines.as_array().unwrap().iter().filter(|l| l["message"] == "event-body 1 {}").count()
+}
+
+/// Blocks until `app` has logged `n` changes (or fails after 10 s).
+fn wait_changes(f: &Fixture, app: &str, n: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while changes(f, app) < n {
+        assert!(Instant::now() < deadline, "{app} heard {} changes, not {n}", changes(f, app));
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn publish(f: &Fixture, count: Value) -> Value {
     f.call(
         "cmux-src",
@@ -62,9 +79,7 @@ fn a_published_value_reaches_only_readers_holding_the_sources_scope() {
     let told = publish(&f, json!(3));
     assert_eq!(told["ok"], true, "{told}");
     assert_eq!(told["body"]["told"], true);
-    f.wait("the reader's change event", |e| {
-        e["event"] == "apps-log" && e["app"] == "cmux/reader" && e["message"] == "event-body 1 {}"
-    });
+    wait_changes(&f, "cmux/reader", 1);
     let read = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
     assert_eq!(read["body"]["value"], json!({ "count": 3 }), "{read}");
 
@@ -87,33 +102,24 @@ fn a_published_value_reaches_only_readers_holding_the_sources_scope() {
     let key = HostKey { app: "cmux/nosy".into(), preview: false };
     let process = f.supervisor.inner.lock().unwrap().hosts[&key].process.clone().unwrap();
     process.send(&ToHost::Settings { values: json!({ "test_event_barrier": "barrier" }) });
-    let heard = f.wait("the nosy app's barrier", |e| {
-        e["event"] == "apps-log"
-            && e["app"] == "cmux/nosy"
-            && (e["message"] == "barrier" || e["message"] == "event 1")
-    });
-    assert_eq!(heard["message"], "barrier", "an app without the scope hears no change");
+    f.wait("the nosy app's barrier", |e| e["app"] == "cmux/nosy" && e["message"] == "barrier");
+    assert_eq!(changes(&f, "cmux/nosy"), 0, "an app without the scope hears no change");
 }
 
 #[test]
 fn publishes_inside_the_floor_reach_readers_once_with_the_newest_value() {
     let f = sources_fixture(1);
-    // A round trip through the reader's host: its subscription is in before the first publish.
-    let listed = f.call("cmux-reader", "signal.sources.list", json!({}), false);
-    assert_eq!(listed["body"]["sources"][0]["readable"], true, "{listed}");
     assert_eq!(publish(&f, json!(1))["body"]["told"], true);
-    f.wait("the first change", |e| e["app"] == "cmux/reader" && e["message"] == "event 1");
+    wait_changes(&f, "cmux/reader", 1);
     for n in 2..=20 {
         assert_eq!(publish(&f, json!(n))["body"]["told"], false, "inside the floor");
     }
-    f.wait("the floored change", |e| e["app"] == "cmux/reader" && e["message"] == "event 1");
+    wait_changes(&f, "cmux/reader", 2);
     let read = f.call("cmux-reader", "signal.read", json!({ "name": NAME }), false);
     assert_eq!(read["body"]["value"], json!({ "count": 20 }));
     // Only one floored tell: nothing more arrives within the next floor.
-    let deadline = Instant::now() + Duration::from_millis(1500);
-    while let Ok(e) = f.events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        assert!(!(e["app"] == "cmux/reader" && e["message"] == "event 1"), "a second tell: {e}");
-    }
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(changes(&f, "cmux/reader"), 2, "a second floored tell");
 }
 
 #[test]
