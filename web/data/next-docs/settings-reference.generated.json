@@ -5912,7 +5912,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
