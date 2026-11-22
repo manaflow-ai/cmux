@@ -89,7 +89,7 @@ export class PromptText {
       this.#dismissed.clear();
       this.#dismissedVersion += 1;
     }
-    if (changed) for (const listener of [...this.#textListeners]) listener();
+    if (changed) for (const listener of Array.from(this.#textListeners)) listener();
     if (changed || moved || cleared) this.#notify();
   }
 
@@ -157,7 +157,7 @@ export class PromptText {
   }
 
   #notify() {
-    for (const listener of [...this.#listeners]) listener();
+    for (const listener of Array.from(this.#listeners)) listener();
   }
 }
 

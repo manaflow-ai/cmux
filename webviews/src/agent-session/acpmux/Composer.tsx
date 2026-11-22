@@ -654,14 +654,16 @@ function ComposerFrame({
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
-  // The prompt's text and caret live outside React state (composer/promptText.ts): a key renders
+  // The prompt's text and caret live outside React state (composer/promptRef.current.ts): a key renders
   // this frame only when what it draws from the text changes (`facts`, below).
   const [promptText] = useState(() => new PromptText(draft ?? readPersistedDraft(sessionId) ?? ""));
+  /// The same store for handlers and effects: a ref, so a hook that reads the text does not list it.
+  const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
   const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
-    promptText.set(value, at);
+    promptRef.current.set(value, at);
     setWrites((count) => count + 1);
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
@@ -670,7 +672,7 @@ function ComposerFrame({
   useEffect(() => {
     let live = true;
     let queued = false;
-    const stop = promptText.subscribeText(() => {
+    const stop = promptRef.current.subscribeText(() => {
       if (queued) return;
       queued = true;
       queueMicrotask(() => {
@@ -976,14 +978,14 @@ function ComposerFrame({
   /// saved "saved\n\ntyped" and marked the draft read while the editor still held "typed"; the load's
   /// read then kept "typed" and wrote it over the merged draft.
   const applyDraftRead = (session: string | undefined, saved: string | undefined): string => {
-    const currentText = field.current?.value() ?? promptText.text;
+    const currentText = field.current?.value() ?? promptRef.current.text;
     const history = draftHistory(session);
     const edited = editedBeforeHydration.current || history.edited;
     editedBeforeHydration.current = false;
     const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
     if (next.shown) {
       // Its own write (below) or none: the text effect does not write it again.
-      restoringSession.current = next.text !== promptText.text;
+      restoringSession.current = next.text !== promptRef.current.text;
       notTyped();
       // The editor at once, not on the next render: a quit about to unmount reads it, and a read
       // that answers before the render must see the merged prompt.
@@ -1011,13 +1013,13 @@ function ComposerFrame({
     () => ({
       draft() {
         return {
-          text: field.current?.value() ?? promptText.text,
+          text: field.current?.value() ?? promptRef.current.text,
           attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
         };
       },
       take() {
         const taken = {
-          text: field.current?.value() ?? promptText.text,
+          text: field.current?.value() ?? promptRef.current.text,
           attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
         };
         // Taken out by the page, not typed: no edit of the person's.
@@ -1030,7 +1032,7 @@ function ComposerFrame({
         return taken;
       },
       draftText: () =>
-        withoutInlineTokens(field.current?.value() ?? promptText.text, (id) =>
+        withoutInlineTokens(field.current?.value() ?? promptRef.current.text, (id) =>
           attachmentsRef.current.some((attachment) => attachment.id === id),
         ),
       suppressAttachmentCarryFor(sessionId) {
@@ -1106,7 +1108,7 @@ function ComposerFrame({
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
       prefill(prefix) {
-        const typed = (field.current?.value() ?? promptText.text).trimStart();
+        const typed = (field.current?.value() ?? promptRef.current.text).trimStart();
         if (!typed.startsWith(prefix.trimEnd())) {
           const next = prefix + typed;
           pendingCaret.current = next.length;
@@ -1117,7 +1119,7 @@ function ComposerFrame({
       quoteReply(markdown) {
         notTyped();
         if (!field.current?.quoteReply(markdown)) {
-          const typed = promptText.text;
+          const typed = promptRef.current.text;
           const next = typed ? typed + "\n\n" + markdown : markdown;
           pendingCaret.current = next.length;
           writeText(next, next.length);
@@ -1134,7 +1136,7 @@ function ComposerFrame({
       },
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
-        let typed = field.current?.value() ?? promptText.text;
+        let typed = field.current?.value() ?? promptRef.current.text;
         const session = persistedSession.current;
         // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
         // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
@@ -1145,9 +1147,9 @@ function ComposerFrame({
             // A failed read is not an empty draft. Keep the latest text in the remount cache and
             // wait for a successful read before sending anything to acpmux, so reconnect cannot
             // replace a durable draft with the text typed during the outage.
-            cachePersistedDraft(session, field.current?.value() ?? promptText.text);
+            cachePersistedDraft(session, field.current?.value() ?? promptRef.current.text);
             const unsent = unsentDraft.current;
-            if (unsent) unsent.push(unsentText(field.current?.value() ?? promptText.text));
+            if (unsent) unsent.push(unsentText(field.current?.value() ?? promptRef.current.text));
             await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
             return;
           }
@@ -1201,7 +1203,7 @@ function ComposerFrame({
     // after the person started typing (the handshake slower than their keys) goes before what
     // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
     // then replaced the tab's kept draft on disk.
-    const typed = field.current?.value() ?? promptText.text;
+    const typed = field.current?.value() ?? promptRef.current.text;
     // Merged only before the page read this chat's draft; after it, the prompt is the draft.
     if (draftWasRead(persistedSession.current)) return;
     const next = mergedDraft(typed, draft);
@@ -1217,16 +1219,16 @@ function ComposerFrame({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
-    const carried = carryPrompt.current ? (field.current?.value() ?? promptText.text) : "";
+    const carried = carryPrompt.current ? (field.current?.value() ?? promptRef.current.text) : "";
     const previous = persistedSession.current;
     // The composer had no chat yet (the page still loading or reconnecting, a new chat whose
     // session just started): what it holds was typed for this chat. It stays, merged with the
     // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
     // typed before the chat loaded was cleared.
     const typedBefore =
-      previous === undefined && !carryPrompt.current ? (field.current?.value() ?? promptText.text) : "";
+      previous === undefined && !carryPrompt.current ? (field.current?.value() ?? promptRef.current.text) : "";
     if (previous && hydratedSession.current === previous)
-      writePersistedDraft(previous, field.current?.value() ?? promptText.text);
+      writePersistedDraft(previous, field.current?.value() ?? promptRef.current.text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
@@ -1288,7 +1290,7 @@ function ComposerFrame({
         if (state.reading) return "composer.attachment-reading";
         // A new chat's prompt has no chat to keep it with yet.
         if (!state.sessionId) {
-          if ((field.current?.value() ?? promptText.text).trim() || state.chips) return "composer.new-chat";
+          if ((field.current?.value() ?? promptRef.current.text).trim() || state.chips) return "composer.new-chat";
         } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
         // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
         // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
@@ -1341,7 +1343,7 @@ function ComposerFrame({
     }
     writePersistedDraft(session, text);
   };
-  useEffect(() => persistText(sessionId, promptText.text), [sessionId]);
+  useEffect(() => persistText(sessionId, promptRef.current.text), [sessionId]);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;
     const throttle = createUnsentDraftThrottle({
@@ -1369,11 +1371,14 @@ function ComposerFrame({
     // chat's composer with what it holds then, so each change goes now (the Send's clear included).
     if (cloudStarting) unsentDraft.current?.flush();
   };
-  useEffect(() => pushUnsent(promptText.text), [sessionId, onUnsentDraft, cloudStarting]);
+  useEffect(() => {
+    unsentDraft.current?.push(unsentText(promptRef.current.text));
+    if (cloudStarting) unsentDraft.current?.flush();
+  }, [sessionId, onUnsentDraft, cloudStarting]);
   useInsertionEffect(() => {
     textChanged.current = () => {
-      persistText(sessionId, promptText.text);
-      pushUnsent(promptText.text);
+      persistText(sessionId, promptRef.current.text);
+      pushUnsent(promptRef.current.text);
     };
   });
   const commands = snapshot.commands;
@@ -1536,7 +1541,7 @@ function ComposerFrame({
     // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
-    promptText.set(value, at, true);
+    promptRef.current.set(value, at, true);
     if (!typed) setWrites((count) => count + 1);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
@@ -1560,7 +1565,7 @@ function ComposerFrame({
       field.current.focus();
       return;
     }
-    const next = applyCommand(promptText.text, promptText.caret, command);
+    const next = applyCommand(promptRef.current.text, promptRef.current.caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
     field.current?.focus();
@@ -1568,7 +1573,7 @@ function ComposerFrame({
   const pickFromPlus = (command: SlashCommand) => {
     setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
-    const existing = field.current?.value() ?? promptText.text;
+    const existing = field.current?.value() ?? promptRef.current.text;
     const next = `/${shownName(command)} ${existing}`;
     pendingCaret.current = next.length;
     edit(next, next.length);
@@ -1577,7 +1582,7 @@ function ComposerFrame({
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
-    const text = promptText.text;
+    const text = promptRef.current.text;
     return plus && plus.written === text ? plus.original : text;
   };
   /// `text` without the tokens of attachments neither staged nor being read.
@@ -1593,7 +1598,7 @@ function ComposerFrame({
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
-    const { text, caret } = promptText;
+    const { text, caret } = promptRef.current;
     rememberMentionPath(recentScope, item);
     const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
@@ -1606,7 +1611,7 @@ function ComposerFrame({
   /// Writes the picked emoji, and a space, over the `:word` or emoticon being typed.
   const pickEmoji = (match: EmojiMatch) => {
     if (!emojiAt) return;
-    const { text, caret } = promptText;
+    const { text, caret } = promptRef.current;
     setEmojiRecents(rememberEmoji(match.emoji));
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
@@ -1898,7 +1903,7 @@ function ComposerFrame({
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (path?: string) => {
     if (composing.current) return;
-    const { text, caret } = promptText;
+    const { text, caret } = promptRef.current;
     const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
     // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
@@ -1921,7 +1926,7 @@ function ComposerFrame({
   // so a pick replaces that command; anything else (a pasted path) is kept whole.
   const openCommands = () => {
     if (composing.current) return;
-    const text = promptText.text;
+    const text = promptRef.current.text;
     const first = /^\/(\S*)/.exec(text)?.[1];
     const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
     const next = named ? text : text ? `/ ${text}` : "/";
@@ -2198,10 +2203,10 @@ function ComposerFrame({
     const original = unwrapped();
     plusDraft.current = undefined;
     if (unrendered) return;
-    if (original !== promptText.text) edit(original, original.length);
-    else if (open) promptText.dismiss("slash");
-    else if (mentionAt) promptText.dismiss("mention");
-    else if (emojiAt) promptText.dismiss("emoji");
+    if (original !== promptRef.current.text) edit(original, original.length);
+    else if (open) promptRef.current.dismiss("slash");
+    else if (mentionAt) promptRef.current.dismiss("mention");
+    else if (emojiAt) promptRef.current.dismiss("emoji");
   };
   // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
   // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
@@ -2480,7 +2485,7 @@ function ComposerFrame({
     if (matches.length > 0) pick(matches[selected].command);
   };
   const keyDown = (event: KeyboardEvent) => {
-    const text = promptText.text;
+    const text = promptRef.current.text;
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
@@ -2535,7 +2540,7 @@ function ComposerFrame({
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        promptText.dismiss("mention");
+        promptRef.current.dismiss("mention");
         return;
       }
       const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
@@ -2568,7 +2573,7 @@ function ComposerFrame({
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        promptText.dismiss("emoji");
+        promptRef.current.dismiss("emoji");
         return;
       }
       const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
@@ -2684,7 +2689,7 @@ function ComposerFrame({
         pendingCaret.current = plus.original.length;
         return;
       }
-      promptText.dismiss("slash");
+      promptRef.current.dismiss("slash");
       return;
     }
     if (matches.length === 0) return;
@@ -2724,7 +2729,7 @@ function ComposerFrame({
       if (value.trim()) onTyping?.(value, sessionId);
       if (value.trim()) onPromptEdit?.(value);
     };
-    promptCaret.current = promptText.setCaret;
+    promptCaret.current = promptRef.current.setCaret;
     promptKeyDown.current = (event) => {
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const edits = event.metaKey
