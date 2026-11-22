@@ -252,7 +252,10 @@ test("a running Pi chat publishes no modes: its thinking levels are its Thinking
   const pi = await published("pi", PI_MODES, PI_OPTIONS);
   expect(pi?.modes).toBeUndefined();
   // Its thinking levels stay, as the option the effort chip draws.
-  expect((pi?.configOptions as { id: string }[]).map((option) => option.id)).toEqual(["model", "thought_level"]);
+  expect(((pi?.configOptions ?? []) as { id: string }[]).map((option) => option.id)).toEqual([
+    "model",
+    "thought_level",
+  ]);
   const claude = await published("claude", CLAUDE_MODES, CLAUDE_OPTIONS);
   expect(claude?.modes).toEqual(CLAUDE_MODES);
 });
