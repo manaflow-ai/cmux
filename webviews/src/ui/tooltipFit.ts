@@ -9,7 +9,7 @@
  * `.ui-tooltip-detail` line is as wide as the tooltip). The shortcut's keycap (`.ui-tooltip-hint`)
  * floats to the end of the box, so where it lands says nothing about the text: it counts as its
  * margin box beside the lines it sits next to, never as the span from the text to the box's far
- * edge (#49650: "Opus 5.5 ⌃⌘M" drew at the whole max width, wider than the model chip). */
+ * edge (https://github.com/manaflow-ai/cmux/issues/49650: "Opus 5.5 ⌃⌘M" drew at the whole max width, wider than the model chip). */
 function linesWidth(tip: HTMLElement): number {
   const doc = tip.ownerDocument;
   const range = doc.createRange?.();
@@ -34,8 +34,8 @@ function linesWidth(tip: HTMLElement): number {
     if (box.width > 0) keycap = { width: Math.max(0, box.width + margins), top: box.top, bottom: box.bottom };
   }
   if (!lines.length) return keycap?.width ?? 0;
-  const left = Math.min(...lines.map((line) => line.left));
-  // Lines beside the keycap (its first line, and any other it reaches down to) make room for it.
+  // Each line from its own start (right-aligned in a right-to-left page, the keycap then on its left);
+  // lines beside the keycap (its first line, and any other it reaches down to) make room for it.
   // With none measured beside it, it floats beside the first line.
   const first = Math.min(...lines.map((line) => line.top));
   const overlaps = (line: { top: number; bottom: number }) =>
@@ -43,7 +43,7 @@ function linesWidth(tip: HTMLElement): number {
   const anyBeside = lines.some(overlaps);
   const beside = (line: { top: number; bottom: number }) =>
     !!keycap && (anyBeside ? overlaps(line) : line.top === first);
-  const widest = Math.max(...lines.map((line) => line.right - left + (beside(line) ? keycap!.width : 0)));
+  const widest = Math.max(...lines.map((line) => line.right - line.left + (beside(line) ? keycap!.width : 0)));
   return widest > 0 ? widest : 0;
 }
 
