@@ -1557,6 +1557,44 @@ impl Hub {
         let codex_answer = session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // What the user had chosen before; replayed after load or new.
         let saved = session.meta();
+        // A fresh OpenCode fork: its own agent forks the chat's agent session now
+        // (`fork_own_process.rs`). One that fails starts a new session fed the fork's transcript.
+        let own_fork = if existing.is_none() && session.agent_fork_parent().is_some() {
+            let params = self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer);
+            self.fork_in_own_process(session, &child, params).await
+        } else {
+            None
+        };
+        let forked_here = match own_fork {
+            Some(Ok(v)) => {
+                let sid = v.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                session
+                    .meta
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .set_agent_session_id(Some(sid), "non-claude");
+                self.absorb_session_response(session, &v);
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "fork"})),
+                );
+                true
+            }
+            Some(Err(e)) => {
+                tracing::warn!(session = %session.id, "the fork's own session/fork failed, starting from its transcript: {e}");
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("{} could not fork the chat ({}), so this fork's agent starts from its transcript", meta.harness, e.message)}),
+                );
+                session.rehydrate.store(true, Ordering::SeqCst);
+                false
+            }
+            None => false,
+        };
         let loaded = match existing {
             Some(sid) if supports_load => {
                 let hold = ReplayHold::start(session, &child);
@@ -1604,6 +1642,8 @@ impl Hub {
             Some(_) => false,
             None => false,
         };
+        // A fork its own agent made has no session to load (`existing` is none).
+        let loaded = forked_here || loaded;
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = match child
@@ -1644,9 +1684,14 @@ impl Hub {
                     "resumed",
                     self.wake_marked(session, json!({"level": "rehydrate"})),
                 );
+            } else if saved.parent_id.is_some() && saved.fork_seq.is_some() {
+                // A fork whose agent never started, with nothing to fork or load: what said how
+                // (`AgentFork`, `Session::rehydrate`) lived in a daemon that ended. Its new agent
+                // session gets the fork's transcript, never an empty conversation.
+                session.rehydrate.store(true, Ordering::SeqCst);
             }
         }
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
+        if saved.agent_session_id.is_some() || saved.fork_before.is_some() || forked_here {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
@@ -1927,20 +1972,20 @@ mod probe_off_tests;
 /// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
 /// what that agent still had queued stays out of the preview as well, beside the next agent's
 /// own hold (`Session::replaying` keeps both).
-struct ReplayHold<'a> {
+pub(super) struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
 }
 
 impl<'a> ReplayHold<'a> {
-    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
+    pub(super) fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
         session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
         Self { session, agent }
     }
 
     /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
     /// its queue is closed (nothing more can arrive).
-    async fn end(self) {
+    pub(super) async fn end(self) {
         if !self.agent.queue_replay_done().await {
             self.session.end_replay(self.agent.generation);
         }

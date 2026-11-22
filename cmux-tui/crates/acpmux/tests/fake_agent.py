@@ -71,6 +71,11 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_BUSY=1: session/fork as OpenCode 1.19 answers it: only once no prompt of this process
+runs, and of any session id (its sessions are in a store every process of it reads), the new id
+unique across processes. FAKE_FORK_LOG=<path>: each session/new, session/load and session/fork
+appends {"pid", "method", "sessionId"} as one JSON line.
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -110,6 +115,20 @@ import threading
 import time
 
 lock = threading.Lock()
+# FAKE_FORK_BUSY=1: the prompts of this process running now.
+running_prompts = [0]
+
+
+def counted(target):
+    def run(rid, params):
+        with lock:
+            running_prompts[0] += 1
+        try:
+            target(rid, params)
+        finally:
+            with lock:
+                running_prompts[0] -= 1
+    return run
 cancelled = set()
 failed_once = set()
 # "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
@@ -1953,6 +1972,9 @@ def main():
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
+            if os.environ.get("FAKE_FORK_LOG"):
+                with open(os.environ["FAKE_FORK_LOG"], "a") as log:
+                    log.write(json.dumps({"pid": os.getpid(), "method": m, "sessionId": params.get("sessionId")}) + "\n")
             LAST_MCP_SERVERS = params.get("mcpServers")
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
@@ -2235,6 +2257,16 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_BUSY") == "1":
+                result = {"sessionId": f"{params['sessionId']}-fork-{os.getpid()}-{sessions}"}
+
+                def answer_when_idle(reply={"jsonrpc": "2.0", "id": rid, "result": result}):
+                    import time as clock  # main() binds `time` locally
+                    while running_prompts[0] > 0:
+                        clock.sleep(0.02)
+                    send(reply)
+                threading.Thread(target=answer_when_idle, daemon=True).start()
+                continue
             # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
             # harness's defaults, not the forked session's model and effort, as Codex does.
             if os.environ.get("FAKE_FORK_DEFAULTS") == "1":
@@ -2301,7 +2333,7 @@ def main():
                 target = claude_prompt
             if CODEX_STORE:
                 target = codex_store_prompt
-            threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            threading.Thread(target=counted(target), args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
