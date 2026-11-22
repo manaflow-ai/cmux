@@ -41,7 +41,7 @@ moved. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
-here would pre-empt it.
+here would pre-empt it. A timed-out run is reported but not re-run either.
 
 A code or unknown job's failed steps also give its concrete failures
 (extract_failures: failed tests with file:line, bun's failed web tests with
@@ -939,6 +939,8 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     elif jobs:
         line = "**Machine:** " + ("the runner failed, not this PR; re-running the failed jobs." if rerun
                                   else f"the runner failed, not this PR. {rerun_line}")
+    elif report.get("conclusion") == "timed_out":
+        line = "**Timed out:** CI timed out before a job it attributes failed; see the run."
     else:
         line = "**Gates only:** only gate jobs failed; see the run."
     if report.get("conclusion") == "cancelled":
@@ -995,8 +997,10 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     else:
         counts = {v: sum(1 for j in jobs if j["verdict"] == v) for v in (MACHINE, CODE, UNKNOWN)}
         summary = ", ".join(f"{n} {v}" for v, n in counts.items() if n)
-        verb = "stopped" if report.get("conclusion") == "cancelled" else "failed"
-        out += [f"CI {verb} on `{sha}` ({run}): {summary or 'no failed job besides the gates'}."]
+        timed_out = report.get("conclusion") == "timed_out" and not jobs
+        verb = "stopped" if report.get("conclusion") == "cancelled" else "timed out" if timed_out else "failed"
+        none = "no job it attributes failed" if timed_out else "no failed job besides the gates"
+        out += [f"CI {verb} on `{sha}` ({run}): {summary or none}."]
         if report.get("macos_skipped"):
             out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')}.")
         out.append("")
@@ -1064,13 +1068,16 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     now, or a function that reads it: only a run whose every failure is the machine's needs it."""
     jobs = report["jobs"]
     if not jobs:
+        if report.get("conclusion") == "timed_out":
+            return False, "Not re-run automatically: the run timed out before a job it attributes failed."
         return False, "Not re-run automatically: only gate jobs failed."
     if not all_machine(jobs):
         blockers = [j["name"] for j in jobs if j["verdict"] != MACHINE]
         return False, ("Not re-run automatically: " + ", ".join(f"`{n}`" for n in blockers[:5])
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
     if report.get("conclusion") != "failure":
-        return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
+        stopped = "timed-out" if report.get("conclusion") == "timed_out" else "cancelled"
+        return False, f"Every failure is a machine failure; a {stopped} run is not re-run automatically."
     if callable(latest):
         latest = latest()
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
@@ -1287,7 +1294,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(result))
         print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
         return 0
-    if run.get("conclusion") not in ("success", "failure", "cancelled"):
+    if run.get("conclusion") not in ("success", "failure", "cancelled", "timed_out"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
         return 0
     # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
