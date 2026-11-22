@@ -289,18 +289,18 @@ fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
 async fn every_name_acpmux_ls_prints_routes_to_its_session() {
     let hub = test_hub();
     let id = "0199aaaa-1111-7000-8000-321a9795275b";
-    list(&hub, "fs-agent-lane-1", id, "app-version-rollback", "idle");
-    list(&hub, "fs-agent-lane-12", "0199bbbb-2222-7000-8000-000000000002", "other", "idle");
+    list(&hub, "lanevm-1", id, "app-version-rollback", "idle");
+    list(&hub, "lanevm-12", "0199bbbb-2222-7000-8000-000000000002", "other", "idle");
     list_with_alias(
         &hub,
-        "gcp-agent-lane-10",
+        "lanevm-10",
         "0199cccc-3333-7000-8000-000000000003",
         "chat-recovery-version-rollback",
         "idle",
         Some("Ellis+dot+chat-recovery-version-rollback"),
     );
     list_with_alias(&hub, "lanevm-7", "0199dddd", "td2-A", "idle", Some("Ruby+dot+speedups"));
-    let route = format!("fs-agent-lane-1/{id}");
+    let route = format!("lanevm-1/{id}");
     let handle = crate::session_handle::default_handle(id);
     for key in [
         format!("{handle} · app-version-rollback"),
@@ -312,7 +312,7 @@ async fn every_name_acpmux_ls_prints_routes_to_its_session() {
     }
     // Both halves name the one session: a handle with another session's name is no row.
     assert_eq!(hub.key_route(&format!("{handle} · other")).unwrap(), None);
-    let ellis = "gcp-agent-lane-10/0199cccc-3333-7000-8000-000000000003";
+    let ellis = "lanevm-10/0199cccc-3333-7000-8000-000000000003";
     for key in [
         "Ellis dot chat-recovery-version-rollback",
         "ellis dot chat-recovery-version-roll…",
@@ -326,14 +326,14 @@ async fn every_name_acpmux_ls_prints_routes_to_its_session() {
     );
 }
 
-/// `fs-agent-lane-1/NAME` never reaches `fs-agent-lane-12` by a prefix of its machine name.
+/// `lanevm-1/NAME` never reaches `lanevm-12` by a prefix of its machine name.
 #[tokio::test]
 async fn a_numbered_machine_is_never_reached_by_its_smaller_siblings_name() {
     let hub = test_hub();
-    list(&hub, "fs-agent-lane-12", "0199bbbb-2222", "app-version-rollback", "idle");
+    list(&hub, "lanevm-12", "0199bbbb-2222", "app-version-rollback", "idle");
     assert_ne!(
-        hub.key_route("fs-agent-lane-1/app-version-rollback").unwrap().as_deref(),
-        Some("fs-agent-lane-12/0199bbbb-2222")
+        hub.key_route("lanevm-1/app-version-rollback").unwrap().as_deref(),
+        Some("lanevm-12/0199bbbb-2222")
     );
-    assert_eq!(hub.host_route("fs-agent-lane-1").unwrap(), None);
+    assert_eq!(hub.host_route("lanevm-1").unwrap(), None);
 }

@@ -40,7 +40,7 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
 }
 
 /// Whether `key` stops inside a number of `name`: `lane-1` is not the start of `lane-10`, nor
-/// `fs-agent-lane-1` of the machine `fs-agent-lane-12`, so a numbered lane or machine is never
+/// `lanevm-1` of the machine `lanevm-12`, so a numbered lane or machine is never
 /// reached by its smaller sibling's name.
 fn splits_a_number(name: &str, key: &str) -> bool {
     key.as_bytes().last().is_some_and(u8::is_ascii_digit)
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn a_numbered_name_is_never_the_prefix_of_a_larger_number() {
         assert_eq!(names("lane-1", &["lane-10", "lane-12"]), Ok(None));
-        assert_eq!(names("fs-agent-lane-1", &["fs-agent-lane-10"]), Ok(None));
+        assert_eq!(names("lanevm-1", &["lanevm-10"]), Ok(None));
         assert_eq!(names("lane-1", &["lane-1-review"]), Ok(Some("lane-1-review")));
         assert_eq!(names("lane-", &["lane-10"]), Ok(Some("lane-10")));
     }
