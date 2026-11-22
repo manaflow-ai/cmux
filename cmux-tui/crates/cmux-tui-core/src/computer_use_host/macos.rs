@@ -1,18 +1,20 @@
 //! Starting the worker on macOS when the cmux build embeds no cmux Remote (Release and
-//! NIGHTLY): the Screen Sharing helper `<app> Screen Sharing.app` (executable
-//! `cmux-screen-sharing`, cmux-tui/crates/cmux-rd-host) runs it in its hidden
+//! NIGHTLY): the build's helper `<app> Helper.app` (`<app> Screen Sharing.app` before it;
+//! executable `cmux-screen-sharing`, cmux-tui/crates/cmux-rd-host) runs it in its hidden
 //! `__computer-use-worker` mode. The helper is the one app of the build that holds macOS's
 //! Accessibility and Screen Recording grants, so Computer Use asks for and uses those grants
 //! under the helper's identity (`<app id>.screen-sharing`), never cmux's, the daemon's or an
 //! agent's.
 //!
-//! As cmux Remote (`remote_host/macos.rs`) and the acpmux share host's helper
-//! (`acpmux/src/share_host/helper.rs`), the helper never runs from inside the app bundle
-//! (macOS would check the outermost app's grants): a verified copy is staged under
-//! `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`, a slot of
-//! its own beside acpmux's `daemon/` (each prunes only its own root, so neither deletes a copy
-//! the other runs), checked against the source bundle's designated requirement, and started
-//! with macOS responsibility disclaimed.
+//! As the acpmux share host's helper (`acpmux/src/share_host/helper.rs`) and the app's
+//! `SignedHelperStaging`, the helper never runs from inside the app bundle (macOS would check
+//! the outermost app's grants): one verified copy per bundle id lives at the fixed path
+//! `~/Library/Application Support/cmux-next/helper/<bundle id>/<bundle name>.app`
+//! (`cmux_signed_bundle::helper_folder`), shared by every stager under the folder's lock,
+//! replaced in place when a build's helper differs, checked against the source bundle's
+//! designated requirement, and started with macOS responsibility disclaimed. One path for
+//! every build is what keeps macOS from asking again after an update: it keeps a
+//! screen-capture approval per executable path.
 
 use std::path::{Path, PathBuf};
 
@@ -22,12 +24,11 @@ use super::{Launcher, WORKER_MODE, WorkerProcess};
 
 /// The helper's executable inside its bundle.
 pub(crate) const EXECUTABLE: &str = "cmux-screen-sharing";
-/// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-pub(crate) const BUNDLE_SUFFIX: &str = " Screen Sharing.app";
 /// A helper bundle in development (the app's `MacScreenHelper.bundled()` reads the same).
 pub(crate) const HELPER_ENV: &str = "CMUX_NEXT_SCREEN_HELPER_APP";
-/// This daemon's staging folder under the helper's own folder.
-const SLOT: &str = "computer-use";
+/// This daemon's folder of the per-digest layout before the fixed path
+/// (`.../cmux-next/screen-sharing/<bundle id>/computer-use/<16 hex>/`), removed once.
+const LEGACY_SLOT: &str = "computer-use";
 
 /// The reason the endpoint and status show when the build carries no helper.
 pub(crate) const NO_HELPER: &str =
@@ -71,12 +72,16 @@ pub(crate) fn is_helper_bundle_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
 }
 
-/// This daemon's staging root for the helper with bundle id `bundle_id`.
+/// The folder of the helper with bundle id `bundle_id`'s one copy, shared with the acpmux
+/// share host and the app.
 pub(crate) fn staging_root(user_home: &Path, bundle_id: &str) -> PathBuf {
-    user_home
-        .join("Library/Application Support/cmux-next/screen-sharing")
-        .join(bundle_id)
-        .join(SLOT)
+    cmux_signed_bundle::helper_folder(user_home, bundle_id)
+}
+
+/// This daemon's folder of the old per-digest layout, and the folder its cleanup stops at.
+fn legacy_root(user_home: &Path, bundle_id: &str) -> (PathBuf, PathBuf) {
+    let support = user_home.join("Library/Application Support/cmux-next");
+    (support.join("screen-sharing").join(bundle_id).join(LEGACY_SLOT), support)
 }
 
 /// A verified copy of `helper` outside the app; its executable.
@@ -92,6 +97,8 @@ pub(crate) fn stage(helper: &Path, user_home: &Path) -> Result<PathBuf, String> 
         cmux_signed_bundle::stage(helper, &staging_root(user_home, &id), &parts, |copy| {
             cmux_signed_bundle::verify(copy, &requirement)
         })?;
+    let (legacy, stop) = legacy_root(user_home, &id);
+    cmux_signed_bundle::remove_legacy_root(&legacy, &stop);
     Ok(staged.executable(EXECUTABLE))
 }
 
@@ -203,14 +210,14 @@ mod tests {
         std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
         // No helper yet: nothing to run.
         assert_eq!(find_helper(None, &exe, &[]), None);
-        // A bundle without the executable is no helper; a sorted first one wins.
+        // A bundle without the executable is no helper; the current name beats the old one.
         helper(&app.join("Contents/Library/cmux A Screen Sharing.app"), "x", false);
-        helper(&app.join("Contents/Library/cmux NIGHTLY Screen Sharing.app"), "x", true);
+        helper(&app.join("Contents/Library/cmux NIGHTLY Helper.app"), "x", true);
         helper(&app.join("Contents/Library/cmux Z Screen Sharing.app"), "x", true);
         helper(&app.join("Contents/Library/Other.app"), "x", true);
         assert_eq!(
             find_helper(None, &exe, &[]),
-            Some(app.join("Contents/Library/cmux NIGHTLY Screen Sharing.app"))
+            Some(app.join("Contents/Library/cmux NIGHTLY Helper.app"))
         );
         // A daemon outside any app bundle finds none.
         assert_eq!(find_helper(None, &root.join("bin/cmux-tui"), &[]), None);
@@ -229,7 +236,7 @@ mod tests {
         helper(&in_stable, "x", true);
         assert_eq!(find_helper(None, &bare, &installed), Some(in_stable));
         // NIGHTLY is searched before stable.
-        let in_nightly = nightly.join("Contents/Library/cmux NIGHTLY Screen Sharing.app");
+        let in_nightly = nightly.join("Contents/Library/cmux NIGHTLY Helper.app");
         helper(&in_nightly, "x", true);
         assert_eq!(find_helper(None, &bare, &installed), Some(in_nightly));
         // The app holding the daemon comes first, and the override beats all.
@@ -264,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn only_cmux_helper_ids_stage_in_their_own_slot() {
+    fn only_cmux_helper_ids_stage_at_their_fixed_path() {
         assert!(is_helper_bundle_id("com.cmuxterm.app.screen-sharing"));
         assert!(is_helper_bundle_id("com.cmuxterm.app.nightly.screen-sharing"));
         assert!(is_helper_bundle_id("com.cmuxterm.app.debug.my-tag.screen-sharing"));
@@ -275,7 +282,7 @@ mod tests {
         assert_eq!(
             staging_root(Path::new("/Users/me"), "com.cmuxterm.app.nightly.screen-sharing"),
             Path::new(
-                "/Users/me/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly.screen-sharing/computer-use"
+                "/Users/me/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing"
             )
         );
     }

@@ -6,7 +6,8 @@
 # stub codesign prints "replacing existing signature" on stderr. Covers: the Xcode phase with no
 # processed Info.plist yet, the same phase again over the bundled helper, a previous build's Info.plist
 # (another name and id) left in the app, --app with no Info.plist, and --stamp refusing a name that is
-# not one. Each run must leave exactly one helper, named from this build, and no staging directory.
+# not one, and an app built before the rename (a legacy "<name> Screen Sharing.app") migrating on a rebuild and
+# on --stamp while another app's " Helper.app" stays. Each run must leave exactly one helper, named from this build, and no staging directory.
 # Runs on Linux and macOS (python3 and file(1)).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -64,10 +65,10 @@ run() { # [args...] -> out, rc; the Xcode phase's settings unless --app/--stamp
   set -e
 }
 expect_one_helper() { # <case> <expected helper name> <expected id>
-  local entries helper="$library/$2 Screen Sharing.app"
+  local entries helper="$library/$2 Helper.app"
   entries=$(ls -A "$library")
   [[ $rc == 0 ]] || fail "$1: exit $rc" "$out"
-  [[ "$entries" == "$2 Screen Sharing.app" ]] || fail "$1: Contents/Library holds [$entries], not one helper named '$2 Screen Sharing.app'" "$out"
+  [[ "$entries" == "$2 Helper.app" ]] || fail "$1: Contents/Library holds [$entries], not one helper named '$2 Helper.app'" "$out"
   [[ -x "$helper/Contents/MacOS/cmux-screen-sharing" ]] || fail "$1: no helper executable" "$out"
   [[ "$(plist_value "$helper/Contents/Info.plist" CFBundleIdentifier)" == "$3" ]] \
     || fail "$1: the helper's id is '$(plist_value "$helper/Contents/Info.plist" CFBundleIdentifier)', not $3" "$out"
@@ -96,6 +97,39 @@ expect_one_helper "--app, no Info.plist" "$NAME" "com.cmuxterm.app.next.screen-s
 write_info "cmux/NEXT" "$ID"
 run --stamp "$app"
 [[ $rc != 0 ]] || fail "--stamp took the name 'cmux/NEXT'" "$out"
-[[ "$(ls -A "$library")" == "$NAME Screen Sharing.app" ]] || fail "--stamp moved the helper on a refused name" "$out"
+[[ "$(ls -A "$library")" == "$NAME Helper.app" ]] || fail "--stamp moved the helper on a refused name" "$out"
+
+# 6. An app built before the rename: the Xcode phase replaces its "<name> Screen Sharing.app".
+legacy() { # <name> -> a legacy-named helper in the app, the only helper
+  rm -rf "$library"/*
+  mkdir -p "$library/$1 Screen Sharing.app/Contents/MacOS"
+  cp "$TMP/cmux-screen-sharing" "$library/$1 Screen Sharing.app/Contents/MacOS/cmux-screen-sharing"
+  chmod 755 "$library/$1 Screen Sharing.app/Contents/MacOS/cmux-screen-sharing"
+}
+rm -f "$app/Contents/Info.plist" "$build/tmp/bundle-screen-sharing-helper.stamp"
+legacy "$NAME"
+run
+expect_one_helper "rebuild over a legacy helper" "$NAME" "$ID.screen-sharing"
+
+# 7. --stamp on an app built before the rename: renamed to "<name> Helper.app", named "<name> Helper".
+legacy "cmux NEXT"
+write_info "$NAME" "$ID"
+run --stamp "$app"
+expect_one_helper "--stamp of a legacy helper" "$NAME" "$ID.screen-sharing"
+for key in CFBundleName CFBundleDisplayName; do
+  [[ "$(plist_value "$library/$NAME Helper.app/Contents/Info.plist" $key)" == "$NAME Helper" ]] \
+    || fail "--stamp: $key is not '$NAME Helper'" "$out"
+done
+
+# 8. Another bundle ending in " Helper.app" (no cmux-screen-sharing inside) is neither taken nor removed.
+mkdir -p "$library/Other Helper.app/Contents/MacOS"
+touch "$library/Other Helper.app/Contents/MacOS/other"
+run --stamp "$app"
+[[ $rc == 0 && -d "$library/Other Helper.app" && -x "$library/$NAME Helper.app/Contents/MacOS/cmux-screen-sharing" ]] \
+  || fail "--stamp took or removed another app's Helper.app" "$out"
+rm -rf "$library/$NAME Helper.app"
+run --stamp "$app"
+[[ $rc == 0 && "$out" == *"carries no Screen Sharing helper"* && -d "$library/Other Helper.app" ]] \
+  || fail "--stamp treated another app's Helper.app as the helper" "$out"
 
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"
