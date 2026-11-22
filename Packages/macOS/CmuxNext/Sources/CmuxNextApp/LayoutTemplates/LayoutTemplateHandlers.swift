@@ -20,12 +20,10 @@ enum LayoutTemplateHandlers {
             return services?.layoutTemplates.templates.map { ActionEnumCase(value: $0.name, title: $0.name) } ?? []
         }
         registry.bind("saveLayoutTemplate", run: { try save(context, $0) })
-        registry.bind("palette.layout.open", run: { open(context, $0) })
+        let noTemplates: @MainActor () -> String? = { [weak services] in services?.layoutTemplates.templates.isEmpty == false ? nil : LayoutTemplateStrings.noTemplates }
+        registry.bind("palette.layout.open", unavailable: noTemplates, run: { open(context, $0) })
         services.palette.sources.actionPages["manageLayouts"] = { [weak services] in services.map(managePage) }
-        registry.bind("manageLayouts", run: { _ in
-            guard !services.layoutTemplates.templates.isEmpty else { throw ActionFailure.invalidTarget(LayoutTemplateStrings.noTemplates) }
-            services.palette.show(page: managePage(services), relativeTo: context.activeWindow?.window)
-        })
+        registry.bind("manageLayouts", unavailable: noTemplates, run: { _ in services.palette.show(page: managePage(services), relativeTo: context.activeWindow?.window) })
     }
 
     /// Saves the target workspace's layout (as the store mirrors it now) under the `name` argument.
@@ -52,7 +50,7 @@ enum LayoutTemplateHandlers {
         let requested = invocation["template"]?.stringValue ?? ""
         let row = invocation.target.flatMap { $0.kind == .workspace ? services.workspace(id: $0.id) : nil }
         let daemon = row.flatMap { services.machines.daemon(forWorkspace: $0.id) } ?? services.activeDaemon
-        let target = windows.targetWindow(preferring: row.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: row.flatMap { windows.actingWindow(for: $0.id) } ?? context.activeWindow?.state.id)
         services.registry.track(Task { @MainActor in
             await library.load()
             guard let template = library.template(named: requested) else {

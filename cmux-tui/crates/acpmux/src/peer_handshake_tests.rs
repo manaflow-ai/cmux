@@ -570,8 +570,12 @@ async fn link_to_paced_old_peer(
         let end = link.serve(client, &mut out_rx).await;
         (end, out_rx)
     });
-    let mut listed = None;
+    // Ready, and listed: a link after a far restart reads its list after it is ready.
+    let (mut listed, mut connected) = (None, false);
     let outcome = loop {
+        if connected && listed.is_some() {
+            break Ok((started.elapsed(), listed.take().unwrap_or_default()));
+        }
         tokio::select! {
             // Bounded: the clock is paused, so a link that stops sending fails here at once.
             notice = tokio::time::timeout(LINK_WAIT, notices.recv()) => match notice
@@ -580,7 +584,7 @@ async fn link_to_paced_old_peer(
                 .2
             {
                 PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
-                PeerNotice::Connected => break Ok((started.elapsed(), listed.take().unwrap_or_default())),
+                PeerNotice::Connected => connected = true,
                 _ => {}
             },
             ended = &mut serving => {

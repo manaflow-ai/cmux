@@ -3,7 +3,7 @@ import Foundation
 /// The picker's text (Localizable.xcstrings, keys `picker.*`).
 nonisolated enum PickerStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var useThisFolder: String { text("picker.useThisFolder", "Use This Folder") }
@@ -43,9 +43,6 @@ nonisolated enum PickerStrings {
     static var cancel: String { text("picker.cancel", "Cancel") }
     static func explainer(_ folder: String) -> String {
         String(format: text("picker.explainer.title", "macOS will ask before cmux opens %@"), folder)
-    }
-    static var explainerDetail: String {
-        text("picker.explainer.detail", "cmux reads a protected folder only when you open it. You can change this later in System Settings.")
     }
     static var continueTitle: String { text("picker.explainer.continue", "Continue") }
     static var goBack: String { text("picker.explainer.back", "Go Back") }

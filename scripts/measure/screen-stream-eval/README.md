@@ -87,9 +87,9 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
-| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. A target without the verb runs both stages |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
-| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "pickup_ms", "gate_ms", "encode_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log |
+| `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "to_arrived_ms", "pickup_ms", "gate_ms", "arrived_to_release_ms", "encode_ms", "sck_all_frames_ms", "draw_ms", "commit_to_vsync_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log, plus `frame_before_commit` (a count) and `refresh_hz`. `draw_ms` and `commit_to_vsync_ms` come from the marker's `commit COUNTER T_US` lines (it logs them with `--verbose`). `sck_ms`, `sck_all_frames_ms` and `commit_to_vsync_ms` are signed: ScreenCaptureKit's display time is the vsync the frame is shown at, usually after the callback |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
 
 Today's targets:
@@ -99,7 +99,31 @@ Today's targets:
   decode. `bench --input none --duration-s N` is the passive window.
 - `webrtc`: `CmuxVNCWebRTC` `ScreenStreamHost` (the iPhone's path). `cmux-vnc-host --capture`
   runs with the default device hub signaling. The viewers are `RdMarkerClickLatencyTests`
-  (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`.
+  (`CMUX_RD_MARKER_INPUT=key|click`) and `StreamWindowTests`. These are macOS test viewers: they
+  end at decode and are not the phone.
+- `iphone-sim`: the iPhone app's own viewer. The same host as `webrtc`; the viewer is the cmux-next
+  iPhone app (Demo configuration: optimized, with the DEBUG developer surface) in an iOS simulator
+  on the same Mac, launched with `CMUX_MOBILE_SS_LINK` (the host's pairing link, no sign-in or
+  device hub; `ScreenSharingLinkRoot`, DEBUG only) and `CMUX_MOBILE_SS_MARKER`. Inside the app's
+  `ScreenSessionView`, `ScreenPresentProbe` reads the marker from each decoded frame and times
+  presents on whichever renderer `ScreenVideoView` has: each input (`ScreenSession.tap` of "a" or
+  `click` on the click pad) is timed to the first decoded frame and to the first present that
+  shows the next counter. "Presented" is, with an `RTCMTLVideoView`, the `targetTimestamp` of the
+  first display link tick after the draw (the simulator's Metal reports no `presentedTime`; on a
+  device the probe uses it); with an `AVSampleBufferDisplayLayer` (`DisplayImmediately`), the
+  `targetTimestamp` of the first display link tick after the frame was enqueued (the scheduled
+  scan-out, not measured). So one harness gives a before/after across a renderer change.
+  `g2g_ms` is the presented time; `split.present` keeps decoded, presented and decode-to-present
+  (each n, p50, p95), frames decoded but never presented, and `clock` (the renderer, what
+  presented means for it, and its counts). The simulator runs on the Mac's clock.
+  Not in it: the phone's touch or keyboard delivery before the session sends, the display's
+  scan-out itself, a real phone's GPU, decoder and radio. Latency only (`caps`
+  prints `latency-only`). It builds the app (FFI from the worker's cache, xcodegen, `xcodebuild`)
+  and needs an iOS simulator runtime; a Mac with none stops at build, naming the runtimes it has:
+  `--arg=targets=webrtc,iphone-sim`. One Mac only: with `lan=` or `viewer-of=` its build, host
+  and view refuse, since a viewer Mac's simulator would have nothing on the host Mac to stop it.
+  Its `host-stop` (also run by the harness's exit trap, on a signal too) deletes every simulator
+  in its own `/tmp/iphsim.*` set and the set.
 - `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
   `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
   stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64
@@ -119,10 +143,14 @@ Today's targets:
   the end of the hold. Readiness is the same fresh nonce as below, read from the framebuffer.
   The client offers ZRLE, zlib, CopyRect and raw (`encodings_seen` records what the server used),
   so this is Apple's server with standard RFB encodings, not the picture Screen Sharing.app gets
-  over Apple's own encodings. The login is a file in the viewer account's real home,
-  `~/.config/screen-stream-eval/login` (mode 0600): the host account's password, for the account
-  with the viewer's name (the fleet Macs share one), or a user name line first. Never argv,
-  environment or logs. Each view runs under a hard time limit.
+  over Apple's own encodings. The login is the one Screen Sharing.app saved in the viewer
+  account's keychain for the host ("Remember this password"; the first read may show macOS's
+  keychain prompt once), or a file in the viewer account's real home,
+  `~/.config/screen-stream-eval/login` (mode 0600), which wins when present: the host account's
+  password, for the account with the viewer's name (the fleet Macs share one), or a user name line
+  first. Never argv, environment or logs. Each view runs under a hard time limit. Its viewer opens
+  no window and posts nothing on its own Mac, so `viewer-of=` runs it from a person's Mac too;
+  `person_guard.py` still refuses a person's Mac as its host, where its input lands.
 - `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
   same host and sample the displayed connection for OCR and viewer CPU. They
   request Standard + Full Quality and Standard + Adaptive Quality respectively;
@@ -266,6 +294,28 @@ Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writi
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then
 appear under `targets.petal` in the same schema.
 
+### External contenders (`eval.py external`)
+
+A contender whose host and viewer live outside this repository plugs in through two commands, with
+no target script here:
+
+```
+python3 scripts/measure/screen-stream-eval/eval.py external NAME OUT.json \
+  --host-cmd 'start the host; touch "$EVAL_STATE/host-ready"' \
+  --viewer-cmd 'connect, drive the marker, write "$EVAL_READBACK"' \
+  [--host-stop-cmd CMD] [--takes 3] [--keep DIR]
+```
+
+The host serves the same marker (`cmux-rd testapp`, or `mac-marker`); the viewer decodes the stream,
+reads the marker's counter from each decoded frame (`src/marker.rs`) and writes the readback, one
+JSON line per key sample (`g2g_ms` or `lost`), per motion second (`bytes`, `frames`), the first frame
+(`ms`) and each end's CPU (`eval.py external --help` lists the records). Each take gets a fresh host;
+OUT.json is the usual target with `motion.kbps`, `motion.fps` and `extra.takes`, every number the
+median of the takes that measured it, and a missing record stays null. `eval.py readback FILE OUT`
+folds one readback without running anything, so the `rd` path's own bench output, converted to the
+same records, lands in the same columns. Running `rd` through this hook too keeps one harness and one set
+of definitions for every contender.
+
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
@@ -293,6 +343,63 @@ Each target also leaves its raw files under
 `outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
+
+`gate.json` is the budget gate (`budget_gate.py check results.json`; cmuxterm-hq
+`docs/design/screen-share-under-100ms.md`, "Budget per stage", piece 6). It judges the `rd` target's
+key split, stage by stage, against the page's p50 budgets: Screen (render), Capture (sck + pickup +
+gate), Encode, Send + Network + Reassembly (transport, against the sum of the three budgets), Decode
+and Total (to the decoded frame). Input and Present stay "not measured" until the per-frame stage
+ledger (`cmux.rd-stage-ledger/1`) is in the target; a target that carries a
+`cmux.screen-share-budget/1` record under `budget` (or a `screen-share-vs.py --out` file) is judged
+from that record instead. A stage over budget fails the daily run with an error naming it; a run
+that measured no stage fails too. The workflow's `budget` input (`STAGE=MS ...`) replaces budgets
+for one dispatched run, to prove the gate end to end; the daily run passes none.
+
+## Linux, kernel netem jitter (no Mac)
+
+`rd-netem-linux.py` builds `cmux-rd` at each `--commit` and runs the Linux host (Xvfb,
+`cmux-rd testapp --workload motion`, `--profile baseline`) and `cmux-rd bench --carrier udp` in two
+network namespaces joined by a veth, with `tc netem` on each direction: clean, 5±5 ms,
+15±15 ms with 1 % burst loss (Gilbert-Elliott, bursts of about 4 packets), 30±30 ms with 2 % loss.
+Per commit and profile it writes one JSON line (`cmux.rd-netem-linux/1`): key-to-frame p50/p95 and
+lost, received Mbps for every second of a 20 s passive session, the host's target kbps for every
+second (its stats message), IDRs from the host's timing records, and the bench line's
+`stage_ledger` (`cmux.rd-stage-ledger/1`) when that commit has one. `results.md` is the table;
+`rd-netem-linux.py table results.jsonl` redraws it.
+
+It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the fleet it runs through
+HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
+
+```
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+  git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
+  git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
+  python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
+    --commit FULL_SHA [--commit FULL_SHA ...]'
+```
+
+DRIVER_SHA is any commit with this script; each `--commit` is the cmux revision measured. A
+prebuilt binary runs with `--bin LABEL=PATH` instead of `--commit`.
+
+Hosts encode with Cisco's OpenH264 binary, the one shipped hosts load: the measured binary's own
+`cmux-rd openh264-install` fetches it and checks its pinned SHA-256. `--openh264 PATH` uses a copy
+you already have. `--openh264 source` keeps OpenH264 compiled from source by the `bench` feature.
+That build has no assembly and encodes about 3x slower (`cmux-rd encode-selftest` at 1080p on the
+pool: a typed glyph costs 15 to 20 ms from source and 6 ms with Cisco's binary). The tables mark
+its rows "source-built, about 3x slower". They mark rows from before this flag the same way,
+because those were all source-built, including #44486's 14.9 and 9.8 ms encode rows.
+
+The build controller's Linux pool has `sch_netem` too and runs it from this repository directly
+(the script exits 3 before measuring when `modprobe sch_netem` fails):
+
+```
+cmux-ci submit --kind fast-checks --label cmux-next-linux --repo https://github.com/manaflow-ai/cmux.git \
+  --ref DRIVER_SHA --command 'set -e; out=${FAST_CHECKS_OUT:-$PWD/rd-netem-out}; mkdir -p "$out";
+  python3 -u scripts/measure/screen-stream-eval/rd-netem-linux.py --deps --out "$out" --commit FULL_SHA'
+cmux-ci wait JOB && cmux-ci log JOB
+```
+
+The JSON lines and the table are in the job's log.
 
 ## Two Macs
 
@@ -336,6 +443,31 @@ is decoded, not when it is presented on the viewer's screen. Real networks are G
 Trust: the run token, rd's stream token and the WebRTC pairing link cross the LAN in plain HTTP.
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
+
+### Held-and-burst link profiles
+
+`mac-holds.sh` shapes the host Mac's egress to the viewer's addresses with dummynet, as root (on the
+fleet, `fleet-sudo HOST /bin/bash mac-holds.sh ...`), and nothing else on the Mac:
+
+```
+mac-holds.sh start wifi-away 900 VIEWER_IP [VIEWER_WIFI_IP]   # a watchdog clears it after 900 s
+mac-holds.sh holds                                            # each hold's start and end, CLOCK_MONOTONIC and wall
+mac-holds.sh clear; mac-holds.sh show                         # show must list no pipe 07730
+```
+
+`wifi-away` comes from a Wi-Fi capture of a laptop away from its access point:
+- 4 ms base delay and 2% random loss
+- a 50 to 100 ms hold every 0.53 s
+- long holds of 300 to 580 ms (median about 455 ms) at irregular gaps (median 3.4 s, 0.5 to 11 s)
+
+A held packet is not dropped: it waits and leaves with the others at the hold's end. The schedule
+comes from a fixed seed, and `wifi-away-schedule.jsonl` is that schedule for 900 s (`mac-holds.sh
+schedule wifi-away 900`), so a later run can check it gets the same holds.
+`wifi-short`, `wifi-long` and `wifi-loss` keep only the short holds, only the long holds, or only the
+loss. `stall` is a 600 ms hold every 5 s.
+
+The script refuses any pipe delay under 1 ms. A zero-delay dummynet pipe panicked a macOS fleet Mac
+twice. `bash test-mac-holds.sh` checks the refusal with a stub `dnctl`, needs no root, and runs on Linux.
 
 ## Needs
 

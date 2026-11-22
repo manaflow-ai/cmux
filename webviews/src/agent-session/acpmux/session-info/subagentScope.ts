@@ -115,8 +115,8 @@ export function subagentSummary(
   };
 }
 
-/// The tool calls in `rows`.
-function callIds(rows: readonly AcpmuxRow[]): Set<string> {
+/// The tool calls in `rows`: a subagent view's, whose processes the registry reads (App.tsx `registryWindow`).
+export function callIds(rows: readonly AcpmuxRow[]): Set<string> {
   const ids = new Set<string>();
   for (const row of rows)
     if (row.kind === "activity") for (const item of row.items ?? []) if (item.tool) ids.add(item.tool.id);

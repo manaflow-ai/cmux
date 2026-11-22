@@ -19,6 +19,32 @@ mp4, so a reviewer sees the motion without clicking. A gif has to stay under 5 M
 image, so lower `--gif-fps` or `--gif-width` if the tool refuses one; replacing
 evidence already uploaded for that PR needs `--force`.
 
+**Polish the capture before uploading it.** `scripts/media/media_polish.py`
+crops, pairs, grids, trims and redacts, and writes a `<output>.media.json`
+sidecar for each output (what the warn-only `scripts/ci/pr_media_lint.py` reads):
+
+```sh
+python3 scripts/media/media_polish.py crop shot.png --out pane.png --bounds X,Y,W,H --scale 2   # CSS px, DPR stated
+python3 scripts/media/media_polish.py pair before.png after.png --out-dir pair/                  # refuses mismatched sizes unless --fit
+python3 scripts/media/media_polish.py grid off.png on.png --label off --label on --metric "p50 12 ms" --metric "p50 9 ms" --out grid.png
+python3 scripts/media/media_polish.py trim clip.mov --out fold.mp4 --event-start-frame 40 --event-end-frame 70   # + fold.gif, fold.poster.png
+```
+
+- Crop to the pane under test, from its `getBoundingClientRect()` or AX frame
+  (`--bounds-json`), never a full screen. `--scale` is the capture's device
+  pixel ratio and is required; a crop that leaves the source is refused.
+- Capture before, after and every variant with the same crop, so `pair` and
+  `grid` take them as they are; `--fit` letterboxes (never stretches) and says so.
+- Cut each clip to the event under test (`trim`: about 300 ms either side).
+- Crop so sidebars with machine or account names are outside the frame;
+  `redact --rect` is the fallback. `scan` reads no text and refuses nothing: the
+  privacy check (`scripts/ci/pr_media_privacy.py check`, which `pr-media.py` runs
+  on every upload) decides.
+- Record what you measured: `--variable`, `--control`, `--runs`, `--viewport WxH`,
+  `--split`, `--window-frames S:E` go into the sidecar; anything not given is null.
+  Team members: the handbook page `ui-measurement-confounded.md` in cmuxterm-hq's
+  `docs/handbook/` covers the measurement side.
+
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert.
 Look at the checks that judge the change (macOS compile admission plus the
 package and CLI tests CI selected for it) and skip slow unrelated lanes. Only a

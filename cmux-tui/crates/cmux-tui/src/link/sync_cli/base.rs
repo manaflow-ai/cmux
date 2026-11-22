@@ -67,6 +67,12 @@ pub(super) fn packs_dir(local: &Path, remote_root: &str) -> anyhow::Result<PathB
     Ok(path_of(local, remote_root)?.with_extension("packs"))
 }
 
+/// Whether a push from this Mac left `local` at `remote_root` before (a base is kept for it): a
+/// copy then is a re-push, never a fresh one. No state folder reads as kept, the safe side.
+pub(super) fn kept(local: &Path, remote_root: &str) -> bool {
+    path_of(local, remote_root).map_or(true, |path| path.exists())
+}
+
 /// Keeps `manifest` as the base of `local` synced to `remote_root`.
 pub(super) fn save(local: &Path, remote_root: &str, manifest: &Manifest) -> anyhow::Result<()> {
     let path = path_of(local, remote_root)?;
@@ -121,6 +127,11 @@ pub(super) fn trusted(
     };
     let kept: Manifest = serde_json::from_slice(&kept)
         .with_context(|| format!("{} is not a sync record", path.display()))?;
+    // A projected folder's base was made here when it was projected: the machine has no record of
+    // it until its first Bring Back writes one there.
+    if machine.is_none() && kept.projected {
+        return Ok(kept);
+    }
     let machine: Option<Manifest> = machine.and_then(|bytes| serde_json::from_slice(bytes).ok());
     if machine.as_ref() != Some(&kept) {
         return Err(Mismatch.into());

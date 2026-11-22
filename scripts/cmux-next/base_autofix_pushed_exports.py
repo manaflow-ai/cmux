@@ -78,6 +78,12 @@ MAX_PACK_BYTES = 64 * 1024**2
 # generated files and daemon tests to one such run on the tip at most every 15 minutes, named after the
 # commit it tests (a same-tree rerun keeps the name; its head is the newer tip).
 BASE_TIER_TITLE = re.compile(r"^cmux-next base tier · ([0-9a-f]{40})$")
+# The PR autofix's pack (cmux-next-pr-autofix.yml's generated-exports job): a same-repository pull
+# request's generated-files job packs the same exports on its own build of the merge commit, under
+# this name (never the base's, which only feat-cmux-next runs may carry), so the PR autofix's Mac job
+# does not build the package again for the same merge commit.
+PR_NAME_PREFIX = f"cmux-next-pr-exports-{RECIPE}-"
+PR_UPLOAD_STEP = "Upload the exports for the PR autofix"
 BASE_TIER_KICK = ".github/workflows/cmux-next-base-tier-kick.yml"
 # Commits between the run's own and the tip whose packs the first look takes (newest first), besides its own.
 NEWER_CANDIDATES = 8
@@ -260,6 +266,8 @@ def unpack_verified(bundle: Path, tree: str, run: dict, commit: str, names: list
                 raise Miss("the pack does not hold exactly the exports this checkout lists")
             staged = {}
             for rel in names:
+                if archive.getinfo(rel).file_size > MAX_PACK_BYTES:
+                    raise Miss(f"{rel} unpacks past {MAX_PACK_BYTES} bytes")
                 data = archive.read(rel)
                 if sha256(data) != files[rel]:
                     raise Miss(f"{rel} does not match the pack's digest (corrupt or replaced)")
@@ -429,6 +437,132 @@ def lookup(api: Api, read_history, sha: str, tree: str, env: dict[str, str], nam
     return hit
 
 
+def pr_pack_name(tree: str) -> str:
+    if not OID.match(tree):
+        raise Miss(f"{tree!r} is not a tree id")
+    return PR_NAME_PREFIX + tree
+
+
+def check_pr_run(run: dict, repo: str, head_sha: str, pr: int) -> None:
+    """A Miss unless `run` is this repository's own cmux-next.yml pull_request run of pull request `pr` at
+    `head_sha` (same-repository: a fork's run never packs)."""
+    if run.get("path") != WORKFLOW_PATH or run.get("event") != "pull_request":
+        raise Miss(f"run {run.get('id')} is {run.get('path')} on {run.get('event')}, not {WORKFLOW_PATH} on pull_request")
+    if (run.get("repository") or {}).get("full_name") != repo or (run.get("head_repository") or {}).get("full_name") != repo:
+        raise Miss(f"run {run.get('id')} is not this repository's own")
+    if run.get("head_sha") != head_sha:
+        raise Miss(f"run {run.get('id')} is at another head")
+    if pr not in {item.get("number") for item in run.get("pull_requests") or [] if isinstance(item, dict)}:
+        raise Miss(f"run {run.get('id')} is not pull request #{pr}'s")
+
+
+def pr_job_state(jobs: list[dict]) -> str:
+    """The PR pack's producer, the generated-files job: 'done' once its PR upload step (or the job)
+    finished, 'skipped', 'absent' (not listed yet: jobs list once their needs finish) or its status."""
+    found = [job for job in jobs if job.get("name") == GENERATED_JOB]
+    if not found:
+        return "absent"
+    job = found[0]
+    if job.get("status") == "completed":
+        return "skipped" if job.get("conclusion") in ("skipped", None) else "done"
+    steps = [step for step in job.get("steps") or [] if step.get("name") == PR_UPLOAD_STEP]
+    return "done" if any(step.get("status") == "completed" for step in steps) else job.get("status") or "queued"
+
+
+def take_pr_pack(api: Api, run: dict, tree: str, sha: str, names: list[str], into: Path) -> dict:
+    """The newest PR pack `run` uploaded for merge tree `tree`, verified and unpacked into `into`."""
+    name = pr_pack_name(tree)
+    query = urllib.parse.urlencode({"name": name, "per_page": 10})
+    items = [item for item in api.json(f"actions/runs/{int(run['id'])}/artifacts?{query}").get("artifacts", [])
+             if item.get("name") == name and not item.get("expired")
+             and (item.get("workflow_run") or {}).get("id") in (None, run["id"])]
+    if not items:
+        raise Miss(f"run {run['id']} uploaded no pack of this merge tree")
+    item = sorted(items, key=lambda item: item.get("created_at") or "", reverse=True)[0]
+    with tempfile.TemporaryDirectory(prefix="cmux-pr-exports-") as scratch:
+        bundle = Path(scratch) / "pack.zip"
+        api.download(item["archive_download_url"], bundle)
+        return unpack_verified(bundle, tree, run, sha, names, into)
+
+
+def pr_lookup(api: Api, sha: str, tree: str, head_sha: str, pr: int, env: dict[str, str], names: list[str],
+              into: Path, poll: float, first_run_grace: float, defer: bool = False) -> dict[str, str]:
+    """Take the PR pack of merge commit `sha` (tree `tree`) from pull request `pr`'s own cmux-next run at
+    `head_sha`. Waits while that run's generated-files job can still upload one; a miss otherwise.
+
+    With `defer`, a generated-files job that is still coming (queued, running, or not listed yet in a
+    run that has not finished) ends the lookup at once with coming=true: that job regenerates the same
+    exports on its own Mac build of this merge commit (and uploads them, cmux-next-generated-patch),
+    so the PR autofix's Mac job does not build them a second time."""
+    if not OID.match(sha) or not OID.match(tree) or not OID.match(head_sha):
+        raise Miss(f"no merge commit ({sha!r}), tree ({tree!r}) or head ({head_sha!r})")
+    if pr <= 0:
+        raise Miss("no pull request number")
+    repo = env.get("GITHUB_REPOSITORY") or ""
+    if not repo:
+        raise Miss("GITHUB_REPOSITORY is not set, so no run can be trusted")
+    budget = api.left()
+    reasons: list[str] = []
+    # A pack is looked up at most twice once its producer is done (an upload can list a moment late).
+    tried: dict[int, int] = {}
+    while True:
+        query = urllib.parse.urlencode({"event": "pull_request", "head_sha": head_sha, "per_page": 10})
+        runs, pending = [], []
+        try:
+            listed = api.json(f"actions/workflows/{WORKFLOW_FILE}/runs?{query}").get("workflow_runs", [])
+        except Miss as why:
+            # One failed read does not end the wait: the next poll reads again.
+            listed, pending = [], [f"the runs could not be read ({why})"]
+        for run in listed:
+            try:
+                check_pr_run(run, repo, head_sha, pr)
+            except Miss:
+                continue
+            runs.append(run)
+        for run in runs[:RUNS_WATCHED]:
+            run_id = int(run["id"])
+            try:
+                jobs = api.json(f"actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs", [])
+            except Miss as why:
+                pending.append(f"run {run_id}: its jobs could not be read ({why})")
+                continue
+            state = pr_job_state(jobs)
+            if state == "done":
+                if tried.get(run_id, 0) >= 2:
+                    continue
+                tried[run_id] = tried.get(run_id, 0) + 1
+                try:
+                    manifest = take_pr_pack(api, run, tree, sha, names, into)
+                except (Miss, KeyError, TypeError, ValueError) as why:
+                    reasons.append(f"run {run_id}: {why}")
+                    if tried[run_id] < 2:
+                        pending.append(f"run {run_id}: its pack is looked up again")
+                    continue
+                return {"hit": "true", "source_run_id": str(manifest["run_id"]), "source_sha": manifest["source_sha"],
+                        "waited": str(int(max(0.0, budget - api.left())))}
+            if state == "skipped" or (state == "absent" and run.get("status") == "completed"):
+                reasons.append(f"run {run_id}: its {GENERATED_JOB} job did not run")
+                continue
+            if defer:
+                return {"hit": "false", "coming": "true", "source_run_id": str(run_id),
+                        "reason": f"run {run_id}: its {GENERATED_JOB} job is {state}; it regenerates these exports",
+                        "waited": str(int(max(0.0, budget - api.left())))}
+            pending.append(f"run {run_id}: its {GENERATED_JOB} job is {state}")
+        # cmux-next.yml's run of this event starts with this workflow's; until it lists, give it a grace.
+        if not pending and not runs and budget - api.left() < first_run_grace:
+            pending = ["no cmux-next run of this head is listed yet"]
+        if not pending:
+            raise Miss("; ".join(["no pack for this merge commit, and none is coming", *reasons[-4:]]))
+        if api.left() <= poll:
+            raise Miss("; ".join([f"no pack within the wait ({pending[0]})", *reasons[-4:]]))
+        api.sleep(poll)
+
+
+def listed_exports() -> list[str]:
+    """Every file a pack holds, as this script's own copy lists it (the PR autofix runs the base's copy)."""
+    return exports(Path(__file__).resolve().parents[2])
+
+
 def remote_history(remote: str, branch: str, scratch: Path) -> list[tuple[str, str]]:
     """(commit, tree) of the branch tip's first-parent line, newest first; [] when it cannot be read."""
     bare = scratch / "history.git"
@@ -464,6 +598,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     k = sub.add_parser("key", help="print the pack's artifact name for a commit")
     k.add_argument("rev", nargs="?", default="HEAD")
+    k.add_argument("--pr", action="store_true", help="the PR autofix's pack name (a pull request's merge commit)")
     m = sub.add_parser("manifest", help="write manifest.json into a pack directory")
     m.add_argument("--pack", required=True)
     m.add_argument("--sha", required=True)
@@ -476,12 +611,27 @@ def main(argv: list[str] | None = None) -> int:
                    help="auto: wait for the base tier run when the checkout has its kick (off: vars.CMUX_NEXT_BASE_TIER_COALESCE is 0)")
     f.add_argument("--skip", default="", help="a reason not to look (switched off)")
     f.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
+    p = sub.add_parser("pr-lookup", help="the PR autofix: hit=, coming=, reason=, exports=, waited= for $GITHUB_OUTPUT")
+    p.add_argument("--out", required=True, help="the action-exports directory: changed exports at their paths")
+    p.add_argument("--head-sha", required=True, help="the pull request's head commit")
+    p.add_argument("--pr", required=True, type=int, help="the pull request's number")
+    p.add_argument("--actions", choices=("true", "false"), required=True, help="the action exports are wanted")
+    p.add_argument("--settings", choices=("true", "false"), required=True, help="the settings exports are wanted")
+    p.add_argument("--wait", type=float, default=7200, help="seconds to wait for the run's generated-files job")
+    p.add_argument("--poll", type=float, default=120)
+    p.add_argument("--first-run-grace", type=float, default=180)
+    p.add_argument("--defer-to-producer", action="store_true",
+                   help="end at once with coming=true while the run's generated-files job is still coming")
+    p.add_argument("--skip", default="", help="a reason not to look (switched off)")
+    p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args(argv)
     env = dict(os.environ)
     root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel"))
     if args.command == "key":
-        print(pack_name(tree_of(root, args.rev)))
+        print((pr_pack_name if args.pr else pack_name)(tree_of(root, args.rev)))
         return 0
+    if args.command == "pr-lookup":
+        return pr_main(args, env, root)
     if args.command == "manifest":
         write_manifest(root, Path(args.pack), args.sha, env)
         print(f"pack={pack_name(tree_of(root, args.sha))}")
@@ -516,6 +666,56 @@ def main(argv: list[str] | None = None) -> int:
             line = (f"Swift exports: **taken** from {server}/{repo}/actions/runs/{outputs['source_run_id']} "
                     f"(made at `{outputs['made_at'][:12]}`); "
                     f"{'some differ from this commit' if outputs['exports'] == 'true' else 'all current'}. No Mac job.")
+        else:
+            line = f"Swift exports: no pack ({outputs.get('reason')}); the Mac job regenerates them."
+        try:
+            with open(args.summary, "a", encoding="utf-8") as stream:
+                stream.write(line + "\n")
+        except OSError:
+            pass
+    for name, value in outputs.items():
+        print(f"{name}={value}")
+    return 0
+
+
+def pr_main(args: argparse.Namespace, env: dict[str, str], root: Path) -> int:
+    """pr-lookup: the PR pack of this checkout's merge commit (HEAD), its wanted exports that differ from
+    HEAD copied into --out. Every problem is hit=false with a reason: the PR autofix's Mac job runs."""
+    outputs: dict[str, str]
+    try:
+        if args.skip:
+            raise Miss(args.skip)
+        if args.actions != "true" and args.settings != "true":
+            raise Miss("no exports are wanted")
+        sha, tree = git(root, "rev-parse", "HEAD"), tree_of(root, "HEAD")
+        api = Api(env.get("GH_TOKEN") or "", env.get("GITHUB_REPOSITORY", ""),
+                  env.get("GITHUB_API_URL", "https://api.github.com"), time.monotonic() + args.wait)
+        if not api.token:
+            raise Miss("no read token (GH_TOKEN, the route App's): not waiting on the shared GITHUB_TOKEN budget")
+        names = listed_exports()
+        wanted = [rel for rel in names if (rel in ACTION_EXPORTS and args.actions == "true")
+                  or (rel not in ACTION_EXPORTS and args.settings == "true")]
+        with tempfile.TemporaryDirectory(prefix="cmux-pr-exports-staged-") as scratch:
+            staged = Path(scratch) / "staged"
+            outputs = pr_lookup(api, sha, tree, args.head_sha, args.pr, env, names, staged, args.poll,
+                                args.first_run_grace, defer=args.defer_to_producer)
+            changed = [] if outputs.get("coming") == "true" else changed_exports(root, staged, wanted, Path(args.out))
+        outputs["exports"] = "true" if changed else "false"
+        for rel in changed:
+            print(f"regenerated: {rel}", file=sys.stderr)
+    except Miss as why:
+        outputs = {"hit": "false", "reason": " ".join(str(why).split())[:500]}
+    except Exception as error:  # noqa: BLE001 - a lookup bug must never fail the run: the Mac job regenerates
+        outputs = {"hit": "false", "reason": " ".join(f"lookup error: {type(error).__name__}: {error}".split())[:500]}
+    if args.summary:
+        server, repo = env.get("GITHUB_SERVER_URL", "https://github.com"), env.get("GITHUB_REPOSITORY", "")
+        if outputs.get("coming") == "true":
+            line = (f"Swift exports: left to {server}/{repo}/actions/runs/{outputs['source_run_id']}'s "
+                    f"{GENERATED_JOB} job, which regenerates them for this merge commit. No Mac job.")
+        elif outputs.get("hit") == "true":
+            line = (f"Swift exports: **taken** from {server}/{repo}/actions/runs/{outputs['source_run_id']} "
+                    f"(the same merge commit); {'some differ' if outputs['exports'] == 'true' else 'all current'}. "
+                    "No Mac job.")
         else:
             line = f"Swift exports: no pack ({outputs.get('reason')}); the Mac job regenerates them."
         try:

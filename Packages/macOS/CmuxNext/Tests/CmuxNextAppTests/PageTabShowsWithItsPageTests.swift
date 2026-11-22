@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextPages
@@ -29,9 +30,12 @@ import Testing
             page = try #require(PageWebView(descriptor: .files, routes: []))
         }
 
-        func showPage() {
-            pane.show(InternalPageView(key: "tab-with-page", page: .settings, content: page))
+        @discardableResult
+        func showPage() -> InternalPageView {
+            let view = InternalPageView(key: "tab-with-page", page: .settings, content: page)
+            pane.show(view)
             pane.layoutSubtreeIfNeeded()
+            return view
         }
 
         func close() {
@@ -53,6 +57,22 @@ import Testing
         #expect(column.pane.stripView.alphaValue == 1, "the tab did not show with its page's first frame")
     }
 
+    /// The snapshot 203 ms after Cmd-, on cmux-lawrence-2 (2cad95e): the reclaimed page's stale, narrow render showed
+    /// in the new column with no tab, 25 ms before the tab and the page's first frame. A new pane has no outgoing view
+    /// for PanePaintHold to keep, so nothing kept the page clear: the page waits with its tab, and both show at once.
+    @Test(.timeLimit(.minutes(1))) func aNewPanesPageWaitsWithItsTab() throws {
+        let column = try Column()
+        defer { column.close() }
+
+        let view = column.showPage()
+
+        #expect(view.alphaValue == 0, "the page showed before its first frame, with no tab above it")
+        #expect(column.pane.stripView.alphaValue == 0)
+        column.page.notePainted()
+        #expect(view.alphaValue == 1, "the page did not show with its first frame")
+        #expect(column.pane.stripView.alphaValue == 1, "the tab did not show with its page")
+    }
+
     @Test(.timeLimit(.minutes(1))) func aPageThatNeverPaintsShowsItsTabAfterTheLimit() async throws {
         let column = try Column()
         defer { column.close() }
@@ -65,6 +85,9 @@ import Testing
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(column.pane.stripView.alphaValue == 1, "a page that never paints kept its tab hidden")
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // The hold's own bound let the tab show, not a frame: the page still has not painted. The bound is the
+        // constant, not a measured wait, so a busy runner cannot fail it.
+        #expect(!column.page.hasPainted)
+        #expect(PaneStripHold.limit == .milliseconds(250))
     }
 }

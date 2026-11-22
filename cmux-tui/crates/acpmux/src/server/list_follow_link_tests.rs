@@ -34,7 +34,7 @@ fn hub() -> Arc<crate::hub::Hub> {
     crate::hub::Hub::new(config, store)
 }
 
-/// What the link published before the next `Connected`: a whole list, or a follow's rows and
+/// What the link published before its `Listed`: a whole list, or a follow's rows and
 /// gone ids.
 #[derive(Debug)]
 enum Listed {
@@ -43,8 +43,9 @@ enum Listed {
 }
 
 async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Listed {
-    let mut listed = None;
-    loop {
+    // A link after a far restart reads its list after it is ready: both, in either order.
+    let (mut listed, mut connected, mut whole) = (None, false, false);
+    while !connected || !whole {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(60), notices.recv())
             .await
             .expect("the link connects")
@@ -56,10 +57,12 @@ async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> List
             PeerNotice::SessionsPatch { rows, gone } => {
                 listed = Some(Listed::Patch(crate::peer::parse_rows(&rows), gone))
             }
-            PeerNotice::Connected => return listed.expect("a list before Connected"),
+            PeerNotice::Listed => whole = true,
+            PeerNotice::Connected => connected = true,
             _ => {}
         }
     }
+    listed.expect("a list before Listed")
 }
 
 fn whole(listed: Listed) -> Vec<serde_json::Value> {

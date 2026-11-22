@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf. */
+/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e886a510ff75a8c85a2b295523007222553407c8125c7e914fdb72236f68cedf" as const;
+export const SDK_IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -874,6 +874,42 @@ export const COMMAND_METADATA = {
       "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "computer-use-approvals": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
+      "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
+    ]
+  },
+  "computer-use-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
+      "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
+    ]
+  },
+  "computer-use-endpoint": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
+      "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
+    ]
+  },
   "conversation-agent-token": {
     "authority": "local-admin",
     "since": 12,
@@ -1363,6 +1399,18 @@ export const COMMAND_METADATA = {
       "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
     ]
   },
+  "device-setup": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "device-setup-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux device setup|start for the verified app connection only (origin.forbidden otherwise); runs off the connection's dispatcher.",
+      "Each step comes first as a device-setup-step control event on the asking connection; the reply (the summary line) ends the request, so no stream stays open.",
+      "Never quits or replaces a running app and never turns sharing on; the agents permission only with allow_agents."
+    ]
+  },
   "export-layout": {
     "authority": "control",
     "since": 6,
@@ -1427,6 +1475,18 @@ export const COMMAND_METADATA = {
     "constraints": [
       "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
       "See spec/commands.md for the result object."
+    ]
+  },
+  "float-pane": {
+    "authority": "control",
+    "since": 12,
+    "capability": "floating-panes-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
+      "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
+      "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
     ]
   },
   "focus-direction": {
@@ -2053,6 +2113,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "page-tabs-v1"
       },
+      "place": {
+        "since": null,
+        "capability": "tab-create-place-v1"
+      },
       "route": {
         "since": null,
         "capability": "page-tab-route-v1"
@@ -2076,9 +2140,17 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "frontend-browser-tabs-v1",
     "fields": {
+      "place": {
+        "since": null,
+        "capability": "tab-create-place-v1"
+      },
       "split": {
         "since": null,
         "capability": "frontend-browser-tab-split-v1"
+      },
+      "transaction": {
+        "since": null,
+        "capability": "tab-create-place-v1"
       },
       "workspace": {
         "since": null,
@@ -2251,6 +2323,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "place": {
+        "since": 12,
+        "capability": "tab-create-place-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
@@ -2258,6 +2334,10 @@ export const COMMAND_METADATA = {
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
+      },
+      "transaction": {
+        "since": 12,
+        "capability": "tab-create-place-v1"
       }
     },
     "stream": null,
@@ -2408,6 +2488,18 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "quick-terminal": {
+    "authority": "control",
+    "since": 12,
+    "capability": "quick-terminal-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "mode is \"toggle\", \"show\" or \"hide\" (default \"toggle\"). x, y, w and h are the frame of a quick terminal that the request makes, as fractions of the screen's pane area: all four or none.",
+      "A workspace has one quick terminal or none. A hide closes nothing: the pane keeps its terminal and its entry of Screen.floating.",
+      "See spec/commands.md for the result object and error codes."
+    ]
+  },
   "read-screen": {
     "authority": "control",
     "since": 5,
@@ -2520,7 +2612,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
-      "The verified app connection only; the daemon saves the switches and starts or stops the host."
+      "The verified app connection only; the daemon saves the switches and starts or stops the host.",
+      "app_permissions is the app's own Screen Recording and Accessibility: kept in memory only and shown as remote-host-status app.permissions; a call with no switch set never saves, starts or stops anything."
     ]
   },
   "remote-host-status": {
@@ -2811,6 +2904,10 @@ export const COMMAND_METADATA = {
       "expect_foreground": {
         "since": null,
         "capability": "send-expect-foreground-v1"
+      },
+      "key": {
+        "since": null,
+        "capability": "send-key-v1"
       },
       "paste": {
         "since": 7,
@@ -3291,6 +3388,10 @@ export const COMMAND_METADATA = {
         "since": 10,
         "capability": "daemon-handoff-force-v1"
       },
+      "if_idle": {
+        "since": 12,
+        "capability": "daemon-stop-if-idle-v1"
+      },
       "keep_layout": {
         "since": 12,
         "capability": "end-terminals-keep-layout-v1"
@@ -3308,7 +3409,8 @@ export const COMMAND_METADATA = {
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
       "The daemon exits only after the success response is queued.",
-      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
+      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop.",
+      "Clients must require daemon-stop-if-idle-v1 before sending if_idle:true: an older daemon ignores the field and stops."
     ]
   },
   "sidebar-plugin": {
@@ -3942,6 +4044,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-session-share-changed": {
+    "since": 12,
+    "capability": "agent-session-share-events-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "bell": {
     "since": 5,
     "capability": null,
@@ -4189,6 +4299,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "device-setup-step": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -4827,6 +4945,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "updated_at_ms": {
@@ -9701,6 +9829,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "RemoteHostAppPermissions": {
+    "additional_properties": false,
+    "fields": {
+      "accessibility": {
+        "constraints": [
+          "AXIsProcessTrusted() in the cmux app."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "screen_recording": {
+        "constraints": [
+          "CGPreflightScreenCaptureAccess() in the cmux app."
+        ],
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "RemoteHostAppResult": {
     "additional_properties": false,
     "fields": {
@@ -13609,6 +13767,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "transaction": {
+        "capability": "tab-create-place-v1",
+        "description": "The transaction of a new-tab request, when it sent one.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "workspace_id": {
         "capability": "terminal-public-ids-v1",
         "nullable": false,
@@ -14016,6 +14185,65 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "Id"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabPlace": {
+    "additional_properties": false,
+    "constraints": [
+      "Exactly one of after, after_creation, before and start:true."
+    ],
+    "fields": {
+      "after": {
+        "default": null,
+        "description": "Right after this tab of pane.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "after_creation": {
+        "default": null,
+        "description": "Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "before": {
+        "default": null,
+        "description": "Right before this tab of pane.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "joins": {
+        "default": null,
+        "description": "true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "start": {
+        "default": null,
+        "description": "true: the first tab after the pinned tabs.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -19104,6 +19332,81 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "computer-use-approvals": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "answer": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "app_id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "config": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-endpoint": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "conversation-agent-token": {
     "request": {
       "additional_properties": false,
@@ -22043,6 +22346,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "device-setup": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_agents": {
+          "description": "Turn on the agents permission (the person's click in the app).",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "device": {
+          "description": "A device id, name or address, as `cmux device list` shows it.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "dry_run": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "verb": {
+          "description": "setup (every step) or start (reach, login item and start).",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "export-layout": {
     "request": {
       "additional_properties": false,
@@ -22184,6 +22534,80 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "float-pane": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "h": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "mode": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transaction": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "w": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "x": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
           }
         }
       },
@@ -24373,6 +24797,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "place": {
+          "capability": "tab-create-place-v1",
+          "default": null,
+          "description": "Where the tab goes in the strip of pane. transaction then also names this creation for place.after_creation of a later create request of this connection. Needs pane; refused with workspace or split.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "TabPlace"
+          }
+        },
         "route": {
           "capability": "page-tab-route-v1",
           "default": null,
@@ -24557,6 +24992,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "place": {
+          "capability": "tab-create-place-v1",
+          "default": null,
+          "description": "Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "TabPlace"
+          }
+        },
         "profile_id": {
           "default": null,
           "nullable": true,
@@ -24588,6 +25034,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "title": {
           "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "capability": "tab-create-place-v1",
+          "default": null,
+          "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split.",
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -25386,6 +25843,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "place": {
+          "capability": "tab-create-place-v1",
+          "default": null,
+          "description": "Where the tab goes in the strip of pane. Needs pane.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "TabPlace"
+          }
+        },
         "rows": {
           "default": null,
           "nullable": true,
@@ -25418,6 +25887,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             }
           ],
           "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "capability": "tab-create-place-v1",
+          "default": null,
+          "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation.",
           "nullable": true,
           "presence": "optional",
           "since": 12,
@@ -26054,6 +26535,71 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "quick-terminal": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "h": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "mode": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "screen": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "w": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "x": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        },
+        "y": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "read-screen": {
     "request": {
       "additional_properties": false,
@@ -26352,6 +26898,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "app_permissions": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "RemoteHostAppPermissions"
+          }
+        },
         "computer_use": {
           "nullable": true,
           "presence": "optional",
@@ -27401,7 +27955,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "When both are present, UTF-8 text bytes precede decoded bytes.",
         "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
         "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written.",
-        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request."
+        "expect_agent and submit (send-expect-agent-v1) need surface: with expect_agent the write happens only while the agent of the surface's own terminal is idle in expect_agent.session (required), else the request fails with 'agent not waiting' and nothing written; submit writes Return after the payload in the same request.",
+        "key (send-key-v1) is 1 to 128 bytes: a send whose key the daemon already applied (within 10 minutes, among its last 1024 keys) returns the same success and writes nothing; a send refused with nothing written forgets its key."
       ],
       "fields": {
         "bytes": {
@@ -27445,6 +28000,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "key": {
+          "capability": "send-key-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "paste": {
@@ -29207,6 +29772,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "if_idle": {
+          "capability": "daemon-stop-if-idle-v1",
+          "constraints": [
+            "Stop only while no other client is connected and no terminal is launching, adopting or running; otherwise refuse with error_code daemon_busy, error_details {clients:[{client,name,kind}],terminals}, and keep serving. Checked under the handoff reservation, which refuses new clients, so none can start work between the check and the stop."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "keep_layout": {
@@ -31084,6 +31663,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "terminal_id": {
+        "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "updated_at_ms": {
         "nullable": false,
         "presence": "required",
@@ -31381,6 +31970,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-session-share-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-session-share-changed"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -32691,6 +33302,60 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "device-setup-step": {
+    "additional_properties": false,
+    "fields": {
+      "detail": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "device": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "device-setup-step"
+        }
+      },
+      "fix": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "step": {
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -34471,6 +35136,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "transaction": {
+        "default": null,
+        "description": "The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1).",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "workspace": {

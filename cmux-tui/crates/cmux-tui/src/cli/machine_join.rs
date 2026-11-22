@@ -175,7 +175,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
             if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::run_app_action_fallback(args)
+                && let Some(code) = super::app_commands::run_app_action_fallback(args)
             {
                 return Some(code);
             }
@@ -511,7 +511,10 @@ impl Platform {
             .enable_all()
             .build()
             .map_err(|e| internal(&e))?;
+        let space =
+            cmux_build_space::headers().map_err(|e| Failure::new("build_space", e.to_string()))?;
         let client = reqwest::Client::builder()
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -716,7 +719,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 /// The platform's machine-join refusal codes. Errors print only these and the codes of the
 /// platform's Cloud refusal table ([`cmux_cloud_machine::refusals::PLATFORM`]: a cap, a rate
 /// limit, a machine's state), each from its own table.
-const KNOWN_CODES: [&str; 48] = [
+const KNOWN_CODES: [&str; 62] = [
     "lease.not_found",
     "reservation.expired",
     "reservation.terminal",
@@ -762,6 +765,23 @@ const KNOWN_CODES: [&str; 48] = [
     // The acting team has no Cloud plan (reserve, bind, a workspace's machine): the pane says so and
     // offers the person's own team or the plans (CloudStartView), never a retry or a wait.
     "cloud.plan.required",
+    // A workspace adopting a machine (`POST /v1/workspaces/{w}/machine/import`, `automation create
+    // --webhook --on cloud`).
+    "machine.turn_machine_conflict",
+    "machine.turn_generation_conflict",
+    "machine.turn_busy",
+    "workspace_machine.fleet_machine",
+    "cloud.carrier_unavailable",
+    "cloud.machine.not_found",
+    "cloud.carrier_mismatch",
+    // A Cloud trigger (`POST /v1/triggers`).
+    "trigger.invalid",
+    "trigger.unauthorized",
+    "trigger.forbidden",
+    "trigger.not_found",
+    "trigger.conflict",
+    "trigger.unavailable",
+    "trigger.workspace_mismatch",
     "bad_request",
     "unauthorized",
     "not_found",

@@ -131,7 +131,7 @@ impl Client {
         // daemon put in that session's env (`hub/person.rs` (a)), only to
         // the socket of the daemon that issued it (never to another daemon,
         // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let caller = |k: &str| crate::tool_env::var(k).filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
         let mut meta = serde_json::Map::new();
         if include_caller
@@ -253,7 +253,7 @@ impl Client {
         if m != method::SESSION_NEW {
             return self.send_request(m, params).await;
         }
-        let tool_call = std::env::var(crate::meta_fields::TOOL_CALL_ENV).ok();
+        let tool_call = crate::tool_env::var(crate::meta_fields::TOOL_CALL_ENV);
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
         Ok(reply)
@@ -327,7 +327,7 @@ impl Client {
     /// not prove) is never tagged from this env var. The session exists either way; a failed
     /// tag only lists it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
-        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
+        let Some(parent) = crate::tool_env::var("ACPMUX_SESSION_ID").filter(|id| !id.is_empty())
         else {
             return;
         };
@@ -532,19 +532,38 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     use std::io::Read as _;
 
     let home = crate::config::home();
-    let pid_path = home.join("daemon.pid");
-    let pid = crate::config::private_state_file(&pid_path)
-        .and_then(|mut file| {
-            let mut text = String::new();
-            file.read_to_string(&mut text)?;
-            Ok(text)
-        })
-        .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok());
-    #[cfg(unix)]
-    let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
-    #[cfg(not(unix))]
-    let alive = pid.is_some();
+    // The daemon's owner record names it by pid, start time and boot (`daemon/supervision.rs`):
+    // a pid that a crash or a reboot left behind and another process now holds reads dead, so
+    // the next command starts a daemon instead of waiting on a stranger (F7). An unreadable
+    // record proves nothing and reads as running. A daemon from before the record wrote only
+    // `daemon.pid`.
+    let (pid, alive) = match crate::daemon::supervision::owner(&home) {
+        Some(owner) => {
+            (i32::try_from(owner.pid).ok(), owner.liveness() != cmux_supervise_core::Liveness::Dead)
+        }
+        None => {
+            let pid = crate::config::private_state_file(&home.join("daemon.pid"))
+                .and_then(|mut file| {
+                    let mut text = String::new();
+                    file.read_to_string(&mut text)?;
+                    Ok(text)
+                })
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok());
+            // Alive only while that pid still holds this home's daemon lock: a bare
+            // `kill(pid, 0)` reads a pid a reboot handed to another process as the daemon
+            // "still running but dropped this connection".
+            #[cfg(unix)]
+            let alive = pid.is_some_and(|p| {
+                u32::try_from(p).is_ok_and(|p| {
+                    crate::daemon::live_holder_pid(&home.join("daemon.lock")) == Some(p)
+                })
+            });
+            #[cfg(not(unix))]
+            let alive = pid.is_some();
+            (pid, alive)
+        }
+    };
     let socket = crate::config::socket_path().exists();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

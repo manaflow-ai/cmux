@@ -277,6 +277,16 @@ CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json
 // Call before cmux_shim_initialize; later calls do nothing.
 // plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
 CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
+// The keychain item Chromium keeps its cookie and password key in (fork API 25,
+// cmux_set_keychain_item): cmux's own item, never the "Chromium Safe Storage"
+// item every Chromium build shares, which belongs to whichever app made it first
+// (Chromium.app, another Chromium-based app) and so makes macOS ask "cmux wants to
+// use your confidential information stored in Chromium Safe Storage". Returns 1
+// when the fork took the item; 0 when it has no such call or refused the names
+// (the shared names, an empty account), and the caller must then not let
+// Chromium near the real keychain. Call after cmux_shim_load, before
+// cmux_shim_initialize.
+CMUX_SHIM_EXPORT int cmux_shim_set_keychain_item(const char* service, const char* account);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
@@ -317,6 +327,17 @@ CMUX_SHIM_EXPORT unsigned int cmux_shim_browser_set_layer_hosting(int browser_id
 // never holds it (the fork's default). Returns 0 when the fork lacks the call
 // or the browser has no page window.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeout_ms);
+// Fork API 32 (fork version >= 34 on the Chromium 157 line): window frame
+// sync. Gives browser_id's page compositor a send right of fence_port, a Core
+// Animation fence this app made on its window's context in the turn that
+// resized the page's view (-[CAContext createFencePort]). The GPU sets it on
+// the commit of the page's first frame at the compositor's new size, so that
+// frame and this app's commit show together, or drops it after timeout_ms.
+// done(context, presented) runs once on the UI thread when this returned 1.
+// The caller keeps its own right and drops it at done or its own deadline.
+// Returns 0 when the fork lacks the call or took no fence. UI thread only.
+CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int fence_port, int timeout_ms,
+                                                    void (*done)(void* context, int presented), void* context);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
@@ -326,6 +347,15 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeo
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
 // The key state of a detached page (page focus without a key window).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
+// Fork API 35: draw on input. With `enabled`, each key event the browser's page
+// acknowledges asks its window's display for a BeginFrame at once, in place of
+// the next vsync's. 1 when the fork took it, 0 when it lacks the call.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_draw_on_input(int browser_id, int enabled);
+// Fork API 35: frames draw on input drew for a key on that page since the mode
+// turned on, or -1 when the fork lacks the call. A bench reads it to tell a live
+// mode from an inert one: below API 35 there is no call at all, so a toggle read
+// as on measures the same path as off (cmux#45709 shipped against a pin at API 33).
+CMUX_SHIM_EXPORT int cmux_shim_draw_on_input_key_frames(int browser_id);
 // Runs fn(context) on Chromium's UI thread from its user-input queue (highest
 // priority). Any thread.
 CMUX_SHIM_EXPORT int cmux_shim_post_user_input_task(void (*fn)(void* context), void* context);
@@ -678,6 +708,14 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // a = HTTP status (0 when the fetch failed), s1 = base64 PNG at 1x, or "".
 // Returns 0 when the browser is gone, url is empty or max_size <= 0.
 CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size);
+// GETs an https url through the browser's request context with that
+// profile's stored cookies, first party for url itself, never following a
+// redirect, never answering an auth prompt, bypassing the cache (email
+// verification AutoFill reads Gmail's inbox feed with it). The body never
+// reaches a page. REPLY with `reply` follows: a = HTTP status (0 on failure
+// or a body over max_bytes), s1 = base64 body. Returns 0 when the browser is
+// gone, url is not https or max_bytes <= 0.
+CMUX_SHIM_EXPORT int cmux_shim_profile_fetch(int browser_id, int reply, const char* url, int max_bytes);
 // Browser import: writes cookies into the request context of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // creating the context when no tab opened it yet. json = [{"url","name",
@@ -746,6 +784,12 @@ CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path,
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
 // Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
 CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Refuses (refuse 1) or allows (0) every WebAuthn create and get of one tab
+// (fork API 23, cmux_tab_set_webauthn_mode): an agent-driven tab never shows
+// a Touch ID sheet, an account chooser or a phone QR code; the page gets
+// NotAllowedError. Its popups start in its mode. Returns 0 when the fork
+// lacks the call or the tab is gone.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_webauthn_mode(int browser_id, int refuse);
 // Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
 // cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
 // page, plans/cmux-next/passwords.md 1.4). Metadata only, never key

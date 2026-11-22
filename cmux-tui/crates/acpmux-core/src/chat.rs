@@ -22,12 +22,25 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod act;
+pub mod act_ids;
 pub mod queue;
 pub mod source;
 pub mod stream;
 
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
+
+pub mod draft;
+pub mod presence;
+
+pub use draft::{
+    ActError, DraftCommit, MAX_DRAFT_BYTES, TOO_LARGE, validate_draft, write_draft_atomic,
+};
+pub use presence::{
+    MAX_PRESENCE_BYTES, MAX_PRESENCE_PEOPLE, PresencePerson, PresenceStateOp, TYPING_EXPIRY,
+    TYPING_RATE_LIMIT, TypingRateLimited, TypingTracker,
+};
 
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
@@ -250,6 +263,38 @@ pub enum ChatError {
     SourceChanged,
 }
 
+/// Errors returned by the v2 daemon-line writer seam.
+#[derive(Debug, thiserror::Error)]
+pub enum ActWriteError {
+    #[error("daemon line writer I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("daemon line writer is unavailable")]
+    Unavailable,
+    #[error("daemon line is {bytes} bytes; maximum is 262144")]
+    LineTooLong { bytes: usize },
+}
+
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
+
+pub fn validate_daemon_line(line: &[u8]) -> Result<(), ActWriteError> {
+    if line.len() > MAX_DAEMON_LINE_BYTES {
+        return Err(ActWriteError::LineTooLong { bytes: line.len() });
+    }
+    Ok(())
+}
+
+/// The narrow seam used by the action path to append a daemon line.
+///
+/// Implementations must validate every line as at most 256 KiB, append the
+/// complete batch atomically, sync once, and roll back the file on any error.
+/// They must not return a place until every line and its terminating newline
+/// have been synced. The shared reference keeps the seam object-safe; hosted
+/// implementations can put their append-only file behind a mutex while test
+/// writers can provide a small in-memory implementation.
+pub trait DaemonLineWriter: Send + Sync {
+    fn append_daemon_lines(&self, lines: &[&[u8]]) -> Result<u64, ActWriteError>;
+}
+
 impl std::fmt::Display for ChatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -308,6 +353,7 @@ enum Request {
         conn: u64,
         sid: String,
     },
+    Presence(PresenceStateOp),
     Page {
         page: Box<Page>,
         person: stream::PersonId,
@@ -328,6 +374,7 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
+            Self::Presence(op) => encoded_len(op),
             // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
             Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
@@ -495,6 +542,12 @@ impl ChatHandle {
 
     pub fn end(&self, conn: u64, sid: &str) -> Result<(), ChatError> {
         self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|refused| refused.0)
+    }
+
+    /// Replaces the followed chat's latest presence set. The caller supplies an op returned by
+    /// [`PresenceStateOp::replace`]; the actor owns delivery and coalescing on the chat stream.
+    pub fn presence(&self, op: PresenceStateOp) -> Result<(), ChatError> {
+        self.send(Request::Presence(op)).map_err(|refused| refused.0)
     }
 
     /// A `page`, answered through `reply`; refused, it is answered at once.
@@ -1284,6 +1337,21 @@ fn handle_request(
             stream::end(state, conn, &sid);
             Ok(true)
         }
+        Request::Presence(op) => {
+            let participants = op
+                .participants
+                .into_iter()
+                .map(|person| crate::wire::PresencePerson {
+                    id: person.id,
+                    name: person.name,
+                    devices: person.devices,
+                    viewing: person.viewing,
+                    typing: person.typing,
+                })
+                .collect();
+            stream::presence(state, participants, op.trimmed);
+            Ok(true)
+        }
         Request::Page { page, person, reply } => {
             if state.ready {
                 stream::page(state, *page, person, reply);
@@ -1779,6 +1847,10 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     state.settled_since_checkpoint = 0;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "chat/act_tests.rs"]
+mod act_tests;
 
 #[cfg(test)]
 mod tests;

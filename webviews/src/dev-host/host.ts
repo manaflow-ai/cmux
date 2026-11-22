@@ -193,12 +193,25 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       actions.push(String(request.params?.id ?? ""));
       return { ok: true, value: null };
     }
+    case "cmux.page.heartbeat":
+      // As the app's page host answers (PageWebView takesRestBeats): a page with nothing happening in it
+      // stops beating after 10 s (pageHealth.ts). "Unsupported" here kept every dev and bench page beating
+      // every 2 s for good, a wakeup the app does not have.
+      return { ok: true, value: { rest: true } };
     case "pane.painted":
       // When the app would fade the page in over its loading state (frame tests read it).
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
       return { ok: true, value: null };
     case "session.persist":
     case "chat.persistSession": {
+      // The tab now records this chat, as the app's tab does: a later handshake (a reconnect to a
+      // restarted daemon) names it instead of the New Tab the page opened as.
+      const persisted = request.params?.sessionId;
+      if (typeof persisted === "string" && persisted) {
+        host.sessionId = persisted;
+        host.newSession = undefined;
+        host.newTab = undefined;
+      }
       // As slow as the app's answer can be, for frame tests (`cmuxDevPersistMs`): a send's row must
       // never wait on it in a started chat.
       const ms = (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs;
@@ -210,6 +223,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.commandAvailability":
     case "pane.clientReady":
     case "pane.renderRate":
+    case "pane.launchSettle":
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":

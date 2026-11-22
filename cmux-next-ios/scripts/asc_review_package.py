@@ -23,7 +23,9 @@ Subcommands, all through the public App Store Connect API with the CI key:
                       and fail on any locale that still differs (a locale left
                       on the home page is a Guideline 1.5 rejection).
 
---version defaults to MARKETING_VERSION in cmux-next-ios/project.yml. The rest
+--version defaults to MARKETING_VERSION in cmux-next-ios/project.yml (the
+AppStore configuration's; `--config TestFlight --app 6791408425` reads cmux
+INTERNAL's, the base one). The rest
 of the listing (description, subtitle, keywords, promotional text) is pushed with
 `asc metadata apply --dir cmux-next-ios/AppStoreReview/metadata`.
 
@@ -32,7 +34,8 @@ ASC_API_KEY_P8_BASE64 (the production lane's names), or ASC_KEY_ID, ASC_ISSUER_I
 and ASC_PRIVATE_KEY_PATH (the INTERNAL builder's names). The JWT is signed with
 openssl, so no Python package is installed next to the key.
 
-The app sells no digital goods, so there is no subscription step here.
+The app's subscriptions (cmux Go, Pro and Max) are set up in App Store Connect,
+not by this script; the notes only tell App Review where they are.
 """
 
 from __future__ import annotations
@@ -77,8 +80,30 @@ def note(message: str) -> None:
     print(f"asc-review-package: {message}", file=sys.stderr)
 
 
-def marketing_version(project_yml: Path = PROJECT_YML) -> str:
-    match = re.search(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", project_yml.read_text(encoding="utf-8"), re.MULTILINE)
+_MARKETING_VERSION = re.compile(r"^\s*MARKETING_VERSION:\s*\"?([0-9][0-9.]*)\"?\s*$", re.MULTILINE)
+
+
+def marketing_version(project_yml: Path = PROJECT_YML, config: str = "AppStore") -> str:
+    """The App Store version: the configuration's MARKETING_VERSION
+    (`settings: configs: <config>:` in project.yml), else the base one. The
+    App Store record (config AppStore) has its own; cmux INTERNAL (config
+    TestFlight, app 6791408425) keeps the base version (app_review_gate.py
+    `version --lane appstore|internal-submission` reads the same)."""
+    text = project_yml.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line != f"    {config}:":
+            continue
+        block = []
+        for follow in lines[i + 1:]:
+            if follow.strip() and len(follow) - len(follow.lstrip()) <= 4:
+                break
+            block.append(follow)
+        match = _MARKETING_VERSION.search("\n".join(block))
+        if match:
+            return match.group(1)
+        break
+    match = _MARKETING_VERSION.search(text)
     if not match:
         raise PackageError(f"{project_yml}: no MARKETING_VERSION")
     return match.group(1)
@@ -336,6 +361,9 @@ def sync_listing(api: Api, app: str, version: str, listing: dict, dry_run: bool)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", default=os.environ.get("ASC_APP_ID", ""))
+    parser.add_argument("--config", default="AppStore", choices=("AppStore", "TestFlight"),
+                        help="the project.yml configuration whose version is the default --version: AppStore "
+                             "(the public record) or TestFlight (cmux INTERNAL, --app 6791408425)")
     sub = parser.add_subparsers(dest="command", required=True)
     notes_p = sub.add_parser("sync-notes")
     notes_p.add_argument("--version", help="App Store version (default: MARKETING_VERSION in project.yml)")
@@ -349,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     if not re.fullmatch(r"[0-9]+", args.app or ""):
         parser.error("--app must be the numeric App Store Connect app id")
     try:
-        version = args.version or marketing_version()
+        version = args.version or marketing_version(config=args.config)
         api = Api()
         if args.command == "sync-notes":
             sync_notes(api, args.app, version, args.template, args.dry_run)

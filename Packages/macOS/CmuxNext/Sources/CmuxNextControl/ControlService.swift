@@ -17,8 +17,9 @@ public import Foundation
 /// Path: ``LaunchIdentity/socketPath`` (the bundle/tag convention, or
 /// `CMUX_NEXT_SOCKET_PATH`), with a symlink at its old `/tmp` name. Inherited `CMUX_*` variables never choose it.
 /// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
-/// `automation.socketControlMode`, else `automation` (any process of this
-/// user; see ``defaultAccessMode``). The retired password mode fails closed
+/// `automation.socketControlMode`, else the mode classic cmux's Settings
+/// window stored for this bundle (`classicMode`), else `automation` (any
+/// process of this user; see ``defaultAccessMode``). The retired password mode fails closed
 /// to `off`; plaintext socket passwords are never read from settings or env.
 @MainActor
 public final class ControlService {
@@ -44,10 +45,11 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        sessionHandoff: SessionHandoffResponder? = nil
+        classicMode: String? = ControlService.classicStoredMode(.standard)
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
-        let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
+        let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode,
+                                     classic: classicMode)
         let identity = ControlIdentity(
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
             build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0",
@@ -68,8 +70,7 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog,
-            sessionHandoff: sessionHandoff
+            watchdog: watchdog
         )
     }
 
@@ -81,8 +82,7 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil,
-        sessionHandoff: SessionHandoffResponder? = nil
+        watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
@@ -90,7 +90,6 @@ public final class ControlService {
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
-        server.setSessionHandoff(sessionHandoff)
         try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
     }
@@ -114,16 +113,33 @@ public final class ControlService {
     /// available in cmux.json.
     public nonisolated static let defaultAccessMode: ControlAccessMode = .automation
 
-    /// `explicit`, else `CMUX_NEXT_SOCKET_MODE`, else cmux.json, else the default.
+    /// `explicit`, else `CMUX_NEXT_SOCKET_MODE`, else cmux.json, else classic's
+    /// stored choice, else the default.
+    ///
+    /// `classic` is what classic cmux's Settings window saved in this bundle's
+    /// preferences (``classicStoredMode(_:)``). After the in-place update from
+    /// classic it keeps a person's `off` or `cmuxOnly` from opening up to the
+    /// newer `automation` default; a value in cmux.json still wins.
     public nonisolated static func resolveAccessMode(
         explicit: ControlAccessMode?,
         environment: [String: String],
-        configured: String?
+        configured: String?,
+        classic: String? = nil
     ) -> ControlAccessMode {
         explicit
             ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
             ?? configured.flatMap(parseAccessMode)
+            ?? classic.flatMap(parseAccessMode)
             ?? defaultAccessMode
+    }
+
+    /// The socket mode classic cmux stored in `defaults` (same bundle id, same
+    /// domain): `socketControlMode`, or `off` for its older
+    /// `socketControlEnabled = false` switch. Nil when classic stored none.
+    public nonisolated static func classicStoredMode(_ defaults: UserDefaults) -> String? {
+        if let raw = defaults.string(forKey: "socketControlMode") { return raw }
+        if let enabled = defaults.object(forKey: "socketControlEnabled") as? Bool, !enabled { return "off" }
+        return nil
     }
 
     /// Maps cmux.json / environment mode strings, including the old app's

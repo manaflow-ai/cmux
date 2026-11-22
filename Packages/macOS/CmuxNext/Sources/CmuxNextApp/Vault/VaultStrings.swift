@@ -3,12 +3,12 @@ import Foundation
 /// Session vault strings (table Vault.xcstrings).
 enum VaultStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Vault", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Vault", bundle: .module.inAppLanguage)
     }
 
     static var title: String { t("vault.title", "Vault") }
     static var searchPlaceholder: String { t("vault.searchPlaceholder", "Search sessions…") }
-    static var empty: String { t("vault.empty", "No agent sessions yet. Sessions of Claude Code, Codex and other agents run in cmux terminals show here.") }
+    static var empty: String { t("vault.empty", "No agent sessions yet.") }
     static var noMatch: String { t("vault.noMatch", "No session matches the search.") }
     static var refresh: String { t("vault.refresh", "Refresh") }
     static var running: String { t("vault.running", "Running") }

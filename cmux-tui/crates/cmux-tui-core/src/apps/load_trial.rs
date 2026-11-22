@@ -31,8 +31,8 @@ pub(super) fn init_message(package: &Package, main: String, grant: &Grant) -> To
         api_version: "1.0.0".into(),
         ops: Some(table.allowed_ops(grant)),
         known_ops: Some(table.known_ops()),
-        locale: Some("en".into()),
-        strings: package.strings("en"),
+        locale: Some(super::locale::current().into()),
+        strings: package.strings(super::locale::current()),
         main,
         main_name: package.main_name(),
     }

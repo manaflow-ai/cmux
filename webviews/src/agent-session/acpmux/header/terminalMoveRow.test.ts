@@ -2,7 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Translate } from "../i18n";
-import { moveToTerminal, terminalChatKey, terminalMoveRow, type TerminalMoveChat } from "./terminalMoveRow";
+import {
+  moveToTerminal,
+  TERMINAL_SWITCH_ACTION,
+  terminalChatKey,
+  terminalMoveRow,
+  terminalSwitchRow,
+  type TerminalMoveChat,
+} from "./terminalMoveRow";
 
 const t = ((key: string) => key) as Translate;
 
@@ -114,5 +121,26 @@ describe("Move to terminal (header/terminalMoveRow.ts)", () => {
     expect(chatMenu).toContain("...terminalMove");
     const direct = readFileSync(join(import.meta.dir, "../direct.ts"), "utf8");
     expect(direct).toContain('this.request("_acpmux/kill", { sessionId, purge: false, ifIdle: true })');
+  });
+});
+
+describe("Switch to terminal (header/terminalMoveRow.ts terminalSwitchRow)", () => {
+  const pair = { switchable: true, native: true, quick: false };
+
+  test("a chat a terminal runs offers the row, which runs the App's Toggle Terminal and Chat", () => {
+    let runs = 0;
+    const row = terminalSwitchRow(pair, () => runs++, t);
+    expect(row?.key).toBe("switchToTerminal");
+    expect(row?.label).toBe("chatMenu.switchToTerminal");
+    expect(row?.icon).toBe("terminal");
+    row?.onSelect?.();
+    expect(runs).toBe(1);
+    expect(TERMINAL_SWITCH_ACTION).toBe("palette.toggleTerminalChat");
+  });
+
+  test("no row on a chat no terminal runs, in Quick Chat, or outside the app", () => {
+    expect(terminalSwitchRow({ ...pair, switchable: false }, () => undefined, t)).toBeUndefined();
+    expect(terminalSwitchRow({ ...pair, quick: true }, () => undefined, t)).toBeUndefined();
+    expect(terminalSwitchRow({ ...pair, native: false }, () => undefined, t)).toBeUndefined();
   });
 });

@@ -254,6 +254,13 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
         if not TARGET.match(target) or verb not in VERBS or not VERBS[verb].match(" ".join(map(str, args))):
             request(f"/result/{cmd['id']}", {"exit": 2, "stderr": f"peer.py agent: refused {verb} {args}\n"})
             continue
+        # The host names the target, so this Mac checks each one itself: a viewer started for headless
+        # apple-rfb must not open a GUI viewer on a person's Mac because the host asked (person_guard.py).
+        guard = subprocess.run([sys.executable, "-I", str(root / "scripts/measure/screen-stream-eval/person_guard.py"),
+                                "check", target, "viewer"], capture_output=True, text=True, timeout=30)
+        if guard.returncode != 0:
+            request(f"/result/{cmd['id']}", {"exit": 2, "stderr": guard.stderr or f"peer.py agent: refused {target}\n"})
+            continue
         nonce = (cmd.get("env") or {}).get("EVAL_SCENE_NONCE", "")
         if not isinstance(nonce, str) or (nonce and (verb != "window-view" or not re.fullmatch(r"[0-9a-f]{32}", nonce))):
             request(f"/result/{cmd['id']}", {"exit": 2, "stderr": "peer.py agent: refused source nonce\n"})

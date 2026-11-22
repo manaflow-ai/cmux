@@ -433,6 +433,56 @@ class Sticky(unittest.TestCase):
         self.assertNotIn("aaaaaaaaaa", qr.render_markdown(r, public=True))
         self.assertIn("aaaaaaaaaa", qr.render_markdown(r, public=False))
 
+    def test_done_today_requires_a_written_home_row(self):
+        missing = self.report(9, 1)
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(missing, "md", ""), "2026-11-10"))
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        self.assertTrue(qr.sticky_done_today(qr.sticky_body(good, "md", ""), "2026-11-10"))
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        self.assertFalse(qr.sticky_done_today(qr.sticky_body(bad, "md", ""), "2026-11-10"))
+
+    def test_write_sticky_keeps_good_day_against_bad_run(self):
+        good = self.report(10, 1)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        old_body = qr.sticky_body(good, "good", "")
+        bad = self.report(10, 2)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            raise AssertionError("a good sticky row must not be edited by a bad run")
+
+        with mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as output:
+            self.assertEqual(qr.write_sticky(bad, "bad", "o/r", run=run), "#7")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("kept", output.getvalue())
+        self.assertTrue(qr.sticky_done_today(old_body, "2026-11-10"))
+
+    def test_write_sticky_replaces_bad_day_with_good_run(self):
+        bad = self.report(10, 1)
+        bad["v2_home"] = {"status": "no report", "exit": 124, "error": "ran past 17 minutes", "why": None}
+        old_body = qr.sticky_body(bad, "bad", "")
+        good = self.report(10, 2)
+        good["v2_home"] = {"status": "wrote", "exit": 0, "error": None, "why": None}
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw.get("input")))
+            if cmd[2] == "list":
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps([{"number": 7, "title": qr.STICKY_TITLE,
+                                                                                "body": old_body}]), stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        self.assertEqual(qr.write_sticky(good, "good", "o/r", run=run), "#7")
+        self.assertEqual(calls[-1][0][2], "edit")
+        self.assertTrue(qr.sticky_done_today(calls[-1][1], "2026-11-10"))
+
 
 class V2Home(unittest.TestCase):
     """hq#11702: a gate home that writes nothing is the report's first line and the night's history row."""
@@ -491,6 +541,22 @@ class V2Home(unittest.TestCase):
         self.assertIn("did not finish", state["error"])
         self.assertIn("running 40 rows", state["error"])
 
+    def test_a_home_cut_by_its_timeout_names_the_limit(self):
+        state = qr.v2_home(124, "Compiling acpmux v0.1.0\n", None, seconds=1020, limit=1020)
+        self.assertEqual(state["status"], "no report")
+        self.assertIn("ran past 17 minutes", state["error"])
+
+    def test_home_seconds_and_limit_are_in_metrics_and_first_lines(self):
+        with tempfile.TemporaryDirectory() as d:
+            output = os.path.join(d, "v2-god-small.json")
+            with open(output, "w") as f:
+                f.write('{"rows": []}')
+            state = qr.v2_home(0, "", output, seconds=800, limit=1020)
+        self.assertEqual((state["seconds"], state["limit"]), (800, 1020))
+        r = self.report(state)
+        self.assertEqual((r["v2_home"]["seconds"], r["v2_home"]["limit"]), (800, 1020))
+        self.assertIn("over 70% of the 17-minute limit", qr.render_markdown(r, public=False))
+
     def test_a_long_error_is_cut_and_no_run_is_no_line(self):
         state = qr.v2_home(2, "v2 bench: " + "x" * 1000, None)
         self.assertEqual(len(state["error"]), qr.V2_HOME_ERROR_MAX)
@@ -508,12 +574,158 @@ class V2Home(unittest.TestCase):
             # No gh on PATH: the hang-watch read fails as a source error, with no network.
             with mock.patch.dict(os.environ, {"PATH": d, "SENTRY_AUTH_TOKEN": ""}):
                 code = qr.main(["report", "--json", out_json, "--md", out_md, "--v2-home-exit", "2",
-                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json")])
+                                "--v2-home-stderr", err, "--v2-home-output", os.path.join(d, "v2-god-small.json"),
+                                "--v2-home-seconds", "800", "--v2-home-limit", "1020"])
             self.assertEqual(code, 0)
             with open(out_md) as f:
                 self.assertIn("**v2 gates: no report.**", f.read())
             with open(out_json) as f:
-                self.assertEqual(json.load(f)["v2_home"]["exit"], 2)
+                report = json.load(f)
+                self.assertEqual(report["v2_home"]["exit"], 2)
+                self.assertEqual(report["v2_home"]["seconds"], 800)
+
+
+class WorkflowRepair(unittest.TestCase):
+    def test_home_uses_gate_timeout_and_sticky_done_check(self):
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        with open(path) as f:
+            workflow = f.read()
+        self.assertIn("cargo bench --profile gate -p acpmux --bench v2", workflow)
+        self.assertNotIn("cargo bench -q -p acpmux --bench v2", workflow)
+        self.assertIn("timeout --signal=TERM", workflow)
+        self.assertIn("v2-home.seconds", workflow)
+        self.assertIn("done-today", workflow)
+        self.assertNotIn("actions/cache/restore", workflow)
+        self.assertNotIn("actions/cache/save", workflow)
+
+    def test_cargo_steps_before_the_home_end_inside_their_step_limit(self):
+        # Nov 19: a continue-on-error cargo step ahead of the home hit its timeout-minutes; the CI runner signalled
+        # only the step's shell, a cargo it left behind held the shared target directory's lock, and the home waited
+        # out its 17 minutes on "Blocking waiting for file lock". Every such step must run its cargo under
+        # `timeout`, which ends the whole process group, with the limit and kill grace inside timeout-minutes.
+        root = os.path.join(HERE, "..", "..", "..")
+        steps = workflow_steps(os.path.join(root, ".github", "workflows", "cmux-next-quality-report.yml"))
+        home = next(i for i, step in enumerate(steps) if step["keys"].get("id") == "v2-home")
+        home_dir = steps[home]["keys"].get("working-directory")
+        checked = []
+        for step in steps[:home]:
+            keys = step["keys"]
+            if keys.get("continue-on-error") != "true" or keys.get("working-directory") != home_dir:
+                continue
+            cargo_lines = [line for line in step["run"] if runs_cargo(line, root, home_dir)]
+            if not cargo_lines:
+                continue
+            name = keys.get("name")
+            checked.append(name)
+            self.assertIn("timeout-minutes", keys, f"{name}: a cargo step ahead of the home needs timeout-minutes")
+            step_limit = int(keys["timeout-minutes"]) * 60
+            for line in cargo_lines:
+                bound = timeout_bound(line)
+                self.assertIsNotNone(bound, f"{name}: not wrapped in timeout: {line}")
+                self.assertLess(bound, step_limit, f"{name}: timeout plus kill grace {bound} s is not under {step_limit} s")
+        self.assertIn("Run v2 gate measures", checked)
+
+    def test_the_gate_step_and_the_job_leave_a_slow_night_room(self):
+        # The gate step has taken 54 to 60 minutes on this job's runner, and one night finished at 57m27s. A limit
+        # under that cuts a run that would have finished, the home reports missing measures and the last step fails
+        # the job. The job's own limit must also hold every bounded step at its limit, or the job is cut first.
+        path = os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-quality-report.yml")
+        steps = workflow_steps(path)
+        gate = next(step for step in steps if step["keys"].get("name") == "Run v2 gate measures")
+        limits = [timeout_parts(line)[0] for line in gate["run"] if timeout_parts(line) is not None]
+        self.assertEqual(len(limits), 1)
+        self.assertGreaterEqual(limits[0], 75 * 60, "the gate script's limit leaves under 15 minutes over a 60-minute run")
+        with open(path, encoding="utf-8") as f:
+            job = [line.split(":", 1)[1] for line in f.read().splitlines() if line.startswith("    timeout-minutes:")]
+        self.assertEqual(len(job), 1)
+        bounded = sum(int(step["keys"]["timeout-minutes"]) for step in steps if "timeout-minutes" in step["keys"])
+        self.assertGreaterEqual(int(job[0]), bounded, f"the job's limit is under its steps' limits ({bounded} min)")
+
+
+def workflow_steps(path):
+    """The job's steps as {"keys": top-level scalars, "run": logical lines of run}, read without a YAML library."""
+    steps, step, in_run = [], None, False
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    for raw in lines:
+        stripped = raw.strip()
+        if raw.startswith("      - "):
+            step, in_run = {"keys": {}, "run": []}, False
+            steps.append(step)
+            raw = "        " + raw[8:]
+            stripped = raw.strip()
+        if step is None:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if stripped and indent < 8:
+            step, in_run = None, False
+            continue
+        if in_run and (indent >= 10 or not stripped):
+            if stripped and not stripped.startswith("#"):
+                step["run"].append(stripped)
+            continue
+        in_run = False
+        if indent == 8 and ":" in stripped and not stripped.startswith("#"):
+            key, _, value = stripped.partition(":")
+            value = value.strip()
+            if key == "run":
+                in_run = True
+                if value and value != "|":
+                    step["run"].append(value)
+            else:
+                step["keys"][key] = value
+    for step in steps:
+        joined, buf = [], ""
+        for line in step["run"]:
+            buf += line[:-1] + " " if line.endswith("\\") else line
+            if not line.endswith("\\"):
+                joined.append(buf)
+                buf = ""
+        step["run"] = joined
+    return steps
+
+
+def runs_cargo(line, root, working_dir):
+    words = line.split()
+    if "cargo" in words:
+        return True
+    for word in words:
+        if word.endswith(".sh"):
+            script = os.path.normpath(os.path.join(root, working_dir or "", word))
+            if os.path.isfile(script):
+                with open(script, encoding="utf-8") as f:
+                    if any(w == "cargo" for w in f.read().split()):
+                        return True
+    return False
+
+
+def timeout_bound(line):
+    """Seconds `timeout` lets the line's command live, limit plus kill grace; None when not wrapped in timeout."""
+    parts = timeout_parts(line)
+    return None if parts is None else parts[0] + parts[1]
+
+
+def timeout_parts(line):
+    """(limit, kill grace) in seconds of a line wrapped in `timeout --kill-after=G LIMIT`; None otherwise."""
+    def seconds(text):
+        text = text.strip('"')
+        scale = {"s": 1, "m": 60, "h": 3600}.get(text[-1:], None)
+        return float(text[:-1]) * scale if scale else float(text)
+
+    words = line.split()
+    if not words or words[0] != "timeout":
+        return None
+    grace, rest = None, words[1:]
+    while rest and rest[0].startswith("-"):
+        if rest[0].startswith("--kill-after="):
+            grace = seconds(rest[0].split("=", 1)[1])
+        rest = rest[1:]
+    if not rest or grace is None:
+        return None
+    try:
+        return seconds(rest[0]), grace
+    except ValueError:
+        return None
 
 
 def ci_commit(oid, at, suites):

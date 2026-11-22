@@ -155,7 +155,10 @@ def live(rid, sid, seconds, chunks_per_s, lines_per_s):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
-    said = "".join(block.get("text", "") for block in params.get("prompt", [])).strip()
+    # The prompt as fake_agent.py matches its own commands: without the sender line acpmux puts ahead of a program's
+    # prompt or the context it adds to a first turn. Joining every block hid "subagents: 5" behind the sender line,
+    # so each seeded subagent chat spawned none (2026-11-16).
+    said = fake.prompt_text(params).strip()
     if said.startswith("live:"):
         words = [float(v) for v in said[5:].split()] + [60.0, 60.0, 0.0]
         live(rid, sid, words[0], words[1], words[2])
