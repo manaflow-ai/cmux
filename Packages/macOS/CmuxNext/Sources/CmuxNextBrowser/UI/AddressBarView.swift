@@ -246,6 +246,7 @@ public final class AddressBarView: NSView {
             updateChrome()
         }
         density.start()
+        pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
         followDisplay()
     }
 
@@ -629,6 +630,7 @@ public final class AddressBarView: NSView {
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()
+        updateQuietIcons(fade: nil)
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
