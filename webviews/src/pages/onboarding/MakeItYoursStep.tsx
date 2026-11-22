@@ -319,7 +319,13 @@ export function MakeItYoursStep({
             const label = theme.id === NONE ? strings.t("onboarding.makeItYours.theme.default") : theme.name;
             const checked = (choices.theme ?? NONE) === theme.id;
             return (
-              <label key={theme.id || "default"} className="onb-make-tile" data-checked={checked || undefined}>
+              <label
+                key={theme.id || "default"}
+                className="onb-make-tile"
+                data-checked={checked || undefined}
+                // tooltip-allow: a swatch tile, with its name beside it only in the cards look.
+                title={label}
+              >
                 <input
                   type="radio"
                   name="theme"
@@ -338,7 +344,7 @@ export function MakeItYoursStep({
                     </>
                   )}
                 </span>
-                <span className="onb-make-tile-name">{label}</span>
+                {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
               </label>
             );
           })}
