@@ -2150,11 +2150,13 @@
 }
 .cv-edit-diff__add {
   flex: none;
-  color: var(--agent-diff-add);
+  /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
+  color: color-mix(in srgb, var(--agent-diff-add) 90%, var(--agent-text));
 }
 .cv-edit-diff__del {
   flex: none;
-  color: var(--agent-diff-del);
+  /* A tenth toward the text, so the count holds 4.5:1 on a card's fill too (the raw status ink was 4.43:1). */
+  color: color-mix(in srgb, var(--agent-diff-del) 90%, var(--agent-text));
 }
 /* Wrap lines, then Copy, at the header's end, side by side (--cv-code-action-gap). */
 .cv-iconbtn.cv-edit-diff__wrap {
@@ -4850,7 +4852,9 @@ button.cv-video-frames__frame:focus-visible {
   margin: -3px 0 3px;
   padding-left: var(--cv-tool-text-inset);
   overflow: hidden;
-  color: var(--cv-text-dim);
+  /* The muted ink (solved to 4.5:1 on every fill), not the dim one: dim drew this readable line at 3.84:1
+     light, 4.40:1 dark. */
+  color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: 18px;
   text-overflow: ellipsis;
