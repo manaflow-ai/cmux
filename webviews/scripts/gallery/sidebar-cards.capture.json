@@ -1,0 +1,62 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "updated-card",
+      "entry": "pages.changelog.update-surfaces",
+      "variant": "card",
+      "width": 520,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "default": "",
+        "shadcn-look": ":root:root{--surface-card-radius:8px;--surface-card-veil:color-mix(in srgb,CanvasText 2.5%,transparent);--surface-card-rim-top:color-mix(in srgb,CanvasText 10%,transparent);--surface-card-rim-bottom:color-mix(in srgb,CanvasText 10%,transparent)}"
+      }
+    },
+    {
+      "name": "updated-card-light",
+      "entry": "pages.changelog.update-surfaces",
+      "variant": "card-theme-light",
+      "width": 520,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "default": "",
+        "shadcn-look": ":root:root{--surface-card-radius:8px;--surface-card-veil:color-mix(in srgb,CanvasText 2.5%,transparent);--surface-card-rim-top:color-mix(in srgb,CanvasText 10%,transparent);--surface-card-rim-bottom:color-mix(in srgb,CanvasText 10%,transparent)}"
+      }
+    },
+    {
+      "name": "update-card-button",
+      "entry": "pages.changelog.update-surfaces",
+      "variant": "card-whats-new-button",
+      "width": 520,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "default": "",
+        "shadcn-look": ":root:root{--surface-card-radius:8px;--surface-card-veil:color-mix(in srgb,CanvasText 2.5%,transparent);--surface-card-rim-top:color-mix(in srgb,CanvasText 10%,transparent);--surface-card-rim-bottom:color-mix(in srgb,CanvasText 10%,transparent)}"
+      }
+    },
+    {
+      "name": "update-card-doodle",
+      "entry": "pages.changelog.update-surfaces",
+      "variant": "card-doodle-dark",
+      "width": 520,
+      "height": 260,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "default": "",
+        "shadcn-look": ":root:root{--surface-card-radius:8px;--surface-card-veil:color-mix(in srgb,CanvasText 2.5%,transparent);--surface-card-rim-top:color-mix(in srgb,CanvasText 10%,transparent);--surface-card-rim-bottom:color-mix(in srgb,CanvasText 10%,transparent)}"
+      }
+    }
+  ]
+}
