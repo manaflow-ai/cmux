@@ -35,6 +35,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const SMALL_BYTES: u64 = 1 << 20;
+/// What a first start may read, whatever the history: the copies, the open segment, the state files.
+const FIRST_START_BYTES: f64 = 64.0 * 1024.0 * 1024.0;
 const GOD: &str = "god";
 /// Attached connections while the chat streams; the first never reads its output.
 const WATCHERS: usize = 32;
@@ -491,6 +493,14 @@ fn god_chat_alone() {
         small.restart_after_read,
         god.restart_after_read,
         1024.0 * 1024.0,
+    );
+    // A first start (no restore point yet, no scan ever made a copy) reads each filled segment's
+    // kind copy and the open segment, not the history: a seeded 1 GB chat read 1.18 GB in 3.7 s.
+    let first_start = god.restart_read + god.restart_after_read;
+    assert!(
+        first_start < FIRST_START_BYTES,
+        "god chat first start read {first_start:.0} B of a {:.1} MB log, past {FIRST_START_BYTES:.0} B",
+        god.log_mb
     );
     flat("open bytes read", small.open_read, god.open_read, 256.0 * 1024.0);
     flat("open reply bytes", small.open_reply, god.open_reply, 64.0 * 1024.0);
