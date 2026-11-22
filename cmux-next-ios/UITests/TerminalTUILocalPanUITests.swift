@@ -1,0 +1,97 @@
+import XCTest
+
+/// Leo, 2026-11-22: "just off some basic scroll throughs of the tui on my
+/// phone, the thing still lags ... if the data was sent through... why cant
+/// you simply scroll through the depiction that was already given?" Reading
+/// a TUI on the phone is local: a one-finger pan scrolls what the phone
+/// already holds and sends nothing to the Mac. The terminal demo's `tuipan`
+/// phases run a mock Claude Code (`primary`: the primary screen with its live
+/// region redrawn every 80 ms; `mouse`: its full-screen mode on the alternate
+/// screen with the mouse asked for; `keys`: the same without the mouse) and
+/// measure while this test pans with one finger for 10 s: frame time p50 and
+/// p95, hitches, main-thread stalls and the bytes the phone sent.
+final class TerminalTUILocalPanUITests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = true
+    }
+
+    @MainActor func testOneFingerPanOverClaudeCodeOnThePrimaryScreenSendsNothing() throws {
+        try pan(variant: "primary")
+    }
+
+    @MainActor func testOneFingerPanOverAFullScreenAppWithTheMouseSendsNothing() throws {
+        try pan(variant: "mouse")
+    }
+
+    @MainActor func testOneFingerPanOverAFullScreenAppWithoutTheMouseSendsNothing() throws {
+        try pan(variant: "keys")
+    }
+
+    @MainActor
+    private func pan(variant: String) throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "tuipan-\(variant)"]
+        app.launch()
+        defer { app.terminate() }
+
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label\n\(app.debugDescription)")
+        var demo = ""
+        var deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, !demo.hasPrefix("tuipan-\(variant) ready") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            demo = probe.label
+        }
+        XCTAssertTrue(demo.hasPrefix("tuipan-\(variant) ready"), "the mock Claude Code is up: \(demo)")
+
+        // 10 s of one-finger reading: drags toward older rows and back, each
+        // released moving (a fling), as a thumb reads through a transcript.
+        let window = app.windows.firstMatch
+        let high = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.32))
+        let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.66))
+        let panEnd = Date().addingTimeInterval(10)
+        var drags = 0
+        while Date() < panEnd {
+            let older = (drags / 3) % 2 == 0
+            (older ? high : low).press(forDuration: 0.02, thenDragTo: older ? low : high,
+                                      withVelocity: XCUIGestureVelocity(900), thenHoldForDuration: 0)
+            drags += 1
+        }
+
+        deadline = Date().addingTimeInterval(60)
+        while Date() < deadline, !demo.hasPrefix("tuipan-\(variant) done") {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            demo = probe.label
+        }
+        // The readout as a text attachment: a UI test's print never reaches
+        // the step's exported logs, its attachments do.
+        let numbers = XCTAttachment(string: "tui-local-pan \(demo) drags=\(drags)\n")
+        numbers.name = "tui-local-pan-\(variant)"
+        numbers.lifetime = .keepAlways
+        add(numbers)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "tui-local-pan-\(variant)-end"
+        shot.lifetime = .keepAlways
+        add(shot)
+        XCTAssertTrue(demo.hasPrefix("tuipan-\(variant) done"), "the phase finished: \(demo)")
+
+        let values = Self.values(demo)
+        XCTAssertEqual(values["isTUI"] == nil, false, "the readout names the screen: \(demo)")
+        XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
+        XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan sent the Mac nothing: \(demo)")
+        XCTAssertEqual(values["appScrolls"] ?? -1, 0, "the app was never scrolled by a one-finger pan: \(demo)")
+    }
+
+    /// `key=N` words of the demo's label.
+    private static func values(_ label: String) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for word in label.split(separator: " ") {
+            let pair = word.split(separator: "=", maxSplits: 1)
+            if pair.count == 2, let value = Int(pair[1]) { out[String(pair[0])] = value }
+        }
+        return out
+    }
+}

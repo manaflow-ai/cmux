@@ -154,6 +154,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
         if selected.contains("historyfling") { await historyFling() }
+        for variant in ["primary", "mouse", "keys"] where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -237,6 +238,45 @@ final class TerminalDemoDriver {
         let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
         let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
         model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
+    }
+
+    /// Leo, 2026-11-22: "if the data was sent through... why cant you simply
+    /// scroll through the depiction that was already given?" A mock Claude
+    /// Code: `primary` on the primary screen (its transcript in the
+    /// scrollback, its live region redrawn every 80 ms), `mouse` in its
+    /// full-screen mode on the alternate screen with the mouse asked for,
+    /// `keys` the same without the mouse (Ghostty's alternate scroll sends
+    /// cursor keys). The UI test pans with one finger for 10 s; this
+    /// measures while a finger is down (and 0.6 s after, for a fling):
+    /// `tuipan-VARIANT done frames=N p50=MS p95=MS hitches=N stalls=N
+    /// bytes=N draws=N appScrolls=N fetches=N` (`bytes`: what the phone sent
+    /// the "Mac"; `appScrolls`: wheel reports and cursor keys the app took).
+    private func tuiPan(_ variant: String) async {
+        model.composerText = variant == "primary" ? "claudecli 1500 80" : "claudefull 1500 \(variant)"
+        model.send()
+        await wait(3)
+        guard let controller = model.controller, let window = controller.view.window,
+              let session = model.session as? MockTerminalSession else {
+            model.demoNote = "tuipan-\(variant) done error=nocontroller"
+            return
+        }
+        let meter = TerminalPanMeter(window: window)
+        let bytes = session.bytesFromPhone, fetches = session.historyFetches, draws = controller.surface.draws
+        let scrolls = session.appScrolls
+        mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
+        model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
+        // Until the pans are over: 1.5 s with no finger after the first,
+        // within 45 s.
+        let deadline = Date().addingTimeInterval(45)
+        while Date() < deadline {
+            await wait(0.25)
+            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 1.5 { break }
+        }
+        meter.stop()
+        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) draws=\(controller.surface.draws - draws)"
+            + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) isTUI=\(model.isTUI)"
+        model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
     }
 
@@ -552,6 +592,97 @@ final class TerminalDemoDriver {
         }
         model.showArtifacts = false
         await wait(1)
+    }
+}
+/// DEBUG bench (`tuipan`): display frames while a finger is on the screen
+/// (and 0.6 s after it lifts, for the fling). A frame interval over 1.5
+/// display periods is a hitch, over 50 ms a main-thread stall. Touches are
+/// watched by a recognizer on the window that never recognizes and never
+/// delays or cancels a touch.
+@MainActor
+final class TerminalPanMeter: NSObject {
+    private final class TouchWatcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        var changed: (Int, TimeInterval) -> Void = { _, _ in }
+        private var down = 0
+
+        override init(target: Any?, action: Selector?) {
+            super.init(target: target, action: action)
+            cancelsTouchesInView = false
+            delaysTouchesBegan = false
+            delaysTouchesEnded = false
+            delegate = self
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            down += touches.count
+            changed(down, CACurrentMediaTime())
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { lifted(touches) }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { lifted(touches) }
+
+        private func lifted(_ touches: Set<UITouch>) {
+            down = max(0, down - touches.count)
+            changed(down, CACurrentMediaTime())
+            if down == 0 { state = .failed }
+        }
+
+        override func reset() { down = 0 }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    }
+
+    private(set) var touchesDown = 0
+    private(set) var lastTouchUp: CFTimeInterval?
+    private var intervals: [Double] = []
+    private var lastFrame: CFTimeInterval?
+    private var period: Double = 1.0 / 60
+    private var link: CADisplayLink?
+    private let watcher = TouchWatcher(target: nil, action: nil)
+    private weak var window: UIWindow?
+
+    init(window: UIWindow) {
+        self.window = window
+        super.init()
+        watcher.changed = { [weak self] down, time in
+            guard let self else { return }
+            touchesDown = down
+            if down == 0 { lastTouchUp = time }
+        }
+        window.addGestureRecognizer(watcher)
+        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        link.preferredFrameRateRange = .terminal
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    private var active: Bool {
+        touchesDown > 0 || lastTouchUp.map { CACurrentMediaTime() - $0 < 0.6 } ?? false
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        defer { lastFrame = link.timestamp }
+        if link.duration > 0 { period = link.duration }
+        guard active, let lastFrame else { return }
+        intervals.append(link.timestamp - lastFrame)
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+        window?.removeGestureRecognizer(watcher)
+    }
+
+    var summary: String {
+        let sorted = intervals.sorted()
+        func ms(_ quantile: Double) -> String {
+            guard !sorted.isEmpty else { return "-" }
+            return String(format: "%.1f", sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * quantile))] * 1000)
+        }
+        let hitches = intervals.filter { $0 > period * 1.5 }.count
+        let stalls = intervals.filter { $0 > 0.05 }.count
+        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) hitches=\(hitches) stalls=\(stalls) periodMs=\(String(format: "%.1f", period * 1000))"
     }
 }
 #endif
