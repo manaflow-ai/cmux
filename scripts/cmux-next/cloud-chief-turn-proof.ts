@@ -146,16 +146,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await writeFile(login, Buffer.from(`CLAUDE_CODE_OAUTH_TOKEN=${token}\n`), 0o600);
       const optIn = label === "proof" ? "--env OPTCHAT_CHIEF_TURN_CREDENTIALS=1" : "";
       const out = `${DIR}/${label}`;
-      const start = await run(`setsid nohup python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
-        `--login-env ${login} --delete-login-env --turn-timeout 240 --max-settle 0 --env ACPMUX_SOCKET=${shq(facts.acpmux_socket)} ${optIn} ` +
-        `> ${DIR}/${label}.log 2>&1 < /dev/null & echo started`);
-      if (!start.stdout.includes("started")) throw new Error(`start: ${start.stderr.slice(-300)}`);
-      const t0 = Date.now();
+      // In the foreground, inside one exec: a machine with no exec in flight stops on its own (run 45007797355
+      // stopped 3 min into a background driver polled every 10 s: 409 vm_not_running; cloud-journey.ts 43983037186).
       let done = false;
-      while (Date.now() - t0 < 420_000) {
-        await sleep(10_000);
-        const r = await run(`pgrep -f "chief_driver.py --scenario smoke --only s03 --out ${out}" >/dev/null && echo running || echo ended`);
-        if (r.stdout.includes("ended")) { done = true; break; }
+      try {
+        const d = await run(`timeout -k 5 265 python3 ${DIR}/measure/chief_driver.py --scenario smoke --only s03 --out ${out} --bins ${DIR}/bin ` +
+          `--login-env ${login} --delete-login-env --turn-timeout 200 --max-settle 0 --env ACPMUX_SOCKET=${shq(facts.acpmux_socket)} ${optIn} ` +
+          `> ${DIR}/${label}.log 2>&1 < /dev/null; echo "driver_exit=$?"`, 290_000);
+        done = /driver_exit=0\b/.test(d.stdout);
+        say(`${label}: ${d.stdout.trim().split("\n").pop()}`);
+      } catch (e) {
+        report[`${label}_exec_error`] = (e as Error).message;
+        report[`${label}_machine_row`] = await api.read("cloud.machine.get", { machine }).then((m: any) => ({ status: m?.status, pause_reason: m?.pause_reason ?? m?.pauseReason, paused_by: m?.paused_by ?? m?.pausedBy }), () => "read failed");
+        say(`${label}: exec ${(e as Error).message}; machine ${JSON.stringify(report[`${label}_machine_row`])}`);
+        throw e;
       }
       const r = await run(`tail -c 3000 ${DIR}/${label}.log; echo; echo ==RAW==; cat ${out}/raw.json 2>/dev/null || echo '{}'; echo; echo ==CONV==; ` +
         `python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(json.dumps([" ".join(p.get("text","") for p in m.get("parts",[]) if p.get("type")=="text")[:1500] for m in d.get("messages",[]) if m.get("author")=="agent_mux"]))' ${out}/conversation.json 2>/dev/null; ` +
@@ -165,9 +169,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       let replies: string[] = (res0?.msgs ?? []).map((m: any) => String(m.text));
       if (!replies.length) { try { replies = JSON.parse(r.stdout.split("==CONV==")[1].split("==HOST==")[0].trim() || "[]"); } catch { /* none */ } }
       writeFileSync(path.join(outDir, `${label}.log`), r.stdout);
-      // Never left running on a machine about to be deleted: only the driver this run started.
-      if (!done) await run(`pkill -TERM -f "chief_driver.py --scenario smoke --only s03 --out ${out}" || true`);
-      return { label, exit: done ? "ended" : "timed out (stopped)", replies, timeout: res0?.timeout ?? null, why: r.stdout.split("==HOST==")[1]?.trim().slice(-600) ?? "" };
+      return { label, exit: done ? "exit 0" : "nonzero or timed out", replies, timeout: res0?.timeout ?? null, why: r.stdout.split("==HOST==")[1]?.trim().slice(-600) ?? "" };
     };
     const control = await oneRun("control");
     (report.runs as RunResult[]).push(control);
