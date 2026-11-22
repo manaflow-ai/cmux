@@ -1774,14 +1774,7 @@ fn app_daemon_socket_for(
     build: &cmux_agent_pane_policy::build_identity::BuildIdentity,
     home: Option<&std::path::Path>,
 ) -> Option<std::path::PathBuf> {
-    let session = build.app_session()?;
-    let adopted = home.is_some_and(|home| {
-        [build.legacy_session_marker(home), build.legacy_session_marker_before_move(home)]
-            .into_iter()
-            .flatten()
-            .any(|marker| marker.is_file())
-    });
-    let session = if adopted { "cmux-app".to_owned() } else { session };
+    let session = crate::computer_use::daemon_socket::app_session(build, home)?;
     Some(cmux::raw::default_socket_path(&session))
 }
 
