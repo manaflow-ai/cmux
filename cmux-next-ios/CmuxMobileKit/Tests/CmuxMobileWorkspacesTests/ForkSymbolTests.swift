@@ -28,17 +28,27 @@ import UIKit
         return root
     }
 
-    /// The pack's `agent.fork` line drawing's path.
-    static func packPath(_ root: URL) throws -> String {
+    /// The split arrow's path (the sibling change to the pack's `agent.fork`, branch icons-split-arrow-fork).
+    static let splitArrow = "M3.5 12h8l9-9M15.5 3h5v5M14.5 15l6 6M20.5 16v5h-5"
+
+    /// The pack's `agent.fork` line drawing's path, or nil while the pack still has the drawing
+    /// before the split arrow (nodes and a curve, before the sibling change lands).
+    static func packPath(_ root: URL) throws -> String? {
         let data = try Data(contentsOf: root.appendingPathComponent("design/icons/source/agent-composer.json"))
         let pack = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let icons = try #require(pack["icons"] as? [[String: Any]])
         let fork = try #require(icons.first { $0["name"] as? String == "agent.fork" })
         let line = try #require(fork["line"] as? String)
         let paths = line.matches(of: /<path d='([^']+)'/).map { String($0.output.1) }
-        try #require(paths.count == 1, "agent.fork's line drawing is one path: \(line)")
-        try #require(!line.contains("<circle") && !line.contains("<rect"), "agent.fork has shapes besides its path: \(line)")
+        guard paths.count == 1, !line.contains("<circle"), !line.contains("<rect") else { return nil }
         return paths[0]
+    }
+
+    /// Once the pack draws a single path for agent.fork, the symbol follows it.
+    @Test func thePacksForkIsTheSplitArrow() throws {
+        let root = try Self.root()
+        guard let path = try Self.packPath(root) else { return }
+        #expect(path == Self.splitArrow, "agent.fork changed: regenerate cmux.fork.svg from \(path) and update splitArrow")
     }
 
     /// Straight segments of a path of M, L, H and V commands (absolute or relative).
@@ -111,9 +121,9 @@ import UIKit
         }.joined()
     }
 
-    @Test func theSymbolDrawsThePacksForkPath() throws {
+    @Test func theSymbolDrawsTheSplitArrow() throws {
         let root = try Self.root()
-        let segments = try Self.segments(try Self.packPath(root))
+        let segments = try Self.segments(Self.splitArrow)
         #expect(segments.count == 7)
         let svgURL = root.appendingPathComponent(
             "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/Resources/Assets.xcassets/cmux.fork.symbolset/cmux.fork.svg")
@@ -125,7 +135,7 @@ import UIKit
             let d = try #require(group.output[1].substring)
             let drawn = d.matches(of: /-?\d*\.?\d+/).compactMap { Double($0.output) }
             let same = drawn.count == expected.count && zip(drawn, expected).allSatisfy { abs($0 - $1) < 0.002 }
-            #expect(same, "\(weight) is not the pack's agent.fork; its path should be \(Self.format(expected))")
+            #expect(same, "\(weight) is not the split arrow; its path should be \(Self.format(expected))")
         }
     }
 
