@@ -150,6 +150,30 @@
       }
     }
   },
+  "ios_sim_proof": {
+    "//": [
+      "RFD 0029 step 2 (cmuxterm-hq#18218): a pull request that changes a rendered iOS file gets the fleet simulator",
+      "step with the XCUITest suite at its head (cmux-next-ios-kit.yml sim-proof; affected_jobs.py ios-proof decides).",
+      "Decided by what the files are, never by a claim: a file under `roots` that no `not_visible` entry covers (an",
+      "entry ending in / is a directory; `*.md` is any Markdown file; `/Tests/` is any path with a Tests directory).",
+      "A change under `ui_tests` always runs (the suite itself changed). `suites` are the files under `ui_tests` named",
+      "*UITests.swift, less the names `skip_suites` matches: benches, captures and timings (their own workflows and",
+      "requests), and the App Review gate's walk (ios-review-gate.yml runs it). It produces evidence and blocks nothing."
+    ],
+    "roots": ["cmux-next-ios/", "Packages/iOS/"],
+    "ui_tests": "cmux-next-ios/UITests/",
+    "not_visible": [
+      "cmux-next-ios/rust/", "/Tests/", "*.md", "cmux-next-ios/verify/",
+      "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/",
+      "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/",
+      "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/",
+      "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileRealtime/",
+      "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/",
+      "Packages/iOS/CmuxMobilePairedMac/", "Packages/iOS/CmuxMobileRPC/", "Packages/iOS/CmuxMobileSSH/",
+      "Packages/iOS/CmuxMobileShellModel/", "Packages/iOS/CmuxMobileTunnel/"
+    ],
+    "skip_suites": "Bench|Capture|Perf|PixelDiff|Cold|LaunchTTI|AppReviewGate"
+  },
   "pull_request_skip": {
     "//": [
       "The replay of the last merged pull requests into feat-cmux-next (cmux PR bodies: the table). Tier A: jobs whose",

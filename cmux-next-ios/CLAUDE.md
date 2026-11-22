@@ -178,5 +178,13 @@ the PR body:
   working end to end in a simulator or on a device, a `## Implications` section, and a review SHIP at
   the exact head that confirms all three.
 
+The simulator evidence for `proven` is the `iOS simulator proof (XCUITest at the head)` check
+(`cmux-next-ios-kit.yml` `sim-proof`) when it ran at the PR's head: on every push of a PR that changes
+a rendered iOS file it runs the fleet simulator step (`cmux-next-ios-sim.sh test ui=... video`) with
+the XCUITest suite, and its run summary links the evidence zip (screens, `ui-video.mp4`, per-test
+results). Link that run; don't ask for a proof by hand. Rendered is decided by path
+(`scripts/ci/affected-jobs.json` `ios_sim_proof`): Rust, tests, docs, `verify/` and the targets that
+draw nothing don't run it; a change to `UITests/` does. It is evidence, not a required check.
+
 A change that flips a default stays with Leo. Docs (`*.md`) and `cmux-next-ios/verify/` hold nothing.
 Either way, post a comment on the PR that mentions Aziz so he knows it's coming.

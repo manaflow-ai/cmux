@@ -342,6 +342,10 @@
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
+    "cmux-next-ios-kit.yml#sim-proof": {
+      "class": "apple-ios",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
+    },
     "cmux-next-iphone-clips.yml#record": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"

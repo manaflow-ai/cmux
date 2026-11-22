@@ -679,5 +679,69 @@ class TheRepository(unittest.TestCase):
         self.assertIsNone(jobs.workflow_paths(text, "pull_request"))
 
 
+class IosSimProof(unittest.TestCase):
+    """RFD 0029 step 2: the fleet simulator proof runs for a rendered iOS file, decided by what the file is, and
+    for a change to the XCUITest suite itself; never for Rust, tests, docs, verify/ or the targets that draw nothing."""
+
+    spec = jobs.ios_proof_spec((ROOT / jobs.MAP).read_text(encoding="utf-8"))
+
+    def rendered(self, *paths: str) -> list[str]:
+        return jobs.rendered_ios(list(paths), self.spec)
+
+    def test_a_view_in_a_drawing_target_runs_it(self) -> None:
+        for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsView.swift",
+                     "cmux-next-ios/App/CmuxMobileApp.swift", "cmux-next-ios/project.yml",
+                     "Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/TabBar.swift",
+                     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign/Resources/Colors.xcassets/x.json"):
+            self.assertEqual(self.rendered(path), [path], path)
+
+    def test_a_change_to_the_ui_tests_runs_it(self) -> None:
+        path = "cmux-next-ios/UITests/HomeMacDisconnectedUITests.swift"
+        self.assertEqual(self.rendered(path), [path])
+
+    def test_what_draws_nothing_does_not(self) -> None:
+        self.assertEqual(self.rendered(
+            "cmux-next-ios/rust/cmux-mobile-link-ffi/src/lib.rs",
+            "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileShellTests/ShellTests.swift",
+            "Packages/iOS/CmuxConversation/Tests/CmuxConversationTests/X.swift",
+            "cmux-next-ios/CLAUDE.md", "cmux-next-ios/UITests/README.md", "cmux-next-ios/verify/parity-mac.md",
+            "cmux-next-ios/verify/shots/home.png",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/Session.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/Push.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileRealtime/Socket.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/Link.swift",
+            "Packages/iOS/CmuxMobilePairedMac/Sources/A.swift", "Packages/iOS/CmuxMobileRPC/Sources/A.swift",
+            "Packages/iOS/CmuxMobileSSH/Sources/A.swift", "Packages/iOS/CmuxMobileShellModel/Sources/A.swift",
+            "Packages/iOS/CmuxMobileTunnel/Sources/A.swift"), [])
+
+    def test_a_path_outside_ios_does_not(self) -> None:
+        self.assertEqual(self.rendered("cmux-tui/crates/acpmux/src/lib.rs", "webviews/src/App.tsx",
+                                       "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift",
+                                       "ios/Sources/Classic.swift"), [])
+
+    def test_a_target_name_prefix_is_not_its_neighbour(self) -> None:
+        # CmuxMobileAuth is not visible; a target whose name only starts with it is not covered by that entry.
+        path = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuthView/Login.swift"
+        self.assertEqual(self.rendered(path), [path])
+
+    def test_the_suites_are_the_head_tree_less_benches_captures_and_timings(self) -> None:
+        files = [f"cmux-next-ios/UITests/{name}.swift" for name in (
+            "HomeMacDisconnectedUITests", "AgentCLIHybridBenchUITests", "AllUIStatesHomeCaptureUITests",
+            "InstantListPerfUITests", "LaunchTTIUITests", "LaunchTTIColdUITests", "AgentCLIHybridPixelDiffUITests",
+            "AppReviewGateUITests", "UIStateCapture", "WorkspacesListUITests")] + ["cmux-next-ios/UITests/Sub/AUITests.swift"]
+        self.assertEqual(jobs.proof_suites(files, self.spec), ["HomeMacDisconnectedUITests", "WorkspacesListUITests"])
+
+    def test_the_workflow_runs_it_only_on_the_route_and_never_on_a_fork(self) -> None:
+        text = (ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text(encoding="utf-8")
+        route, proof = jobs.job_block(text, "sim-proof-route"), jobs.job_block(text, "sim-proof")
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", jobs.job_if(route))
+        self.assertIn("affected_jobs.py ios-proof", route)
+        self.assertIn("needs.sim-proof-route.outputs.run == 'true'", jobs.job_if(proof))
+        self.assertIn("--ref \"$HEAD_SHA\"", proof)
+        self.assertIn("--arg test --arg \"ui=$SUITES\" --arg video", proof)
+        self.assertIn("upload-artifact", proof)
+
+
 if __name__ == "__main__":
     unittest.main()
