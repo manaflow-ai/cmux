@@ -332,6 +332,8 @@ printf -v CAPABILITIES_DRIVER '/bin/bash %q %q %%O %%A %%B %%P' \
     "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 printf -v INSERTIONS_DRIVER '/bin/bash %q %q %%O %%A %%B %%P %%L' \
     "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
+printf -v GENERATED_DRIVER '/bin/bash %q %q --generated %%O %%A %%B %%P %%L' \
+    "$TRUSTED_HOOK_DIR/merge_python.sh" "$MERGE_DRIVER_DIR/merge-insertions.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
@@ -354,12 +356,18 @@ echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.d
 git config merge.cmux-insertions-v1.name "Lists and logs both sides inserted into (trusted union of insertions)"
 git config merge.cmux-insertions-v1.driver "$INSERTIONS_DRIVER"
 echo "==> insertions merge driver installed (merge.cmux-insertions-v1.driver)."
-# Generated files keep the current branch's copy and are rebuilt by
-# scripts/cmux-next/generated_merge.py regenerate. `true` is a git no-op, not a
-# checkout path, so this driver needs no trusted copy.
-git config merge.cmux-generated-v1.name "Generated file (keep ours, then regenerate)"
-git config merge.cmux-generated-v1.driver true
+# Generated files a merge host rebuilds (scripts/cmux-next/generated_merge.py regenerate) merge three-way
+# when that is clean, so the other side's rows stay even when no rebuild runs; otherwise they keep the current
+# branch's copy, said on stderr, for the rebuild. It was `true` (always keep ours): a merge stopped on a
+# hand-written file never runs post-merge, so the kept copy was committed without base's rows (cmux#47525).
+git config merge.cmux-generated-v1.name "Generated file (three-way, else keep ours; then regenerate)"
+git config merge.cmux-generated-v1.driver "$GENERATED_DRIVER"
 echo "==> generated file merge driver installed (merge.cmux-generated-v1.driver)."
+# The exports only a Mac writes (settings schema, docs/mdm, action exports): never one side, a three-way merge
+# or a conflict that names the file (cmux#45928, cmux#47525).
+git config merge.cmux-export-v1.name "Mac-only generated export (trusted three-way merge, union of insertions)"
+git config merge.cmux-export-v1.driver "$INSERTIONS_DRIVER"
+echo "==> export merge driver installed (merge.cmux-export-v1.driver)."
 
 # Last, so a failure here never leaves the hooks half installed: remove every checks copy nobody holds. Only an
 # install removes copies, and installs run one at a time (the install lock), so each tree has one remover: not
