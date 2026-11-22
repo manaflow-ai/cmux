@@ -66,6 +66,39 @@ fn a_session_runs_over_real_udp_sockets() {
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
 }
 
+/// The wired-pair connect on real sockets: the host's STUN server never answers
+/// and the viewer is also offered a tailnet address nothing listens on. The
+/// session is up long before the first STUN retry (300 ms): connect waits on
+/// neither gathering nor a dead candidate, every candidate is tried at once.
+#[test]
+fn connect_waits_on_neither_stun_nor_a_dead_candidate() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = Net::start(NetConfig {
+        role: Role::Responder,
+        session: b"loopback-session".to_vec(),
+        local: h.clone(),
+        expected_remote: v.public,
+        stun: vec!["192.0.2.1:3478".parse().unwrap()], // TEST-NET-1: never answers
+        bind: "127.0.0.1:0".parse().unwrap(),
+        turn: Vec::new(),
+        relay_only: false,
+    })
+    .unwrap();
+    let viewer = start(Role::Initiator, &v, h.public);
+    let t0 = Instant::now();
+    viewer.add_remote_candidate(Candidate {
+        kind: CandidateKind::Host,
+        addr: "100.127.99.33:50100".parse().unwrap(),
+    });
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let mut at_host = Vec::new();
+    assert!(wait(&host, &mut at_host, established));
+    let took = t0.elapsed();
+    assert!(took < Duration::from_millis(250), "host connected after {took:?}");
+}
+
 #[test]
 fn queued_frames_replace_whole_frames_without_dropping_control_or_input() {
     let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());

@@ -102,11 +102,7 @@ impl Candidate {
         if self.kind == CandidateKind::Relay {
             return PathKind::TurnRelay;
         }
-        let local = match self.addr.ip() {
-            IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
-            IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00 || v6.is_loopback(),
-        };
-        if self.kind == CandidateKind::Host && local {
+        if self.kind == CandidateKind::Host && crate::endpoint::is_local(self.addr.ip()) {
             PathKind::DirectLan
         } else {
             PathKind::DirectWan
