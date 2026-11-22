@@ -144,6 +144,58 @@ pub const SUSPECT_PROBE: Duration = Duration::from_secs(1);
 /// round trip per this long, an idle link none.
 pub const OUTSTANDING_PROBE: Duration = Duration::from_secs(2);
 
+/// The lane both sides list when their pings and pongs can travel as
+/// datagrams beside the link's stream ([`LivenessDatagrams`]). A peer that
+/// does not list it gets today's in-stream pings.
+pub const LIVENESS_LANE: &str = "liveness";
+/// A datagram ping nothing answered is sent again this often (the same
+/// nonce, a new attempt number), up to [`DATAGRAM_PING_ATTEMPTS`] times in
+/// all, so one lost datagram on a lossy link (lossy-3, lossy-10) never
+/// costs a [`SUSPECT_AFTER`] false alarm: the stream's TCP would have
+/// retransmitted it. Not while the link is suspect: its probes every
+/// [`SUSPECT_PROBE`] are the retries then.
+const DATAGRAM_PING_RESEND: Duration = Duration::from_millis(500);
+const DATAGRAM_PING_ATTEMPTS: u8 = 5;
+/// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
+/// attempt number. A pong echoes the ping's nonce and attempt.
+const DATAGRAM_PING: u8 = 1;
+const DATAGRAM_PONG: u8 = 2;
+const DATAGRAM_LEN: usize = 10;
+
+/// Pings and pongs as unreliable datagrams beside the link's stream (on
+/// WireGuard: overlay UDP on `dial::wireguard::LIVENESS_PORT`). A ping in
+/// the stream waits behind every byte already in the transport's send
+/// buffer (2000 rows a second fill it), so its pong, and the link's
+/// liveness, trails the rows by seconds on a lossy path; a datagram goes
+/// out in the tunnel's interactive class ahead of them. The link keeps
+/// answering in-stream pings either way.
+pub struct LivenessDatagrams {
+    /// Datagrams to the peer. Best effort: a full queue drops one.
+    pub outgoing: mpsc::Sender<Vec<u8>>,
+    /// Datagrams from the peer; ends with the transport.
+    pub incoming: mpsc::Receiver<Vec<u8>>,
+    /// The peer has its end bound (it listed [`LIVENESS_LANE`] after
+    /// binding): this side's pings go as datagrams at once. Otherwise they
+    /// stay in the stream until the first datagram from the peer arrives.
+    pub peer_listening: bool,
+}
+
+fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
+    let mut datagram = Vec::with_capacity(DATAGRAM_LEN);
+    datagram.push(kind);
+    datagram.extend_from_slice(&nonce.to_be_bytes());
+    datagram.push(attempt);
+    datagram
+}
+
+fn parse_liveness_datagram(datagram: &[u8]) -> Option<(u8, u64, u8)> {
+    if datagram.len() != DATAGRAM_LEN || !matches!(datagram[0], DATAGRAM_PING | DATAGRAM_PONG) {
+        return None;
+    }
+    let nonce = u64::from_be_bytes(datagram[1..9].try_into().ok()?);
+    Some((datagram[0], nonce, datagram[9]))
+}
+
 #[derive(Debug, Clone)]
 pub struct LinkConfig {
     /// Interval between keepalive pings; `None` disables them.
@@ -559,7 +611,14 @@ struct Inner {
     channels: Mutex<HashMap<u32, Route>>,
     next_channel: AtomicU32,
     next_nonce: AtomicU64,
-    pings: Mutex<HashMap<u64, oneshot::Sender<Instant>>>,
+    /// Waiters by nonce: each gets when the pong arrived and which attempt
+    /// it answers (0 for a stream ping).
+    pings: Mutex<HashMap<u64, oneshot::Sender<(Instant, u8)>>>,
+    /// Where liveness datagrams go ([`Link::attach_liveness_datagrams`]);
+    /// dropped when the link closes.
+    datagrams: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+    /// This side's pings go as datagrams: the peer is listening.
+    datagram_pings: AtomicBool,
     rtt: watch::Sender<Option<Duration>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
@@ -599,6 +658,33 @@ impl Inner {
     /// Queue a ping or pong ahead of channel data.
     fn send_control(&self, frame: Frame) -> Result<(), LinkError> {
         self.push(MAIN, Class::Control, frame)
+    }
+
+    /// Send one liveness datagram; `false` when there is no datagram lane
+    /// or its queue is full.
+    fn send_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
+        let sender = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        sender.is_some_and(|sender| sender.try_send(liveness_datagram(kind, nonce, attempt)).is_ok())
+    }
+
+    fn datagram_pings(&self) -> bool {
+        self.datagram_pings.load(Ordering::Relaxed)
+    }
+
+    /// A pong to `nonce` arrived (in the stream or as a datagram).
+    fn ponged(&self, nonce: u64, attempt: u8) {
+        let waiter = self.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
+        // A pong to a ping of ours counts as answered even when its caller stopped
+        // waiting (a probe that saw other traffic first): it was not lost.
+        if waiter.is_some() || nonce < self.next_nonce.load(Ordering::Relaxed) {
+            // A datagram ping's resends share its nonce: count one pong.
+            if waiter.is_some() || attempt == 0 {
+                self.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).answered += 1;
+            }
+        }
+        if let Some(waiter) = waiter {
+            let _ = waiter.send((Instant::now(), attempt));
+        }
     }
 
     fn received(&self) {
@@ -682,6 +768,7 @@ impl Inner {
             inbox.push_now(ChannelEvent::Closed(CloseInfo::new("link_closed", reason)));
         }
         self.pings.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).take();
         self.incoming_tx.lock().unwrap_or_else(PoisonError::into_inner).take();
         for outbox in &self.outboxes {
             outbox.shut();
@@ -745,6 +832,8 @@ impl Link {
             next_channel: AtomicU32::new(role.first_channel()),
             next_nonce: AtomicU64::new(1),
             pings: Mutex::new(HashMap::new()),
+            datagrams: Mutex::new(None),
+            datagram_pings: AtomicBool::new(false),
             rtt: watch::channel(None).0,
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
@@ -815,6 +904,32 @@ impl Link {
     /// Attaches the media lane the dial negotiated.
     pub fn attach_media(&self, lane: crate::media::MediaLane) {
         *self.inner.media.lock().unwrap_or_else(PoisonError::into_inner) = Some(lane);
+    }
+
+    /// Carry this link's pings and pongs as datagrams too
+    /// ([`LivenessDatagrams`]). Pings switch to datagrams at once when the
+    /// peer is listening, else on the first datagram it sends; in-stream
+    /// pings are still answered. A second attach is ignored.
+    pub fn attach_liveness_datagrams(&self, lane: LivenessDatagrams) {
+        let LivenessDatagrams { outgoing, incoming, peer_listening } = lane;
+        {
+            let mut datagrams = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.is_closed() || datagrams.is_some() {
+                return;
+            }
+            *datagrams = Some(outgoing);
+        }
+        if peer_listening {
+            self.inner.datagram_pings.store(true, Ordering::Relaxed);
+        }
+        let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
+        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
+        tracing::debug!(role = ?self.inner.role, peer_listening, "liveness datagrams attached");
+    }
+
+    /// Whether this link's pings travel as datagrams now.
+    pub fn pings_as_datagrams(&self) -> bool {
+        self.inner.datagram_pings()
     }
 
     /// The media lane (browser video as RTP), if this link has one.
@@ -981,13 +1096,51 @@ impl Link {
         }
         let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
-        self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        // As a datagram when the peer listens (out ahead of the stream's
+        // queued bytes), else, or when its queue is full, in the stream.
+        let datagram = self.inner.datagram_pings() && {
+            if self.inner.closed_reason().is_some() {
+                return Err(self.inner.closed_error());
+            }
+            self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
+        };
+        if !datagram {
+            self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        }
         self.inner.sent_ping();
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
-        let answered = rx
-            .await
-            .map_err(|_| LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into())))?;
-        let rtt = answered.saturating_duration_since(started);
+        let mut sent_at = [None; DATAGRAM_PING_ATTEMPTS as usize];
+        sent_at[0] = Some(started);
+        let mut attempt = 0u8;
+        // The datagram tries ran out: the ping went into the stream too.
+        let mut in_stream = !datagram;
+        tokio::pin!(rx);
+        let (answered, answers) = loop {
+            tokio::select! {
+                answered = &mut rx => break answered.map_err(|_| {
+                    LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into()))
+                })?,
+                () = tokio::time::sleep(DATAGRAM_PING_RESEND), if !in_stream => {
+                    attempt += 1;
+                    if attempt >= DATAGRAM_PING_ATTEMPTS {
+                        // Every try lost (or the network dark): the same nonce
+                        // in the stream, which delivers it once the path is
+                        // back, so a ping nobody stopped waiting for (the
+                        // keepalive's) is always answered on a live link.
+                        in_stream = true;
+                        self.inner
+                            .send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+                    } else if !self.inner.suspect_flag.load(Ordering::Relaxed)
+                        && self.inner.send_datagram(DATAGRAM_PING, nonce, attempt)
+                    {
+                        // While suspect the watchdog's probes are the resends.
+                        sent_at[usize::from(attempt)] = Some(Instant::now());
+                    }
+                }
+            }
+        };
+        let sent = sent_at.get(usize::from(answers)).copied().flatten().unwrap_or(started);
+        let rtt = answered.saturating_duration_since(sent);
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sample(rtt);
         self.inner.rtt.send_replace(Some(rtt));
         Ok(rtt)
@@ -1251,6 +1404,28 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
     }
 }
 
+/// Liveness datagrams from the peer: answer its pings, hand pongs to their
+/// waiters. Any of them proves the peer alive, as a frame does, and the
+/// first one says the peer listens, so this side's pings switch over.
+async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>) {
+    while let Some(datagram) = incoming.recv().await {
+        let Some((kind, nonce, attempt)) = parse_liveness_datagram(&datagram) else { continue };
+        if inner.closed_reason().is_some() {
+            return;
+        }
+        inner.received();
+        if !inner.datagram_pings.swap(true, Ordering::Relaxed) {
+            tracing::debug!(role = ?inner.role, "peer heard on liveness datagrams: pings go as datagrams");
+        }
+        match kind {
+            DATAGRAM_PING => {
+                inner.send_datagram(DATAGRAM_PONG, nonce, attempt);
+            }
+            _ => inner.ponged(nonce, attempt),
+        }
+    }
+}
+
 async fn read_loop<R>(
     inner: Arc<Inner>,
     stream: usize,
@@ -1285,16 +1460,7 @@ async fn read_loop<R>(
             }
             FrameType::Pong => {
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
-                    let nonce = u64::from_be_bytes(bytes);
-                    let waiter = inner.pings.lock().unwrap_or_else(PoisonError::into_inner).remove(&nonce);
-                    // A pong to a ping of ours counts as answered even when its caller stopped
-                    // waiting (a probe that saw other traffic first): it was not lost.
-                    if nonce < inner.next_nonce.load(Ordering::Relaxed) {
-                        inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).answered += 1;
-                    }
-                    if let Some(waiter) = waiter {
-                        let _ = waiter.send(Instant::now());
-                    }
+                    inner.ponged(u64::from_be_bytes(bytes), 0);
                 }
             }
             FrameType::Open => {
@@ -2372,5 +2538,114 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(30)).await;
         assert!(!phone.is_suspect());
         assert!(!phone.is_closed());
+    }
+
+    /// Two linked datagram lanes; `drop_first` of the phone's datagrams are lost.
+    fn datagram_pair(
+        phone_listening: bool,
+        mac_listening: bool,
+        drop_first: usize,
+    ) -> (LivenessDatagrams, LivenessDatagrams) {
+        fn wire(drop_first: usize) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) {
+            let (outgoing, mut sent) = mpsc::channel::<Vec<u8>>(64);
+            let (delivered, incoming) = mpsc::channel(64);
+            tokio::spawn(async move {
+                let mut seen = 0;
+                while let Some(datagram) = sent.recv().await {
+                    seen += 1;
+                    if seen > drop_first {
+                        let _ = delivered.try_send(datagram);
+                    }
+                }
+            });
+            (outgoing, incoming)
+        }
+        let (phone_out, mac_in) = wire(drop_first);
+        let (mac_out, phone_in) = wire(0);
+        (
+            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: mac_listening },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: phone_listening },
+        )
+    }
+
+    /// The Mac's stream stalls after one byte (its writes never finish):
+    /// an in-stream pong would never come back.
+    fn stalled_pair() -> (Link, Link) {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let b = Throttled { inner: b, chunk: 1, pause: Duration::from_secs(3600), sleep: None };
+        let config = LinkConfig { keepalive: None, suspect_after: None, ..LinkConfig::default() };
+        (Link::new(a, Role::Phone, config.clone(), None), Link::new(b, Role::Mac, config, None))
+    }
+
+    /// Pings as datagrams do not wait for the stream: a Mac whose stream is
+    /// stuck still answers, and its own pings switch to datagrams once it
+    /// hears the phone's.
+    #[tokio::test]
+    async fn datagram_pings_skip_a_stalled_stream() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        // The Mac listed the lane; the phone binds after its answer.
+        let mac_lane = LivenessDatagrams { peer_listening: false, ..mac_lane };
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        assert!(phone.pings_as_datagrams());
+        assert!(!mac.pings_as_datagrams());
+        let rtt =
+            tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("datagram pong").unwrap();
+        assert!(rtt < Duration::from_millis(500), "{rtt:?}");
+        assert!(mac.pings_as_datagrams(), "the Mac heard the phone's datagram");
+        tokio::time::timeout(Duration::from_secs(2), mac.ping()).await.expect("datagram pong").unwrap();
+        let stats = phone.take_ping_stats();
+        assert_eq!((stats.sent, stats.answered, stats.waiting), (1, 1, 0));
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A lost datagram ping is sent again; the round trip is the resend's,
+    /// not the time since the first.
+    #[tokio::test]
+    async fn a_lost_datagram_ping_is_resent() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 2);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let started = Instant::now();
+        let rtt = tokio::time::timeout(Duration::from_secs(3), phone.ping()).await.expect("resent").unwrap();
+        let waited = started.elapsed();
+        assert!(waited >= DATAGRAM_PING_RESEND * 2, "answered after {waited:?}");
+        assert!(rtt < Duration::from_millis(300), "rtt {rtt:?} counts the lost tries");
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A datagram ping whose every try is lost goes into the stream too, so
+    /// it is still answered (the unaligned keepalive waits for its pong).
+    #[tokio::test]
+    async fn a_datagram_ping_falls_back_to_the_stream() {
+        let (phone, mac) = pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, usize::MAX);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let started = Instant::now();
+        tokio::time::timeout(Duration::from_secs(5), phone.ping()).await.expect("stream pong").unwrap();
+        let waited = started.elapsed();
+        let tries = DATAGRAM_PING_RESEND * u32::from(DATAGRAM_PING_ATTEMPTS);
+        assert!(waited >= tries, "answered after {waited:?}, before the stream fallback");
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// Until the peer is known to listen, pings stay in the stream: a phone
+    /// whose Mac has no datagram lane pings as before.
+    #[tokio::test]
+    async fn pings_stay_in_the_stream_until_the_peer_listens() {
+        let (phone, mac) = pair();
+        let (phone_lane, _mac_lane) = datagram_pair(true, false, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        assert!(!phone.pings_as_datagrams());
+        tokio::time::timeout(Duration::from_secs(2), phone.ping()).await.expect("stream pong").unwrap();
+        assert!(!phone.pings_as_datagrams());
+        phone.close("done");
+        mac.close("done");
     }
 }
