@@ -139,7 +139,7 @@ export function WorkflowCard({
           <>
             <span
               className="acpmux-workflow-card__latest"
-              title={latest ? `${latest.agent}: ${latest.line}` : undefined}
+              aria-description={latest ? `${latest.agent}: ${latest.line}` : undefined}
             >
               {latest && (
                 <>

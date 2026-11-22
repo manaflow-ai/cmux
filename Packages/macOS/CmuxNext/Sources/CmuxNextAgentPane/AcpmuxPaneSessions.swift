@@ -43,6 +43,13 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
 
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
 
+    /// Whether `text` names a session of the pane, as a JSON string: a row change of the pane's own
+    /// chat is never left out (``AcpmuxPaneSocket/setAsleep(_:)``). A false match only keeps a frame.
+    func named(in text: String) -> Bool {
+        let sessions = state.withLock { $0.sessions }
+        return sessions.contains { !$0.isEmpty && text.contains("\"\($0)\"") }
+    }
+
     /// The pane has no session and is starting none: its chat has not begun (no prompt sent).
     public var isUnstarted: Bool { state.withLock { $0.sessions.isEmpty && $0.awaiting.isEmpty } }
 
