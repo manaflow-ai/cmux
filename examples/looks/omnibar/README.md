@@ -9,9 +9,10 @@ the look that goes with the design proposal of the same name (RFD 0033). It chan
 
 cmux holds many live sessions at once, the way a browser holds many live pages. Omnibar draws it
 that way: a tab strip and a toolbar at fixed heights, one chrome colour with a neutral highlight on
-the selected tab and row, hairlines where two regions meet, no glass, no goo, no two-tone. Every
+the selected tab and row, hairlines where two regions meet, no glass, no goo. A second pair of themes adds one quiet tone
+to the sidebar and the tab strip. Every
 corner comes from the address field's 8 pt. It ships Light (the default) and Dark, in Hush's
-colours flattened to one tone.
+colours flattened to one tone, and both again with the tone.
 
 It is built only from public surfaces, so you can copy any part of it:
 
@@ -20,6 +21,7 @@ It is built only from public surfaces, so you can copy any part of it:
 | `cmux-setup.json` | Picks the theme file; the address field at 28 pt with 8 pt corners and 14 pt text, no shadow; the chat in the system face at 14 px on a 1.5 line, code at 0.92, a 720 px column; the sidebar as a vertical tab strip: one-line rows with an icon, the title and the session's state |
 | `themes/omnibar.json` | Default, Light. Every surface `#FDFCF8`, text `#2A2825`, selection `#E9E5DC`, accent `#4A65A3`, hairline `#E2DED3`, no glass |
 | `themes/omnibar-dark.json` | Dark. Every surface `#222424`, text `#E3E2E2`, selection `#3D4040`, accent `#6682C2`, hairline `#373A3A` |
+| `themes/omnibar-two.json`, `themes/omnibar-two-dark.json` | The same look with a tone: the sidebar and the tab strip one step darker than the page (`#F4F2EC`, `#1B1D1D`), same hue, 1.09:1; the hairline stays |
 | `agent-pane/theme.css` | A prompt bubble with 14 px corners (the text at 6%), cards at 4% with a 10% hairline, secondary text at 76% and 70%, links in the accent a step toward the text, and menus as the address field's popup (pending, below): `cmux.agentPane.style/1` tokens only, every colour mixed from the theme's own |
 | `markdown/theme.css` | Semibold headings with no rule, code on a 4% fill with 8 px corners, quotes on a hairline. Only `--cmux-md-*` properties on `:root` |
 
@@ -43,6 +45,7 @@ Measured from the source of the two open-source browsers this look comes after; 
 ```sh
 cmux setup install ./examples/looks/omnibar
 cmux settings set appearance.themeFile omnibar-dark    # omnibar (Light) is the default
+cmux settings set appearance.themeFile omnibar-two     # the sidebar and tab strip one step darker
 cmux setup remove manaflow-ai/omnibar-look
 ```
 
