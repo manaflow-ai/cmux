@@ -211,7 +211,9 @@ struct MachineIconTests {
         // ungroups the host's rows (close: "Close, delete, forget, ungroup").
         #expect(ContextMenuCatalog.shared.entries(for: .machineSection)
             == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")]),
-                .separator, .action("machine.reconnect"), .separator, .action("remote.removeGroup")])
+                .separator, .action("machine.reconnect"), .action("macScreen.shareThisMac"),
+                .action("machine.viewScreen"), .separator, .action("customize.open"),
+                .separator, .action("remote.removeGroup")])
     }
 
     /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its
