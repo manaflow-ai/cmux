@@ -33805,127 +33805,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@), so cmux went back to build %3$@, the last one that could. To undo, install build %1$@ again in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@), so cmux went back to build %3$@; to undo, install build %1$@ again in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@)، لذا عاد cmux إلى الإصدار %3$@، آخر إصدار تمكّن من ذلك. للتراجع، ثبّت الإصدار %1$@ مرة أخرى من الإعدادات > التحديثات."
+            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@)، لذا عاد cmux إلى الإصدار %3$@؛ للتراجع، ثبّت الإصدار %1$@ مرة أخرى من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), pa se cmux vratio na verziju %3$@, posljednju koja je mogla. Za poništavanje ponovo instalirajte verziju %1$@ u Postavke > Ažuriranja."
+            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), pa se cmux vratio na verziju %3$@; za poništavanje ponovo instalirajte verziju %1$@ u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), så cmux gik tilbage til build %3$@, den sidste der kunne. Fortryd ved at installere build %1$@ igen under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), så cmux gik tilbage til build %3$@; fortryd ved at installere build %1$@ igen under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), deshalb ist cmux zu Build %3$@ zurückgekehrt, dem letzten, der es konnte. Zum Rückgängigmachen installiere Build %1$@ erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), deshalb ist cmux zu Build %3$@ zurückgekehrt; zum Rückgängigmachen installiere Build %1$@ erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@), así que cmux volvió a la compilación %3$@, la última que pudo. Para deshacerlo, vuelve a instalar la compilación %1$@ en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@), así que cmux volvió a la compilación %3$@; para deshacerlo, vuelve a instalar la compilación %1$@ en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@), alors cmux est revenu au build %3$@, le dernier qui le pouvait. Pour annuler, réinstallez le build %1$@ dans Réglages > Mises à jour."
+            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@), alors cmux est revenu au build %3$@ ; pour annuler, réinstallez le build %1$@ dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@), quindi cmux è tornato alla build %3$@, l’ultima che ci riusciva. Per annullare, reinstalla la build %1$@ in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@), quindi cmux è tornato alla build %3$@; per annullare, reinstalla la build %1$@ in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けなかったため (%2$@)、cmux は開けた最後のビルド %3$@ に戻りました。元に戻すには、設定 > アップデートでビルド %1$@ を再度インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けなかったため (%2$@)、cmux はビルド %3$@ に戻りました。元に戻すには設定 > アップデートでビルド %1$@ を再度インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ដូច្នេះ cmux បានត្រឡប់ទៅកំណែ %3$@ ដែលជាកំណែចុងក្រោយដែលអាចបើកបាន។ ដើម្បីមិនធ្វើវិញ សូមដំឡើងកំណែ %1$@ ម្ដងទៀតនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ដូច្នេះ cmux បានត្រឡប់ទៅកំណែ %3$@; ដើម្បីមិនធ្វើវិញ សូមដំឡើងកំណែ %1$@ ម្ដងទៀតនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없어(%2$@) cmux가 열 수 있었던 마지막 빌드 %3$@(으)로 되돌아갔습니다. 되돌리려면 설정 > 업데이트에서 빌드 %1$@을(를) 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없어(%2$@) cmux가 빌드 %3$@(으)로 되돌아갔습니다. 되돌리려면 설정 > 업데이트에서 빌드 %1$@을(를) 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), så cmux gikk tilbake til build %3$@, den siste som kunne. Angre ved å installere build %1$@ igjen under Innstillinger > Oppdateringer."
+            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), så cmux gikk tilbake til build %3$@; angre ved å installere build %1$@ igjen under Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), więc cmux wrócił do wersji %3$@, ostatniej, która mogła. Aby cofnąć, zainstaluj ponownie wersję %1$@ w Ustawienia > Aktualizacje."
+            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), więc cmux wrócił do wersji %3$@; aby cofnąć, zainstaluj ponownie wersję %1$@ w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@), então o cmux voltou para a build %3$@, a última que conseguia. Para desfazer, instale a build %1$@ novamente em Ajustes > Atualizações."
+            "value": "A build %1$@ não conseguia abrir chats (%2$@), então o cmux voltou para a build %3$@; para desfazer, instale a build %1$@ novamente em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), поэтому cmux вернулся к сборке %3$@, последней, которая могла. Чтобы отменить, снова установите сборку %1$@ в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не могла открывать чаты (%2$@), поэтому cmux вернулся к сборке %3$@; чтобы отменить, снова установите сборку %1$@ в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) cmux จึงย้อนกลับไปยังบิลด์ %3$@ ซึ่งเป็นบิลด์ล่าสุดที่เปิดได้ หากต้องการเลิกทำ ให้ติดตั้งบิลด์ %1$@ อีกครั้งใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) cmux จึงย้อนกลับไปยังบิลด์ %3$@ หากต้องการเลิกทำ ให้ติดตั้งบิลด์ %1$@ อีกครั้งใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@), bu yüzden cmux açabilen son sürüm olan %3$@ sürümüne döndü. Geri almak için %1$@ sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ sürümü sohbet açamadı (%2$@), bu yüzden cmux %3$@ sürümüne döndü; geri almak için %1$@ sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), тож cmux повернувся до збірки %3$@, останньої, яка могла. Щоб скасувати, знову встановіть збірку %1$@ у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не могла відкривати чати (%2$@), тож cmux повернувся до збірки %3$@; щоб скасувати, знову встановіть збірку %1$@ у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@), nên cmux đã quay lại bản dựng %3$@, bản cuối cùng mở được. Để hoàn tác, hãy cài lại bản dựng %1$@ trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@), nên cmux đã quay lại bản dựng %3$@; để hoàn tác, hãy cài lại bản dựng %1$@ trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），因此 cmux 已回退到最后一个可以打开对话的版本 %3$@。要撤销，请在“设置 > 更新”中重新安装版本 %1$@。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），因此 cmux 已回退到版本 %3$@；要撤销，请在“设置 > 更新”中重新安装版本 %1$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），因此 cmux 已回復到最後一個可以開啟對話的版本 %3$@。若要復原，請在「設定 > 更新」中重新安裝版本 %1$@。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），因此 cmux 已回復到版本 %3$@；若要復原，請在「設定 > 更新」中重新安裝版本 %1$@。"
           }
         }
       }
@@ -34067,127 +34067,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@). No earlier build that could is kept on this Mac, so cmux stayed on it. Reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@) and no earlier build that could is kept, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@). لا يوجد على هذا الـ Mac إصدار سابق تمكّن من ذلك، لذا بقي cmux عليه. أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) ولا يوجد إصدار سابق محفوظ تمكّن من ذلك، لذا بقي cmux عليه؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@). Na ovom Macu nije sačuvana ranija verzija koja je mogla, pa je cmux ostao na njoj. Ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a nije sačuvana nijedna ranija verzija koja je mogla, pa je cmux ostao na njoj; ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@). Ingen tidligere build, der kunne, er gemt på denne Mac, så cmux blev på den. Geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og der er ikke gemt nogen tidligere build, der kunne, så cmux blev på den; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@). Auf diesem Mac ist kein früherer Build gespeichert, der es konnte, deshalb ist cmux dabei geblieben. Installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und kein früherer Build, der es konnte, ist gespeichert, deshalb ist cmux dabei geblieben; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@). En este Mac no se guarda ninguna compilación anterior que pudiera, así que cmux se quedó en ella. Vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se guarda ninguna compilación anterior que pudiera, así que cmux se quedó en ella; vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@). Aucun build antérieur qui le pouvait n’est conservé sur ce Mac, alors cmux y est resté. Réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et aucun build antérieur qui le pouvait n’est conservé, alors cmux y est resté ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@). Su questo Mac non è conservata nessuna build precedente che ci riuscisse, quindi cmux è rimasto su questa. Reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e non è conservata nessuna build precedente che ci riuscisse, quindi cmux è rimasto su questa; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けませんでした (%2$@)。チャットを開けた以前のビルドがこの Mac に保存されていないため、cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、開けた以前のビルドも保存されていないため cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@)។ គ្មានកំណែមុនដែលអាចបើកបានត្រូវបានរក្សាទុកនៅលើ Mac នេះទេ ដូច្នេះ cmux នៅតែប្រើវា។ សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយគ្មានកំណែមុនដែលអាចបើកបានត្រូវបានរក្សាទុកទេ ដូច្នេះ cmux នៅលើកំណែនេះ; សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없습니다(%2$@). 이 Mac에 채팅을 열 수 있었던 이전 빌드가 보관되어 있지 않아 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 열 수 있었던 이전 빌드가 보관되어 있지 않아 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@). Ingen tidligere build som kunne, er lagret på denne Macen, så cmux ble værende på den. Installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og ingen tidligere build som kunne er lagret, så cmux ble værende på den; installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@). Na tym Macu nie ma wcześniejszej wersji, która mogła, więc cmux na niej pozostał. Zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a nie zachowano żadnej wcześniejszej wersji, która mogła, więc cmux na niej pozostał; zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@). Nenhuma build anterior que conseguia está guardada neste Mac, então o cmux continuou nela. Reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "A build %1$@ não conseguia abrir chats (%2$@) e nenhuma build anterior que conseguia está guardada, então o cmux ficou nela; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@). На этом Mac не сохранено более ранней сборки, которая могла, поэтому cmux остался на ней. Переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а более ранней сборки, которая могла, не сохранено, поэтому cmux остался на ней; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) ไม่มีบิลด์ก่อนหน้าที่เปิดได้เก็บไว้ใน Mac เครื่องนี้ cmux จึงยังใช้บิลด์นี้อยู่ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และไม่มีบิลด์ก่อนหน้าที่เปิดได้เก็บไว้ cmux จึงยังอยู่ที่บิลด์นี้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@). Bu Mac’te sohbet açabilen daha eski bir sürüm saklı değil, bu yüzden cmux bu sürümde kaldı. Önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve açabilen daha eski bir sürüm saklanmıyor, bu yüzden cmux bu sürümde kaldı; önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@). На цьому Mac не збережено ранішої збірки, яка могла, тож cmux залишився на ній. Перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а ранішої збірки, яка могла, не збережено, тож cmux залишився на ній; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@). Máy Mac này không giữ bản dựng cũ nào mở được, nên cmux vẫn ở lại bản này. Hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không còn lưu bản dựng cũ nào mở được, nên cmux vẫn ở bản này; hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@）。这台 Mac 上没有保留可以打开对话的旧版本，因此 cmux 仍停留在此版本。请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），且未保留可以打开对话的早期版本，因此 cmux 仍停留在该版本；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@）。這台 Mac 上沒有保留可以開啟對話的舊版本，因此 cmux 仍停留在此版本。請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），且未保留可以開啟對話的早期版本，因此 cmux 仍停留在此版本；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
           }
         }
       }
@@ -34198,127 +34198,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@). The earlier builds kept on this Mac cannot read your data, so cmux stayed on it. Reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@). لا تستطيع الإصدارات السابقة المحفوظة على هذا الـ Mac قراءة بياناتك، لذا بقي cmux عليه. أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) ولا تستطيع الإصدارات السابقة المحفوظة قراءة بياناتك، لذا بقي cmux عليه؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@). Ranije verzije sačuvane na ovom Macu ne mogu čitati vaše podatke, pa je cmux ostao na njoj. Ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a sačuvane ranije verzije ne mogu čitati vaše podatke, pa je cmux ostao na njoj; ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@). De tidligere builds, der er gemt på denne Mac, kan ikke læse dine data, så cmux blev på den. Geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og de gemte tidligere builds kan ikke læse dine data, så cmux blev på den; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@). Die früheren Builds auf diesem Mac können deine Daten nicht lesen, deshalb ist cmux dabei geblieben. Installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die gespeicherten früheren Builds können deine Daten nicht lesen, deshalb ist cmux dabei geblieben; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@). Las compilaciones anteriores guardadas en este Mac no pueden leer tus datos, así que cmux se quedó en ella. Vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y las compilaciones anteriores guardadas no pueden leer tus datos, así que cmux se quedó en ella; vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@). Les builds antérieurs conservés sur ce Mac ne peuvent pas lire vos données, alors cmux y est resté. Réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et les builds antérieurs conservés ne peuvent pas lire vos données, alors cmux y est resté ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@). Le build precedenti conservate su questo Mac non possono leggere i tuoi dati, quindi cmux è rimasto su questa. Reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e le build precedenti conservate non possono leggere i tuoi dati, quindi cmux è rimasto su questa; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けませんでした (%2$@)。この Mac に保存されている以前のビルドではデータを読み込めないため、cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、保存されている以前のビルドではデータを読み込めないため cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@)។ កំណែមុនៗដែលរក្សាទុកនៅលើ Mac នេះមិនអាចអានទិន្នន័យរបស់អ្នកបានទេ ដូច្នេះ cmux នៅតែប្រើវា។ សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយកំណែមុនដែលបានរក្សាទុកមិនអាចអានទិន្នន័យរបស់អ្នកបានទេ ដូច្នេះ cmux នៅលើកំណែនេះ; សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없습니다(%2$@). 이 Mac에 보관된 이전 빌드는 데이터를 읽을 수 없어 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 보관된 이전 빌드가 데이터를 읽을 수 없어 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@). De tidligere buildene som er lagret på denne Macen, kan ikke lese dataene dine, så cmux ble værende på den. Installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og de lagrede tidligere buildene kan ikke lese dataene dine, så cmux ble værende på den; installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@). Wcześniejsze wersje zapisane na tym Macu nie mogą odczytać Twoich danych, więc cmux na niej pozostał. Zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a zachowane wcześniejsze wersje nie mogą odczytać Twoich danych, więc cmux na niej pozostał; zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@). As builds anteriores guardadas neste Mac não conseguem ler seus dados, então o cmux continuou nela. Reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "A build %1$@ não conseguia abrir chats (%2$@) e as builds anteriores guardadas não conseguem ler seus dados, então o cmux ficou nela; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@). Более ранние сборки, сохранённые на этом Mac, не могут прочитать ваши данные, поэтому cmux остался на ней. Переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а сохранённые более ранние сборки не могут прочитать ваши данные, поэтому cmux остался на ней; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) บิลด์ก่อนหน้าที่เก็บไว้ใน Mac เครื่องนี้อ่านข้อมูลของคุณไม่ได้ cmux จึงยังใช้บิลด์นี้อยู่ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และบิลด์ก่อนหน้าที่เก็บไว้อ่านข้อมูลของคุณไม่ได้ cmux จึงยังอยู่ที่บิลด์นี้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@). Bu Mac’te saklanan eski sürümler verilerinizi okuyamıyor, bu yüzden cmux bu sürümde kaldı. Önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve saklanan eski sürümler verilerinizi okuyamıyor, bu yüzden cmux bu sürümde kaldı; önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@). Раніші збірки, збережені на цьому Mac, не можуть прочитати ваші дані, тож cmux залишився на ній. Перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а збережені раніші збірки не можуть прочитати ваші дані, тож cmux залишився на ній; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@). Các bản dựng cũ trên máy Mac này không đọc được dữ liệu của bạn, nên cmux vẫn ở lại bản này. Hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và các bản dựng cũ đã lưu không đọc được dữ liệu của bạn, nên cmux vẫn ở bản này; hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@）。这台 Mac 上保留的旧版本无法读取你的数据，因此 cmux 仍停留在此版本。请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），且保留的早期版本无法读取你的数据，因此 cmux 仍停留在该版本；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@）。這台 Mac 上保留的舊版本無法讀取你的資料，因此 cmux 仍停留在此版本。請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），且保留的早期版本無法讀取你的資料，因此 cmux 仍停留在此版本；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
           }
         }
       }
@@ -34329,127 +34329,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@), and rolling back did not work: %3$@ Reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@) and going back to build %3$@ failed (%4$@); reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@)، ولم تنجح العودة إلى إصدار سابق: %3$@ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) وفشلت العودة إلى الإصدار %3$@ (%4$@)؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a vraćanje nije uspjelo: %3$@ Ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a vraćanje na verziju %3$@ nije uspjelo (%4$@); ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og det lykkedes ikke at gå tilbage: %3$@ Geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og det mislykkedes at gå tilbage til build %3$@ (%4$@); geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und das Zurückkehren hat nicht funktioniert: %3$@ Installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die Rückkehr zu Build %3$@ ist fehlgeschlagen (%4$@); installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se pudo volver atrás: %3$@ Vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se pudo volver a la compilación %3$@ (%4$@); vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@), et le retour en arrière a échoué : %3$@ Réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et le retour au build %3$@ a échoué (%4$@) ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e il ritorno alla versione precedente non è riuscito: %3$@ Reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e il ritorno alla build %3$@ non è riuscito (%4$@); reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、以前のビルドへの切り戻しもできませんでした: %3$@ 設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、ビルド %3$@ への切り戻しにも失敗しました (%4$@)。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយការត្រឡប់ក្រោយមិនដំណើរការ៖ %3$@ សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយការត្រឡប់ទៅកំណែ %3$@ បានបរាជ័យ (%4$@); សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 이전 빌드로 되돌리지 못했습니다: %3$@ 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 빌드 %3$@(으)로 되돌리지 못했습니다(%4$@). 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og det gikk ikke å gå tilbake: %3$@ Installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og det mislyktes å gå tilbake til build %3$@ (%4$@); installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a powrót do poprzedniej się nie udał: %3$@ Zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a powrót do wersji %3$@ się nie udał (%4$@); zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@), e não foi possível voltar: %3$@ Reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "A build %1$@ não conseguia abrir chats (%2$@) e não foi possível voltar para a build %3$@ (%4$@); reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а вернуться назад не удалось: %3$@ Переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а вернуться к сборке %3$@ не удалось (%4$@); переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไม่สำเร็จ: %3$@ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไปยังบิลด์ %3$@ ไม่สำเร็จ (%4$@) ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve geri dönüş çalışmadı: %3$@ Önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve %3$@ sürümüne geri dönüş başarısız oldu (%4$@); önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а повернутися не вдалося: %3$@ Перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а повернутися до збірки %3$@ не вдалося (%4$@); перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@), và việc quay lại không thành công: %3$@ Hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không quay lại được bản dựng %3$@ (%4$@); hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），且回退失败：%3$@ 请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），且回退到版本 %3$@ 失败（%4$@）；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），且回復失敗：%3$@ 請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），且回復到版本 %3$@ 失敗（%4$@）；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+          }
+        }
+      }
+    },
+    "updater.installCheck.rollbackUnfinished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quit before it finished"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق cmux قبل أن ينتهي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se zatvorio prije nego što je završio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lukkede, før det blev færdigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde beendet, bevor es fertig war"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cerró antes de terminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux s’est fermé avant d’avoir terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux si è chiuso prima di finire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が完了前に終了しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បានបិទមុនពេលបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 완료 전에 종료되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ble avsluttet før det var ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux zamknął się przed zakończeniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux fechou antes de terminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закрылся, не завершив"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ปิดไปก่อนที่จะเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bitirmeden kapandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закрився, не завершивши"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux đã thoát trước khi hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在完成前退出了"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在完成前結束了"
           }
         }
       }
