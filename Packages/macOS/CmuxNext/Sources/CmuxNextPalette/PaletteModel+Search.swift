@@ -203,7 +203,8 @@ extension PaletteModel {
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
                            orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
-                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst)
+                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst,
+                           names: page.filtersBySection ? state.filterSectionNames(page) : nil)
             let searcher = searcher
             // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
             // and holding the page would keep its providers alive after the palette moved on.
@@ -217,7 +218,8 @@ extension PaletteModel {
                     entries: request.entries, version: request.version,
                     query: request.query, generation: searchID, sectionOrders: request.orders,
                     frecency: request.frecency, now: request.now, showsRecent: request.recent,
-                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst
+                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst,
+                    sectionNames: request.names
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
