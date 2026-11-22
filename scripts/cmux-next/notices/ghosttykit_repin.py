@@ -12,8 +12,11 @@ side branch named ghosttykit-pin/<name> (`SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-ne
 safe-push.sh ghosttykit-pin/<name>`). The push starts cmux-next-source-archive.yml,
 which uploads the ghostty-next license tree even when its notice checks fail.
 The push must add a commit that changes one of that workflow's paths: pushing a
-commit already on feat-cmux-next (a pin that landed first) starts no run, and the
-workflow cannot be dispatched from feat-cmux-next. When the pin landed first,
+commit GitHub already has (one on feat-cmux-next, or a PR branch's head, as
+2026-11-22's ghosttykit-pin/terminal-cell-bg-transparency) starts no run, and the
+workflow cannot be dispatched from feat-cmux-next. A dispatch on the pin branch
+runs the archive but not the vt-link-graph job (push only), whose
+vt-link-graph.json the pin commit also needs. When the pin landed first,
 branch ghosttykit-pin/<name> from feat-cmux-next, commit a change to one of those
 paths (a fix to this docstring will do), push it, and run this from that commit
 with --ios-job ID of a cmux-ci iOS build of feat-cmux-next at the same pin.
