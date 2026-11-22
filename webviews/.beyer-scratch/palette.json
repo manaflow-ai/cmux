@@ -1,0 +1,86 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "palette-now",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "now",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-keycap",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "keycap",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-verb",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "verb",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-footer",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "footer",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-footer-tab",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "footer-tab",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-placeholder",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "placeholder",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-quiet",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "quiet",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  },
+  {
+   "name": "palette-together",
+   "entry": "agent-pane.palette-return-outcome",
+   "variant": "together",
+   "width": 760,
+   "height": 560,
+   "clip": ".acpmux-palette-menu",
+   "margin": 16
+  }
+ ]
+}
