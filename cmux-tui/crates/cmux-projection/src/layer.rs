@@ -93,7 +93,11 @@ impl Layer {
         }
         upper.sort_by(|a, b| a.path.cmp(&b.path));
         let whiteouts = fs::read_to_string(state.join("whiteouts"))
-            .map(|text| text.lines().filter(|line| plain(line)).map(str::to_owned).collect())
+            .map(|text| {
+                // NUL-ended, as the overlay writes them; an older file of lines still reads.
+                let ends = if text.contains('\0') { '\0' } else { '\n' };
+                text.split(ends).filter(|path| plain(path)).map(str::to_owned).collect()
+            })
             .unwrap_or_default();
         Ok(Self { upper, whiteouts })
     }

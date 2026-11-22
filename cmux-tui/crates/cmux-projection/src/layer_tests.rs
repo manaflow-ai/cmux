@@ -69,3 +69,11 @@ fn only_the_asked_files_cross_and_a_gone_one_is_named_missing() {
     let into = tempfile::tempdir().unwrap();
     assert!(receive_files(&mut wire.as_slice(), &["big.bin".into()], into.path(), 10).is_err());
 }
+
+#[test]
+fn whiteouts_read_as_the_overlay_writes_them_nul_ended() {
+    let state = tempfile::tempdir().unwrap();
+    fs::write(state.path().join("whiteouts"), "src/m01.rs\0src/m02.rs\0../escape\0").unwrap();
+    let layer = Layer::collect(state.path()).unwrap();
+    assert_eq!(layer.whiteouts, ["src/m01.rs", "src/m02.rs"]);
+}
