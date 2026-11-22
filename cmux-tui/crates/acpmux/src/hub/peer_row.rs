@@ -174,7 +174,11 @@ impl PeerRow {
         let Some(map) = summary.as_object() else {
             return Self { base: json_text(summary).into(), hot, ..Self::default() };
         };
-        let mut base = String::from("{");
+        // One buffer for the whole base, sized near its final text: a member is written into
+        // it, never through a String of its own (a round of 2000 rows each allocated about two
+        // per member, and the daemon's two malloc arenas made every shard wait on them).
+        let mut base: Vec<u8> = Vec::with_capacity(512);
+        base.push(b'{');
         let mut apart = Vec::new();
         let mut short_title = None;
         for (key, value) in map {
@@ -189,13 +193,14 @@ impl PeerRow {
                 continue;
             }
             if base.len() > 1 {
-                base.push(',');
+                base.push(b',');
             }
-            base.push_str(&json_text(key));
-            base.push(':');
-            base.push_str(&json_text(value));
+            let _ = serde_json::to_writer(&mut base, key);
+            base.push(b':');
+            let _ = serde_json::to_writer(&mut base, value);
         }
-        base.push('}');
+        base.push(b'}');
+        let base = String::from_utf8(base).unwrap_or_default();
         Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
     }
 
