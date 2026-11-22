@@ -114,7 +114,9 @@ def check_workflow() -> None:
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
     check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
     check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
-    check(set(document.get("env") or {}) == {"SOURCE_WORKFLOW_PATHS"}, "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS")
+    # BASH_ENV is #49486's temporary GitHub API call log (main's copies, until 2026-11-23); it sets no secret.
+    check(set(document.get("env") or {}) - {"BASH_ENV"} == {"SOURCE_WORKFLOW_PATHS"},
+          "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS (and the temporary BASH_ENV call log)")
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
           "nightly-sign.yml must declare SOURCE_WORKFLOW_PATHS")
