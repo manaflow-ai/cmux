@@ -487,6 +487,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auth-coordinator"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-space"
 version = "0.1.0"
 dependencies = [
@@ -570,6 +578,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-auth-coordinator",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",

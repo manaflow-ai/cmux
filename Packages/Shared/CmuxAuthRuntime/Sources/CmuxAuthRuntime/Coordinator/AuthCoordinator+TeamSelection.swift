@@ -98,6 +98,8 @@ public extension AuthCoordinator {
     /// team and falls back like sign-in does otherwise.
     func refreshTeams() async {
         guard isAuthenticated else { return }
-        await refreshTeams(generation: sessionGeneration)
+        lastTeamRefresh = nil
+        feed("teamsRequested")
+        await lastTeamRefresh?.value
     }
 }

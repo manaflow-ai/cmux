@@ -127,6 +127,7 @@ dependencies = [
  "cbindgen",
  "cmux-action-catalog",
  "cmux-agent-pane-policy",
+ "cmux-auth-coordinator",
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
@@ -139,6 +140,14 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+]
+
+[[package]]
+name = "cmux-auth-coordinator"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

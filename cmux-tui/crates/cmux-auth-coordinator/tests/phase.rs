@@ -37,6 +37,13 @@ fn each_phase_takes_the_runner_swift_routes_it_to() {
     assert_eq!(AuthPhase::ValidateSession.runner(), PhaseRunner::Validation);
     assert_eq!(AuthPhase::FetchUser.runner(), PhaseRunner::TokenTouching);
     assert_eq!(AuthPhase::ListTeams.runner(), PhaseRunner::TokenTouching);
+    assert_eq!(AuthPhase::AccessToken.runner(), PhaseRunner::TokenTouching);
+    assert_eq!(AuthPhase::ForceRefreshAccessToken.runner(), PhaseRunner::TokenTouching);
+    assert_eq!(AuthPhase::AccountDeletion.runner(), PhaseRunner::TokenTouching);
+    assert_eq!(AuthPhase::VerifyCode.runner(), PhaseRunner::Exchange);
+    assert_eq!(AuthPhase::PasswordSignIn.runner(), PhaseRunner::Exchange);
+    assert_eq!(AuthPhase::Oauth.runner(), PhaseRunner::Exchange);
+    assert_eq!(AuthPhase::PostSignIn.runner(), PhaseRunner::PostSignIn);
     assert_eq!(
         AuthPhase::SendCode.runner(),
         PhaseRunner::Prompt { blocks_retries_while_timed_out: true }

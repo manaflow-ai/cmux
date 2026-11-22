@@ -152,7 +152,8 @@ public final class CmuxMobileAuthModel {
                 mockDataEnabled: false,
                 environment: launchEnvironment,
                 includesDevAuth: isDebug
-            )
+            ),
+            reducer: AuthReducerMobileFFI.factory
         )
         coordinator.start()
         #if targetEnvironment(simulator) && !DEBUG

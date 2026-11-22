@@ -34,12 +34,12 @@ extension AuthCoordinator {
 
     private func captureCloudTokens() async throws -> (accessToken: String, refreshToken: String) {
         try Task.checkCancellation()
-        guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { throw AuthError.networkError }
+        guard !hasActiveSignInFlows, !isCapturingSignOutCredentials else { throw AuthError.networkError }
         let generation = sessionGeneration
         let pair = try await coherentTokenPairWithoutStateClear()
         try Task.checkCancellation()
         guard sessionGeneration == generation else { throw CancellationError() }
-        guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { throw AuthError.networkError }
+        guard !hasActiveSignInFlows, !isCapturingSignOutCredentials else { throw AuthError.networkError }
         return pair
     }
 }
