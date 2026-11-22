@@ -225,6 +225,10 @@ fn range_tables() -> &'static RangeTables {
 
 /// [`jpeg_to_i420`], and when the JPEG decode ended.
 fn jpeg_to_i420_timed(jpeg: &[u8], width: u32, height: u32) -> Result<(I420, Instant), String> {
+    static RGB: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *RGB.get_or_init(|| std::env::var_os("CMUX_RB_JPEG_VIA_RGB").is_some()) {
+        return jpeg_to_i420_via_rgb(jpeg, width, height);
+    }
     let mut decoder = jpeg_decoder::Decoder::new(jpeg);
     decoder.read_info().map_err(|e| format!("jpeg: {e}"))?;
     let info = decoder.info().ok_or("jpeg: no header")?;
@@ -268,6 +272,39 @@ fn jpeg_to_i420_timed(jpeg: &[u8], width: u32, height: u32) -> Result<(I420, Ins
             }
         }
     }
+    Ok((picture, decoded))
+}
+
+/// The first path, kept to measure against (`CMUX_RB_JPEG_VIA_RGB=1`): the
+/// decoder's RGB, then BGRX, then the encoder side's BGRX -> I420.
+pub fn jpeg_to_i420_via_rgb(
+    jpeg: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<(I420, Instant), String> {
+    let mut decoder = jpeg_decoder::Decoder::new(jpeg);
+    let pixels = decoder.decode().map_err(|e| format!("jpeg: {e}"))?;
+    let decoded = Instant::now();
+    let info = decoder.info().ok_or("jpeg: no header")?;
+    let (src_w, src_h) = (usize::from(info.width), usize::from(info.height));
+    let channels = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => 3,
+        jpeg_decoder::PixelFormat::L8 => 1,
+        other => return Err(format!("jpeg: pixel format {other:?}")),
+    };
+    let (w, h) = (width as usize, height as usize);
+    let mut bgrx = vec![0u8; w * h * 4];
+    for row in 0..h.min(src_h) {
+        let src = &pixels[row * src_w * channels..(row + 1) * src_w * channels];
+        let dst = &mut bgrx[row * w * 4..(row + 1) * w * 4];
+        for (px, out) in src.chunks_exact(channels).zip(dst.chunks_exact_mut(4)) {
+            let (r, g, b) =
+                if channels == 3 { (px[0], px[1], px[2]) } else { (px[0], px[0], px[0]) };
+            out.copy_from_slice(&[b, g, r, 255]);
+        }
+    }
+    let mut picture = I420::new(w, h);
+    cmux_encode::bgrx_rect_to_i420(&bgrx, &mut picture, 0, 0, w, h, cmux_encode::convert_threads());
     Ok((picture, decoded))
 }
 
@@ -724,14 +761,8 @@ mod tests {
     /// black, the test page's green, yellow, grey), quality 95, 4:2:0.
     const BLOCKS: &[u8] = include_bytes!("../tests/data/blocks-32x16.jpg");
 
-    /// The old path: the decoder's RGB, then the encoder side's BGRX -> I420.
     fn through_rgb(jpeg: &[u8]) -> I420 {
-        let mut decoder = jpeg_decoder::Decoder::new(jpeg);
-        let rgb = decoder.decode().expect("decode");
-        let bgrx: Vec<u8> = rgb.chunks_exact(3).flat_map(|p| [p[2], p[1], p[0], 255]).collect();
-        let mut picture = I420::new(32, 16);
-        cmux_encode::bgrx_rect_to_i420(&bgrx, &mut picture, 0, 0, 32, 16, 1);
-        picture
+        jpeg_to_i420_via_rgb(jpeg, 32, 16).expect("via rgb").0
     }
 
     fn max_diff(a: &[u8], b: &[u8]) -> u8 {
