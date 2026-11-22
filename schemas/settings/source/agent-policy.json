@@ -489,7 +489,8 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.agentBadges",
-        "experiments.agentBadgesBeam"
+        "experiments.agentBadgesBeam",
+        "experiments.toastsV2"
       ]
     },
     {
@@ -1307,6 +1308,13 @@
       "why": "On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.",
       "keys": [
         "labs.machineJoin"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
       ]
     },
     {

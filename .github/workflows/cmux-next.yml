@@ -1714,6 +1714,8 @@ jobs:
             bash scripts/cmux-next/tests/check-app-size.test.sh
             python3 -I scripts/cmux-next/tests/test_bundle_size.py
             python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py
+            # GUI benches read the console user as the hq worker that grants gui-session-v1 does (step 8c947a3b).
+            python3 -I scripts/cmux-next/tests/test_bench_launch_console.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
             python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
             bash scripts/cmux-next/tests/bundle-ublock-locales.test.sh
@@ -2743,7 +2745,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-510
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --wait 900 --no-record 300)" || word=none
           fi
           status=0
           case "$word" in
@@ -2880,7 +2882,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-511
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "${{ github.event.pull_request.number }}" --wait 900 --no-record 300)" || word=none
           fi
           status=0 how="Debug, swift.org toolchain"
           case "$word" in
@@ -3353,7 +3355,7 @@ jobs:
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
-    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 20 }}
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 30 }}
     env:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-197
       CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
@@ -3722,7 +3724,9 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-next-fast-tier-cargo
+          shared-key: cmux-next-fast-tier-cargo-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (one key across pool hosts and Blacksmith)
+          add-rust-environment-hash-key: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-211
@@ -5440,7 +5444,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-518
           word=none
           if [[ "${SEEN:-}" != none && -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
-            word="$(timeout 960 python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
+            word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 900 --no-record 300)" || word=none
           fi
           status=0
           case "$word" in

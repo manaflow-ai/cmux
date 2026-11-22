@@ -96,6 +96,8 @@ extension SettingsSchema {
         "labs.voiceRoomURL": .network,
         // On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.
         "labs.machineJoin": .network,
+        // Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.
+        "labs.pauseAgentMachines": .userOnly,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
         // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.

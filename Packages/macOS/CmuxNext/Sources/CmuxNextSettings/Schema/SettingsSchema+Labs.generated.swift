@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
     public nonisolated static let liveCodePath = ["labs", "liveCode"]
     public nonisolated static let liveCodeDefault = false
+    /// `labs.pauseAgentMachines`: Mac pause/resume experiment (plans/mac-pause-resume/DESIGN.md): new nonpersistent Cloud agent machines opt into the existing 15-minute idle pause and resume when work arrives. Off by default; existing machines and persistent machines are unchanged.
+    public nonisolated static let pauseAgentMachinesPath = ["labs", "pauseAgentMachines"]
+    public nonisolated static let pauseAgentMachinesDefault = false
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
@@ -93,6 +96,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.pauseAgentMachinesPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.pauseAgentMachines", "Pause Agent Machines"),
+                help: SettingsText.keyed("settings.labs.pauseAgentMachines.help", "Pause a new agent machine after 15 idle minutes; it resumes when work arrives."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.pauseAgentMachinesDefault),
+                keywords: ["labs", "experiment", "pause", "resume", "agent", "machine", "idle", "vm"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.customizeFromTheAppPath,
