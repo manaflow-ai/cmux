@@ -6796,11 +6796,13 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
-    to tell a lost runner from an unreadable verdict, which stays the refusal it was."""
+    to tell a lost runner from an unreadable verdict, which stays the refusal it was. A log that reads keeps the same
+    question: a runner shut down under a job prints its notice there and leaves a failed step behind
+    (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
         raise infra(name, job, why)
     try:
-        return github.log(repo, job)
+        text = github.log(repo, job)
     except Refused as error:
         try:
             notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
@@ -6809,6 +6811,9 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
             raise infra(name, job, why) from None
         raise
+    if why := test_reds.lost_runner(job, (), text):
+        raise infra(name, job, why)
+    return text
 
 
 def section_lines(view: FailedView) -> list[tuple[dict, list[str]]]:

@@ -294,9 +294,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--ds-space-1);
-  scrollbar-width: none;
 }
-.acpmux-cols-rail::-webkit-scrollbar { display: none; }
 .acpmux-cols-tab {
   display: grid;
   place-items: center;

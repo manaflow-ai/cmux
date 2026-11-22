@@ -338,7 +338,10 @@ export function EnvironmentSection({
       {remoteControl && (
         <li className="acpmux-session-info-row">
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
-          <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
+          <label
+            className="acpmux-session-info-switch"
+            aria-description={t("sessionInfo.environment.remoteControl.help")}
+          >
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
             <Switch
               className="acpmux-session-info-switch__input"
