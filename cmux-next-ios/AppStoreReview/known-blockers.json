@@ -9,26 +9,6 @@
       "key": "metadata.screenshots|cmux-next-ios/AppStoreReview/screenshots/en-US/iphone",
       "finding": "no iphone screenshots",
       "fix": "#40927 (iPhone 6.9-inch screenshots)"
-    },
-    {
-      "key": "uitest.failed|ipad|AppReviewGateUITests/testOnboardingHasAWayForwardWithoutAMac()",
-      "finding": "AppReviewGateUITests.swift:120: XCTAssertTrue failed - onboarding must end on Home without a Mac (pages seen: [\"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\", \"team\"])",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|ipad|AppReviewGateUITests/testOnboardingHasNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:137: XCTAssertTrue failed - dead controls in onboarding: onboarding: setup.teams.personal; onboarding: 9:Manaflow; onboarding: 9:Build Fleet",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|ipad|AppReviewGateUITests/testSettingsHaveNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:251: XCTAssertTrue failed - dead controls in Settings: settings: settings.compactWorkspaceList; settings-bottom: settings.compactWorkspaceList",
-      "fix": "onboarding/settings/sign-in dead controls lane"
-    },
-    {
-      "key": "uitest.failed|ipad|AppReviewGateUITests/testSignInHasNoDeadControls()",
-      "finding": "AppReviewGateUITests.swift:86: XCTAssertTrue failed - dead controls on sign-in: sign-in: https://cmux.com/terms-of-service",
-      "fix": "onboarding/settings/sign-in dead controls lane"
     }
   ]
 }
