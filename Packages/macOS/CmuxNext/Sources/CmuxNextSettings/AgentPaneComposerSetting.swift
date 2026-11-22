@@ -62,6 +62,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var attachmentView = Self.attachmentViewDefault
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
+    public var sessionWorktrees = Self.sessionWorktreesDefault
     public var newChatsIn = Self.newChatsInDefault
     public var composerLook = Self.composerLookDefault
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
@@ -86,6 +87,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
+            "sessionWorktrees": .string(sessionWorktrees.rawValue),
             "newChatsIn": .string(newChatsIn.rawValue),
             "composerLook": .string(composerLook.rawValue),
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
@@ -134,6 +136,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 }
                 setting.dictationShortcut = shortcut
+                continue
+            }
+            if descriptor.path == sessionWorktreesPath {
+                guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneSessionWorktrees.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.sessionWorktrees = place
                 continue
             }
             if descriptor.path == newChatsInPath {

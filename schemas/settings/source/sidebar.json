@@ -390,6 +390,35 @@
           }
         },
         {
+          "key": "sidebar.nav",
+          "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
+          "title": {
+            "key": "settings.sidebar.nav",
+            "text": "Sidebar Nav Rows"
+          },
+          "help": {
+            "key": "settings.sidebar.nav.help",
+            "text": "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "nav",
+            "navigation",
+            "actions",
+            "new chat",
+            "search",
+            "pull requests",
+            "look"
+          ],
+          "page_hidden": "action ids; cmux.json, setups and theme files only",
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showSpaces",
           "title": {
             "key": "settings.sidebar.showSpaces",
