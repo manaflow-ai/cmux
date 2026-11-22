@@ -642,19 +642,20 @@ async fn run(
             status.bytes_total = plan.files.iter().map(|file| file.size).sum();
         });
         use futures_util::stream::{self, StreamExt as _};
-        let outcomes: Vec<Result<(), (String, Failure)>> = stream::iter(plan.files.iter())
-            .map(|file| {
-                let client = &client;
-                async move {
-                    let written =
-                        write_file(client, store, roots, file, job, commits, fetches).await;
-                    job.counters.files_done.fetch_add(1, Ordering::Relaxed);
-                    written.map_err(|failure| (file.path.clone(), failure))
-                }
+        // The futures are made up front, so no closure over `&PlanFile` is held across an await:
+        // such a closure is not `Send` for every lifetime, and the job runs on a spawned task.
+        let client = &client;
+        let writes: Vec<_> = plan
+            .files
+            .iter()
+            .map(|file| async move {
+                let written = write_file(client, store, roots, file, job, commits, fetches).await;
+                job.counters.files_done.fetch_add(1, Ordering::Relaxed);
+                written.map_err(|failure| (file.path.clone(), failure))
             })
-            .buffer_unordered(PARALLEL_FILES)
-            .collect()
-            .await;
+            .collect();
+        let outcomes: Vec<Result<(), (String, Failure)>> =
+            stream::iter(writes).buffer_unordered(PARALLEL_FILES).collect().await;
         // A file the sandbox refused (a folder in the way, say) is named for the
         // Mac to write itself; a store or disk failure fails the job.
         let mut fatal = None;
