@@ -309,7 +309,7 @@ export const theme = Object.freeze({
 export interface ToastOptions {
   title: string
   message?: string
-  /** `success`, `warning` or `danger`; omitted is a plain notice. */
+  /** `success`, `warning`, `danger` or `working` (a spinner until the app's next toast replaces it in place); omitted is a plain notice. */
   tone?: string
 }
 
