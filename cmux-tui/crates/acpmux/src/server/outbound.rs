@@ -497,11 +497,6 @@ impl Outbound {
         self.lock().push(line)
     }
 
-    /// [`Self::push`] into `lane`.
-    pub(super) fn push_in(&self, line: String, lane: Lane) -> bool {
-        self.lock().push_in(line, lane)
-    }
-
     pub(super) fn lock(&self) -> Queue<'_> {
         Queue { shared: &self.shared, state: self.shared.lock() }
     }
