@@ -1331,6 +1331,7 @@ impl Store {
                 loaded.clone().filter(|(_, c)| c.disk > 0 && c.due.is_none()).map(lru).min();
             if let Some((_, key)) = unload {
                 if let Some(c) = self.copies.get_mut(&key) {
+                    crate::gauges::peer_notices().snapshot_unloads.fetch_add(1, Ordering::Relaxed);
                     c.records = None;
                     self.memory -= std::mem::take(&mut c.memory);
                 }
@@ -1413,7 +1414,10 @@ impl Store {
         }
         let read = match disk::path(&self.root, key) {
             Some(_) if c.disk > FILE_BYTES => Err(anyhow::anyhow!("past its bound")),
-            Some(path) => disk::read(&path, key),
+            Some(path) => {
+                crate::gauges::peer_notices().snapshot_reads.fetch_add(1, Ordering::Relaxed);
+                disk::read(&path, key)
+            }
             None => Err(anyhow::anyhow!("a name that cannot be kept")),
         };
         match read {

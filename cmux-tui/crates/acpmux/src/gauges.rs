@@ -119,6 +119,10 @@ pub struct PeerNotices {
     peak_queued: AtomicU64,
     /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels.
     kinds: Mutex<std::collections::BTreeMap<String, u64>>,
+    /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
+    pub snapshot_reads: AtomicU64,
+    /// Loaded copies unloaded to keep the store's memory bound (`Store::trim_memory`).
+    pub snapshot_unloads: AtomicU64,
 }
 
 const KINDS_KEPT: usize = 64;
@@ -149,6 +153,8 @@ impl PeerNotices {
             "maxUs": self.max_us.load(Ordering::Relaxed),
             "peakQueued": self.peak_queued.load(Ordering::Relaxed),
             "kinds": self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
+            "snapshotUnloads": self.snapshot_unloads.load(Ordering::Relaxed),
         })
     }
 }
