@@ -85,6 +85,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The settled stack height a deferred spring is about to take (`stackHeightFrame`).
+    private var springTarget: CGFloat?
     /// The stack height the transcript's bottom inset was last set from. The inset's change
     /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
     /// only the move carries a scrolled-up reader's view (`updateInsets`).
@@ -662,13 +664,23 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         // `-cmux-mobile-input-latency`, step 517bb683).
         if let target = surface.stackHeight, target > 0, abs(target - height) > 0.5,
            view.window != nil, !UIAccessibility.isReduceMotionEnabled {
-            guard abs(stackHeight - target) > 0.01 else { return }
-            UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
-                self.applyStackHeight(target)
-                self.view.layoutIfNeeded()
+            guard abs(stackHeight - target) > 0.01,
+                  springTarget.map({ abs($0 - target) > 0.01 }) ?? true else { return }
+            // This runs inside SwiftUI's graph update (an Animatable setter);
+            // laying out the hosted stack from here aborts in AttributeGraph
+            // (step a9eaae4e), so the spring starts on the next main-queue turn.
+            springTarget = target
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.springTarget == target else { return }
+                self.springTarget = nil
+                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                    self.applyStackHeight(target)
+                    self.view.layoutIfNeeded()
+                }
             }
             return
         }
+        springTarget = nil
         applyStackHeight(height)
     }
 
