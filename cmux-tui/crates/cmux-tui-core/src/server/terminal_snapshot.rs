@@ -478,8 +478,6 @@ struct SnapshotWorker {
     tail: Option<PendingTail>,
     /// Output held while the viewer is hidden (`set-attach-visibility`), sent as one `output` event.
     hidden_batch: Vec<u8>,
-    /// `attach-frames-v1`: plain output goes out as OUTPUT frames, not `output` lines.
-    frames: bool,
 }
 
 /// A hidden viewer's batch goes out at once past this many bytes (a hidden `yes` stays bounded).
@@ -505,26 +503,15 @@ impl SnapshotWorker {
         self.send_output(&bytes, None)
     }
 
-    /// Send one `output` event at the viewer's position (the offset after its last byte). An
-    /// `attach-frames-v1` viewer gets plain output as OUTPUT frames, whose offset is that of
-    /// the first byte; output with a colors sidecar stays one JSON line.
+    /// Send one `output` event at the viewer's position.
     fn send_output(&self, output: &[u8], colors: Option<&Value>) -> bool {
-        let sent = if self.frames && colors.is_none() {
-            self.writer.send_output_frames_backpressured(
-                output,
-                self.offset.saturating_sub(output.len() as u64),
-                &self.outbound_stream,
-            )
-        } else {
-            self.writer.send_snapshot_output_backpressured(
-                self.surface_id,
-                output,
-                (self.generation, self.offset),
-                colors,
-                &self.outbound_stream,
-            )
-        };
-        match sent {
+        match self.writer.send_snapshot_output_backpressured(
+            self.surface_id,
+            output,
+            (self.generation, self.offset),
+            colors,
+            &self.outbound_stream,
+        ) {
             Ok(()) => true,
             Err(error) => {
                 handle_attach_send_error(&self.lifecycle, &error);
@@ -862,7 +849,6 @@ fn attach(
         offset,
         tail,
         hidden_batch: Vec::new(),
-        frames: mux.control_clients.supports_capability(client, super::ATTACH_FRAMES_CAPABILITY),
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

@@ -37,7 +37,6 @@ fn reply(mux: &Arc<Mux>, client: u64, request: Value) -> Value {
             Some(OutboundItem::Flush(flushed)) => {
                 let _ = flushed.send(());
             }
-            Some(OutboundItem::Frame(_)) => panic!("a frame without attach-frames-v1"),
             None => panic!("the writer closed with no reply"),
         }
     }
@@ -93,7 +92,6 @@ fn a_waiting_read_does_not_hold_the_connection() {
                 break serde_json::from_str::<Value>(&text.to_string()).unwrap();
             }
             Some(OutboundItem::Flush(flushed)) => drop(flushed.send(())),
-            Some(OutboundItem::Frame(_)) => panic!("a frame without attach-frames-v1"),
             None => panic!("closed"),
         }
     };

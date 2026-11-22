@@ -2920,10 +2920,9 @@ use worker_admission::{
 };
 
 mod render_service;
-pub use render_service::ATTACH_FRAMES_CAPABILITY;
 use render_service::{
-    BudgetedFrame, BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io,
-    write_base64_json_string, write_kitty_image_aliases_json, write_kitty_replay_state_json,
+    BudgetedJsonWriter, BudgetedText, RenderService, json_error_to_io, write_base64_json_string,
+    write_kitty_image_aliases_json, write_kitty_replay_state_json,
 };
 #[cfg(test)]
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
@@ -3228,10 +3227,6 @@ mod personal_tests;
 #[cfg(test)]
 #[path = "server/attach_output_coalesce_tests.rs"]
 mod attach_output_coalesce_tests;
-
-#[cfg(test)]
-#[path = "server/attach_frames_tests.rs"]
-mod attach_frames_tests;
 
 #[cfg(test)]
 #[path = "server/agent_cli_hybrid_tests.rs"]
