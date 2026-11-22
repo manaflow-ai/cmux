@@ -3962,6 +3962,12 @@
       "title" : "Screen Sharing for Joined Machines",
       "type" : "boolean"
     },
+    "labs.pauseAgentMachines" : {
+      "default" : false,
+      "description" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+      "title" : "Pause Agent Machines",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",

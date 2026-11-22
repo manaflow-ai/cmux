@@ -696,6 +696,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
 | `labs.liveCode` | boolean | `false` |  | Live Code. Swift changes you compile apply to the running app. Takes effect after cmux restarts. |
+| `labs.pauseAgentMachines` | boolean | `false` |  | Pause Agent Machines. Pause a new agent machine after 15 idle minutes; it resumes when work arrives. |
 | `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
 | `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |

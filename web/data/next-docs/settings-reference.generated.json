@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 667,
+  "count": 669,
   "sections": [
     {
       "id": "general",
@@ -7264,6 +7264,14 @@
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
