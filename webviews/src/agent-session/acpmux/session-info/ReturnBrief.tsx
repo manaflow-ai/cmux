@@ -68,7 +68,7 @@ export function ReturnBrief({ input, onReviewChanges, onOpenArtifact }: ReturnBr
       </div>
       <div className="acpmux-return-brief__source">
         <span>Source revision</span>
-        <code title={input.commit}>{report.source}</code>
+        <code aria-description={input.commit}>{report.source}</code>
         <span>
           Session {input.sessionId} · turn {input.turnId}
         </span>

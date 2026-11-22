@@ -2,6 +2,14 @@
    one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
    each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
    load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+/* A scrolling list's designed height (popupHost.ts naturalHeight) as a length the browser computes:
+   a cap written in rows (`calc(8 * var(--ui-row-height) + ...)`, the `/` menu's) reads back as px,
+   not as its unresolved text, which parsed as no cap and stood the `/` list below New Tab's box. */
+@property --popup-scroll-cap {
+  syntax: "<length> | none";
+  inherits: true;
+  initial-value: none;
+}
 :root {
   /* One px at the interface scale (Text Size; ui/interfaceScale.ts). A floating surface's frame (a
      popover's or card's width, a chip's height, a gap a clamp reckons with) is
