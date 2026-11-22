@@ -111,6 +111,7 @@ impl Daemon {
                 "harnesses": {
                     "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
                     "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
+                    "fhermes": {"argv": ["python3", FAKE], "family": "hermes"},
                 },
                 "defaultHarness": "fclaude",
                 "permissionPolicy": "ask",
@@ -421,7 +422,7 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
 
 /// A Chief turn gets cmux with its folded acpmux coordinator tools:
 /// the computer use, secret and session offer servers stay out of its
-/// session. In the app (whose bundle has `cmux-cua`) their tool names and
+/// session. In the app their tool names and
 /// instructions came after the turn's cache mark, 2,905 uncached tokens per
 /// turn and about 70% read from the cache; a turn reaches that work through
 /// subagents, which keep every server.
@@ -434,9 +435,9 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
     );
     let tools = d.dir.join("tools");
     std::fs::create_dir_all(&tools).unwrap();
-    for name in ["cmux", "cmux-cua"] {
+    {
         use std::os::unix::fs::PermissionsExt;
-        let path = tools.join(name);
+        let path = tools.join("cmux");
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -469,7 +470,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
             Some(format!("optchat-sub-{id}")),
             vec![
                 "cmux",
-                "+cmux-cua",
+                "+cmux-computer-use",
                 "+cmux-secrets",
                 "+cmux-sessions",
                 "+cmux-subsessions",
@@ -481,7 +482,7 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
             None,
             vec![
                 "cmux",
-                "+cmux-cua",
+                "+cmux-computer-use",
                 "+cmux-secrets",
                 "+cmux-sessions",
                 "+cmux-subsessions",
@@ -527,4 +528,46 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
             assert!(!names.iter().any(|name| name.starts_with("acpmux_bg_")));
         }
     }
+}
+
+/// An open-source brain (Hermes, OpenClaw: chief-cohesion OSS-LOCAL-BRAINS.md) runs a Chief turn
+/// from the Chief's own home for it (`HERMES_HOME` = `<Chief home>/optchat/brains/hermes`), never
+/// the person's `~/.hermes`, and gets no Claude Code settings. A daemon says it defines these
+/// presets in `initialize`, so a Chief never puts a turn on a brain through an older daemon.
+#[tokio::test]
+async fn a_brain_turn_runs_from_the_chiefs_own_brain_home() {
+    let d = Daemon::start("brain");
+    let mux = d.dir.join("mux");
+    let mut chief = Rpc::connect(&d.socket).await;
+    let init = chief.call("initialize", json!({"protocolVersion": 1})).await;
+    let features = init.pointer("/result/_meta/acpmux/features").cloned().unwrap_or_default();
+    assert!(
+        features.as_array().is_some_and(|f| f.iter().any(|v| v == "chiefBrainPresets")),
+        "{init}"
+    );
+    let turn = format!("optchat-chief-hermes-{}", home_id(&mux));
+    let r =
+        chief.call("_acpmux/presets", json!({"name": turn, "set": {"harness": "fhermes"}})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let env = stored_env(&mut chief, &turn).await;
+    assert_eq!(
+        env["HERMES_HOME"],
+        mux.join("optchat/brains/hermes").display().to_string(),
+        "{env}"
+    );
+    assert_eq!(env["MUX_HOME"], mux.display().to_string(), "{env}");
+    assert!(env.get("CLAUDE_CODE_DISABLE_CLAUDE_MDS").is_none(), "{env}");
+    // No key of the person's reaches the brain: its models go through the Chief's gateway.
+    assert_eq!(env["OPENROUTER_API_KEY"], "", "{env}");
+    assert_eq!(env["ANTHROPIC_API_KEY"], "", "{env}");
+    assert!(env.get("CODEX_HOME").is_none(), "{env}");
+    // The subagent preset of a Chief whose subagents run on Hermes gets the same home.
+    let sub = format!("optchat-sub-{}", home_id(&mux));
+    let r =
+        chief.call("_acpmux/presets", json!({"name": sub, "set": {"harness": "fhermes"}})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(
+        stored_env(&mut chief, &sub).await["HERMES_HOME"],
+        mux.join("optchat/brains/hermes").display().to_string()
+    );
 }

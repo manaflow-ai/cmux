@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8.
+// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -952,6 +952,38 @@ pub struct CloudSessionStatusRequest {
 
 #[rustfmt::skip]
 pub type CloudSessionStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseApprovalsRequest {
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answer: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub app_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseApprovalsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputerUseConfigRequest {
+    pub config: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type ComputerUseConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComputerUseEndpointRequest {
+}
+
+#[rustfmt::skip]
+pub type ComputerUseEndpointResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3415,6 +3447,8 @@ pub struct SendRequest {
     pub expect_foreground: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub flow: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3891,6 +3925,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
@@ -4772,6 +4808,18 @@ impl CmuxClient {
 
     pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
         self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
+    }
+
+    pub fn computer_use_approvals(&mut self, request: ComputerUseApprovalsRequest) -> Result<ComputerUseApprovalsResult> {
+        self.execute(&COMPUTER_USE_APPROVALS_METADATA, &request)
+    }
+
+    pub fn computer_use_config(&mut self, request: ComputerUseConfigRequest) -> Result<ComputerUseConfigResult> {
+        self.execute(&COMPUTER_USE_CONFIG_METADATA, &request)
+    }
+
+    pub fn computer_use_endpoint(&mut self, request: ComputerUseEndpointRequest) -> Result<ComputerUseEndpointResult> {
+        self.execute(&COMPUTER_USE_ENDPOINT_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
@@ -5740,6 +5788,9 @@ impl CmuxClient {
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
         }
+        if !request.key.is_missing() {
+            self.require_capability_field("send", "send-key-v1")?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -5978,6 +6029,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.if_idle.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "daemon-stop-if-idle-v1")?;
         }
         if request.keep_layout.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;

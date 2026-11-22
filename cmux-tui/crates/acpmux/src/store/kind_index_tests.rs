@@ -835,3 +835,167 @@ fn resend_scale_bench() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn thread_read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A chat that ran on after its log load has segments with no copy: a page of its last 16 prompts
+/// (every open and attach asks for one) read each of them whole, back from its end, every time
+/// (cmuxterm-hq#13733: 26 MB per page of a busy chat). The first indexed read back makes their
+/// copies by the lines' heads, parsing none; the next reads the copies.
+#[test]
+fn an_indexed_read_back_makes_the_copies_a_chat_that_ran_on_lacks() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let root = root();
+    let store = LocalStore::new(root.clone(), 2 << 20).unwrap();
+    let mut seq = 0;
+    // 40 turns of 200 updates each: 16 prompts span most of a 16 MB log.
+    for _ in 0..40 {
+        for kind in ["user_message"].into_iter().chain(std::iter::repeat_n("tool_call_update", 200))
+        {
+            seq += 1;
+            store.append("c", &rec(seq, kind)).unwrap();
+        }
+    }
+    store.flush().unwrap();
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() >= 4, "{} segments", segments.len());
+    assert!(!root.join("c").join(DIR).exists(), "no log load made a copy");
+    let log_bytes: u64 = segments.iter().map(|(_, p)| std::fs::metadata(p).unwrap().len()).sum();
+
+    let page = |store: &LocalStore| {
+        let mut prompts = Vec::new();
+        store
+            .scan_back_indexed("c", 0, u64::MAX, &|_, kind| kind != b"user_message", &mut |r| {
+                if r.kind == "user_message" {
+                    prompts.push(r.seq);
+                }
+                prompts.len() < 16
+            })
+            .unwrap();
+        prompts
+    };
+    // Fewer than 16 prompts past the newest segment's start: the page reads into older segments.
+    let first = page(&store);
+    assert_eq!(first.len(), 16);
+    let before = thread_read_bytes();
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let again = page(&store);
+    let read = thread_read_bytes() - before;
+    assert_eq!(again, first);
+    assert!(read * 10 < log_bytes, "the second page read {read} bytes of a {log_bytes}-byte log");
+    assert!(
+        PARSED_LINES.with(std::cell::Cell::get) - parsed_before <= 64,
+        "the page parses its own records, not the log's"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A scan for the indexed kinds past `after` (a restore point's seq, `hub/restore_point.rs`)
+/// reads the copies of the segments from the one that holds `after + 1` on, not every copy: each
+/// fold of a restored chat's log load (its transfer authority, its open turn, its queue, its
+/// message copies) read every segment's copy from the log's first, so a load from a restore point
+/// still cost the chat's whole history in opens and copies (infinite chats, Leo 2026-11-19).
+#[test]
+fn a_kind_scan_past_a_seq_reads_only_the_copies_past_it() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let root = root();
+    let (store, log) = store_with_log(&root, 200);
+    let kinds = ["queued", "turn_started", "turn_result"];
+    // The copies, as a log load makes them.
+    let all = scanned(&store, &kinds);
+    let segments = store.segments("c").unwrap().len();
+    assert!(segments > 40, "{segments} segments");
+    let whole = read_bytes();
+    assert_eq!(scanned(&store, &kinds), all);
+    let whole = read_bytes() - whole;
+    let after = log[log.len() - 48].seq;
+    let expected: Vec<EventRecord> = all.iter().filter(|r| r.seq > after).cloned().collect();
+    for strict in [false, true] {
+        let mut got = Vec::new();
+        let tail = read_bytes();
+        let mut visit = |r: EventRecord| {
+            got.push(r);
+            true
+        };
+        if strict {
+            store.scan_kinds_after_strict("c", after, &kinds, &mut visit).unwrap();
+        } else {
+            store.scan_kinds_after("c", after, &kinds, &mut visit).unwrap();
+        }
+        let tail = read_bytes() - tail;
+        eprintln!(
+            "kind scan past {after} (strict {strict}): read {tail} bytes; whole scan {whole}"
+        );
+        assert_eq!(got, expected, "strict: {strict}");
+        assert!(
+            tail * 10 < whole,
+            "strict {strict}: past {after} read {tail} bytes, the whole {whole}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A scan past `after` (a log load past its restore point) reads no segment before the one that
+/// holds `after + 1`, neither its copy nor its bytes: a strict one past a damaged first segment
+/// reads, where one of the whole log fails, and both return exactly the records past `after`
+/// (goal infinite-chats: a 514 MB chat's restart read every segment's copy from the start).
+#[test]
+fn a_scan_past_a_seq_reads_no_segment_before_it() {
+    let root = root();
+    let (store, log) = store_with_log(&root, 12);
+    let segments = store.segments("c").unwrap();
+    assert!(segments.len() > 4, "the log spans many segments: {}", segments.len());
+    let (_, first) = segments[0].clone();
+    // The first record of the third segment: everything before it is at or before `after`.
+    let third = crate::store::log_line::first_seq(&segments[2].1).unwrap().unwrap();
+    let after = third - 1;
+    let mut file = std::fs::OpenOptions::new().append(true).open(&first).unwrap();
+    file.write_all(b"{\"seq\": not json}\n").unwrap();
+    drop(file);
+    let kinds = ["queued", "turn_result"];
+    let past: Vec<EventRecord> =
+        log.iter().filter(|r| r.seq > after && kinds.contains(&r.kind.as_str())).cloned().collect();
+    let read_past = |strict: bool| {
+        let mut out = Vec::new();
+        let mut visit = |r: EventRecord| {
+            out.push(r);
+            true
+        };
+        let result = if strict {
+            store.scan_kinds_after_strict("c", after, &kinds, &mut visit)
+        } else {
+            store.scan_kinds_after("c", after, &kinds, &mut visit)
+        };
+        result.map(|()| out)
+    };
+    assert!(
+        store.scan_kinds_after_strict("c", 0, &kinds, &mut |_| true).is_err(),
+        "a strict scan of the whole log reads the damaged first segment"
+    );
+    assert_eq!(read_past(true).unwrap(), past, "strict, past the damaged segment");
+    assert_eq!(read_past(false).unwrap(), past, "lenient");
+    assert_eq!(read_past(true).unwrap(), past, "strict again, from the copies");
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -956,10 +956,11 @@ class Stall(unittest.TestCase):
         for key in ("hosted_jobs", "hosted_runner"):
             self.assertNotIn(f"outputs.{key}", text)
         jobs = yaml.safe_load(text)["jobs"]
-        # The fast tier and the canary keep their own budget: no cold hosted build needs 45 minutes.
+        # The fast tier and the canary keep their own budget. The fast tier's is 60: a cold owned-mini
+        # CmuxNext build-tests build ran 28.5 min and was cancelled at 30 (docs/ci/cmux-next-workflow-notes.md#note-39).
         # (Five while it only reports its build-fleet client's verdict: GatewayRunsOnlyTheFleetClient.)
         fast = jobs["fast-tier"]["timeout-minutes"]
-        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 20)
+        self.assertEqual(evaluate(fast, {"needs": {"fast-tier-fleet": {"result": "skipped"}}}), 60)
         canary = jobs["swift-canary"]["timeout-minutes"]
         self.assertEqual(evaluate(canary, {"needs": {"swift-canary-fleet": {"outputs": {"verdict": ""}}}}), 20)
         self.assertEqual(jobs["cmux-scheme-compile"]["timeout-minutes"], 60)
@@ -2609,9 +2610,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "machine-vault-e2e.yml e2e: runs-on[0]",
         "release.yml build-sign-notarize: runs-on[0]",
         "release.yml build-sign-notarize-blacksmith: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml verify-shipped: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair: runs-on[0]",
-        "repair-v0-64-25-helper-rpaths.yml repair-blacksmith: runs-on[0]",
         "resume-nightly-notarization.yml resume: runs-on[0]",
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
@@ -2850,7 +2848,7 @@ RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
 # The workflows that must read pr-rescue as off: nightly, promote, signing and release.
 RESCUE_IGNORED = ("nightly.yml", "nightly-sign.yml", "nightly-next-train.yml", "nightly-next-canary.yml",
-                  "nightly-next-launch-smoke.yml", "nightly-next-cua-signed-host.yml", "stable-next.yml",
+                  "nightly-next-launch-smoke.yml", "stable-next.yml",
                   "signing-keychain-macos.yml", "app-ffi-release.yml", "release.yml")
 SWITCH_READ = re.compile(r"vars\.CI_BLACKSMITH_MACOS(?!\s*\}\})")
 SWITCH_COMPARED = re.compile(r"vars\.CI_BLACKSMITH_MACOS\s*(?:==|!=)\s*'on'")

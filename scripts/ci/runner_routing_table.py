@@ -81,7 +81,7 @@ MACOS_HINT = re.compile(
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
-NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
+NON_MAC_HINT = re.compile(r"ubuntu|linux|windows|cmux-gcp-", re.IGNORECASE)  # cmux-gcp-*-x64: GCP Linux VMs
 
 NEEDS = ("macos", "linux", "any")
 
@@ -125,8 +125,14 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
     if match is None or (allowed_pools is not None and match.group(1) not in allowed_pools):
         return False
     members = (pool_members() if pools is None else pools).get(match.group(1), [])
-    return bool(members) and all(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)
-                                  for member in members)
+    blacksmith = [member for member in members if re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)]
+    # Every x64 Linux pool leads with our own fleet label (#47803); the variable may name it or a Blacksmith size,
+    # and the pool's Blacksmith members are the overflow it moves to. Any other member is not this overflow.
+    return bool(blacksmith) and all(member in blacksmith or member in POOL_FLEET_MEMBERS for member in members)
+
+
+# The owned Linux label a declared x64 pool may lead with (.github/runners.json, #47803).
+POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
@@ -507,10 +513,10 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
 # secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
     "'blacksmith-4vcpu-ubuntu-2404'",
 ]

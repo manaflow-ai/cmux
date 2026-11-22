@@ -240,9 +240,16 @@ test("two messages in a row, then the turn ended: still no row under them", () =
   expect(ids(footers(view).filter((each) => !isEmptyFooter(each)))).toEqual([`${SUPERSEDED}-s1`]);
 });
 
-test("work alone after the person's message adds no row either", () => {
+// G04 (cmuxterm-hq#13766): every finished turn ends on its row, a turn of calls alone too. Calls the
+// agent ran after his message are something to copy, so that stretch keeps its row with their Copy;
+// only a turn that said and ran nothing after his message draws none (the test above).
+test("work alone after the person's message ends on its row, copying its calls", () => {
   const view = turnView(steeredThenEnded([bash("b9")]), new Set(), { agentFamily: "claude", now: START + 1e6 });
-  expect(isEmptyFooter(view.find((each) => each.id === "sum")!)).toBe(true);
+  const under = view.find((each) => each.id === "sum")!;
+  expect(isEmptyFooter(under)).toBe(false);
+  expect(under.turnCopy?.at(-1)).toEqual({
+    tools: [expect.objectContaining({ tool: expect.objectContaining({ id: "b9" }) })],
+  });
 });
 
 test("a reply after the person's message keeps the turn's row and its Copy", () => {

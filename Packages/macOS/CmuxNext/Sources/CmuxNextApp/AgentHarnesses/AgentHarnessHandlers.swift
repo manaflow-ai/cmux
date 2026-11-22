@@ -115,6 +115,6 @@ nonisolated enum AgentHarnessStrings {
     }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "MiscHandlers", bundle: .module)
+        String(localized: key, defaultValue: english, table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

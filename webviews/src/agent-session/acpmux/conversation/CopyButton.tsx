@@ -37,6 +37,7 @@ export function CopyButton({
       type="button"
       className={className}
       aria-label={name}
+      // tooltip-allow: an icon button; the word "Copied" shows only after a copy, in the card corner's look.
       title={name}
       /* A transcript row's roving tab stop and its keys, from src/ui (rovingTabStopProps). */
       {...tabStop}

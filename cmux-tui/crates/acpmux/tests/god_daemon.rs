@@ -18,7 +18,10 @@
 //!   (`attachNoticesAheadMax`), and their bytes per list (`noticeBytesPerPeerList`). The peers'
 //!   proxies carry no link until the client watches, and a change of one peer row after the
 //!   attaches ends the window ([`flood_end`]). `attachUs` waits on these notices: with none ahead
-//!   an attach takes about 1 ms;
+//!   an attach takes about 1 ms. With `ACPMUX_GOD_PEER_ROW_BATCHES=1` the client asks for peer
+//!   row batches (`peerRowBatches`): each peer's list is one `_acpmux/peer_rows_changed`
+//!   (`batchNotices`, counted in `attachNoticesAhead`), and once the window ends the client reads
+//!   the rows with one paged follow of the list (`catchUp`, [`catch_up`]);
 //! - `scrollPageUs`: the pane's scroll up through the god chat, [`ROUNDS`] older pages
 //!   (`_acpmux/events` before the oldest seq held, 400 records, 128 KiB); `deepScrollUs`: a jump
 //!   to the middle of its history, [`DEEP_ROUNDS`] times;
@@ -60,6 +63,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
+    // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
+    "ACPMUX_GOD_PEER_ROW_BATCHES",
     // The churn lab's knobs (`whole_lists_of_a_peer_that_cannot_follow_under_churn`).
     "ACPMUX_CHURN_ROWS",
     "ACPMUX_CHURN_SECS",
@@ -68,7 +73,24 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_CHURN_BUSY",
     "ACPMUX_CHURN_FOLLOW",
     "ACPMUX_CHURN_ARENAS",
+    // The growth lab's knobs (`god_daemon/growth.rs`).
+    "ACPMUX_GROWTH_SECS",
+    "ACPMUX_GROWTH_ROWS",
+    "ACPMUX_GROWTH_STABLE",
+    "ACPMUX_GROWTH_CHURN",
+    "ACPMUX_GROWTH_SSH_DOWN",
+    "ACPMUX_GROWTH_CUT_MS",
+    "ACPMUX_GROWTH_CHATS",
+    "ACPMUX_GROWTH_CLIENTS",
+    "ACPMUX_GROWTH_CLIENT_MS",
+    "ACPMUX_GROWTH_SLOW",
+    "ACPMUX_GROWTH_STACKS",
 ]);
+
+/// The growth lab: a daemon with many sessions under a mesh of peers that come and go.
+#[cfg(target_os = "linux")]
+#[path = "god_daemon/growth.rs"]
+mod growth;
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::god_fixture::{self, Shape};
@@ -257,17 +279,27 @@ struct Rpc {
     /// ([`MARKER_KINDS`]): how many, their bytes, and how many of each peer; and the events
     /// dropped.
     flood: Flood,
+    /// The `_acpmux/peer_rows_changed` notices read, as they came: what a client that asked for
+    /// batches follows the list for ([`catch_up`]).
+    batch_notes: Vec<Value>,
 }
 
 /// `_acpmux/session_changed` notices of peer rows (`peer` set) a client read, and the hub events
 /// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
-/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it.
+/// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it. A client that asked
+/// for peer row batches (`peerRowBatches`) reads one `_acpmux/peer_rows_changed` per list instead
+/// (`batches`). Its fan-out still takes every row's hub event, and when it falls behind it hears
+/// one `_acpmux/lagged` with `watch: true` (`watch_lags`) and follows the list for what it missed:
+/// those dropped events were never its notices, so they are not `dropped` (2 of 24 god runs).
 #[derive(Clone, Default)]
 struct Flood {
     notices: u64,
     bytes: u64,
     by_peer: BTreeMap<String, u64>,
     dropped: u64,
+    batches: u64,
+    batch_bytes: u64,
+    watch_lags: u64,
 }
 
 impl Flood {
@@ -284,18 +316,22 @@ impl Flood {
             bytes: self.bytes - before.bytes,
             by_peer,
             dropped: self.dropped - before.dropped,
+            batches: self.batches - before.batches,
+            batch_bytes: self.batch_bytes - before.batch_bytes,
+            watch_lags: self.watch_lags - before.watch_lags,
         }
     }
 
-    /// Every flood notice queued for the client: those it read and those its fan-out dropped.
+    /// Every flood notice queued for the client: those it read and those its fan-out dropped,
+    /// a batch's one notice included.
     fn queued(&self) -> u64 {
-        self.notices + self.dropped
+        self.notices + self.dropped + self.batches + self.watch_lags
     }
 
-    /// Their bytes: those read, and the dropped ones at the mean of the ones read.
+    /// Their bytes: those read, and the dropped ones at the mean of the row notices read.
     fn queued_bytes(&self) -> u64 {
         let mean = self.bytes as f64 / self.notices.max(1) as f64;
-        (self.bytes as f64 + mean * self.dropped as f64).round() as u64
+        (self.bytes as f64 + mean * self.dropped as f64).round() as u64 + self.batch_bytes
     }
 }
 
@@ -333,6 +369,7 @@ impl Rpc {
             read_bytes: 0,
             longest_line: 0,
             flood: Flood::default(),
+            batch_notes: vec![],
         }
     }
 
@@ -391,7 +428,18 @@ impl Rpc {
             *self.flood.by_peer.entry(peer.to_owned()).or_default() += 1;
         }
         if v["method"] == "_acpmux/lagged" {
-            self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            if v["params"]["watch"] == true {
+                self.flood.watch_lags += 1;
+            } else {
+                self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            }
+        }
+        if v["method"] == "_acpmux/peer_rows_changed" {
+            self.flood.batches += 1;
+            self.flood.batch_bytes += line.len() as u64;
+            let peer = v["params"]["peer"].as_str().unwrap_or_default().to_owned();
+            *self.flood.by_peer.entry(peer).or_default() += 1;
+            self.batch_notes.push(v["params"].clone());
         }
         Ok(v)
     }
@@ -656,6 +704,14 @@ impl Daemon {
     }
 }
 
+/// A run that panics does not leave its daemon writing into a scratch folder being removed.
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// How long the client waits for the marker's notice after the attaches.
 const MARKER_WAIT: Duration = Duration::from_secs(120);
 
@@ -694,7 +750,8 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
     let Ok(w) = window else {
         return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
                       "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
-                      "noticesRead": null, "noticesDropped": null,
+                      "noticesRead": null, "noticesDropped": null, "rowNotices": null,
+                      "batchNotices": null, "watchLags": null,
                       "floodError": window.as_ref().err()});
     };
     let bytes = w.queued_bytes();
@@ -706,7 +763,67 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
         "peerLists": lists,
         "noticesRead": w.notices,
         "noticesDropped": w.dropped,
+        // Peer rows told one notice each (read or dropped), and peer lists told as one batch.
+        "rowNotices": w.notices + w.dropped,
+        "batchNotices": w.batches,
+        // Falls behind told to a batch watcher, which follows the list for them.
+        "watchLags": w.watch_lags,
         "floodError": null,
+    })
+}
+
+/// What a client that asked for peer row batches does with the `_acpmux/peer_rows_changed` it
+/// read: one follow of the list (`_acpmux/watch {afterSeq, listEpoch}`, `hub/row_log.rs`) from
+/// below every batch (`cursor`, the watch reply's position, or a batch's `afterSeq` if lower), read
+/// page by page while acpmux says `more`. Its numbers: the peer rows it read (by peer and id), the
+/// fewest and most of one peer, the follow pages, their bytes and the time they took.
+fn catch_up(rpc: &mut Rpc, cursor: Option<(u64, String)>) -> Value {
+    let Some((seq, epoch)) = cursor else {
+        return json!({"error": "the watch's reply named no list position"});
+    };
+    let after = rpc.batch_notes.iter().filter_map(|b| b["afterSeq"].as_u64()).fold(seq, u64::min);
+    let started = Instant::now();
+    let bytes_before = rpc.read_bytes;
+    let mut rows: std::collections::BTreeSet<(String, String)> = Default::default();
+    let (mut at, mut pages) = (after, 0u64);
+    loop {
+        pages += 1;
+        let reply = match rpc
+            .call("_acpmux/watch", json!({"enabled": true, "afterSeq": at, "listEpoch": epoch}))
+        {
+            Ok(reply) => reply,
+            Err(e) => return json!({"error": e, "pages": pages}),
+        };
+        if reply["follow"] != true {
+            return json!({"error": "acpmux could not follow the cursor", "reply": reply["reset"]});
+        }
+        for row in reply["sessions"].as_array().into_iter().flatten() {
+            if let (Some(peer), Some(id)) = (row["peer"].as_str(), row["sessionId"].as_str()) {
+                rows.insert((peer.to_owned(), id.to_owned()));
+            }
+        }
+        let Some(next) = reply["listSeq"].as_u64() else {
+            return json!({"error": "a follow named no list position", "pages": pages});
+        };
+        at = next;
+        if reply["more"] != true {
+            break;
+        }
+    }
+    rpc.notes.clear();
+    let mut by_peer: BTreeMap<&str, u64> = BTreeMap::new();
+    for (peer, _) in &rows {
+        *by_peer.entry(peer.as_str()).or_default() += 1;
+    }
+    json!({
+        "rows": rows.len(),
+        "peers": by_peer.len(),
+        "fewestRowsOfAPeer": by_peer.values().min(),
+        "mostRowsOfAPeer": by_peer.values().max(),
+        "pages": pages,
+        "bytes": rpc.read_bytes - bytes_before,
+        "ms": ms(started),
+        "error": null,
     })
 }
 
@@ -786,11 +903,23 @@ fn attach_rounds(rpc: &mut Rpc, god: &str) -> Attaches {
     a
 }
 
-/// One home's run: its numbers, and its heap profile's path when one was asked for.
+/// One home's run: its numbers, and its heap profile's path when one was asked for. The client
+/// asks for peer row batches when `ACPMUX_GOD_PEER_ROW_BATCHES=1` ([`run_with`]).
 async fn run(shape: Shape, dhat: bool) -> Value {
-    let scratch = std::env::temp_dir().join(format!("god-{}-{}", shape.name, std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
+    let batches = std::env::var("ACPMUX_GOD_PEER_ROW_BATCHES").is_ok_and(|v| v == "1");
+    run_with(shape, dhat, batches).await
+}
+
+/// [`run`], its client asking for peer row batches (`initialize` `_meta.acpmux.peerRowBatches`)
+/// when `batches`: each peer's list then reaches it as one `_acpmux/peer_rows_changed`, and once
+/// the attach-flood window ends it reads the rows with a follow of the list ([`catch_up`]). Its
+/// scratch (2 GB for the god shape, a 1 GB daemon log of it) is removed when it returns or panics,
+/// so runs do not pile up one per pid (they filled pool VMs, 2026-11-17); `"scratch"` names it, and
+/// `ACPMUX_KEEP_SCRATCH=1` keeps it.
+async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
+    // Declared first, so dropped last: after the daemon, the peers' hubs and their proxies.
+    let scratch_dir = daemon_env::Scratch::new(&format!("god-{}", shape.name));
+    let scratch = scratch_dir.to_path_buf();
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
     let written = Instant::now();
@@ -816,9 +945,18 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let ready_ms = ms(daemon.spawned);
         let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
-        rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}}))
-            .unwrap();
+        let meta = if batches { json!({"acpmux": {"peerRowBatches": true}}) } else { json!({}) };
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "god-bench"}, "_meta": meta}),
+        )
+        .unwrap();
         let list = rpc.call("_acpmux/watch", json!({"enabled": true}));
+        // The list position the watch's reply is current to: a batch client follows from it.
+        let list_cursor = list
+            .as_ref()
+            .ok()
+            .and_then(|l| l["listSeq"].as_u64().zip(l["listEpoch"].as_str().map(str::to_owned)));
         let first_list_ms = ms(daemon.spawned);
         let listed =
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
@@ -835,7 +973,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             None => Err(json!("no peer to mark the window's end")),
         };
         let lists = cutter.iter().map(Proxy::carried).sum::<u64>();
-        let flood = flood_json(&window, lists);
+        let mut flood = flood_json(&window, lists);
+        flood["peerRowBatches"] = json!(batches);
+        flood["catchUp"] = if batches { catch_up(&mut rpc, list_cursor) } else { Value::Null };
 
         // The pane's scroll up: each page the one before the oldest record held. At the chat's
         // start it begins again from the attach's page, so a short chat gives as many pages.
@@ -1079,6 +1219,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     for proxy in proxies.iter() {
         proxy.cut();
     }
+    let mut result = result;
+    result["scratch"] = json!(scratch_dir.display().to_string());
     result
 }
 
@@ -1313,14 +1455,29 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
     let god = Shape::god();
     let shape =
         Shape { name: "flood", peers: god.peers, peer_rows: god.peer_rows, ..Shape::small() };
-    let result = run(shape.clone(), false).await;
+    // A client that does not ask for peer row batches, as every one before them: unchanged.
+    let result = run_with(shape.clone(), false, false).await;
     let line = flood_line(&result);
     println!("GOD-FLOOD {line}");
     let (peers, rows) = (shape.peers as u64, shape.peer_rows as u64);
+    assert_eq!(line["batchNotices"], json!(0), "no batch for a client that did not ask: {line}");
     assert_eq!(line["floodError"], Value::Null, "{line}");
     assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
-    assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
-    assert_eq!(line["attachNoticesAheadMax"], json!(rows), "one list's rows: {line}");
+    // A lag's `dropped` counts every hub event the fan-out missed, a few not peer rows among them
+    // (10,402 and 10,404 with 1,514 dropped, 3 of 18 god runs): exact only when none was dropped.
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(ahead, peers * rows, "one notice per row: {line}");
+    } else {
+        assert!((peers * rows..=peers * rows + 32).contains(&ahead), "one notice per row: {line}");
+    }
+    // The most of one peer counts the notices read: a dropped one is of no peer.
+    let most = line["attachNoticesAheadMax"].as_u64().expect("attachNoticesAheadMax");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(most, rows, "one list's rows: {line}");
+    } else {
+        assert!(most <= rows, "one list's rows: {line}");
+    }
     // Each notice carries its row's summary, 3,327 bytes of the fixture's 75 keys: 1,330,733 a
     // list on the Linux pool, every run. Within 1%: dropped notices are weighed at the mean.
     let per_list = line["noticeBytesPerPeerList"].as_u64().unwrap_or(0);
@@ -1328,6 +1485,61 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
         (1_317_426..=1_344_040).contains(&per_list),
         "a list's notices are {per_list} bytes, not 1,330,733 (1%): {line}"
     );
+}
+
+/// The god home's peers (26 x 400 rows) over a small home, the client asking for peer row
+/// batches: run once, read by the two tests below.
+static BATCH_RUN: tokio::sync::OnceCell<Value> = tokio::sync::OnceCell::const_new();
+
+async fn batch_run() -> Value {
+    let god = Shape::god();
+    // Its own name: the scratch folder is the shape's, and the tests run side by side.
+    let shape = Shape {
+        name: "flood-batches",
+        peers: god.peers,
+        peer_rows: god.peer_rows,
+        ..Shape::small()
+    };
+    let result = BATCH_RUN.get_or_init(|| run_with(shape, false, true)).await;
+    flood_line(result)
+}
+
+/// The attach flood of a client that asked for peer row batches, pinned: each peer's list
+/// reaches it as one `_acpmux/peer_rows_changed` ahead of the attaches, and no peer row as its own
+/// `session_changed` (read or dropped). 26 notices where the client before them had 10,400, and
+/// one more for each time its fan-out fell behind and it followed the list instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_attach_flood_is_one_batch_notice_per_peer_list() {
+    let line = batch_run().await;
+    println!("GOD-FLOOD {line}");
+    let god = Shape::god();
+    assert_eq!(line["floodError"], Value::Null, "{line}");
+    assert_eq!(line["peerLists"], json!(god.peers), "one list per peer: {line}");
+    assert_eq!(line["rowNotices"], json!(0), "no row's own notice: {line}");
+    // When its fan-out falls behind (`watchLags`), a list's batch can be among the events it
+    // missed: the lag's one note tells it to follow the list instead.
+    let lags = line["watchLags"].as_u64().expect("watchLags");
+    let batches = line["batchNotices"].as_u64().expect("batchNotices");
+    assert!(
+        batches <= god.peers as u64 && batches + lags >= god.peers as u64,
+        "a batch per list: {line}"
+    );
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    assert!(ahead <= god.peers as u64 + lags, "one notice per list: {line}");
+    assert_eq!(line["attachNoticesAheadMax"], json!(1), "one notice per list: {line}");
+}
+
+/// A client that asked for peer row batches still holds every peer row: one follow of the list
+/// from below the batches, paged, reads all 10,400 rows (400 of each of 26 peers).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_client_reads_every_peer_row_with_one_follow() {
+    let line = batch_run().await;
+    let god = Shape::god();
+    let caught = &line["catchUp"];
+    assert_eq!(caught["error"], Value::Null, "{line}");
+    assert_eq!(caught["rows"], json!(god.peers * god.peer_rows), "every peer row: {line}");
+    assert_eq!(caught["peers"], json!(god.peers), "{line}");
+    assert_eq!(caught["fewestRowsOfAPeer"], json!(god.peer_rows), "each peer's rows: {line}");
 }
 
 /// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
@@ -1339,6 +1551,117 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
     assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
     let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
     assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
+    // The run's scratch went with it (a run that panics: `tests/scratch_guard.rs`).
+    let scratch = Path::new(result["scratch"].as_str().expect("run names its scratch"));
+    assert!(
+        std::env::var(daemon_env::KEEP_SCRATCH).is_ok() || !scratch.exists(),
+        "run() left its scratch {}",
+        scratch.display()
+    );
+}
+
+/// The chats [`a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log`] keeps open: more
+/// than the 875 of cmux#42185.
+const OPEN_CHATS: usize = 900;
+/// The attaches of the replay in flight at once: 64 pages of at most [`PAGE_BYTES`], 8 MiB.
+const IN_FLIGHT: usize = 64;
+
+/// F6 of cmuxterm-hq `docs/design/remote-cloud-durability.md` (cmux#42185: "Agent chats show empty
+/// history after the daemon restarts", fixed in the pane host by #42197, #42206 and #42326): a
+/// regression guard at the issue's scale, which passes before and after. [`OPEN_CHATS`] chats are
+/// open; each pane's attach (`settled: true`, as the page sends it since #41760) is answered once.
+/// Then every pane attaches again at once (the replay of every open chat), the daemon is killed
+/// with SIGKILL once half of them are answered, and a new daemon starts on the same home. Every
+/// pane's attach to it answers with no error, within the bound, and with the history it had
+/// before: as many events, ending at the same seq.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_kill_mid_replay_of_every_open_chat_repaints_each_from_its_log() {
+    let _ = HERMETIC;
+    let scratch = std::env::temp_dir().join(format!("god-replay-kill-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let home = scratch.join("acpmux");
+    let claude = daemon_env::home(&scratch).join(".claude");
+    let shape =
+        Shape { name: "replay-kill", chats: OPEN_CHATS, god_messages: 40, ..Shape::small() };
+    let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
+    write_config(&home, json!({}));
+    let chats: Vec<String> = std::iter::once(made.god).chain(made.others).collect();
+    assert_eq!(chats.len(), OPEN_CHATS);
+
+    let attach = |id: &str| {
+        json!({"sessionId": id, "settled": true, "waitLogs": false, "limit": PAGE_LIMIT,
+               "maxBytes": PAGE_BYTES})
+    };
+    // What a page shows: its events, and the seq of its newest.
+    let shown = |page: &Value| {
+        let events = page["events"].as_array().cloned().unwrap_or_default();
+        let last = events.iter().filter_map(|e| e["seq"].as_u64()).max();
+        (events.len(), last)
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let mut daemon = Daemon::start(&scratch, &home, None);
+        let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "replay-kill"}});
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello.clone()).unwrap();
+        let before: Vec<(usize, Option<u64>)> = chats
+            .iter()
+            .map(|id| {
+                let page = rpc.call("_acpmux/attach", attach(id)).expect("an attach before");
+                rpc.notes.clear();
+                shown(&page)
+            })
+            .collect();
+        assert!(before.iter().all(|(n, last)| *n > 0 && last.is_some()), "every chat has history");
+
+        // Every open pane attaches again, [`IN_FLIGHT`] at a time (all 900 pages at once are past
+        // a connection's outbound bound, which ends a reader that falls behind); the daemon dies
+        // with half of them answered and the next ones in flight.
+        let mut replay = Rpc::connect(&daemon.socket);
+        replay.call("initialize", hello.clone()).unwrap();
+        let mut asked = std::collections::VecDeque::new();
+        let (mut sent, mut answered) = (0, 0);
+        while answered < OPEN_CHATS / 2 {
+            while sent < OPEN_CHATS && asked.len() < IN_FLIGHT {
+                asked.push_back(replay.request("_acpmux/attach", attach(&chats[sent])));
+                sent += 1;
+            }
+            let _ = replay.response(asked.pop_front().expect("an attach in flight"));
+            answered += 1;
+        }
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(daemon.child.id() as i32, libc::SIGKILL) };
+        let _ = daemon.child.wait();
+
+        let restarted = Instant::now();
+        daemon = Daemon::start(&scratch, &home, None);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        rpc.call("initialize", hello).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut wrong = Vec::new();
+        for (id, was) in chats.iter().zip(&before) {
+            match rpc.call_until("_acpmux/attach", attach(id), Some(deadline)) {
+                Ok(page) if shown(&page) == *was => {}
+                Ok(page) => wrong.push(format!("{id}: {:?}, was {was:?}", shown(&page))),
+                Err(e) => wrong.push(format!("{id}: {e}")),
+            }
+            rpc.notes.clear();
+        }
+        let all_ms = ms(restarted);
+        daemon.stop();
+        let _ = std::fs::remove_dir_all(&scratch);
+        (wrong, all_ms)
+    })
+    .await
+    .unwrap();
+    let (wrong, all_ms) = result;
+    println!("replay-kill: {OPEN_CHATS} chats repainted {} ms after the kill", all_ms);
+    assert!(
+        wrong.is_empty(),
+        "{} of {OPEN_CHATS} chats did not repaint their history after a kill mid-replay: {:?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(10)]
+    );
 }
 
 /// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
@@ -1428,9 +1751,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     let busy: usize = env_or("ACPMUX_CHURN_BUSY", 8);
     let follow = std::env::var("ACPMUX_CHURN_FOLLOW").is_ok_and(|v| v == "1");
 
-    let scratch = std::env::temp_dir().join(format!("god-churn-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
+    // Removed when the lab ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+    let scratch = daemon_env::Scratch::new("god-churn");
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
     let shape = Shape { peers: 0, ..Shape::small() };
@@ -1570,5 +1892,4 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
             );
         }
     }
-    let _ = std::fs::remove_dir_all(&scratch);
 }

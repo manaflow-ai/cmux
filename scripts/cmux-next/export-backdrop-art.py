@@ -67,7 +67,7 @@ def works() -> list[dict]:
     cases = re.findall(r'^    case (\w+) = ' + STRING + r'$', block(art, "enum BackdropArt: String, CaseIterable, Sendable {", "BackdropArt.swift"), re.M)
     if not cases:
         fail("BackdropArt.swift: no cases")
-    titles = dict(re.findall(r'^        case \.(\w+): String\(localized: "backdrop\.[a-z0-9-]+\.title", defaultValue: ' + STRING + r', bundle: \.module\)$', art, re.M))
+    titles = dict(re.findall(r'^        case \.(\w+): String\(localized: "backdrop\.[a-z0-9-]+\.title", defaultValue: ' + STRING + r', bundle: \.localizedModule\)$', art, re.M))
     entries = {}
     entry_re = re.compile(r'^        case \.(\w+): BackdropArtEntry\(artist: ' + STRING + r', year: ' + STRING + r', museum: ' + STRING
                           + r', collection: \.(\w+), source: ' + STRING + r', license: ' + STRING + r', sha256: "([0-9a-f]{64})", bundled: (true|false), focal: \(([0-9.]+), ([0-9.]+)\), '

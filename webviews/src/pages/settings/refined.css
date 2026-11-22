@@ -14,8 +14,12 @@
     color-mix(in srgb, var(--polish-ink) 10%, transparent),
     color-mix(in srgb, var(--polish-ink) 8%, transparent)
   );
-  --polish-muted: color-mix(in srgb, var(--polish-ink) 60%, var(--polish-base));
-  --polish-placeholder: color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base));
+  /* The theme's own quieter inks (WebTheme --cmux-text-secondary 4.5:1, --cmux-text-tertiary 3:1 on every
+     fill and see-through ground), about the same 60% and 45% steps toward the page in a theme that has
+     the room: the fixed mixes fell to 2.5:1 on low-contrast themes (Everforest Light Hard, Belafonte
+     Day; test/control-contrast-N.test.ts). */
+  --polish-muted: var(--cmux-text-secondary, color-mix(in srgb, var(--polish-ink) 60%, var(--polish-base)));
+  --polish-placeholder: var(--cmux-text-tertiary, color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base)));
   /* The app's fill ramp (design-tokens.md section 1: hoverFill, selectionFill, pressedFill), as the
      host derives it from the terminal theme, so a Settings hover, selection and press read as the
      sidebar's, the palette's and every shared control's. Pressed is mixed here, not taken from
@@ -141,22 +145,25 @@
 
 :root[data-settings-look="refined"] .settings .section-link {
   min-height: var(--ds-control-primary);
-  padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-md);
-  color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-base));
+  /* 82% of the way from the secondary ink to the text: between two inks that both read, so it reads too. */
+  color: color-mix(in srgb, var(--polish-ink) 82%, var(--polish-muted));
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
 }
 
+:root[data-settings-look="refined"] .settings .section-link:is(:hover, :active) > .section-link-content {
+  background: var(--polish-hover);
+}
+
+:root[data-settings-look="refined"] .settings .section-link[aria-current] > .section-link-content {
+  background: var(--settings-nav-selection-fill, var(--polish-selected));
+}
+
 :root[data-settings-look="refined"] .settings .section-link[aria-current] {
-  /* The sidebar's selected row: selectionFill at the item radius. */
-  background: var(--polish-selected);
   color: var(--polish-ink);
 }
 
-:root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
-/* A held row changes its fill only (design/pressed-state.md). */
-:root[data-settings-look="refined"] .settings .section-link:not([aria-current]):active { background: var(--polish-pressed); }
 :root[data-settings-look="refined"] .settings .section-icon {
   --settings-nav-icon: calc(16px * var(--cmux-row-icon-scale, var(--page-density, 1)));
   color: var(--polish-muted);
@@ -318,7 +325,6 @@
 
   :root[data-settings-look="refined"] .settings .section-link {
     min-height: 0;
-    padding: var(--ds-space-1) var(--ds-space-2);
   }
 
   :root[data-settings-look="refined"] .settings > .content {

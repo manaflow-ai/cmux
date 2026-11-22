@@ -11,6 +11,7 @@
 use crate::clock::now_ns;
 use crate::desktop::FrameSource;
 use crate::Res;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_engine::EncodeRequest;
 use std::collections::VecDeque;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -21,6 +22,8 @@ use std::thread::JoinHandle;
 /// One request for the encode thread.
 struct Job {
     req: EncodeRequest,
+    /// When the engine's gate released the request (protocol clock, µs).
+    released_us: u64,
     /// Halve the encoder's bitrate before this frame's target is set (the engine dropped a
     /// frame too large to send).
     halve_first: bool,
@@ -36,15 +39,24 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// Why the encoder made this IDR on its own (`None` when asked for, or a delta frame).
+    pub idr_cause: Option<&'static str>,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
     pub t_capture_us: u64,
-    /// When the encode ended, on the protocol clock in µs.
+    /// When the engine's gate released this frame's request, on the protocol clock in µs.
+    pub released_us: u64,
+    /// When the encoder was handed the picture, on the protocol clock in µs.
+    pub encode_start_us: u64,
+    /// When the encode ended (the bitstream was ready), on the protocol clock in µs.
     pub encoded_us: u64,
     /// The source's display and arrival times of the picture (measurement only).
     pub picked_times: Option<(u64, u64)>,
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    /// The profile this frame was encoded with, when the encoder applies one (None when it has
+    /// no ultra mode and kept its settings).
+    pub profile: Option<EncodeProfile>,
 }
 
 /// A nonblocking pipe: the encode thread writes a byte after each finished frame, so the loop
@@ -95,7 +107,7 @@ pub struct EncodeThread {
     /// The thread has a job.
     busy: bool,
     /// Requests the engine released while the thread was busy, oldest first.
-    queue: VecDeque<EncodeRequest>,
+    queue: VecDeque<(EncodeRequest, u64)>,
     halve_next: bool,
     name: String,
     kbps: u32,
@@ -153,7 +165,7 @@ impl EncodeThread {
 
     /// Encodes `req` after the frames already handed over; never waits.
     pub fn submit(&mut self, req: EncodeRequest) {
-        self.queue.push_back(req);
+        self.queue.push_back((req, now_ns() / 1000));
         self.start_next();
     }
 
@@ -183,8 +195,8 @@ impl EncodeThread {
         if self.busy {
             return;
         }
-        let Some(req) = self.queue.pop_front() else { return };
-        let job = Job { req, halve_first: std::mem::take(&mut self.halve_next) };
+        let Some((req, released_us)) = self.queue.pop_front() else { return };
+        let job = Job { req, released_us, halve_first: std::mem::take(&mut self.halve_next) };
         // The thread has no job (busy is false), so the one slot is free: this never waits.
         // A send error means the thread ended; take_done reports it.
         if let Some(jobs) = &self.jobs {
@@ -221,6 +233,8 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
+    source.set_profile(req.profile, req.refine);
+    source.set_changed_pixels(u64::from(req.damage.width) * u64::from(req.damage.height));
     source.set_bitrate(frame_kbps(job, source.kbps()));
     let t0 = now_ns();
     let mut access_unit = Vec::new();
@@ -229,11 +243,15 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        idr_cause: if idr { source.idr_cause() } else { None },
         t_capture_us,
+        released_us: job.released_us,
+        encode_start_us: t0 / 1000,
         encoded_us: t1 / 1000,
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        profile: source.applies_profile().then_some(req.profile),
     })
 }
 
@@ -277,8 +295,10 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            profile: Default::default(),
+            refine: false,
         };
-        Job { req, halve_first }
+        Job { req, released_us: 0, halve_first }
     }
 
     #[test]
@@ -295,5 +315,41 @@ mod tests {
         let mut source = Recorder { kbps: 8_000, set: Vec::new() };
         encode_one(&mut source, &job(9_000, false)).expect("encode");
         assert_eq!(source.kbps, 9_000);
+    }
+
+    /// The stats line names only a profile the encoder applied: one without an ultra mode
+    /// (the Linux X11 source) reports none even for an ultra request.
+    #[test]
+    fn a_frame_names_only_the_profile_its_encoder_applied() {
+        struct Ultra(Recorder);
+        impl FrameSource for Ultra {
+            fn capture(&mut self, damage: Rect) -> Res<()> {
+                self.0.capture(damage)
+            }
+            fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+                self.0.encode(force_idr, pts_us, out)
+            }
+            fn set_bitrate(&mut self, kbps: u32) {
+                self.0.set_bitrate(kbps);
+            }
+            fn applies_profile(&self) -> bool {
+                true
+            }
+            fn kbps(&self) -> u32 {
+                self.0.kbps()
+            }
+            fn encoder_name(&self) -> String {
+                "ultra".into()
+            }
+        }
+        let mut ultra_job = job(8_000, false);
+        ultra_job.req.profile = EncodeProfile::Ultra;
+        let mut plain = Recorder { kbps: 8_000, set: Vec::new() };
+        assert_eq!(encode_one(&mut plain, &ultra_job).expect("encode").profile, None);
+        let mut able = Ultra(Recorder { kbps: 8_000, set: Vec::new() });
+        assert_eq!(
+            encode_one(&mut able, &ultra_job).expect("encode").profile,
+            Some(EncodeProfile::Ultra)
+        );
     }
 }

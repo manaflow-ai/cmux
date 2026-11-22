@@ -414,6 +414,41 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         for _ in 0..<200_000 where fm.fileExists(atPath: stale.path) { await Task.yield() }
         #expect(!fm.fileExists(atPath: stale.path))
     }
+
+    /// A store that names no folder (every test's, a fixture's) gets a temporary one of its own, never the app's
+    /// `Caches/cmux-home-blobs`: its prune keeps none of that folder's blobs, so a test run would delete the
+    /// Home attachments of the Mac it runs on.
+    @MainActor @Test func aStoreThatNamesNoFolderNeverPrunesTheAppsCaches() throws {
+        let caches = try #require(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first).standardizedFileURL.path
+        let first = HomeStore(source: MockHomeSource(options: .immediate))
+        let second = HomeStore(source: MockHomeSource(options: .immediate))
+        for store in [first, second] {
+            #expect(!store.blobCacheDirectory.standardizedFileURL.path.hasPrefix(caches + "/"), "\(store.blobCacheDirectory.path)")
+            #expect(store.blobCacheDirectory != HomeStore.defaultBlobCacheDirectory)
+        }
+        #expect(first.blobCacheDirectory != second.blobCacheDirectory)
+    }
+
+    /// A store over a local conversation of its own (New Message's blank page, a bare launch's message box) shares
+    /// the folder but keeps none of its blobs: it never prunes, so the owning store's draft and pending-send blobs
+    /// stay, at its start and after a prune interval.
+    @MainActor @Test func aStoreThatDoesNotPruneLeavesTheSharedCache() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let stale = root.appendingPathComponent("someone-elses-draft", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        let clock = ManualClock()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock,
+                              prunesBlobCache: false)
+        store.start()
+        defer { store.stop() }
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(clock.pendingSleepers == 0, "no prune loop waits on the clock")
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(fm.fileExists(atPath: stale.path))
+    }
 }
 
 // MARK: Sending

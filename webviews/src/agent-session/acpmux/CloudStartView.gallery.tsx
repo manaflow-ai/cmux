@@ -20,11 +20,14 @@ const begun: CloudStartProgress = {
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
 
-// Connect GitHub's fixture connection: the host opens GitHub, and the page never becomes the key one again here.
+// Connect GitHub's fixture connection: the host opens GitHub, the page never becomes the key one again here, and
+// no host says GitHub changed. Every hook is the fixture's own: the default ones read `window` when the module
+// loads, and the gallery's bun runners (manifest.ts, touched.ts) load this file with no window.
 const galleryGitHub = createGitHubPicker(
   async () => ({ opened: true }),
   () => () => undefined,
   () => false,
+  () => () => undefined,
 );
 
 // The checklist folds behind its summary; open it to show the clone row's line.
@@ -116,7 +119,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/Projects is too big to copy (at least 20.1 GB in 323,831 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/Projects",
             repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map(
@@ -143,7 +146,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -169,7 +172,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/src is too big to copy to a Cloud machine (at least 20 GB in 51,204 files). It holds repositories of its own: pick one to start in, or start without a folder.",
+            "~/src is too big to copy (at least 20 GB in 51,204 files). Pick one of its repositories, or start without a folder.",
           tooBig: {
             folder: "~/src",
             repos: Array.from({ length: 24 }, (_, index) => ({
@@ -194,7 +197,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           code: "cloud_folder_too_big",
           refusedHere: true,
           message:
-            "~/Downloads is too big to copy to a Cloud machine (at least 20 GB in 1,204 files; a copy sends at most 20 GB or 500,000 files). Pick a smaller folder, or start without a folder.",
+            "~/Downloads is too big to copy (at least 20 GB in 1,204 files; the limit is 20 GB or 500,000 files). Pick a smaller folder, or start without one.",
           tooBig: { folder: "~/Downloads", repos: [], more: false },
         },
         onPickFolder: () => undefined,

@@ -48,6 +48,11 @@ pub mod kind {
     /// The owner's gateway answered, but the agent's sign-in on their Mac is missing or expired
     /// (`inference.gateway_login`).
     pub const GATEWAY_LOGIN: &str = "gateway.login";
+    /// The agent does not know the model it was asked to run (Claude Code's
+    /// `unrecognized_model`, an API's `model_not_found`; `model_catalog::is_model_error`). acpmux
+    /// retries such a turn once under the model's catalog id when it has one
+    /// (`hub/auto_resume/model_reroute.rs`); a sweeper reads this kind for the rest.
+    pub const MODEL_UNRECOGNIZED: &str = "model.unrecognized";
 }
 
 /// The `errorKind` of a model call the owner's own gateway could not answer, by the code the
@@ -79,6 +84,18 @@ pub fn auth_kind(message: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Whether a sign-in failure's `message` is about an API key a provider issued, not the agent's
+/// own login: it names an API key ("This API key has expired", `api_key_expired`, "Invalid API
+/// key · Fix external API key") and does not send the person to a login ("Invalid API key ·
+/// Please run /login" is Claude Code's own sign-in). A new key fixes it; signing in does not.
+pub fn says_api_key(message: &str) -> bool {
+    let m = message.to_lowercase();
+    let key = ["api key", "api_key", "apikey", "x-api-key"].iter().any(|k| m.contains(k));
+    let login =
+        ["/login", "auth login", "please log in", "run login"].iter().any(|k| m.contains(k));
+    key && !login
 }
 
 /// Whether `message` is codex's "Missing environment variable: `OPENAI_API_KEY`.": its provider
@@ -234,7 +251,12 @@ fn classify(
     // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
     // sending again would fail the same way.
     if let Some(kind) = auth_kind(message) {
-        let recovery = if kind == kind::AUTH_EXPIRED {
+        let recovery = if says_api_key(message) {
+            "The provider refused the agent's API key (expired or no longer valid), and signing in \
+             again does not renew it. Create a new key with that provider and enter it where the \
+             agent reads it (`cmux harness login <harness>`, or the harness's own login in a \
+             terminal on this machine), then send the message again."
+        } else if kind == kind::AUTH_EXPIRED {
             "The agent's sign-in expired. Sign in again with its login command (`cmux harness \
              login <harness>`, or the harness's own login in a terminal on this machine), then \
              send the message again."
@@ -244,6 +266,16 @@ fn classify(
              the message again."
         };
         return Some((kind, recovery.into(), Map::new()));
+    }
+    if crate::model_catalog::is_model_error(message) {
+        return Some((
+            kind::MODEL_UNRECOGNIZED,
+            "The agent does not know this chat's model. Pick one it lists in the chat's model \
+             picker, or set it with `acpmux session set <session> model=<id>`, then send the \
+             message again."
+                .into(),
+            Map::new(),
+        ));
     }
     if dead {
         return Some((
@@ -573,6 +605,25 @@ mod tests {
 
     fn kind_of(e: &RpcError) -> Option<&str> {
         e.data.as_ref()?.get("errorKind")?.as_str()
+    }
+
+    /// A turn the agent failed because it does not know its model (Claude Code refused
+    /// `fable-5.2`, Leo 2026-11-22) is `model.unrecognized`, for a sweeper; capacity is not.
+    #[test]
+    fn a_model_the_agent_does_not_know_is_model_unrecognized() {
+        let e = RpcError::new(
+            -32603,
+            "[claude-code:unrecognized_model] There's an issue with the selected model \
+             (fable-5.2). It may not exist or you may not have access to it.",
+        );
+        let mut typed = e.clone();
+        annotate_as(&mut typed, None, dead_process(&e));
+        assert_eq!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
+        let busy =
+            RpcError::new(-32603, "Selected model is at capacity. Please try a different model.");
+        let mut typed = busy.clone();
+        annotate_as(&mut typed, None, dead_process(&busy));
+        assert_ne!(kind_of(&typed), Some(kind::MODEL_UNRECOGNIZED), "{typed:?}");
     }
 
     /// Every form the turn finalizer treats as a dead process is `agent.exited`: the bare ACP

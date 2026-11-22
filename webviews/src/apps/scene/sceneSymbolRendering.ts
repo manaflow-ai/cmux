@@ -10,8 +10,8 @@ const RED = "#FF453A"; // colour-allow: SF Symbols' fixed multicolor value (AppK
 const CYAN = "#64D2FF"; // colour-allow: SF Symbols' fixed multicolor value (AppKit draws the same), not a theme colour
 
 /** SF Symbols' own multicolor, per draw layer in the symbol's order (null keeps the tint). A glyph
- * colored as a whole takes the entry only when it has one color (a sun is yellow either way); a
- * layered entry, or a symbol not listed, draws in the tint. */
+ * with one layer takes the entry only when the entry has one color (a sun is yellow either way);
+ * a layered entry on a one-layer glyph, or a symbol not listed, draws in the tint. */
 const MULTICOLOR: Record<string, readonly (string | null)[]> = {
   "sun.max": [YELLOW],
   "sun.max.fill": [YELLOW],
@@ -61,6 +61,9 @@ const MULTICOLOR: Record<string, readonly (string | null)[]> = {
   "exclamationmark.triangle.fill": [YELLOW],
 };
 
+/** Hierarchical's opacities by layer (primary, secondary, tertiary), as SF Symbols draw them. */
+const HIERARCHY = [1, 0.5, 0.25] as const;
+
 const MODES: readonly string[] = ["monochrome", "hierarchical", "palette", "multicolor"];
 
 /** A valid `symbolRendering` value, or undefined (monochrome). */
@@ -75,17 +78,29 @@ export function scenePalette(value: unknown): string[] | undefined {
   return colors.every((color): color is string => color !== undefined) ? colors : undefined;
 }
 
-/** The one color `symbol` (its SF name) takes in `rendering`, for the whole glyph, or undefined to keep
- * the tint. Palette draws in its first color; multicolor takes a one-color entry (a sun is yellow).
- * Hierarchical, monochrome, an unknown mode and a layered multicolor entry keep the tint: the scene
- * colors a glyph as a whole, while AppKit draws every mode layer by layer. */
-export function symbolGlyphColor(symbol: string, rendering: unknown, palette: unknown): string | undefined {
+/** The per-layer paint of `symbol` (its SF name) in `rendering`, for `Icon`'s `layerPaint`, or undefined
+ * when every layer keeps the tint (monochrome, an unknown mode, a symbol with no multicolor entry). */
+export function symbolLayerPaint(
+  symbol: string,
+  rendering: unknown,
+  palette: unknown,
+): ((index: number, count: number) => { color?: string; opacity?: number } | undefined) | undefined {
   switch (sceneSymbolRendering(rendering)) {
-    case "palette":
-      return scenePalette(palette)?.[0];
+    case "hierarchical":
+      return (index, count) => (count > 1 ? { opacity: HIERARCHY[Math.min(index, HIERARCHY.length - 1)] } : undefined);
+    case "palette": {
+      const colors = scenePalette(palette);
+      return colors ? (index) => ({ color: colors[Math.min(index, colors.length - 1)] }) : undefined;
+    }
     case "multicolor": {
       const entry = MULTICOLOR[symbol];
-      return entry?.length === 1 && entry[0] ? entry[0] : undefined;
+      if (!entry) return undefined;
+      return (index, count) => {
+        // A one-layer glyph takes a one-color entry (a sun) and keeps the tint for a layered one.
+        if (count === 1) return entry.length === 1 && entry[0] ? { color: entry[0] } : undefined;
+        const color = entry[Math.min(index, entry.length - 1)];
+        return color ? { color } : undefined;
+      };
     }
     default:
       return undefined;
