@@ -30,6 +30,11 @@
       "category": "guard",
       "why": "first pass: test names cite: missing, stall"
     },
+    "src/agent-session/acpmux/ComposerQueue.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "src/agent-session/acpmux/HarnessHealthNotice.test.tsx": {
       "category": "guard",
       "why": "first pass: weak signals only"
@@ -58,6 +63,10 @@
     "src/agent-session/acpmux/SwitchNotice.failure.test.tsx": {
       "category": "guard",
       "why": "first pass: test names cite: missing, stall; 82% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "src/agent-session/acpmux/TaskGoalStrip.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): scheduled wake-up adds no row (Leo 2026-11-14); goal strip clicks and tick re-render"
     },
     "src/agent-session/acpmux/agentBridgeContract.test.ts": {
       "category": "contract",
@@ -238,6 +247,11 @@
     "src/agent-session/acpmux/conversation/RunElsewhere.test.tsx": {
       "category": "guard",
       "why": "first pass: 56% of test names state an invariant (never/not/only/keeps...); 2 forbid-pattern source scans"
+    },
+    "src/agent-session/acpmux/conversation/RunningTime.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
     },
     "src/agent-session/acpmux/conversation/SelectionReply.test.tsx": {
       "category": "guard",
@@ -448,6 +462,10 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: broke; test names cite: broke"
     },
+    "src/agent-session/acpmux/conversation/replyAlwaysVisible.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): agent replies always draw under their prompt (Leo 2026-11-12 incident, 07:51Z turn)"
+    },
     "src/agent-session/acpmux/conversation/replyJudge.test.tsx": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
@@ -641,6 +659,10 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: dropped"
     },
+    "src/agent-session/acpmux/longChatNeverEnding.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): never-ending turn holds bounded records (Leo 2026-11-12/14 flat memory)"
+    },
     "src/agent-session/acpmux/longChatShed.test.ts": {
       "category": "guard",
       "why": "first pass: header quotes a reported breakage; 75% of test names state an invariant (never/not/only/keeps...)"
@@ -756,6 +778,10 @@
     "src/agent-session/acpmux/permissions/record.test.ts": {
       "category": "guard",
       "why": "first pass: 67% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "src/agent-session/acpmux/preparedRowCache.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): prepared-row cache bounded at any chat length (hq chats-flat-at-any-length)"
     },
     "src/agent-session/acpmux/promptAccepted.test.ts": {
       "category": "guard",
@@ -1308,6 +1334,16 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: flicker; header quotes a reported breakage"
     },
+    "src/pages/settings/cloudModelsCard.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
+    "src/pages/settings/contextMenus.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "src/pages/settings/density.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: payload, round-trip"
@@ -1337,6 +1373,11 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "src/pages/settings/groupTitles.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "src/pages/settings/harnessPlacementRow.test.tsx": {
       "category": "guard",
       "why": "first pass: 100% of test names state an invariant (never/not/only/keeps...)"
@@ -1348,6 +1389,10 @@
     "src/pages/settings/hostCards.test.tsx": {
       "category": "guard",
       "why": "first pass: test names cite: broke"
+    },
+    "src/pages/settings/hostSections.test.tsx": {
+      "category": "contract",
+      "why": "first pass (read): cmux.settings.host.lists/changed and browserProfile.* action protocol"
     },
     "src/pages/settings/inheritance.test.ts": {
       "category": "proof",
@@ -1399,6 +1444,10 @@
       "category": "contract",
       "why": "first pass: names a contract term: route, router"
     },
+    "src/pages/settings/providerAccounts.test.tsx": {
+      "category": "contract",
+      "why": "first pass (read): _acpmux/accounts host actions and account row shape"
+    },
     "src/pages/settings/route.test.tsx": {
       "category": "contract",
       "why": "first pass: names a contract term: route; file name is a contract surface"
@@ -1423,6 +1472,11 @@
       "category": "contract",
       "why": "first pass: names a contract term: field; file name is a contract surface"
     },
+    "src/pages/settings/themeFiles.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "src/pages/settings/themePane.test.tsx": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: twice; header quotes a reported breakage"
@@ -1430,6 +1484,11 @@
     "src/pages/settings/themeStudio.test.tsx": {
       "category": "guard",
       "why": "first pass: test names cite: race"
+    },
+    "src/pages/settings/workspaceOpacity.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
     },
     "src/pages/shared/PageMenu.test.tsx": {
       "category": "guard",
@@ -1644,6 +1703,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/agent-pane-adopted-edited-files.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): reopened Codex turn shows edited-files card, Changes menu, Outputs (hq#2569, #22155)"
     },
     "test/agent-pane-agent-pair.test.tsx": {
       "category": "guard",
@@ -1883,6 +1946,11 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/agent-pane-messages-presentation.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/agent-pane-mode-keys.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: json-rpc; file name is a contract surface"
@@ -1984,6 +2052,11 @@
       "category": "contract",
       "why": "first pass: names a contract term: catalog"
     },
+    "test/agent-pane-plan.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/agent-pane-policy-unenforced.test.tsx": {
       "category": "guard",
       "why": "first pass: 100% of test names state an invariant (never/not/only/keeps...)"
@@ -2063,6 +2136,10 @@
     "test/agent-pane-restore-long-turn.test.ts": {
       "category": "guard",
       "why": "first pass: test names cite: used to; header quotes a reported breakage"
+    },
+    "test/agent-pane-reveal-in-place.chromium.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): a re-shown chat draws missed rows in place, not flying in from above (Leo 2026-11-11)"
     },
     "test/agent-pane-running-layout.test.ts": {
       "category": "guard",
@@ -2243,6 +2320,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/agent-pane-table-capture.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): reply tables never clip mid-word or scroll sideways when wrappable (Leo 2026-11-05)"
+    },
     "test/agent-pane-team-audit-browser.test.ts": {
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
@@ -2264,6 +2345,10 @@
     "test/agent-pane-tool-group-scroll.test.ts": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/agent-pane-tool-row-renders.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): settled tool rows never redraw/remount while chat streams (flicker, Leo 2026-11-14)"
     },
     "test/agent-pane-tool-tick-header-session-info-renders.test.ts": {
       "category": "guard",
@@ -2290,9 +2375,17 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: jumps; 100% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/agent-pane-turn-footer.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): finished reply footer shows at rest under every turn (#31503, #31609)"
+    },
     "test/agent-pane-turn-prompt-paging.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: dropped, wrong"
+    },
+    "test/agent-pane-turn-tokens.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): turn output tokens sum model calls only, never repeated context"
     },
     "test/agent-pane-unknown-harness.test.ts": {
       "category": "guard",
@@ -2317,6 +2410,10 @@
     "test/agent-pane-unsent-draft.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: bridge, route"
+    },
+    "test/agent-pane-use-tools.test.ts": {
+      "category": "contract",
+      "why": "first pass (read): _acpmux/set_tools wire and tools/toolsMutable session fields behind Use tools"
     },
     "test/agent-pane-verify-walkthrough.test.tsx": {
       "category": "guard",
@@ -2482,6 +2579,14 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/browser/gallery-control-surfaces-1.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): trailing control group paints no plate and hover never lights an outside ancestor, over every gallery entry"
+    },
+    "test/browser/gallery-control-surfaces-2.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): trailing control group paints no plate and hover never lights an outside ancestor, over every gallery entry"
     },
     "test/browser/github-page-width.test.ts": {
       "category": "proof",
@@ -2746,6 +2851,10 @@
       "category": "contract",
       "why": "first pass: file name is a contract surface"
     },
+    "test/check-layers.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): layer ratchet script: new raw z-index/backdrop-filter fails, baseline only goes down"
+    },
     "test/check-menu-gutters.test.ts": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
@@ -2764,6 +2873,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/chief-context-copy.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): Copy never covers 'Context from the Chief' label text (Lawrence 2026-10-20)"
+    },
     "test/chief-harness-chip.test.tsx": {
       "category": "guard",
       "why": "first pass: 67% of test names state an invariant (never/not/only/keeps...)"
@@ -2771,6 +2884,10 @@
     "test/chief-usage-page.test.tsx": {
       "category": "guard",
       "why": "first pass: 1 forbid-pattern source scans"
+    },
+    "test/chief-web-contract-browser.test.ts": {
+      "category": "contract",
+      "why": "first pass (read): chief web wire contract: machine login, device approval, 401/404, reply tokens over HTTP"
     },
     "test/chip-fixed-width.test.ts": {
       "category": "guard",
@@ -2791,6 +2908,10 @@
     "test/claude-reasoning-default.test.ts": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/clickable-cursor.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): every clickable shows the arrow, no pointing hand (user 2026-10-30) across stylesheets and classes"
     },
     "test/cloud-chat-held-mode-start.test.ts": {
       "category": "proof",
@@ -2829,6 +2950,10 @@
     "test/cloud-start-host-event.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: bridge"
+    },
+    "test/cloud-upload-staging.test.ts": {
+      "category": "contract",
+      "why": "first pass (read): chat.upload.begin/chunk/finish protocol: bounded chunks, offsets, cancel on failure"
     },
     "test/cmux-link-chip-copy-browser.test.ts": {
       "category": "guard",
@@ -3115,6 +3240,11 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: dropped; test names cite: dropped, missing, no longer; 58% of test names state an in"
     },
+    "test/composer-mention.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/composer-menu-width.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: stall"
@@ -3139,6 +3269,11 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: regression"
     },
+    "test/composer-paste-again.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/composer-paste-chip.browser.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: ugly; 50% of test names state an invariant (never/not/only/keeps...)"
@@ -3146,6 +3281,10 @@
     "test/composer-paste-end.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: field"
+    },
+    "test/composer-paste-images.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): pasted images never become base64 prompt text (Leo 2026-10-20 compaction failure); dedupe twins"
     },
     "test/composer-paste-text.test.tsx": {
       "category": "guard",
@@ -3182,6 +3321,11 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/composer-quiet-chips.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/composer-rim-gallery.test.ts": {
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
@@ -3191,6 +3335,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/composer-row-steps.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): composer controls row never cuts a label or overlaps at any width (Leo 2026-10-14 'Medi\u2026')"
     },
     "test/composer-scrollbar-edge.test.ts": {
       "category": "proof",
@@ -3213,6 +3361,11 @@
     "test/composer-strip-reorder.test.ts": {
       "category": "guard",
       "why": "first pass: 60% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/composer-suggested-prompt.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
     },
     "test/composer-switch-keeps-draft.test.tsx": {
       "category": "guard",
@@ -3251,6 +3404,10 @@
     "test/context-ring-motion-browser.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: jumps, stall"
+    },
+    "test/control-contrast-12.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): every gallery control keeps readable contrast in every theme/mode (user 2026-11-20 audit); part 12 of 12"
     },
     "test/css-invalidation-scope.test.ts": {
       "category": "guard",
@@ -3619,6 +3776,10 @@
     "test/gallery-shift.test.ts": {
       "category": "guard",
       "why": "first pass: test names cite: dropped, jumps; 53% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/gallery-token-contrast.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): no theme token pair puts light ink on light surface in either scheme"
     },
     "test/gallery-web-theme-bootstrap.test.ts": {
       "category": "contract",
@@ -4004,6 +4165,11 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/long-report-still.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/machine-card.test.tsx": {
       "category": "guard",
       "why": "first pass: 71% of test names state an invariant (never/not/only/keeps...)"
@@ -4064,6 +4230,10 @@
       "category": "guard",
       "why": "first pass: weak signals only"
     },
+    "test/markdown-slice-load.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): long markdown opens in slices (1 MB took 9.6 s, 10 MB never showed); save/edit safety before the end"
+    },
     "test/markdown-table-scroll-cases.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: broke, missing, stall"
@@ -4076,6 +4246,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/menu-constraints.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): menu text contrast over glass over each surface (Leo 2026-11-22)"
     },
     "test/menu-focus.test.ts": {
       "category": "guard",
@@ -4157,6 +4331,10 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: broke; 50% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/model-picker-scaling.browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): model picker leaves room for names as chrome text grows; no clipping"
+    },
     "test/model-picker-switch-loop.test.tsx": {
       "category": "guard",
       "why": "first pass: test names cite: lost, race"
@@ -4164,6 +4342,10 @@
     "test/model-variants.test.ts": {
       "category": "contract",
       "why": "first pass: names a contract term: route, routes"
+    },
+    "test/motion-scale.test.ts": {
+      "category": "contract",
+      "why": "first pass (read): schemas/motion-scale JSON and generated copies; scanner for off-scale durations"
     },
     "test/native-combobox.test.tsx": {
       "category": "contract",
@@ -4214,6 +4396,10 @@
     "test/new-chat-start-no-shift.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: jump, regress"
+    },
+    "test/new-tab-ask-model.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): New Tab asks on the model its chip names (dogfood run 5: chip said Sonnet, chat ran Opus)"
     },
     "test/new-tab-attachment-view-shell.test.tsx": {
       "category": "guard",
@@ -4287,6 +4473,10 @@
     "test/new-tab-inherits-harness-pick.test.ts": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/new-tab-inline-field.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): New Tab field draws inline attachments and sends punctuation unescaped (#26567 review finds)"
     },
     "test/new-tab-leftover-draft.test.ts": {
       "category": "guard",
@@ -4366,6 +4556,10 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: no longer; 100% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/new-tab-send-button.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): New Tab Send click asks the agent like Return (hq #1893); /import never sent as prompt"
+    },
     "test/new-tab-shared-chats.test.tsx": {
       "category": "guard",
       "why": "first pass: 56% of test names state an invariant (never/not/only/keeps...)"
@@ -4422,6 +4616,11 @@
       "review_by": "2027-01-21"
     },
     "test/newtab-chip-scale.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
+    "test/newtab-icon-column.test.ts": {
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
@@ -4510,6 +4709,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/pane-menus-styled.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): pane menus never render unstyled (Leo 2026-10-20 'unstyled???')"
+    },
     "test/pane-snapshot-yields-to-input.test.tsx": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: lost, stale; test names cite: lost, stale; 67% of test names state an invariant (nev"
@@ -4559,6 +4762,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/popover-close-trace.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): closing popover/menu leaves no trace frame (Leo 2026-11-11)"
     },
     "test/popover-instant-open.test.ts": {
       "category": "guard",
@@ -4719,6 +4926,10 @@
       "category": "guard",
       "why": "first pass: 100% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/reply-image-shape-browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): chat image thumbnails keep image shape, never magnified crop (Leo 2026-11-05)"
+    },
     "test/reply-settle-frames-real-browser.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: jumps; 67% of test names state an invariant (never/not/only/keeps...)"
@@ -4756,6 +4967,11 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/scroller-near-grow.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/scroller-send-no-flash.test.ts": {
       "category": "guard",
       "why": "first pass: header quotes a reported breakage; 58% of test names state an invariant (never/not/only/keeps...)"
@@ -4789,6 +5005,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/sent-bubble-final-size.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): sent bubble keeps one size from landing through echo and image load (Leo 2026-11-07)"
     },
     "test/sent-image-lifecycle.test.tsx": {
       "category": "guard",
@@ -4897,6 +5117,11 @@
       "category": "guard",
       "why": "first pass: header quotes a reported breakage"
     },
+    "test/session-info-placement.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/session-info-progress.test.tsx": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
@@ -4939,6 +5164,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/session-info-surfaces.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): Session Info always closable, steps aside for covering views (Leo 2026-10-22)"
+    },
     "test/session-info-task-row-icons.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: blank; 100% of test names state an invariant (never/not/only/keeps...)"
@@ -4955,6 +5184,11 @@
     "test/session-info-usage.test.tsx": {
       "category": "guard",
       "why": "first pass: header quotes a reported breakage; 56% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/session-info.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
     },
     "test/session-machine-host-composer.test.tsx": {
       "category": "guard",
@@ -5016,6 +5250,11 @@
       "category": "contract",
       "why": "first pass: names a contract term: catalog, route"
     },
+    "test/slash-menu-midprompt.test.tsx": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
     "test/snapshot-cache-prompt-index.test.ts": {
       "category": "guard",
       "why": "first pass: 100% of test names state an invariant (never/not/only/keeps...)"
@@ -5032,6 +5271,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/spare-premount-adopt.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): spare New Tab adopt only shows prebuilt chat view, not a ~70 ms build"
     },
     "test/spare-session-adopt.test.ts": {
       "category": "guard",
@@ -5240,6 +5483,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/summary-header-surface.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): Summary header/popover never overlaps native tools row; Subagents listed once; Stop only under pointer"
+    },
     "test/summary-held-while-scrolling.test.tsx": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: flicker, twice; test names cite: twice; 67% of test names state an invariant (never/"
@@ -5444,6 +5691,10 @@
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
+    "test/tool-fold-bottom-browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): tool call fold always animates at transcript bottom (Leo 2026-11-07 unreliable/laggy)"
+    },
     "test/tool-output-wraps-down-browser.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: broke; header quotes a reported breakage; 100% of test names state an invariant (nev"
@@ -5522,9 +5773,17 @@
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/transcript-drag-flows-webkit-browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): divider drag renders no row and writes no row place per frame, WebKit"
+    },
     "test/transcript-drag-stays-crossing-browser.test.ts": {
       "category": "guard",
       "why": "first pass: header names an incident/invariant: jump"
+    },
+    "test/transcript-drag-stays-fits-browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): first row stays put during divider drag in a fitting chat (review of #41446)"
     },
     "test/transcript-drag-stays-webkit-crossing-browser.test.ts": {
       "category": "guard",
@@ -5650,6 +5909,10 @@
       "category": "guard",
       "why": "first pass: header names an incident/invariant: blank, jarring; test names cite: blank; header quotes a reported breakage; 50% of te"
     },
+    "test/transcript-long-chat-updates.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): incremental long-chat update equals fresh layout"
+    },
     "test/transcript-markdown-copy-browser.test.ts": {
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
@@ -5771,6 +6034,11 @@
     "test/transcript-spacer-reduce-motion.test.ts": {
       "category": "guard",
       "why": "first pass: 100% of test names state an invariant (never/not/only/keeps...)"
+    },
+    "test/transcript-spacing-reference.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
     },
     "test/transcript-spacing-table.test.ts": {
       "category": "guard",
@@ -5944,12 +6212,21 @@
       "category": "guard",
       "why": "first pass: 50% of test names state an invariant (never/not/only/keeps...)"
     },
+    "test/ui-pick-sent-fold.browser.test.ts": {
+      "category": "guard",
+      "why": "first pass (read): sent UI pick fold never flips between open and folded (Leo 2026-11-08)"
+    },
     "test/ui-pointer-grace.test.ts": {
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
     },
     "test/ui-pointer-label.test.ts": {
+      "category": "proof",
+      "owner": "test-lifecycle-first-pass",
+      "review_by": "2027-01-21"
+    },
+    "test/ui-pointer-overlay-browser.test.ts": {
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
@@ -6071,6 +6348,10 @@
       "category": "proof",
       "owner": "test-lifecycle-first-pass",
       "review_by": "2027-01-21"
+    },
+    "test/working-loops-main-thread.test.tsx": {
+      "category": "guard",
+      "why": "first pass (read): compositor shimmer causes no per-frame restyle on the main thread (SPINNERS-OFF-MAIN)"
     }
   },
   "source": "first pass 2026-11-22 (heuristic + 60 agent reads; low-confidence files left out)",
