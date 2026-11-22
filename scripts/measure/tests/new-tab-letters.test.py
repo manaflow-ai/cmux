@@ -34,7 +34,10 @@ cmux page in Chromium by the page's own random id: the tool takes that id from O
 new tab, counts the entries before and after the select by it, and keeps no id in a record; with no id and no
 entry of the tab's id the record has the word `not readable for a cmux page in Chromium` and no count of 0; the
 record's `shown_page_has_chromium_focus` (yes, no, no read), and the class of the view with the keyboard before
-the keys, after them and after the select, with no other text of the app; that read changes no other key of the
+the keys, after them and after the select, with no other text of the app; the id names a page view, which the app
+can give from one tab to another: the record's `page_is_the_windows_page_before_the_keys` says if the id is the
+one that the window had before the keys (yes, no, and None with no id or no read before the keys), from an id
+that the tool keeps in memory for that one case; that read changes no other key of the
 record and no form's line (in each of the 7 forms), and a failed one ends no case and no run; `chromium_given`
 counts only a give with the word `chromium`; the journal's last number at a read is the larger of the reply's
 number and the largest number of its entries, so an entry between the app's 2 reads is counted one time; where the
@@ -467,7 +470,7 @@ class App:
             return self.query.pop(0)
         if method == "debug.agent_pane" and params.get("action") == "query":
             return {"pane": params.get("pane"), "elements": [{"classes": [], "text": self.texts.get(self.builder.selected, "")}] if chat else []}
-        if method == "debug.new_tab":  # an opening as the app gives it (DebugNewTab.swift): no key `idle`
+        if method == "debug.new_tab":  # an opening of an app with no key `idle` (DebugNewTab.swift has that key now)
             return {"openings": [{"spare": False, "cross_window": False, "refit": False, "ms": 1.0},
                                  {"spare": True, "cross_window": False, "refit": True, "ms": 1.0}]}
         if method == "debug.agent_pane":
@@ -1212,7 +1215,7 @@ class AfterSelect(unittest.TestCase):
     def test_a_case_that_is_not_run_before_its_select_has_no_key_of_the_read_after_it(self):
         # Before the select (no counts of the park; the app refuses the keys), at the select (the pane does not
         # show the tab), and at the verdict's read of the field (`stop`: that read raises).
-        after = ("engine_after_select", "journal_after_select", "shown_page_has_chromium_focus")
+        after = ("engine_after_select", "journal_after_select", "shown_page_has_chromium_focus", "page_is_the_windows_page_before_the_keys")
         for model, reads, stop in (({"counts": False}, 1, False), ({"refuse": "no Chromium page window for pane p"}, 1, False),
                                    ({"builder": Builder(refuse="No tab matches t2"), "wait": poll}, 2, False), ({}, 2, True)):
             letters, builder, app = self.letters(CHORD, {"t2": "x"}, after=[page("t2", True, "chromium")], pages={"t2": PAGE}, **model)
@@ -1298,8 +1301,62 @@ class PageId(unittest.TestCase):
         window = {"topology": [{"pane": "p", "selected": "t2"}], "appkit": {"first_responder": "ShellWindow", "child_window_page": PAGE}}
         for model, has in (({}, None), ({"model": "no dict"}, None), ({"model": {}}, None), ({"model": {"resolved_tab": "t2"}}, True), ({"model": {"resolved_tab": None}}, False)):
             letters = M.Letters(Builder(), lambda method, params=None: {"windows": [{**window, **model}]}, wait)
-            self.assertEqual(letters.shown_page({}, "p", "t2"), {"keyboard": {"after_select": self.CHROMIUM}, "shown_page_has_chromium_focus": has}, model)
+            self.assertEqual(letters.shown_page({}, "p", "t2"),
+                             {"keyboard": {"after_select": self.CHROMIUM}, "shown_page_has_chromium_focus": has, "page_is_the_windows_page_before_the_keys": None}, model)
             self.assertEqual(letters.page, PAGE if has else None, model)
+
+    MOVED = {"t1": PAGE, "t2": PAGE, "t3": OTHER_PAGE}  # the first new tab has the page view of the tab that the pane showed before the keys
+
+    def test_a_first_new_tab_with_the_page_that_the_window_had_before_the_keys_says_so(self):
+        # The id names a page VIEW, not a tab. 2 states of the app give this one reply after the select (the id of
+        # before the keys, with a focus model that names the first new tab): the app gave the older tab's view to
+        # the first new tab, or the window still names the older tab's page. The tool cannot part them: yes.
+        wrote, after = [page(PAGE, True, "chromium"), page(OTHER_PAGE, True, "chromium")], [page(PAGE, False, "chromium")]
+        record = self.letters(CHORD, {"t2": "x"}, journal=wrote, after=after, pages=self.MOVED)[0].case("three-key", 0)
+        self.assertEqual((record.get("page_is_the_windows_page_before_the_keys", 7), record["shown_page_has_chromium_focus"]), (True, True))
+        # The counts and the 2 engine words are as with each id: they are of that ONE view.
+        self.assertEqual((record["engine"], record["journal"]["page_entries"], record["engine_after_select"]), ("chromium", {"each_tab": [1, 1], "first_new_tab": 1}, "chromium"))
+        self.assertEqual((record["pass"], record.get("not_run")), (True, None))
+        self.assertEqual([part for name in EACH.values() for part in name.split("-") if part in json.dumps(record)], [])  # the id of before the keys is in no record
+
+    def test_a_first_new_tab_with_another_page_than_the_windows_page_before_the_keys_says_no(self):
+        # Another id than before the keys (each tab has its own page), and a window that named no Chromium page
+        # before the keys (the tab before has its page in a WebKit view): no.
+        for pages in (EACH, {"t2": PAGE, "t3": OTHER_PAGE}):
+            record = self.letters(CHORD, {"t2": "x"}, journal=[page(PAGE, True, "chromium")], pages=pages)[0].case("three-key", 0)
+            self.assertEqual((record.get("page_is_the_windows_page_before_the_keys", 7), record["shown_page_has_chromium_focus"], record["engine"]), (False, True, "chromium"), pages)
+        # The id of before the keys is of its own case: 2 cases, no in the first (2 ids) and yes in the second.
+        letters, builder, app = self.letters(CHORD, {"t2": "x", "t5": "x"}, pages={"t1": OTHER_PAGE, "t2": PAGE, "t4": EACH["t4"], "t5": EACH["t4"]})
+        self.assertEqual([letters.case("three-key", index).get("page_is_the_windows_page_before_the_keys", 7) for index in (0, 1)], [False, True])
+
+    def test_with_no_id_after_the_select_or_no_read_before_the_keys_the_record_does_not_say_it(self):
+        # No id after the select: a page in a WebKit view, a focus model that names another tab, a failed read, a
+        # reply with no word of the window's first responder. None, and that is not `no`.
+        for model in ({"pages": {"t1": PAGE}}, {"pages": self.MOVED, "aims": {"t2": "t3"}}, {"pages": self.MOVED, "dead": (1,)}, {"focus": True}):
+            record = self.letters(CHORD, {"t2": "x"}, **model)[0].case("three-key", 0)
+            self.assertEqual((record.get("page_is_the_windows_page_before_the_keys", 7), record["pass"], record.get("not_run")), (None, True, None), model)
+        # No read before the keys (a tool that read no window then): None with an id after the select too. With a
+        # read: yes for the same id, no for another one and for a window that named no Chromium page.
+        window = {"topology": [{"pane": "p", "selected": "t2"}], "appkit": {"first_responder": "ShellWindow", "child_window_page": PAGE}, "model": {"resolved_tab": "t2"}}
+        letters = M.Letters(Builder(), lambda method, params=None: {"windows": [window]}, wait)
+        self.assertEqual((letters.shown_page({}, "p", "t2")["page_is_the_windows_page_before_the_keys"], letters.page), (None, PAGE))
+        for before, same in ((PAGE, True), (OTHER_PAGE, False), (None, False), (M.UNSEEN, None)):
+            letters.page_before = before
+            self.assertIs(letters.shown_page({}, "p", "t2")["page_is_the_windows_page_before_the_keys"], same, before)
+        # A case whose read before the keys names no window of the pane: None, with an id after the select.
+        builder = Builder()
+        app = App(builder, CHORD, {"t2": "x"}, pages=self.MOVED)
+        reads = []
+
+        def blind(method, params=None):  # the case's first read of `debug.focus` is the one before its keys
+            reply = app(method, params)
+            if method == "debug.focus":
+                reads.append(len(app.sequences))
+            return {**reply, "windows": []} if method == "debug.focus" and len(reads) == 1 else reply
+        record = M.Letters(builder, blind, wait, pause=lambda seconds: None).case("three-key", 0)
+        self.assertEqual(reads[0], 0)  # no key sequence was sent before that read
+        self.assertEqual((record["keyboard"]["before"], record.get("page_is_the_windows_page_before_the_keys", 7), record["shown_page_has_chromium_focus"]),
+                         ({"not_read": M.NO_WINDOW}, None, True))
 
     def test_a_record_has_the_class_of_the_view_with_the_keyboard_before_and_after_the_keys_and_after_the_select(self):
         # From the 2 replies of `debug.focus` that a case reads before and after its keys, and from its ONE read
@@ -1376,7 +1433,8 @@ class PageId(unittest.TestCase):
                      "after": [page(EACH[tab], False, "chromium"), page(EACH[tab], True, "chromium-key"), note("page editing=1")]}
             record, order, line = self.whole(form, notes, texts, **model)
             plain, before, line_before = self.whole(form, notes, texts, window=False, **model)
-            self.assertEqual(sorted(set(record) - set(plain)), ["shown_page_has_chromium_focus"], form)
+            self.assertEqual(sorted(set(record) - set(plain)), ["page_is_the_windows_page_before_the_keys", "shown_page_has_chromium_focus"], form)
+            self.assertIs(record["page_is_the_windows_page_before_the_keys"], False, form)  # each tab of the model has its own page
             self.assertEqual(sorted(key for key in plain if record[key] != plain[key]), ["engine", "engine_after_select", "journal", "journal_after_select", "keyboard"], form)
             self.assertEqual((record["keyboard"], record["shown_page_has_chromium_focus"]), ({**plain["keyboard"], "after_select": self.CHROMIUM}, True), form)
             self.assertEqual((plain["engine"], plain["engine_after_select"], record["engine"], record["engine_after_select"]), (M.UNREADABLE, M.UNREADABLE, "chromium", "chromium-key"), form)
