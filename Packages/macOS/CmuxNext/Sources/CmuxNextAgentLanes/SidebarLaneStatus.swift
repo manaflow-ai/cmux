@@ -27,8 +27,7 @@ extension SidebarRowFeed {
 @MainActor
 enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`), and always its lanes'
-    /// usage warnings (the row's warning badge). The toggles, the lanes and the read marks are read
+    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes and the read marks are read
     /// inside the row's mapping, so flipping a toggle, a lane change or a mark maps that row again.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared,
@@ -40,8 +39,6 @@ enum SidebarLaneStatus {
                 let saysStep = SidebarTunables.nowLine.value
                 let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
-                // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
-                row.usageWarnings = usageWarnings(local)
                 // The agent's task list across its turns, whatever the other lane toggles say.
                 row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
                 if let chiefAvatar {
@@ -165,12 +162,6 @@ enum SidebarLaneStatus {
             return (a.1.updatedAt ?? .distantPast) < (b.1.updatedAt ?? .distantPast)
         }
         return pick.map { SidebarTaskProgress(done: $0.1.done, total: $0.1.total, current: $0.1.current, next: $0.1.next) }
-    }
-
-    /// Each usage warning of `lanes`, once, in lane order.
-    static func usageWarnings(_ lanes: [AgentActivityLane]) -> [String] {
-        var seen = Set<String>()
-        return lanes.flatMap(\.usageWarnings).filter { seen.insert($0).inserted }
     }
 
     /// A lane state as the row's status mark.

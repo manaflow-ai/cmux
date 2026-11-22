@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -7,26 +8,19 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Stills of the runaway-session warning badge (`SidebarUsageWarningTests`), light and dark: the
-/// real sidebar list with a working agent chat, a waiting one and a calm one, before (no
-/// `usageWarnings`) and after (the working chat breaks all three rules). Written under
-/// `usage-warning-gallery/` in the package and bundled to `usage-warning-gallery.tar` for
-/// `cmux-ci run --artifact`; each still is also printed base64 between `USAGE-WARNING-PNG` lines,
-/// so a run's log carries it.
+/// Stills of a runaway session's rows (`SidebarUsageWarningTests`), light and dark: the real sidebar list mapped from
+/// four agent chats (working, waiting, failed, idle) through the real lane status, before (no acpmux `usageWarnings`)
+/// and after (the working chat breaks both rules). The two match: no row draws a warning triangle (Leo 2026-11-22:
+/// "i literally said to remove this bullshit over 24 hours ago."). Written under `usage-warning-gallery/` in the
+/// package and bundled to `usage-warning-gallery.tar` for `cmux-ci run --artifact`; each still is also printed base64
+/// between `USAGE-WARNING-PNG` lines, so a run's log carries it.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AAUsageWarningGalleryTests {
     static let packageRoot = AANestedGroupsGalleryTests.packageRoot
 
-    private static func sections(warns: Bool) -> [SidebarSection] {
-        var runaway = SidebarWorkspace(id: WorkspaceID("u1"), title: "Fleet coordinator", lastActivity: Date(), agentWorking: true,
-                                       kind: .harness, activity: .working, agentBrand: "claude")
-        if warns { runaway.usageWarnings = SidebarUsageWarningTests.warnings }
-        return [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
-            .workspace(runaway),
-            .workspace(SidebarWorkspace(id: WorkspaceID("u2"), title: "Fix the composer caret", lastActivity: Date(),
-                                        kind: .harness, unread: .dot, activity: .waiting, agentBrand: "codex")),
-            .workspace(SidebarWorkspace(id: WorkspaceID("u3"), title: "Release notes", lastActivity: Date(), kind: .harness,
-                                        agentBrand: "claude")),
-        ])]
+    private static func sections(warns: Bool) throws -> [SidebarSection] {
+        let fixture = try SidebarLaneStatusTests.Fixture()
+        _ = try SidebarUsageWarningTests.workingRow(fixture, warned: warns)
+        return fixture.sections()
     }
 
     private static func sidebar(warns: Bool, dark: Bool) throws -> CGImage {
@@ -48,7 +42,7 @@ import Testing
         scope.root(root)
         root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
         window.orderFrontRegardless()
-        let list = SidebarListView(model: SidebarModel(sections: sections(warns: warns)))
+        let list = SidebarListView(model: SidebarModel(sections: try sections(warns: warns)))
         list.frame = NSRect(x: 0, y: 0, width: width, height: height)
         root.addSubview(list)
         list.reload(animated: false)
