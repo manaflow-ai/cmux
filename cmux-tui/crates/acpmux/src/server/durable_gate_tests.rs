@@ -307,7 +307,7 @@ async fn a_failing_journal_asks_the_daemon_to_stop() {
 /// started: a line the log holds while its record is not appended is not sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_replay_never_sends_a_line_before_its_record() {
-    use crate::store::hold_next_read_fence_on_this_thread;
+    use crate::store::pause_next_log_write_on_this_thread;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(63);
     // No idle-time sync of the draft's record between the two requests: on a loaded machine the
