@@ -70,16 +70,11 @@ impl<'a> Daemon<'a> {
         }
     }
 
-    /// A new connection to the socket, initialized, once the daemon there answers.
+    /// A new connection to the socket (its hello included, `Client::connect`), once the daemon
+    /// there answers.
     async fn reconnect(&self, deadline: Instant) -> Result<std::sync::Arc<Client>> {
         loop {
-            let attempt = async {
-                let client = Client::connect(&self.socket).await?;
-                let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}});
-                client.request(method::INITIALIZE, init).await?;
-                anyhow::Ok(client)
-            };
-            match attempt.await {
+            match Client::connect(&self.socket).await {
                 Ok(client) => return Ok(client),
                 Err(e) if Instant::now() >= deadline => return Err(e),
                 Err(_) => tokio::time::sleep(RECONNECT_EVERY).await,
@@ -102,23 +97,25 @@ mod tests {
         let socket = dir.path().join("d.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         let served = tokio::spawn(async move {
-            // The old daemon: reads the request, then goes away without an answer.
-            let (old, _) = listener.accept().await.unwrap();
-            let mut lines = BufReader::new(old).lines();
-            let _ = lines.next_line().await;
-            drop(lines);
-            // The new one: answers every request.
-            let (new, _) = listener.accept().await.unwrap();
-            let (rd, mut wr) = new.into_split();
-            let mut lines = BufReader::new(rd).lines();
+            // Each daemon answers what it is asked, the old one until the page: it goes away
+            // with that unanswered.
             let mut asked = Vec::new();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let v: Value = serde_json::from_str(&line).unwrap();
-                asked.push(v["method"].as_str().unwrap_or_default().to_owned());
-                let reply = json!({"jsonrpc": "2.0", "id": v["id"], "result": {"ok": true}});
-                wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-                if asked.last().map(String::as_str) == Some("_acpmux/transfer_read") {
-                    break;
+            for old in [true, false] {
+                let (conn, _) = listener.accept().await.unwrap();
+                let (rd, mut wr) = conn.into_split();
+                let mut lines = BufReader::new(rd).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let v: Value = serde_json::from_str(&line).unwrap();
+                    let m = v["method"].as_str().unwrap_or_default().to_owned();
+                    asked.push(m.clone());
+                    if old && m == "_acpmux/transfer_read" {
+                        break;
+                    }
+                    let reply = json!({"jsonrpc": "2.0", "id": v["id"], "result": {"ok": true}});
+                    wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+                    if m == "_acpmux/transfer_read" {
+                        break;
+                    }
                 }
             }
             asked
@@ -128,6 +125,11 @@ mod tests {
         let page = daemon.request("_acpmux/transfer_read", json!({"offset": 0})).await.unwrap();
         assert_eq!(page["ok"], true);
         let asked = served.await.unwrap();
-        assert_eq!(asked, vec![method::INITIALIZE.to_owned(), "_acpmux/transfer_read".to_owned()]);
+        let (hello, page) = (method::INITIALIZE.to_owned(), "_acpmux/transfer_read".to_owned());
+        assert_eq!(
+            asked,
+            vec![hello.clone(), page.clone(), hello, page],
+            "asked again on the new one"
+        );
     }
 }
