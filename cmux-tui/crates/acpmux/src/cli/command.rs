@@ -766,6 +766,10 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
+    PauseAgent { session: String },
+    #[command(hide = true)]
+    WakeAgent { session: String },
+    #[command(hide = true)]
     ResumeQueue {
         session: String,
         #[arg(long)]
@@ -1226,6 +1230,13 @@ pub enum SessionCmd {
         #[command(flatten)]
         condition: StopIf,
     },
+    /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
+    /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
+    /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
+    Pause { session: String },
+    /// Resume a paused session now: its agent starts on the same conversation, and the time it
+    /// took is printed. A prompt resumes it too, without this.
+    Wake { session: String },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
     /// It then runs the installed version and gets a new caller token (after
@@ -1727,6 +1738,8 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Pause { session } => Command::PauseAgent { session },
+            SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Rename { session, new_name, handle } => {
                 Command::Rename { session, new_name, handle }
             }
