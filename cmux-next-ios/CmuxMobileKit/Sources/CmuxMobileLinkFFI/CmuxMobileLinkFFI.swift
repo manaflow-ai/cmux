@@ -4241,6 +4241,80 @@ public func FfiConverterTypeTabFace_lower(_ value: TabFace) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Where a prompt typed in a tab's chat face goes.
+ */
+
+public enum TerminalChatPrompt: Equatable, Hashable {
+    
+    /**
+     * Not sent: only whitespace, or the tab is not a terminal with a chat face.
+     */
+    case nothing
+    /**
+     * Typed into the tab's terminal the way the terminal face's own composer sends a prompt.
+     */
+    case terminal(text: String
+    )
+}
+
+#if compiler(>=6)
+extension TerminalChatPrompt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalChatPrompt: FfiConverterRustBuffer {
+    typealias SwiftType = TerminalChatPrompt
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalChatPrompt {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .nothing
+        
+        case 2: return .terminal(text: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TerminalChatPrompt, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .nothing:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .terminal(text):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(text, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPrompt_lift(_ buf: RustBuffer) throws -> TerminalChatPrompt {
+    return try FfiConverterTypeTerminalChatPrompt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalChatPrompt_lower(_ value: TerminalChatPrompt) -> RustBuffer {
+    return FfiConverterTypeTerminalChatPrompt.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a tap on face `to` does.
  */
 
@@ -5064,6 +5138,17 @@ public func terminalChatSession(chats: [TerminalChatCandidate], harness: String,
 })
 }
 /**
+ * What Send does with `text` in tab `facts`' chat face.
+ */
+public func terminalChatPrompt(facts: TerminalChatFacts, text: String) -> TerminalChatPrompt  {
+    return try!  FfiConverterTypeTerminalChatPrompt_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_chat_prompt(
+        FfiConverterTypeTerminalChatFacts_lower(facts),
+        FfiConverterString.lower(text),$0
+    )
+})
+}
+/**
  * What a tap on face `to` does on a tab showing `shown`.
  */
 public func terminalChatSwap(facts: TerminalChatFacts, shown: TabFace, to: TabFace) -> TerminalChatSwap  {
@@ -5146,6 +5231,10 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_session() != 14930) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    // REGENERATE: hand-written until the fleet's uniffi-bindgen output replaces this file.
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_prompt() != 0) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_swap() != 57193) {

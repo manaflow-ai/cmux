@@ -129,12 +129,44 @@ extension WorkspaceTabsSource {
     /// tab's own id so a new chat of the tab is a new store.
     func terminalChatStore(_ tab: WorkspaceTab, in workspace: Workspace, chatSession: String, faces: TerminalChatFaces) -> AgentChatStore {
         let harness = faces.harness ?? tab.harness ?? "claude"
-        return sessions.store(for: AgentSessionSummary(
+        let store = sessions.store(for: AgentSessionSummary(
             id: "\(tab.id)#chat:\(chatSession)", name: tab.title, harness: harness,
             agentName: harness == "codex" ? "Codex" : "Claude", cwd: tab.subtitle ?? workspace.directory,
             workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
             status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
             macID: workspace.macID, acpmuxSessionID: chatSession))
+        if store.terminalInput == nil { store.terminalInput = terminalChatInput(tabID: tab.id, store: store) }
+        return store
+    }
+
+    /// The chat face's composer, when its chat shows (the accessory row's, as an agent tab's).
+    func terminalChatFaceStore(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentChatStore? {
+        let faces = pairFaces(tab, in: workspace)
+        guard faces.offered, faces.chatEnabled, let chat = terminalChatSessionID(tab, in: workspace) else { return nil }
+        return terminalChatStore(tab, in: workspace, chatSession: chat, faces: faces)
+    }
+
+    /// Where the chat face's composer sends: the terminal of tab `tabID`, as Rust routes a
+    /// chat face's prompt (`terminal_chat_prompt`). Its chat is a View Only watch, which acpmux
+    /// refuses a prompt; the agent in the terminal takes it as typed, and the chat shows the turn.
+    private func terminalChatInput(tabID: String, store: AgentChatStore) -> AgentChatStore.TerminalChatInput {
+        AgentChatStore.TerminalChatInput(send: { [weak self, weak store] text in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
+            switch terminalChatPrompt(facts: self.terminalChatFacts(tab, in: workspace), text: text) {
+            case .nothing:
+                return false
+            case .terminal(let prompt):
+                ConnectTimeline.shared.event("terminal_chat_send", detail: tabID)
+                return self.terminal.submitPrompt(prompt, for: tab, in: workspace) { [weak store] in
+                    guard let store else { return }
+                    store.clientError = AgentChatStore.terminalNotSentNotice
+                    store.returnedDraft = AgentChatStore.ReturnedDraft(text: prompt, attachments: [], promptID: nil)
+                }
+            }
+        }, interrupt: { [weak self] in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return }
+            self.terminal.interrupt(tab, in: workspace)
+        })
     }
 
     /// The chat face needs a chat no chat of the Mac is: ask the Mac for its View Only chat, once
@@ -267,7 +299,9 @@ struct TerminalChatPair<Terminal: View, Chat: View>: View {
 
 /// A terminal tab's page with its chat face (`WorkspaceTabPage`): the pair and the one request a
 /// chat face may need (`openTerminalChatIfNeeded`). The page menu's Show Chat / Show Terminal row
-/// swaps the faces; the page has no floating Chat | Terminal control (Aziz, 2026-11-16).
+/// and the toolbar's face button swap the faces; the page has no floating Chat | Terminal control
+/// (Aziz, 2026-11-16). The chat face takes prompts: its composer is the agent chat's own
+/// (`AgentChatBottomStack`, in the accessory row), and what it sends goes to the terminal.
 struct TerminalChatPage<Terminal: View>: View {
     let source: WorkspaceTabsSource
     let tab: WorkspaceTab

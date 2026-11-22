@@ -2471,8 +2471,11 @@ struct WorkspaceTabAccessory: View {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
             case .terminal where source.showsChatFace(tab, in: workspace):
-                // A View Only chat takes no prompt: no key bar over it (the terminal face has it).
-                EmptyView()
+                // The agent chat's own composer (Leo, 2026-11-22: "dont have it read only"): what
+                // it sends is typed into the terminal (`terminalChatInput`). No key bar over it.
+                if let store = source.terminalChatFaceStore(tab, in: workspace) {
+                    AgentChatBottomStack(store: store, surface: source.surface("\(tab.id)#chat"))
+                }
             case .terminal:
                 let context = context
                 source.terminal.accessory(for: tab, in: workspace, context: TerminalTabContext(
