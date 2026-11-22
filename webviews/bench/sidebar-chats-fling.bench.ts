@@ -203,11 +203,16 @@ try {
           target: TARGET_MS.frameWork,
         });
         if (probe)
-          perfRow({ name: `sidebar_chats_fling.n${n}.${host}.fling${step}.blank`, p95: blank, unit: "frames", target: 0 });
+          perfRow({
+            name: `sidebar_chats_fling.n${n}.${host}.fling${step}.blank`,
+            p95: blank,
+            unit: "frames",
+            target: 0,
+          });
       }
       // A seeded walk of far offsets, so every run and host jumps to the same places.
       let seed = 0x5eed + n;
-      const random = () => ((seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff) / 0x7fffffff);
+      const random = () => (seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff) / 0x7fffffff;
       const fills: number[] = [];
       const blanks: number[] = [];
       const jumpWork: number[] = [];
@@ -231,7 +236,9 @@ try {
         target: TARGET_MS.response,
       });
       await context.close();
-      console.log(`n=${n} host=${host} load=${loadMs}ms rows=${mounted.rows} nodes=${mounted.nodes}\n  ${parts.join("\n  ")}`);
+      console.log(
+        `n=${n} host=${host} load=${loadMs}ms rows=${mounted.rows} nodes=${mounted.nodes}\n  ${parts.join("\n  ")}`,
+      );
     }
   }
 } finally {

@@ -969,10 +969,12 @@ class WebUiTests(unittest.TestCase):
         self.assertTrue(cron.is_linux_part("web-ui-scroll"))
         self.assertEqual(cron.part_for_row("webui.chat_fast_scroll.fling_interval.n200@linux"), "web-ui-scroll")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scroll")["suite"]
-        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll"])
+        self.assertEqual(cron.part_for_row("webui.sidebar_chats_fling.n1000.late.fling1500.work@linux"), "web-ui-scroll")
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"])
         self.assertEqual(cwd, "/r/webviews")
         suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
         self.assertRegex(suite, r'name: "chat-fast-scroll",\s*file: "chat-fast-scroll\.bench\.ts"')
+        self.assertRegex(suite, r'name: "sidebar-chats-fling",\s*file: "sidebar-chats-fling\.bench\.ts"')
 
     def test_the_chat_disk_rows_have_their_own_linux_part(self):
         self.assertTrue(cron.is_linux_part("chat-disk"))

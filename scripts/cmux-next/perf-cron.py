@@ -329,6 +329,7 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
@@ -1059,7 +1060,7 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll"], os.path.join(root, "webviews"), {})}
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":

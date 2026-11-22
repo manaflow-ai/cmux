@@ -65,6 +65,19 @@ async function installDriver({ size, rate }: { size: number; rate: number }) {
   const { MockAcpmuxSocket } = (await import(/* @vite-ignore */ mockUrl)) as MockModule;
   const daemon = MockAcpmuxSocket.live;
   if (!daemon) throw new Error("no mock daemon");
+  // --trace: the daemon requests, by when each was asked and answered (`__asks`).
+  const asks: { method: string; at: number; ms: number; params: string }[] = [];
+  (window as any).__asks = asks;
+  const answer = (daemon as any).answer.bind(daemon);
+  (daemon as any).answer = async (method: string, params: Record<string, any>) => {
+    const at = performance.now();
+    try {
+      return await answer(method, params);
+    } finally {
+      const { sessionId: _, ...rest } = params ?? {};
+      asks.push({ method, at, ms: performance.now() - at, params: JSON.stringify(rest).slice(0, 120) });
+    }
+  };
   let round = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   (window as any).__scale = {
@@ -124,7 +137,9 @@ type TraceEvent = { name: string; ph: string; dur?: number; tid: number; args?: 
 async function traced<T>(page: Page, label: string, run: () => Promise<T>): Promise<T> {
   if (!TRACE) return run();
   const browser = page.context().browser()!;
-  await browser.startTracing(page, { categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"] });
+  await browser.startTracing(page, {
+    categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.stack"],
+  });
   const result = await run();
   const events = (JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: TraceEvent[] }).traceEvents;
   const sum = new Map<string, { n: number; ms: number }>();
@@ -134,11 +149,16 @@ async function traced<T>(page: Page, label: string, run: () => Promise<T>): Prom
     sum.set(key, { n: was.n + 1, ms: was.ms + ms });
   };
   for (const event of events) {
-    if (event.ph !== "X" || !["Layout", "UpdateLayoutTree", "Paint", "FunctionCall", "EventDispatch"].includes(event.name))
+    if (
+      event.ph !== "X" ||
+      !["Layout", "UpdateLayoutTree", "Paint", "FunctionCall", "EventDispatch"].includes(event.name)
+    )
       continue;
     const ms = (event.dur ?? 0) / 1000;
     add(event.name, ms);
-    const stack = event.args?.beginData?.stackTrace as { functionName: string; url: string; lineNumber: number }[] | undefined;
+    const stack = event.args?.beginData?.stackTrace as
+      | { functionName: string; url: string; lineNumber: number }[]
+      | undefined;
     if ((event.name === "Layout" || event.name === "UpdateLayoutTree") && stack?.length) {
       const top = stack
         .slice(0, 3)
@@ -257,18 +277,30 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
   for (let sample = 0; sample < CLICKS; sample += 1) {
     // Spread over the whole chat, oldest to newest and back, never the same place twice in a row.
     const index = Math.floor(((sample * 0.618034) % 1) * (count - 2)) + 1;
-    await rail.evaluate(async (node, index) => {
-      node.scrollTop = index * 10 - node.clientHeight / 2;
-      await window.cmuxPaintFrame();
-      await window.cmuxPaintFrame();
+    // The rail follows the transcript, and history still filling in after the last click moves it: scroll it to the
+    // tick again each frame until the tick is drawn and still. Each write comes with a wheel event on the list, as a
+    // person's wheel over the rail does, so the rail holds the place it was browsed to (`railBrowsing`) and does not
+    // follow the transcript away from the tick under the pointer before the press.
+    // The box is read in the same frame it was found drawn in: a locator's box, read after, can find the tick gone
+    // again as the rail moves under it.
+    const target = await rail.evaluate(async (node, index) => {
+      for (let frame = 0; frame < 300; frame += 1) {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
+        node.scrollTop = index * 10 - node.clientHeight / 2;
+        await window.cmuxPaintFrame();
+        const tick = node.querySelector(`[data-tick="${index}"]`);
+        const box = tick?.getBoundingClientRect();
+        const view = node.getBoundingClientRect();
+        if (box && box.height > 0 && box.top >= view.top && box.bottom <= view.bottom)
+          return { x: box.left, y: box.top, width: box.width, height: box.height };
+      }
+      return null;
     }, index);
-    const tick = rail.locator(`[data-tick="${index}"]`);
-    await tick.waitFor({ timeout: 5_000 });
-    const target = await tick.boundingBox();
-    if (!target) throw new Error(`Tick ${index} has no box`);
+    if (!target) throw new Error(`Tick ${index} was not drawn in the rail's view in 300 frames`);
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
     await page.evaluate(
-      ({ index, loadMs }) => {
+      ({ index, loadMs, trace }) => {
+        (window as any).__frames = [];
         const probe = window as unknown as { __click: { ms: number | null; frames: number } | null };
         probe.__click = null;
         // The tick names its prompt ("Message 793 of 1381: Turn 911: ..."); the rail lists only the prompts it knows.
@@ -276,8 +308,15 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
         const prompt = `Turn ${label.match(/Turn (\d+):/)?.[1] ?? "?"}:`;
         addEventListener(
           "pointerdown",
-          () => {
+          (event) => {
             const start = performance.now();
+            if (trace) {
+              const hit = (event.target as Element | null)?.closest?.("[data-tick]");
+              const box = document.querySelector(`[data-tick="${index}"]`)?.getBoundingClientRect();
+              ((window as any).__frames ??= []).push(
+                `down at ${event.clientX},${event.clientY} hit=${hit?.getAttribute("data-tick") ?? (event.target as Element)?.className} tick=${box ? `${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.width)}x${Math.round(box.height)}` : "gone"}`,
+              );
+            }
             let frames = 0;
             window.cmuxAfterPaint(() => {
               frames += 1;
@@ -289,6 +328,15 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
                 return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
               });
               const ms = performance.now() - start;
+              if (trace) {
+                const bubble = [...scroller.querySelectorAll<HTMLElement>(".cv-user__bubble")].find((each) =>
+                  (each.textContent ?? "").trim().startsWith(prompt),
+                );
+                const rows = scroller.querySelectorAll(".acpmux-row").length;
+                ((window as any).__frames ??= []).push(
+                  `${Math.round(ms)}ms top=${Math.round(scroller.scrollTop)} h=${scroller.scrollHeight} rows=${rows} target=${bubble ? Math.round(bubble.getBoundingClientRect().top - view.top) : "none"}`,
+                );
+              }
               if (shown) {
                 probe.__click = { ms, frames };
                 return false;
@@ -309,10 +357,12 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
           { capture: true, once: true },
         );
       },
-      { index, loadMs: LOAD_MS },
+      { index, loadMs: LOAD_MS, trace: TRACE },
     );
     // fixed-wait: the pointer rests on the tick (its preview card opens) before the press, as a person's does.
     await page.waitForTimeout(500);
+    if (TRACE) await page.evaluate(() => ((window as any).__asks.length = 0));
+    const pressedAt = TRACE ? await page.evaluate(() => performance.now()) : 0;
     await around(async () => {
       await page.mouse.down();
       await page.mouse.up();
@@ -320,6 +370,22 @@ async function railClicks(page: Page, around: <T>(run: () => Promise<T>) => Prom
     });
     const result = (await page.evaluate(() => (window as any).__click)) as { ms: number | null; frames: number };
     samples.push({ index, ...result });
+    if (TRACE) {
+      const asks = (await page.evaluate(() => (window as any).__asks)) as {
+        method: string;
+        at: number;
+        ms: number;
+        params: string;
+      }[];
+      console.log(
+        `ASKS click ${index} (${result.ms === null ? "not loaded" : Math.round(result.ms) + " ms"}):\n` +
+          asks
+            .map((a) => `  +${Math.round(a.at - pressedAt)} ms ${a.method} ${Math.round(a.ms)} ms ${a.params}`)
+            .join("\n") +
+          "\n" +
+          ((await page.evaluate(() => (window as any).__frames)) as string[]).map((f) => `  frame ${f}`).join("\n"),
+      );
+    }
     // fixed-wait: the jump's settle and any page it read finish before the next click, as a person reads.
     await page.waitForTimeout(250);
   }
@@ -363,7 +429,9 @@ try {
       for (const page of [hidden, shown]) await page.evaluate(() => (window as any).__scale.start());
       // fixed-wait: the change stream reaches its steady state before the measured input.
       await shown.waitForTimeout(1500);
-      const flung = await traced(shown, `fling n=${size}`, () => profiled(cdp, `fling n=${size}`, () => fling(shown, cdp)));
+      const flung = await traced(shown, `fling n=${size}`, () =>
+        profiled(cdp, `fling n=${size}`, () => fling(shown, cdp)),
+      );
       // fixed-wait: the fling's pages and settle finish before the rail is clicked.
       await shown.waitForTimeout(1000);
       const clicked = await railClicks(
