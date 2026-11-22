@@ -531,30 +531,37 @@ CARGO_FAILURE_NAME = re.compile(r"^ {4}(\S+)$")
 CARGO_RUN_END = re.compile(r"^\s+(?:Running|Doc-tests) \S|^error: test failed\b|^##\[")
 
 
-def _cargo_summary(lines: list[str], start: int, failed: set[str]) -> int | None:
-    """The index of the `failures:` header of the closing list of the run whose `failures:` section starts at START
-    (cargo_captured), or None when no summary before the next boundary has a closing list naming exactly FAILED."""
-    found = None
-    for n in range(start, len(lines)):
-        if n > start and CARGO_RUN_END.match(lines[n]):
-            break
-        if not FAILURE_MARKERS[0].match(lines[n]):
+def _cargo_closing_lists(lines: list[str]) -> tuple[list[int], dict]:
+    """Each line's boundary segment (CARGO_RUN_END starts a new one), and per (segment, the names its closing list
+    names) the `failures:` header index of the last summary there with that closing list (cargo_captured). One pass:
+    each summary walks back over its own blank and `    NAME` lines only, so a log of many runs stays linear."""
+    segments: list[int] = []
+    segment = 0
+    last: dict = {}
+    for n, text in enumerate(lines):
+        if CARGO_RUN_END.match(text):
+            segment += 1
+        segments.append(segment)
+        if not FAILURE_MARKERS[0].match(text):
             continue
         k = n - 1
-        while k > start and not lines[k].strip():
+        while k >= 0 and not lines[k].strip():
             k -= 1
         names = set()
-        while k >= start and (match := CARGO_FAILURE_NAME.match(lines[k])):
+        while k >= 0 and (match := CARGO_FAILURE_NAME.match(lines[k])):
             names.add(match.group(1))
             k -= 1
-        if k >= start and lines[k] == CARGO_FAILURES_HEADER and names == failed:
-            found = k
-    return found
+        if names and k >= 0 and lines[k] == CARGO_FAILURES_HEADER and segments[k] == segment:
+            last[(segment, frozenset(names))] = k
+    return segments, last
 
 
 def cargo_captured(lines: list[str]) -> set[int]:
     """The indices of LINES (lines_of) that are a failed cargo test's captured output: the lines of a run's
     `failures:` section before its closing list (see above), which no failure reader counts as the job's."""
+    if not any(text == CARGO_FAILURES_HEADER for text in lines):
+        return set()
+    segments, last = _cargo_closing_lists(lines)
     hidden: set[int] = set()
     failed: set[str] = set()
     n = 0
@@ -565,7 +572,8 @@ def cargo_captured(lines: list[str]) -> set[int]:
         elif match := FAILED[2].search(text):
             failed.add(match.group(1))
         elif text == CARGO_FAILURES_HEADER and failed:
-            if (closing := _cargo_summary(lines, n, failed)) is not None:
+            closing = last.get((segments[n], frozenset(failed)))
+            if closing is not None and closing >= n:
                 hidden.update(range(n + 1, closing))
                 failed = set()
                 n = closing + 1
