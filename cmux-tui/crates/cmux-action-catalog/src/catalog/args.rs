@@ -288,6 +288,9 @@ pub const SAVED: Argument = Argument { name: "saved", title: t("ScreenActions", 
 pub const ON: Argument = Argument { name: "on", title: t("Localizable", "argument.on", "On"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argument.app", "App"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// Open In ▸'s `app`: an installed code editor, listed by the App (cmux-window-rules `editors`), the default first.
+#[rustfmt::skip]
+pub const EDITOR: Argument = Argument { suggestions: Some(Suggestions { source: "editors", pinned: &[], other_title: None, allows_multiple: false }), ..APP };
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

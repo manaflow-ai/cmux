@@ -138,6 +138,9 @@ public final class MacScreenPages {
     /// Tabs just opened on a run's screen link (it names a display): the person's own link, so the tab
     /// connects when shown, View Only (Full Control only when a person opened it here).
     private var runLinks: Set<String> = []
+    /// Tab key -> the scope a person chose for it, moved off ``pendingScopes`` (keyed by device) when the
+    /// tab is prepared, so a second tab on the same device cannot take or replace it.
+    private var tabScopes: [String: SessionScope] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
@@ -381,7 +384,9 @@ public final class MacScreenPages {
         records[key] = record
         let starter = record.deviceID.flatMap { pendingStarters.removeValue(forKey: $0) }
         starters[key] = byPerson ? nil : starter
-        confirmed[key] = byPerson || starter != nil ? record : nil
+        let starts = byPerson || starter != nil
+        confirmed[key] = starts ? record : nil
+        if starts, let device = record.deviceID, let scope = pendingScopes.removeValue(forKey: device) { tabScopes[key] = scope }
         if record.isRunLink { runLinks.insert(key) } else { runLinks.remove(key) }
         if starters[key] != nil, tabs[key] == nil { _ = makeView(for: key) }
     }
@@ -450,12 +455,30 @@ public final class MacScreenPages {
         return tab.view
     }
 
+    /// A new tab `key` opens showing `record` (``prepare(_:record:byPerson:)``); a person's open (or
+    /// `macScreen.open --autoconnect`) of a device also connects now (``startConnecting(_:)``), before the
+    /// tab exists in a strip: a tab opened into a pane or workspace not on screen would otherwise wait until focused.
+    public func prepareOpen(_ key: String, record: MacScreenRecord, byPerson: Bool) {
+        prepare(key, record: record, byPerson: byPerson)
+        startConnecting(key)
+    }
+
+    /// Tab `key`, which a person opened (or `macScreen.open --autoconnect`) on a device, asks the hub now:
+    /// its pane is made before the tab first shows (the tab's view, once asked for, is that pane's), and only
+    /// the picture waits for it to show. Any other tab waits for its view as before.
+    public func startConnecting(_ key: String) {
+        guard let record = records[key], record.deviceID != nil, confirmed[key] == record else { return }
+        _ = makeView(for: key)
+        tabs[key]?.pane?.start()
+    }
+
     /// Tab `key` closed: its session ends now.
     public func tabClosed(_ key: String) {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
         starters[key] = nil
+        tabScopes[key] = nil
         runLinks.remove(key)
         systemShortcuts.update()
     }
@@ -486,7 +509,7 @@ public final class MacScreenPages {
             let pane = makeHubPane(deviceID: device, record: record, key: key)
             tab.install(pane)
             // An agent's start asks now, shown or not: a tab opened in the background still streams.
-            if starters[key] != nil { pane.requestWaitingScope() }
+            if starters[key] != nil { pane.start() }
             events.titleChanged(key)
             return
         }
@@ -521,7 +544,9 @@ public final class MacScreenPages {
         viewer.onStreaming = { [weak self] in self?.viewerStarted() }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
                                  preferences: ScreenPreferences())
-        if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        if confirmed[key] == record, let scope = tabScopes.removeValue(forKey: key) ?? pendingScopes.removeValue(forKey: deviceID) {
+            viewer.resumeScope = scope
+        }
         pane.model.startedBy = starters[key]
         if runLinks.remove(key) != nil, viewer.resumeScope == nil, record.scope == .view || confirmed[key] == record {
             viewer.resumeScope = record.scope

@@ -135,7 +135,7 @@ struct MacScreenStateControlTests {
         #expect(idle["device_id"]?.stringValue == deviceID)
         // Opened by automation that waits for the person: the Connect card, no stream started yet.
         #expect(idle["phase"] == CmuxNextSettings.JSONValue.null)
-        #expect(idle["hub"]?.stringValue == "connect_card" && idle["hub_reason"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["hub_phase"]?.stringValue == "idle" && idle["state"]?.stringValue == "idle")
         #expect(idle["started_by"] == CmuxNextSettings.JSONValue.null)
         #expect(idle["connected"]?.boolValue == false && idle["has_frame"]?.boolValue == false)
         #expect(idle["first_frame_ms"] == CmuxNextSettings.JSONValue.null && idle["connect_started_at"] == CmuxNextSettings.JSONValue.null)

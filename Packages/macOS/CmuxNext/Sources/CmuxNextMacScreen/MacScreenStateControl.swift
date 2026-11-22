@@ -1,16 +1,18 @@
 public import CmuxNextControl
+import CmuxNextDevices
 import Foundation
 import CmuxNextSettings
 
 /// `mac_screen.state` (every build; `cmux app mac-screens [--tab TAB]`): one row per Mac Screen
 /// tab showing one of the user's devices, read-only, for checking how fast a viewer is:
-/// - `tab`, `device_id`, `device` (the tab's name for it);
-/// - `phase` (`connecting`, `connected`, `failed`, `ended`; null while no stream has started),
-///   `connected`, `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
-/// - `hub` (a device hub tab: how far its request got before the stream): `connect_card` (waiting
-///   for a person's View or Control, as a tab opened by automation does), `requesting`,
-///   `waiting_for_approval`, `approved`, `streaming`, `stream_failed`, `declined`, `refused`,
-///   `revoked`, `ended`; `hub_reason` names a refusal, revocation or end;
+/// - `tab`, `store_tab` (the tab's id in `cmux tab` commands, when its pane's daemon holds it),
+///   `device_id`, `device` (the tab's name for it);
+/// - `state`: where the tab is, from the hub's request to the picture (``stateName(hub:session:hasFrame:)``):
+///   `idle` (the Connect card), `requesting`, `waiting_for_approval`, `connecting`, `waiting_for_frame`,
+///   `viewing`, `failed`, `declined`, `refused`, `revoked`, `ended`; `hub_phase` and `scope` (`view`, `full`)
+///   are the hub's own; `error` is the text the tab's card says for a failure, refusal or end (null otherwise);
+/// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
+///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
 /// - `started_by`: who started the view without a person's click (the agent session's title or the
 ///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
@@ -43,12 +45,17 @@ extension MacScreenPages {
         ])
     }
 
+    /// `tab` names the tab by its provider key or its store tab id (`cmux tab` commands' id).
     func stateAnswer(_ params: [String: JSONValue]) -> JSONValue {
         let only = params["tab"]?.stringValue
         let rows = tabs.values
-            .filter { !$0.record.isHome && (only == nil || $0.key == only) }
+            .filter { !$0.record.isHome && (only == nil || $0.key == only || events.storeTabID($0.key) == only) }
             .sorted { $0.key < $1.key }
-            .map(Self.stateRow)
+            .map { tab in
+                guard case var .object(row) = Self.stateRow(tab) else { return Self.stateRow(tab) }
+                row["store_tab"] = events.storeTabID(tab.key).map(JSONValue.string) ?? .null
+                return .object(row)
+            }
         return ["tabs": .array(rows)]
     }
 
@@ -59,15 +66,16 @@ extension MacScreenPages {
             "device": .string(tab.title),
             "phase": .null, "connected": false, "has_frame": false,
             "connect_started_at": .null, "first_frame_ms": .null,
+            "state": .string("not_started"), "hub_phase": .null, "scope": .null, "error": .null,
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
         row["started_by"] = pane.model.startedBy.map { .string($0.stateValue) } ?? .null
-        if let hub = pane.model.hub {
-            let (name, reason) = hubPhaseName(hub.phase)
-            row["hub"] = .string(name)
-            row["hub_reason"] = reason.map(JSONValue.string) ?? .null
-        }
+        let hubPhase = pane.model.hub?.phase
+        row["state"] = .string(stateName(hub: hubPhase, session: pane.session?.phase, hasFrame: pane.model.hasFrame))
+        row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
+        row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
+        row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
         guard let session = pane.session else { return .object(row) }
         // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
         let started = session.timings.startedAt != nil || session.phase != .ended
@@ -106,40 +114,86 @@ extension MacScreenPages {
         return ["count": .number(Double(summary.count)), "p50": ms(summary.p50), "p95": ms(summary.p95), "max": ms(summary.max)]
     }
 
+    /// The tab's one state: the hub's phase until its stream runs, then the session's, and `viewing`
+    /// only once a picture is up (`waiting_for_frame` while connected without one).
+    static func stateName(hub: MacScreenHubPhase?, session: MacScreenSession.Phase?, hasFrame: Bool) -> String {
+        switch hub {
+        case .idle?: return "idle"
+        case .requesting?: return "requesting"
+        case .waitingForApproval?: return "waiting_for_approval"
+        case .approved?: return "connecting"
+        case .streamFailed?: return "failed"
+        case .declined?: return "declined"
+        case .refused?: return "refused"
+        case .revoked?: return "revoked"
+        case .ended?: return "ended"
+        case .streaming?, nil: break
+        }
+        switch session {
+        case .connecting?: return "connecting"
+        case .connected?: return hasFrame ? "viewing" : "waiting_for_frame"
+        case .failed?: return "failed"
+        case .ended?: return "ended"
+        case nil: return "not_started"
+        }
+    }
+
+    static func hubPhaseName(_ phase: MacScreenHubPhase) -> String {
+        switch phase {
+        case .idle: "idle"
+        case .requesting: "requesting"
+        case .waitingForApproval: "waiting_for_approval"
+        case .approved: "approved"
+        case .streaming: "streaming"
+        case .streamFailed: "stream_failed"
+        case .declined: "declined"
+        case .refused: "refused"
+        case .revoked: "revoked"
+        case .ended: "ended"
+        }
+    }
+
+    private static func scope(_ phase: MacScreenHubPhase) -> SessionScope? {
+        switch phase {
+        case let .requesting(scope), let .waitingForApproval(_, scope), let .approved(_, scope), let .streaming(_, scope),
+             let .streamFailed(_, scope), let .declined(scope), let .refused(_, scope): scope
+        case .idle, .revoked, .ended: nil
+        }
+    }
+
+    /// What the tab's card says went wrong (a failure, refusal, decline, revocation or end), as the
+    /// person reads it; nil while it connects, streams or waits for Connect, and for the person's own
+    /// Disconnect. The card's words only: never the session's free-form message (it can quote the signaling URL).
+    static func errorText(_ model: MacScreenPaneModel) -> String? {
+        let name = model.name
+        let text: String
+        switch model.card {
+        case .failed?:
+            text = model.failedDetail
+        case let .hubRefused(refusal, _)?:
+            let title = MacScreenCardView.refusedTitle(refusal, host: name)
+            let body = MacScreenCardView.refusedBody(refusal, host: name, platform: model.platform)
+            text = title + ": " + body
+        case .hubDeclined?:
+            text = String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), name)
+        case let .hubRevoked(reason)?, let .hubEnded(reason)?:
+            guard reason != .viewerDisconnected else { return nil }
+            let detail = MacScreenCardView.failedDetail(model.card, model)
+            text = detail.isEmpty ? reason.text(host: name) : detail
+        case .hubAccessLowered?:
+            text = String(format: L.t("macScreen.hub.loweredBody", "%@ now lets this Mac view its screen but not control it."), name)
+        default:
+            return nil
+        }
+        return text.isEmpty ? nil : text
+    }
+
     static func phaseName(_ phase: MacScreenSession.Phase) -> String {
         switch phase {
         case .connecting: "connecting"
         case .connected: "connected"
         case .failed: "failed"
         case .ended: "ended"
-        }
-    }
-
-    /// The hub viewer's phase as `hub`, and its `hub_reason` when it has one.
-    static func hubPhaseName(_ phase: MacScreenHubPhase) -> (String, String?) {
-        switch phase {
-        case .idle: ("connect_card", nil)
-        case .requesting: ("requesting", nil)
-        case .waitingForApproval: ("waiting_for_approval", nil)
-        case .approved: ("approved", nil)
-        case .streaming: ("streaming", nil)
-        case .streamFailed: ("stream_failed", nil)
-        case .declined: ("declined", nil)
-        case let .refused(refusal, _): ("refused", refusalName(refusal))
-        case let .revoked(reason): ("revoked", reason)
-        case let .ended(reason): ("ended", reason)
-        }
-    }
-
-    private static func refusalName(_ refusal: MacScreenHubRefusal) -> String {
-        switch refusal {
-        case .permissionNone: "permission_none"
-        case .scopeExceeds: "scope_exceeds"
-        case .hostOffline: "host_offline"
-        case .notShared: "not_shared"
-        case .notFound: "not_found"
-        case .notSignedIn: "not_signed_in"
-        case .other: "other"
         }
     }
 }

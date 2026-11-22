@@ -14,26 +14,47 @@ public struct MacScreenActions {
     let providerKey: (String, String?) -> String?
     let open: (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void
     let refusal: (any Error) -> Void
+    let listedDevices: @MainActor () async -> [MacScreenListedDevice]
     let worker: MacScreenWorkerSession
     let startedBy: (ActionInvocation) -> String?
 
     /// - Parameters:
+    ///   - refusal: Reports an open whose explicit target names nothing (`not_found`); every other failed open is
+    ///     the run's own `.refused` answer.
+    ///   - listedDevices: The machines `cmux device list` lists, read when a name matches no device Screen Sharing
+    ///     lists, so the refusal says why that machine offers no screen. None: the refusal lists Screen Sharing's devices.
     ///   - worker: cmux Remote's worker, the host of this Mac's session in a build that bundles cmux Remote.
     ///   - startedBy: the name of the agent an automation run came from, shown on a tab it starts viewing;
     ///     nil (the default) is ``agentName(_:)``, which tests replace.
     public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
-                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none,
+                refusal: @escaping (any Error) -> Void,
+                listedDevices: @escaping @MainActor () async -> [MacScreenListedDevice],
+                worker: MacScreenWorkerSession = .none,
                 startedBy: ((ActionInvocation) -> String?)? = nil) {
         self.pages = pages
         self.selectedTab = selectedTab
         self.providerKey = providerKey
         self.open = open
         self.refusal = refusal
+        self.listedDevices = listedDevices
         self.worker = worker
         self.startedBy = startedBy ?? Self.agentName
     }
+
+    /// No `cmux device list` (tests): a name Screen Sharing does not list is refused with Screen Sharing's devices.
+    /// An overload, not a default: an async closure literal as a default argument is a crash class (crash_ratchet.py).
+    public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
+                providerKey: @escaping (String, String?) -> String?,
+                open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
+                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none,
+                startedBy: ((ActionInvocation) -> String?)? = nil) {
+        self.init(pages: pages, selectedTab: selectedTab, providerKey: providerKey, open: open, refusal: refusal,
+                  listedDevices: Self.noListedDevices, worker: worker, startedBy: startedBy)
+    }
+
+    private static func noListedDevices() async -> [MacScreenListedDevice] { [] }
 
     /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
     public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
@@ -46,7 +67,10 @@ public struct MacScreenActions {
         registry.bindEffect("macScreen.open", effect: { invocation in
             if let target = invocation.target, target.kind != .pane && target.kind != .tab { return .refused(Self.noPane) }
             do { try open({ try Self.record(invocation, pages: pages, startedBy: startedBy) }, invocation, Self.isPerson(invocation)) }
-            catch { refusal(error) }
+            catch {
+                pages.pendingStarters.removeAll()
+                return refused(error, invocation)
+            }
             // An agent's start is its own tab's, prepared in this turn: one no tab took (no pane) never confirms a later one.
             pages.pendingStarters.removeAll()
             return .done
@@ -84,6 +108,52 @@ public struct MacScreenActions {
         return .waiting(.externalProcess) {
             do { try await stop() } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
             return nil
+        }
+    }
+
+    /// A failed resolve or open as the run's own answer, so `cmux tab new-mac-screen`, an agent and the palette get
+    /// the reason (the registry still shows it to a person); it used to go to `refusal` while the run answered done,
+    /// and the CLI printed nothing. A name no listed device answers to waits for `cmux device list`: a machine listed
+    /// there says why it offers no screen ("my-vm offers no screen: …"), never "No device is named".
+    /// Leo, 2026-11-21: "...plus most of our vms (if we even have any lanes on freestyle vms yet!?) dont have screns...".
+    func refused(_ error: any Error, _ invocation: ActionInvocation) -> ActionEffect {
+        let failure = error as? ActionFailure
+        // An explicit target that names nothing keeps its `not_found` answer, which only the app's refusal carries.
+        if failure?.isNotFound == true {
+            refusal(error)
+            return .done
+        }
+        let message = failure?.message ?? RefusalStrings.describe(error)
+        guard let name = Self.unlistedName(invocation, devices: pages.viewableDevices) else {
+            return .refused(message, quiet: failure?.isQuiet == true)
+        }
+        let listed = listedDevices
+        // action-wait-allow: only an open that already failed waits; `cmux device list` (another process) says whether the machine is listed and why it has no screen.
+        return .waiting(.externalProcess) {
+            ActionWorkFailure(refusal: .unavailable, reason: Self.noScreen(name, among: await listed()) ?? message)
+        }
+    }
+
+    /// The `device` name of `invocation` when it is a name (not an id) that none of `devices` answers to.
+    static func unlistedName(_ invocation: ActionInvocation, devices: [HubDevice]) -> String? {
+        guard let text = invocation["device"]?.stringValue, MacScreenRecord.normalizedDeviceID(text) == nil else { return nil }
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !devices.contains(where: { sameName($0.name, name) }) else { return nil }
+        return name
+    }
+
+    /// "<name> offers no screen: <reason>." for the machine among `listed` that `name` names, as `deviceID` matches
+    /// names; nil when none does.
+    static func noScreen(_ name: String, among listed: [MacScreenListedDevice]) -> String? {
+        guard let device = listed.first(where: { sameName($0.name, name) }) ?? listed.first(where: { $0.name == name }) else { return nil }
+        return String(format: L.t("macScreen.actions.offersNoScreen", "%1$@ offers no screen: %2$@."), device.name, device.noScreenText)
+    }
+
+    private static func sameName(_ candidate: String, _ name: String) -> Bool {
+        let keys: [(String) -> String] = [Self.folded, Self.slug]
+        return keys.contains { key in
+            let wanted = key(name)
+            return !wanted.isEmpty && key(candidate) == wanted
         }
     }
 
@@ -214,6 +284,37 @@ public struct MacScreenActions {
     }
     private static var noPane: String { L.t("macScreen.actions.noPane", "Choose a pane or tab to open Screen Sharing.") }
     private static var noViewer: String { L.t("macScreen.actions.noViewer", "Choose a Screen Sharing tab to stop viewing.") }
+}
+
+/// A machine `cmux device list` lists, as Screen Sharing's refusal reads it: its name and, when the list offers it no
+/// screen, why (the row's `screen.reason`, decided in Rust by `cmux_device_kind::screen::offer`).
+public struct MacScreenListedDevice: Equatable, Sendable {
+    public var name: String
+    /// `offline`, `no-desktop`, `phone` or `unknown`; nil when the list offers View but Screen Sharing lists no such
+    /// device (it never registered with the device hub).
+    public var noScreenReason: String?
+
+    public init(name: String, noScreenReason: String?) {
+        self.name = name
+        self.noScreenReason = noScreenReason
+    }
+
+    /// A `cmux device list` row by its `screen` offer: nil for a row with none (a person's login, not a machine).
+    public init?(name: String, screenAction: String?, reason: String?) {
+        guard let screenAction else { return nil }
+        self.init(name: name, noScreenReason: screenAction == "none" ? reason ?? "unknown" : nil)
+    }
+
+    /// The reason, as the clause after "offers no screen: ".
+    var noScreenText: String {
+        switch noScreenReason {
+        case "offline": L.t("macScreen.actions.noScreen.offline", "it is offline")
+        case "no-desktop": L.t("macScreen.actions.noScreen.noDesktop", "it is a server or VM with no desktop to share")
+        case "phone": L.t("macScreen.actions.noScreen.phone", "an iPhone or iPad cannot share its screen")
+        case nil: L.t("macScreen.actions.noScreen.notRegistered", "Screen Sharing does not list it yet; sign in to cmux on it and turn on Allow Mac Screen")
+        default: L.t("macScreen.actions.noScreen.unknown", "cmux cannot tell whether it has a desktop to share")
+        }
+    }
 }
 
 /// cmux Remote's worker as Stop Sharing This Mac sees it: whether it runs, and how to end the session it hosts.

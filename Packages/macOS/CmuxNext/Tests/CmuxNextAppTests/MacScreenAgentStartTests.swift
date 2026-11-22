@@ -54,7 +54,7 @@ struct MacScreenAgentStartTests {
 
         let state = try row(pages, "a")
         #expect(state["started_by"]?.stringValue == "Fix the login bug")
-        #expect(state["hub"]?.stringValue == "refused" && state["hub_reason"]?.stringValue == "not_signed_in")
+        #expect(state["hub_phase"]?.stringValue == "refused" && state["error"]?.stringValue != nil)
         pages.tabClosed("a")
     }
 
@@ -129,7 +129,7 @@ struct MacScreenAgentStartTests {
         #expect(pane.model.hub?.resumeScope == nil)
         #expect(pane.model.startedBy == nil)
         let state = try row(pages, key)
-        #expect(state["hub"]?.stringValue == "connect_card")
+        #expect(state["hub_phase"]?.stringValue == "idle")
         #expect(state["started_by"] == CmuxNextSettings.JSONValue.null)
         pages.tabClosed(key)
     }

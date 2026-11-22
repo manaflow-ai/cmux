@@ -21,6 +21,7 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
+import { cutLongRuns } from "./runParts";
 import { keptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
@@ -1357,7 +1358,9 @@ function shapedTurn(
       ...line,
     ];
     // What was still going when the person sent into the running turn draws after the prompt.
-    if (live) shaped = afterSends(shaped, clockOffset);
+    // A run that keeps many cards in sight (a coordinator's Agent calls) draws as rows of a few
+    // each, so the transcript mounts only those near the window (runParts.ts).
+    if (live) shaped = cutLongRuns(afterSends(shaped, clockOffset));
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -3135,7 +3138,16 @@ function codexLiveTurn(
   // waits on them ("Waiting on 2 subagents"), whatever its last row was.
   const compacting = line.liveState === "compacting";
   const agents = named || answering || compacting ? 0 : foregroundAgents(drawn) + trayAgents;
-  if (agents > 0) Object.assign(line, { liveState: "subagents", liveAgents: agents });
+  // The wait began when the turn's own rows last did anything (a call, a thought, the subagent's
+  // start): the time beside "Waiting on 1 subagent" is that wait's, never the turn's whole time
+  // (Leo, 2026-11-20: "why are you also, like, waiting on, allegedly waiting on one sub-agent for
+  // seven minutes and 39 seconds?").
+  if (agents > 0)
+    Object.assign(line, {
+      liveState: "subagents",
+      liveAgents: agents,
+      waitAt: liveClock(drawn, start, clockOffset).heardAt,
+    });
   // With a todo list and no answer streaming, the activity line under the list is the live line
   // (below), which names the plan's step, so no call leaves its run for it.
   // Between calls the line reads "Thinking" the moment a call completes, in one in-place roll: it

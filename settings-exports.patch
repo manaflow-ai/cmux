@@ -1,0 +1,1135 @@
+diff --git a/docs/mdm/com.manaflow.cmux.json b/docs/mdm/com.manaflow.cmux.json
+index cbab08f8d2f..971464a141e 100644
+--- a/docs/mdm/com.manaflow.cmux.json
++++ b/docs/mdm/com.manaflow.cmux.json
+@@ -2062,6 +2062,17 @@
+       "title" : "Theme File",
+       "type" : "string"
+     },
++    "appearance.themeFileExceptions" : {
++      "default" : [
++
++      ],
++      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
++      "items" : {
++        "type" : "string"
++      },
++      "title" : "Changed Over Theme File",
++      "type" : "array"
++    },
+     "appearance.titleAreaContrast" : {
+       "default" : 1,
+       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
+@@ -3891,6 +3902,12 @@
+       "title" : "Relay Only",
+       "type" : "boolean"
+     },
++    "macScreen.onlyPersonStartsViewing" : {
++      "default" : false,
++      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
++      "title" : "Only Your Click Starts Viewing a Screen",
++      "type" : "boolean"
++    },
+     "macScreen.systemShortcuts" : {
+       "default" : false,
+       "description" : "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility.",
+diff --git a/docs/mdm/com.manaflow.cmux.plist b/docs/mdm/com.manaflow.cmux.plist
+index fbc0e570322..81aeed41b8e 100644
+--- a/docs/mdm/com.manaflow.cmux.plist
++++ b/docs/mdm/com.manaflow.cmux.plist
+@@ -2553,6 +2553,27 @@
+ 			<key>pfm_type</key>
+ 			<string>string</string>
+ 		</dict>
++		<dict>
++			<key>pfm_default</key>
++			<array/>
++			<key>pfm_description</key>
++			<string>Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.</string>
++			<key>pfm_name</key>
++			<string>appearance.themeFileExceptions</string>
++			<key>pfm_subkeys</key>
++			<array>
++				<dict>
++					<key>pfm_name</key>
++					<string>Item</string>
++					<key>pfm_type</key>
++					<string>string</string>
++				</dict>
++			</array>
++			<key>pfm_title</key>
++			<string>Changed Over Theme File</string>
++			<key>pfm_type</key>
++			<string>array</string>
++		</dict>
+ 		<dict>
+ 			<key>pfm_description</key>
+ 			<string>The color of selected text everywhere. Unset uses the terminal theme's.</string>
+@@ -10117,6 +10138,18 @@
+ 			<key>pfm_type</key>
+ 			<string>boolean</string>
+ 		</dict>
++		<dict>
++			<key>pfm_default</key>
++			<false/>
++			<key>pfm_description</key>
++			<string>On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.</string>
++			<key>pfm_name</key>
++			<string>macScreen.onlyPersonStartsViewing</string>
++			<key>pfm_title</key>
++			<string>Only Your Click Starts Viewing a Screen</string>
++			<key>pfm_type</key>
++			<string>boolean</string>
++		</dict>
+ 		<dict>
+ 			<key>pfm_default</key>
+ 			<false/>
+diff --git a/docs/mdm/managed-preferences.md b/docs/mdm/managed-preferences.md
+index 374fc6111a8..ccf8fb5a46c 100644
+--- a/docs/mdm/managed-preferences.md
++++ b/docs/mdm/managed-preferences.md
+@@ -178,6 +178,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
+ | `appearance.rotateFavoriteThemes` | string | `"off"` | `off`, `launch`, `daily` | Rotate Starred Themes. Switches the terminal theme to the next starred one. Needs two starred themes. |
+ | `appearance.accent` | string | `"neutral"` | `neutral`, `theme`, `art`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan` | Accent. The color of selection, focus and the Send button. |
+ | `appearance.themeFile` | string |  |  | Theme File. A theme file in ~/.config/cmux/themes, such as "tokyo" for tokyo.json. |
++| `appearance.themeFileExceptions` | array | `[]` |  | Changed Over Theme File. Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list. |
+ | `appearance.highlightColor` | string |  |  | Highlight Color. The color of selected text everywhere. Unset uses the terminal theme's. |
+ | `appearance.backdropArt` | string | `"none"` | `none`, `david-death-of-marat`, `velde-small-ship-storm`, `bosch-ascent-blessed`, `goya-witches-flight`, `martin-pandemonium`, `moran-burning-philadelphia`, `goya-burial-sardine`, `arbo-wild-hunt`, `altdorfer-battle-of-issus`, `munch-madonna`, `klee-fish-magic`, `friedrich-forest-moonlight`, `bosch-garden-left`, `rembrandt-storm-galilee`, `cole-voyage-manhood`, `munch-scream`, `bruegel-fall-rebel-angels`, `wright-vesuvius`, `gerome-botsaris`, `martin-joshua`, `velde-gale`, `hogai-nio`, `bosch-garden-central`, `martin-great-day-wrath`, `bonheur-wounded-eagle`, `cole-voyage-old-age`, `friedrich-abbey-oakwood`, `goya-sleep-of-reason`, `bosch-garden-fragment`, `spilliaert-vertigo`, `rothaug-melpomene`, `aivazovsky-ship-stormy-seas`, `cabanel-fallen-angel`, `spilliaert-woman-shoreline`, `el-greco-view-of-toledo`, `rembrandt-prodigal-son`, `velazquez-las-meninas`, `matejko-stanczyk`, `sargent-madame-x`, `millais-joan-of-arc`, `cot-storm`, `rembrandt-night-watch`, `vigee-lebrun-madame-grand`, `waterhouse-lady-shalott`, `fragonard-swing`, `rubens-st-francis-xavier`, `vermeer-pearl-earring`, `danielson-gambogi-self`, `beard-his-majesty`, `marc-foxes`, `degas-green-dancers`, `modigliani-nude-divan`, `raphael-sistine-madonna`, `bouguereau-virgin-lilies`, `wood-american-gothic`, `steinlen-chat-noir`, `degas-blue-dancers`, `botticelli-primavera`, `van-gogh-cafe-terrace`, `matisse-red-room`, `kandinsky-deepened-impulse`, `friedrich-wanderer`, `klimt-adele`, `mucha-job`, `van-gogh-starry-night`, `klimt-tree-of-life`, `klimt-the-kiss`, `van-gogh-starry-night-rhone`, `delacroix-liberty`, `van-gogh-sunflowers`, `klimt-mada-primavesi`, `schiele-kneeling-orange`, `van-gogh-sunflowers-munich`, `michelangelo-sistine-ceiling`, `mondrian-composition-red-plane`, `lemoyne-apotheosis-hercules`, `schiele-moa`, `aivazovsky-ninth-wave`, `popova-painterly-architectonic`, `bruegel-tower-babel`, `botticelli-birth-of-venus`, `kandinsky-yellow-red-blue`, `kandinsky-composition-viii`, `kramskoi-unknown-woman`, `michelangelo-creation-of-adam`, `hokusai-great-wave`, `holbein-ambassadors`, `brueghel-wooden-vessel`, `dahl-dresden-moonlight`, `bosschaert-wan-li-vase`, `cot-springtime`, `ruysch-flowers`, `van-gogh-flowering-plum`, `toulmouche-reluctant-bride`, `rosso-musical-angel`, `grimshaw-blackman-street`, `waterhouse-ophelia`, `biard-magdalena-bay`, `renoir-vase-roses`, `roerich-himalayas`, `velde-close-hauled`, `sohlberg-flower-meadow`, `dahl-cloud-study`, `friedrich-two-men-moon`, `monet-waterlily-pond`, `hesselbom-dusk`, `toulmouche-vanity`, `hiroshige-zoshigaya`, `monet-water-lilies`, `monet-water-lilies-1907`, `bierstadt-storm-rockies`, `korovin-place-opera`, `klimt-garden-sunflowers`, `redon-butterflies`, `aivazovsky-winter-landscape`, `aivazovsky-along-coast`, `grimshaw-silver-moonlight`, `monet-water-lilies-setting-sun`, `hiroshige-hota-coast`, `durer-praying-hands`, `cole-voyage-childhood`, `monet-impression-sunrise`, `monet-woman-parasol`, `velde-cannon-shot`, `cross-pink-cloud`, `laurence-mckinley`, `van-gogh-irises`, `kramskoi-christ-in-the-desert`, `turner-temeraire`, `leonardo-vitruvian-man`, `bruegel-hunters-snow`, `cole-voyage-youth`, `friedrich-monk-by-the-sea`, `van-gogh-wheat-field-cypresses`, `monet-cliff-pourville`, `van-gogh-almond-blossom`, `van-gogh-fishing-boats`, `hokusai-umezawa`, `whistler-falling-rocket`, `dore-fall-of-satan`, `dore-wolves-sheep`, `dore-leviathan`, `dore-paradise-lost-book-vi`, `dore-moses-tables`, `dore-empyrean`, `dore-raven` | Backdrop Art. A painting behind the window. Lower Opacity to see it. |
+ | `appearance.background` | string | `"none"` | `none`, `daily`, `appearance`, `schedule`, `david-death-of-marat`, `velde-small-ship-storm`, `bosch-ascent-blessed`, `goya-witches-flight`, `martin-pandemonium`, `moran-burning-philadelphia`, `goya-burial-sardine`, `arbo-wild-hunt`, `altdorfer-battle-of-issus`, `munch-madonna`, `klee-fish-magic`, `friedrich-forest-moonlight`, `bosch-garden-left`, `rembrandt-storm-galilee`, `cole-voyage-manhood`, `munch-scream`, `bruegel-fall-rebel-angels`, `wright-vesuvius`, `gerome-botsaris`, `martin-joshua`, `velde-gale`, `hogai-nio`, `bosch-garden-central`, `martin-great-day-wrath`, `bonheur-wounded-eagle`, `cole-voyage-old-age`, `friedrich-abbey-oakwood`, `goya-sleep-of-reason`, `bosch-garden-fragment`, `spilliaert-vertigo`, `rothaug-melpomene`, `aivazovsky-ship-stormy-seas`, `cabanel-fallen-angel`, `spilliaert-woman-shoreline`, `el-greco-view-of-toledo`, `rembrandt-prodigal-son`, `velazquez-las-meninas`, `matejko-stanczyk`, `sargent-madame-x`, `millais-joan-of-arc`, `cot-storm`, `rembrandt-night-watch`, `vigee-lebrun-madame-grand`, `waterhouse-lady-shalott`, `fragonard-swing`, `rubens-st-francis-xavier`, `vermeer-pearl-earring`, `danielson-gambogi-self`, `beard-his-majesty`, `marc-foxes`, `degas-green-dancers`, `modigliani-nude-divan`, `raphael-sistine-madonna`, `bouguereau-virgin-lilies`, `wood-american-gothic`, `steinlen-chat-noir`, `degas-blue-dancers`, `botticelli-primavera`, `van-gogh-cafe-terrace`, `matisse-red-room`, `kandinsky-deepened-impulse`, `friedrich-wanderer`, `klimt-adele`, `mucha-job`, `van-gogh-starry-night`, `klimt-tree-of-life`, `klimt-the-kiss`, `van-gogh-starry-night-rhone`, `delacroix-liberty`, `van-gogh-sunflowers`, `klimt-mada-primavesi`, `schiele-kneeling-orange`, `van-gogh-sunflowers-munich`, `michelangelo-sistine-ceiling`, `mondrian-composition-red-plane`, `lemoyne-apotheosis-hercules`, `schiele-moa`, `aivazovsky-ninth-wave`, `popova-painterly-architectonic`, `bruegel-tower-babel`, `botticelli-birth-of-venus`, `kandinsky-yellow-red-blue`, `kandinsky-composition-viii`, `kramskoi-unknown-woman`, `michelangelo-creation-of-adam`, `hokusai-great-wave`, `holbein-ambassadors`, `brueghel-wooden-vessel`, `dahl-dresden-moonlight`, `bosschaert-wan-li-vase`, `cot-springtime`, `ruysch-flowers`, `van-gogh-flowering-plum`, `toulmouche-reluctant-bride`, `rosso-musical-angel`, `grimshaw-blackman-street`, `waterhouse-ophelia`, `biard-magdalena-bay`, `renoir-vase-roses`, `roerich-himalayas`, `velde-close-hauled`, `sohlberg-flower-meadow`, `dahl-cloud-study`, `friedrich-two-men-moon`, `monet-waterlily-pond`, `hesselbom-dusk`, `toulmouche-vanity`, `hiroshige-zoshigaya`, `monet-water-lilies`, `monet-water-lilies-1907`, `bierstadt-storm-rockies`, `korovin-place-opera`, `klimt-garden-sunflowers`, `redon-butterflies`, `aivazovsky-winter-landscape`, `aivazovsky-along-coast`, `grimshaw-silver-moonlight`, `monet-water-lilies-setting-sun`, `hiroshige-hota-coast`, `durer-praying-hands`, `cole-voyage-childhood`, `monet-impression-sunrise`, `monet-woman-parasol`, `velde-cannon-shot`, `cross-pink-cloud`, `laurence-mckinley`, `van-gogh-irises`, `kramskoi-christ-in-the-desert`, `turner-temeraire`, `leonardo-vitruvian-man`, `bruegel-hunters-snow`, `cole-voyage-youth`, `friedrich-monk-by-the-sea`, `van-gogh-wheat-field-cypresses`, `monet-cliff-pourville`, `van-gogh-almond-blossom`, `van-gogh-fishing-boats`, `hokusai-umezawa`, `whistler-falling-rocket`, `dore-fall-of-satan`, `dore-wolves-sheep`, `dore-leviathan`, `dore-paradise-lost-book-vi`, `dore-moses-tables`, `dore-empyrean`, `dore-raven`, `desktop` | Background. A painting, your wallpaper or a macOS wallpaper behind the window. |
+@@ -697,6 +698,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
+ | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |
+ | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
+ | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
++| `macScreen.onlyPersonStartsViewing` | boolean | `false` |  | Only Your Click Starts Viewing a Screen. On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first. |
+ | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
+ | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
+ | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
+diff --git a/schemas/defaults/cmux-next.json b/schemas/defaults/cmux-next.json
+index 74d1d6b5215..896e0eb341a 100644
+--- a/schemas/defaults/cmux-next.json
++++ b/schemas/defaults/cmux-next.json
+@@ -293,11 +293,13 @@
+     "setting.agents.chats.enabled": true,
+     "setting.agents.chats.roots": [],
+     "setting.agents.chats.sessionRecap": true,
++    "setting.agents.cmuxMcp": "ask",
+     "setting.agents.defaultPermissionMode": "fullAccess",
+     "setting.agents.guidance.claude": true,
+     "setting.agents.guidance.codex": true,
+     "setting.agents.guidance.otherAgents": true,
+     "setting.agents.guidance.userSkills": true,
++    "setting.agents.mcpServers.enabled": true,
+     "setting.agents.modelRouter.model": "deepseek/deepseek-v4.1-flash-1017",
+     "setting.agents.promptCache": "1h",
+     "setting.agents.promptSuggestions": true,
+@@ -418,6 +420,7 @@
+     "setting.appearance.theme": null,
+     "setting.appearance.themeEdits": {},
+     "setting.appearance.themeFile": null,
++    "setting.appearance.themeFileExceptions": [],
+     "setting.appearance.titleAreaContrast": 1,
+     "setting.appearance.titleAreaTone": "oneColor",
+     "setting.appearance.wallpaperTint": true,
+@@ -503,10 +506,18 @@
+     "setting.cloud.newWorkspaceFolder": "inherit",
+     "setting.cloud.newWorkspacesInCloud": false,
+     "setting.cloud.turnCheckpoints": false,
+-    "setting.computerUse.driver": "upstream",
+-    "setting.computerUse.enabled": false,
++    "setting.computerUse.allowForeground": false,
++    "setting.computerUse.allowOwnMachines": true,
++    "setting.computerUse.cursorTag": "hover",
++    "setting.computerUse.deniedApps": ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole", "com.cmuxterm.app", "com.cmuxterm.app.*"],
+     "setting.computerUse.livePreview": true,
++    "setting.computerUse.menus": "open",
++    "setting.computerUse.mode": "fullAccess",
++    "setting.computerUse.pauseOnTakeover": true,
++    "setting.computerUse.settle": "adaptive",
++    "setting.computerUse.showCursor": true,
+     "setting.contextMenus.showCustomizeItem": true,
++    "setting.customize.fromTheApp": false,
+     "setting.developerTools.appPages": true,
+     "setting.deviceHub.url": "",
+     "setting.diagnostics.hangReports": false,
+@@ -594,7 +605,7 @@
+     "setting.home.channelsEnabled": false,
+     "setting.home.chiefBubbleStyle": "imessage",
+     "setting.home.chiefDock.edge": "left",
+-    "setting.home.chiefDock.openBeside": true,
++    "setting.home.chiefDock.openBeside": false,
+     "setting.home.chiefEngine": "auto",
+     "setting.home.chiefPanel.seesScreen": true,
+     "setting.home.chiefPanel.style": "composeBar",
+@@ -639,6 +650,7 @@
+     "setting.layout.stripScrollbar": "system",
+     "setting.layout.tileBrowsers": false,
+     "setting.macScreen.debug.relayOnly": false,
++    "setting.macScreen.onlyPersonStartsViewing": false,
+     "setting.macScreen.systemShortcuts": false,
+     "setting.markdown.code.blockSize": null,
+     "setting.markdown.code.family": null,
+@@ -1010,13 +1022,43 @@
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:current": "b1a1b1014225af53043cccb377140d872c7d894cf9cbc56b16f62d7dc382b35f",
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:defaultFits": "2957b03f1b521b543a78e4283b9f2a605010c23a6cd138bee7732ee6d1ba78a2",
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:tunable": "8ad4dc931728df2a05266779199a90a3924b70cedadac7d0628626dd3b3b9e8e",
+-    "tunable-source.CmuxNextDesign/DensityPreset.swift:reference": "e9919e3dd993201440728e4356f5060ce3551102897ccb33e9bfdf6956ab46ee",
++    "tunable-source.CmuxNextDesign/DensityPreset.swift:reference": "5c44ccd1069a9b0fc05861d7d82f936738a4447e1f477bde277e178075c4ec58",
+     "tunable-source.CmuxNextDesign/DensityPreset.swift:referenceTokens": "75a3b2edc5f7a89fefbdf5fdb3dc8fcb3538ae66663c931bbdd4a4716435bc0f",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:all": "356713cfba22a9f006d95c0d23ffc46370dd13517c4ca1d0bca7c66d8e165d6b",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:base": "d6c17f1106671b7778aa32d6b70da95c03fa0419233e127c2d8eb037c1424e8f",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:entry": "c9fb9cad08f154d33c9186d5e8af364b3b76fb3623fe97b91c27981adee86afd",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:explicitValue": "afb1214b107361dfacc470aca48cf1dd532a3f3e1fabeaa5934b3ddec166b298",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:metric": "b7f0f0eeafbd43678e4820386ed62369164155d8af9b6c1af8d6372c89de229e",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:scale": "7ee4ce19d437b72545f07229209799de2138c7a1a711d25b59cfe4566843e7b7",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:sidebar": "b2f06e6bdac3e7f1031d47987875284a1c8db4e34945bd3c673f2a57d8fe6972",
++    "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:value": "db5f6cf679fc82453418dfc319137c575993fa319adef2dee071e9724fe92082",
+     "tunable-source.CmuxNextDesign/DensityTokens+Active.swift:active": "4f26b8bae1b3b78bd1f47f4344a6b9175215c11997e694326cc84dcccfcd87d7",
++    "tunable-source.CmuxNextDesign/DensityTokens+ToolbarButton.swift:toolbarGlyphInk": "5fb910526f3956b9bc0d9aa02f8e07d3ad824756d057c13ea54bbe8d22c00890",
++    "tunable-source.CmuxNextDesign/DensityTokens+ToolbarButton.swift:toolbarGlyphInkRatio": "daf25998804310eb3fc76a20e8ec3baf1848bc1a50050fff2abc4767472a7e08",
++    "tunable-source.CmuxNextDesign/DensityTokens+ToolbarButton.swift:toolbarGlyphSize": "7123fcc9b710f20194eb297584800ce119c763f49ff19d3078772e5ac824ce87",
++    "tunable-source.CmuxNextDesign/DensityTokens.swift:fontSizeRange": "80d4a96372f268840ea6654efef01987b7703e5c66836776b89232d1b3b765f1",
++    "tunable-source.CmuxNextDesign/DensityTokens.swift:spacingRange": "e2536d3190d712bf08695210f030394298c486d27cf3ec5f439605fca2a64715",
+     "tunable-source.CmuxNextDesign/DesignSettings.swift:shared": "43b5c1edd3f211d2f20a51550bcc3ef75a1640389db27b51d60085cb73c9845a",
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:color": "9c6f6f8d991d9775f695e0901f2f336bc9bbcf694cb44a5e6e13bbb3bb7f37ee",
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:fillOpacity": "8949346c9658b226bb8a54c50b180c86e36025acc4af32b536fe1cf088daa80f",
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:width": "1c693ba8c4626b87aa0a2a7e9e74f8daee3ef217049dc46ea25a655c40b6fd6a",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:backgroundOpacity": "9a5792b55a0869cad1029118b397e4ddae4f250bacd064c88cd1f3859391ff0d",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:borderOpacity": "f171ef06c40413948906526bf9c11f59a128bbea2ba4ea1fe8b10229e192c74c",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:borderWidth": "90966b4bfa97cac2795622c09d24bab379ec5b56efd64e2398a1725a626fada7",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:cornerFloor": "118ce47491617878c46e479334049837568c495104d5aab9f0ced752d971388a",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:cornerMode": "df6791fe5995876827d42ea1812bf159ba91e563a43b4b7c17f4c0f19ae3465b",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:cornerZone": "6b9704339019f665805dacdf26ceecbd8a5f975241259dae6413055f0f88d1a6",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:defaultCornerFloor": "c0275dd68fd8bf61e821373a1eeea762448fabaa58254a1f7a35c97f22ef95bc",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:defaultResizeBand": "3ccf23a7aae830a2107ac49f7a768f423df63331e016414018113d7dbc44cb18",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:material": "4c996b7461ce7bd8488085121f3779232a827324446f3dce436bbfa5336037be",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:resizeBand": "909d82e693c4370301004da1f6fba67fbbb2a90015786fea6f3723499557f140",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:section": "0d39314d16136fbfd3dedd0b096f5862de66ee6b90a1d0db6fcfffc87e8a3a44",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:shadowBlur": "bb45346b4911cc90eb13e8a064c1cda2ade4f1a81179fd3524d5884a95dd62f9",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:shadowOffset": "b5043a1c5d1abae27ea5887c3c91563bf9a216a46dc05dfb1544e8eeec583787",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:shadowOpacity": "609f5a3ab4835966b57cd7f6ea1515fdef20c201f2debeb14a08fb2bd35b333d",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:tint": "57ec6b7a4a955ee9e6b194bda5b0cb838458aa4ec6508e2cb0d0bb722b03e866",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:tintStrength": "dea4bc178b66a0e22c87fac1aa219d71430d0887f1673a4822415f5455ad90b9",
++    "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:unit": "92e288835aa79b6fea38fc260e2feecdaa2fa85aef4140469b009aec85e01f84",
+     "tunable-source.CmuxNextDesign/GlassLens/GlassLensMode.swift:tunable": "a98db75fea7c2574181ce09439f95f27326806041da3d9160e47346d4fce2b6b",
+     "tunable-source.CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift:tunable": "d5864c63c60779513962cad8cdfde25cebb8afaab7d15144caed503d25eba79b",
+     "tunable-source.CmuxNextDesign/MainPane.swift:chromeRowConcentricCardRadius": "15ee31689813bb60eacbda0f7bd44c3f8578bf20e21a62e5e630bcb178a8a6a1",
+@@ -1042,6 +1084,7 @@
+     "tunable-source.CmuxNextDesign/Metrics.swift:chromeRowHeight": "9e789ee9aa02d36c448914db3488df07a0e8fad24d09a59c6ae4b1692f924dbb",
+     "tunable-source.CmuxNextDesign/Metrics.swift:codePanePadding": "33311d48656d7873fe6c0f0562d58572ab32aca52b0d8dc850a3b235f5275556",
+     "tunable-source.CmuxNextDesign/Metrics.swift:compactTabs": "84e3a210ae1f2e28a678c4d53349b6eac4b35b34f381c90ac8c4f9687d4884eb",
++    "tunable-source.CmuxNextDesign/Metrics.swift:controlCornerRadius": "ab671c6059a8c60fcf1d3284376a1982a2d5da77e31fbf12cf65d8a2b724bf80",
+     "tunable-source.CmuxNextDesign/Metrics.swift:cornerPadding": "9eac83746f25df73d29bcb5d2e508d4564e1cb600fea5ecac6ec46a4a677a322",
+     "tunable-source.CmuxNextDesign/Metrics.swift:cornerRadius": "afaf35fd57f9edecc372e9a7d717c0b497efe6a58042c0e8cde890dbce5c3fa0",
+     "tunable-source.CmuxNextDesign/Metrics.swift:cornerRadius#": "2ac5d5fad06e19fab2195650544ebf9987141bb35523dd5e001c24eefba81552",
+@@ -1054,9 +1097,13 @@
+     "tunable-source.CmuxNextDesign/Metrics.swift:densityToken": "6a97dfdc6879c2999fbd8b7b2b18dfeb8752ad23a3c7342791eb237fc5a7a580",
+     "tunable-source.CmuxNextDesign/Metrics.swift:evenIconLeadingInset": "36e3dce49a3e6d96362c634470f7c100842fd810b99a698f6300c1bacdebde05",
+     "tunable-source.CmuxNextDesign/Metrics.swift:iconSize": "cbe70e98f048228988067fc062126a633a86be235cbcac0f5b587726b19087ec",
++    "tunable-source.CmuxNextDesign/Metrics.swift:itemCornerRadius": "eabc4f550fe80e0fe4217b76374ccd09177598c8d69868a5f091b9a68c6f213c",
++    "tunable-source.CmuxNextDesign/Metrics.swift:legacyRadius": "c95a303dc990fef83485a5191ddc348012d4ff72a25c849ad771c56b2ed0bc32",
+     "tunable-source.CmuxNextDesign/Metrics.swift:paneBorder": "e72e437b967f2eda24bfc8d2622f41a16516863899bef248cca6e7e54cd03f93",
++    "tunable-source.CmuxNextDesign/Metrics.swift:paneChromeInset": "456e5cd36a0c99001637410205704d14eedea48fd272d8bd02eaa4eb70c2f2e4",
+     "tunable-source.CmuxNextDesign/Metrics.swift:panePadding": "17b6780ebfab9e668f532370ff88a8f32053c200d9e1a86bee6227efdb41aca1",
+     "tunable-source.CmuxNextDesign/Metrics.swift:paneSeparation": "bdaac2efabda5be2ff747abcf54c5b2a7ed746063f64ff23f8179e22ab00fbd7",
++    "tunable-source.CmuxNextDesign/Metrics.swift:panelCornerRadius": "4274b092d534b56337d1fa4840aa6f07a46a0e6d2b61f76fe98852fec4bb1762",
+     "tunable-source.CmuxNextDesign/Metrics.swift:pick": "5847de8870ef8e860e8a1f2e4b0c53e1ba905deb348d68328b38bb1348d85933",
+     "tunable-source.CmuxNextDesign/Metrics.swift:scale": "a3dd02dd5d6628f40e9c6b7f91aa28b7fc4e2449c561c7add23b33646cd11e08",
+     "tunable-source.CmuxNextDesign/Metrics.swift:scale#": "ee18705b4c46d7ca28244a586e05c266ba92df1c809ca606fa42c9e921e7238b",
+@@ -1075,11 +1122,15 @@
+     "tunable-source.CmuxNextDesign/Metrics.swift:surfaceCornerRadius": "93ee15491ccd73a6811e710f86ef40b790d085d78e583709672e9345a538213a",
+     "tunable-source.CmuxNextDesign/Metrics.swift:system": "a874c5547dc98ac0e8561eed76c2e1a1e989402ecc75da8305efbfcd68686239",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabBackgroundInset": "d670fcd810012fb0a0a5655230e06148e5822ba98b1838ab22e44f63a41c1f6c",
++    "tunable-source.CmuxNextDesign/Metrics.swift:tabContentLeadingInset": "d60c337aa407db0e25c27589f590f008383cb634f222c337522281862fb0fbf7",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabHeight": "bb3c508a086ce0258f41b93ea82fc76586538927c4901c4b12b1713615b218e5",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabIconEvenLeadingInset": "7ace8ff42b6c54eb20338b759d54313cf3270001587b96cc87dc8f7fd6ec47f8",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabIconSize": "0eaba4b0fcf9736566cdcff3f97135b6e0cb788e024e74a9c0f6d74148b9926e",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabMaxWidth": "7e52926364cd1899c46c19da3d83066d02731ccc41199b03b7a59a62b27f2d0d",
++    "tunable-source.CmuxNextDesign/Metrics.swift:tabMinInactiveWidth": "82e5bf90401309dba1382a2ac99818a0600e825796f44c03e2c3dc700965fb9e",
++    "tunable-source.CmuxNextDesign/Metrics.swift:tabStripEndGap": "a95109626355dca4950e66d87797b28aec45bc24a5c5baf7b917c954e26a71c3",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tabStripHeight": "b32323e3ea5319207c041e312a590f6fa5fa099c0d41057850c8c7997f73b73a",
++    "tunable-source.CmuxNextDesign/Metrics.swift:tabTitleSize": "9e11f43d23752b83f0fe4ce463e826b85a33501b205f53d3fdb58cc1485002fc",
+     "tunable-source.CmuxNextDesign/Metrics.swift:tokens": "7594016adbf9fa1079f4cb19c01bae11e5c0af0e34be094a15082afa1d2899f9",
+     "tunable-source.CmuxNextDesign/PaneChromeMetrics.swift:current": "4ae9950758e21e96588137100342f5b1571822b404eb086d26b6a61e7d347e77",
+     "tunable-source.CmuxNextDesign/PaneTabRowSharing.swift:height": "4c60ecfe29f05372d00dc407b888194f4c53a8886902f493dc9053bdb063e943",
+@@ -1117,7 +1168,7 @@
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:all": "7edaaa4edea9f9ca85f39c8c8d5ac3aaf44af4061d2ba0a75f29bc33b406513a",
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:chipLeading": "c6b6eb7d3e6fbf6f014c4a4bca2ae54c14ab1b33b47b64656bd7b23eb3e3cc1e",
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:defaultValue": "67999ef6530c7c0f3dad51084eb90c9d7087a22aae01f49828f71ed4540ef2b2",
+-    "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:defaultValue#": "6e97b69e41f7150a76e79b66b5d79f95728aca4aec299a27f42ab30111b2f90a",
++    "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:defaultValue#": "ff8fe6362e8e6bbf0d9a12862ec425776ea1cad407c190923a22c44098755604",
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:densities": "7789dd31574a0175163a1cba716bea7d284b397410303a9394c616edfcececd7",
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:half": "8a5d690bd8d7ce20a7b9a49a887007fd4db081d58468bb054e2e581a6c8627c2",
+     "tunable-source.CmuxNextDesign/Tunables/BrowserChromeTuning.swift:key": "3503fb2b47aad8b8e0e6425f52549b90116b1667601d7a4a67d151d4406fc37e",
+@@ -1178,6 +1229,8 @@
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:tabPinnedWidth": "2d2b6b6fdab940146b283c289e401463a5506b6087eebffbb6d1be4ddcd560f8",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:tabStripHeight": "97025bfb415761d79c47aa69cab04fe9f2d4bc702b4d59577d211e1baf875c1e",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:titlebarHeight": "303b56002f42262d255e29770439f38aa9b363161d050755400800a184a78aa5",
++    "tunable-source.CmuxNextDesign/Typography+PageDensity.swift:homeChatDensityScale": "1e7b51c7dcd4e6a670312668215995691bab5df080100865a1d271bd6dccf08f",
++    "tunable-source.CmuxNextDesign/Typography+PageDensity.swift:pageChatTextScale": "65fc1f097585a66f4681c87e9d01adcc934c3fca6662b90405e185eed619d3ae",
+     "tunable-source.CmuxNextDesign/UpdatedCardPreviewMode.swift:shipped": "832bd9a067f52538086ccc4461ca7fab35ae0fbd463a9b90dcf3484edb3b4271",
+     "tunable-source.CmuxNextDesign/UpdatedCardPreviewMode.swift:tunable": "d88cce68513be1043a085bbe803a41543b852cc08bc018c09215c8eb4403e49b",
+     "tunable-source.CmuxNextDesign/UpdatedNotesLook.swift:shipped": "c9f92e68856b378e08ebac09e1951ae9b598afff72183cdf5bac2583f769b27b",
+@@ -1333,22 +1386,22 @@
+     "tunable-source.CmuxNextSidebar/Logic/SidebarPinnedRowLeading.swift:tunable": "9d66d73fb62a30d1b2ab75c8d5463fae88b7a11abeb7b48d926fa0e823d144d9",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowBadgeStyle.swift:tunable": "dbb80b81bdbebea1fe3c563b3cda4bb530f5df99f0d56daf3ce738e1b830602b",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowBadgeStyle.swift:tunable#": "4ec1979366fb37c61daa74054bee38f7f3f887ddf8ccc67dbcc9133cf375869f",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:bandGap": "d93202da76e5b3682928d66b6c6c25d43e5474601408ac30fc93b5dca8ecfb48",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:bandGap": "e91da509adc282d3564a8f3d053644d3f21712442a174d7dc34ba01f8c876b64",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:computed": "e8c8a417c22d698514147313db6e2a5a3852a886bd8e18df13bcd66bc4739edf",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:contentInset": "0104d80993b2804dde7c56249901216c91a9a9d4081ae7e8bcaa2d465f2cc1d9",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:cornerRadius": "90891c036d299e8340853343c63bf662e30ed7bfcefc2f750aa52a1f9f06a803",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:cornerRadius": "94ae7724f288003ea462d1d2de53a9b27d4a9c4ca53e56659fb0720852b14cca",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:glyphGap": "a8e377549160ae6f5307e1c7cc213e8dee4fdcf13610bd3ff6d8700739bad1b8",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:glyphOpacity": "fcce853fd4040aa7a741b6b7574efd0c4714ee31a90bc343db18af50c9016ed2",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:glyphSize": "fcc1f48cf425dfa4295410b1ef087f8bb4125b1288065b7f5120e50b1c9c6eaa",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:headingSize": "ca530de39b019b4255e1111985d5d2319d022bef524f35ea526791f615eece3a",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:headingSize": "a451124073520bf54bfd48a508d3fbde5b31749de156431df756ccaf1d8aa865",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:headingWeight": "6f6b17f5390290ab7d2aeb94bfcc002ce3a693c5ee363d0a1309376a8984b33c",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:iconColumn": "3fb81630f3297843f09358175035ddfa3a2ad64ffd25b63406bd28a8edf43d76",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:outerInset": "b3e9af23bcb12037a809160de332514f54aec5efebf5dc19830787ec135dbb7d",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:rowGap": "d21e0bf3528743656b794ebedff052821eb0047087df364522bc30b481214591",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:rowGap": "e171e4951aa500c44d14419ae98dc94484891488f212422881934a49db2e2bf9",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:rowHeight": "910895d0886d01de6ec046747de97fe4d3cbf8df2074cf02e31ad62c0c26ff07",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:section": "495e6cdcd02cf679fb15731ca96af3da09ce867990f3a9a2e381314ca6efb550",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:sectionGap": "7ea94683b052d23e9081eb40fe04da6e950351252388f33eefd8bdf2bad8844c",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:statusDot": "35c7854dee13b09da893469e298d1a29d7a1ebb31440a59ef5a36f80bd10dbb9",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:sectionGap": "29805d64cb58b27e2875e4210c334e61ad21a65217ab7c5734f8304afdc6e786",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:statusDot": "07a95eeea0dffd457e7383c306759b6c06d13d337d65792adc319f03a0c2ee6f",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:titleOpacity": "5ae1fd8c6495466e2ca132b80e7f906f3392abf63c740e18b08b8b6c20422a0e",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:titleSize": "69723393dcd3bd035fa98e29c9c62699af233dcddb6478f6c8d77848096b864d",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:titleWeight": "10080f8d1d75a3448007e7bf6889e5145d57aaffae32f747072b2ef006e94033",
+@@ -1392,7 +1445,7 @@
+     "tunable-source.CmuxNextSidebar/Views/SidebarDensityTokens.swift:textSize": "516527f0a7db9bead1420ff8465c1ec0a6e5e073b30df29b67cca8ee699f0f01",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:derivedHeaderFont": "dcec8f8ccb35277eebd8ce99d4fc77f3ab9d9538f7670bfd7329b4d0c0c2d393",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:derivedTitleFont": "8ee401c98565d2aac332cdd7f2842a60b02fd6bd5ae9bbfc70dfd0f518de53b0",
+-    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:headerFont": "e0b1acb8d8b7773716d992bc85636b3824ea9d04cae35723d3a579f7a6977620",
++    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:headerFont": "889d6bea6446ae2f599712f7a0b6a8a16d4d73b2e3d127ac89e3df8907a908ca",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:iconBox": "4388dc8c71a8c215291c840dac2a85ed0dc512afbf8f48190f21575157e296f7",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:iconColumnBox": "5aba2758e179aa940a49e8403504a18900bbbcf4c6378525afdf5e997bc0d7c7",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:kindGlyphSize": "f5a18900cbc1f1fe2ec3c8be7b80be49b724b4d0aa0f6aa51db85681c4c5c4b3",
+@@ -1420,6 +1473,7 @@
+     "tunable-source.CmuxNextTabs/Drag/DragTunables.swift:splitDwell": "c1add542fa670d569798bf2796d7f6d92d45d5408f9676351ddc54aa14969f74",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:autoscrollGain": "e7f8637ed8a273507f84f3e0eb11767d1b75f707d798020eaaa0e27dc61dc8e2",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:badgeSize": "5be162d270e144cd28a6dd7596700e9a6962a233cc5c5ecaf821e90a0a31c386",
++    "tunable-source.CmuxNextTabs/TabTunables.swift:busyUnreadMark": "1b9cd515220bbadf5f70ad567807950ef2324a568ae247cb047be1d6b6c646ba",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:chevronOnHover": "2597289b7b8afa4bb5295f2bc2a1e56f9aaa612d99a79c3d9dace5b525ab7da5",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:closeButtonSize": "50e438ca5d3adf44e6ff3c30a7d8ec4dfeed28594e68d2e8b73442a4bfd08737",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:closeGlyphSize": "190856b4527c06f8b02962f3be2cf8609451f3cbf4f8e87cd6bda5c2bcc8b1ee",
+@@ -1433,6 +1487,7 @@
+     "tunable-source.CmuxNextTabs/TabTunables.swift:groupJoinHysteresis": "10546aa4aab8ce74bcbaddb147bf87478c4bb0c28c18e4e33b1ba9346a10ae30",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:groupUnderlineHeight": "7649188450fd1af32f50dc1f45098cd5e000db15edafc5e38679c235e0d64d70",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:hoverCardEntrance": "6cbdc353ce5003dd1e273c5963cd9ec90970f1b8c9a48c249da43cb04588087d",
++    "tunable-source.CmuxNextTabs/TabTunables.swift:hoverCardRetarget": "df4c88f70ee9060ee4420eb32c4a741d14bec0387608b2469d43e79dce64d56e",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:hoverPreviews": "1beb5f3de62d1304440cd0fc3144fd70305bb561ffb439d73a72bfa6008bfbba",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:iconTitleSpacing": "2bef88b7a7d631978d74700e2341df065fca4dc4ad826d6820ac67074213ad34",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:loadingAnimation": "8b8115f98fca3ebd0f61b569ddf21f5eb0f9d6e2b902b92aa0f6a5d44b75c08d",
+@@ -1445,17 +1500,18 @@
+     "tunable-source.CmuxNextTabs/TabTunables.swift:separatorHeight": "0614894643c6c362adb45f7df960b70b0ead22374d9728e73f35b356b37dc773",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:separatorOpacity": "290ffb17bdc9685c735b0023adace9dc3e93c22f3b4917f3c19671f0ee2c2feb",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:separators": "390b692f6433ee7a8e13fdd654adb7e9dbcc46ed7a93eb598237f9d99f4ab896",
++    "tunable-source.CmuxNextTabs/TabTunables.swift:statusMarkPlacement": "edd3ee4ea36ada02ec5870d11f7106a68972544486cf1931093b23b0da1f7d4a",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:tearOffDistance": "3411d4e039af5b5892cf1163b58f7a54a0983febe6f765271c9345aaefb4e6d4",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:titleCloseSpacing": "54488e5817c9b2b11a3ad727fea9dde41c708cbe6d25cf4f6a66d62ffc8e7836",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:titleFadeWidth": "856c1520861e222f9448861c2c7587bb92aa71c416b05b91aa1c428027fcf7ee",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:titleMinVisibleWidth": "de0aeeaaece829c41c5d7353154f9e556406597aa95b7202b81d4bb19ab4e0dd",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:trailingButtons": "19b1f7dcb5a00954b47100d86ce5e2e1661841b8b60e070fd614b9f3c6733676",
+     "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:collapsedWidth": "2fa9dcf965aa56594a10dbf47ec2249c5608f1ec7b44ed3d026b51e5cf055fed",
+-    "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:expandedWidth": "da775ff5c40e9edc288a32efa7616496baf196ed09245f572cc09de05eae3c3f",
++    "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:expandedWidth": "90e811d33c238568d4ec7bbff655ecce50b04c8a716b102e76fd490b55dccccd",
+     "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:groupLineWidth": "a7ef0c46e04ba81d0269a910cb4492a472b371d81da7c08c4bb61c4c88b85f34",
+     "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:hoverExpandDelay": "aa40e93ad94cc02b394577e1377cc3445514511070c2e5cd3c3b7e7e8c2b7540",
+     "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:points": "3a6c96aae622a98c13fdfb1f0f5d0d2fabd0364fdc8e055a54ffdc352a6a483c",
+-    "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:rowSpacing": "67b08066a1a829e6f454567942c563cf5f00221c155f436e7f01af9ac748b5ef",
++    "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:rowSpacing": "8027c3bb86da7a6b5eeafc12b2c46132c0e4ae5d241a24ec0bfd9b64a0701336",
+     "tunable-source.CmuxNextTabs/Vertical/VerticalTabTunables.swift:tunable": "0a36c28b1171846cca151034ef5711d5836606b1ac1c53af4020dc36a352c3b7",
+     "tunable-source.CmuxNextWorkspaceNaming/WorkspaceAutoNameTunables.swift:variant": "d172fabd030a02810bcb6a26b162ddd6868af4bf4e923f219f8214ea2298f6b9",
+     "tunable.agent.chromium": true,
+@@ -1525,6 +1581,16 @@
+     "tunable.drop.overlay.spring": "track",
+     "tunable.drop.overlay.style": "outline",
+     "tunable.drop.zoneHysteresis": 12.0,
++    "tunable.floatingPane.backgroundOpacity": 1.0,
++    "tunable.floatingPane.borderOpacity": 1.0,
++    "tunable.floatingPane.borderWidth": 1.0,
++    "tunable.floatingPane.cornerMode": "concentric",
++    "tunable.floatingPane.material": "none",
++    "tunable.floatingPane.shadowBlur": 14.0,
++    "tunable.floatingPane.shadowOffset": 4.0,
++    "tunable.floatingPane.shadowOpacity": 0.35,
++    "tunable.floatingPane.tint": "glassTint",
++    "tunable.floatingPane.tintStrength": 0.0,
+     "tunable.focus.flashOnMove": false,
+     "tunable.focus.glowAlpha": 0.6,
+     "tunable.focus.glowRadiusFactor": 3.0,
+@@ -1670,18 +1736,21 @@
+     "tunable.tabDrag.sidebarSlotDwell": 0.25,
+     "tunable.tabDrag.splitDwell": 0.0,
+     "tunable.tabs.autoscrollGain": 14.0,
++    "tunable.tabs.busyUnreadMark": "spinner",
+     "tunable.tabs.chevronOnHover": true,
+     "tunable.tabs.cornerCurve": "helium",
+     "tunable.tabs.crowdedControlOpacity": 0.5,
+     "tunable.tabs.crowdedControls": "shownWhenCrowded",
+     "tunable.tabs.groupJoinHysteresis": 0.3,
+     "tunable.tabs.hoverCardEntrance": "morph",
++    "tunable.tabs.hoverCardRetarget": "jump",
+     "tunable.tabs.hoverPreviews": "full",
+     "tunable.tabs.loadingAnimation": "instant",
+     "tunable.tabs.pinnedDivider": true,
+     "tunable.tabs.restingControlOpacity": 0.0,
+     "tunable.tabs.separatorOpacity": 0.2,
+     "tunable.tabs.separators": true,
++    "tunable.tabs.statusMarkPlacement": "mirrorIcon",
+     "tunable.tabs.trailingButtons": "split",
+     "tunable.tabs.vertical.hoverExpandDelay": 0.3,
+     "tunable.tabs.vertical.noColorGroup": "rimmed",
+diff --git a/schemas/settings/settings-schema.json b/schemas/settings/settings-schema.json
+index 7a414246c87..2ec8093e36b 100644
+--- a/schemas/settings/settings-schema.json
++++ b/schemas/settings/settings-schema.json
+@@ -1531,6 +1531,38 @@
+         ],
+         "aliases" : [
+ 
++        ],
++        "groups" : [
++          {
++            "key" : "settings.group.mcpServers",
++            "rows" : [
++              "agents.mcpServers.enabled"
++            ],
++            "title" : {
++              "key" : "settings.group.mcpServers",
++              "text" : "Agent Chats"
++            }
++          }
++        ],
++        "id" : "mcpServers",
++        "lead" : [
++          "mcpServers"
++        ],
++        "symbol" : "server.rack",
++        "title" : {
++          "key" : "settings.category.mcpServers",
++          "text" : "MCP Servers"
++        },
++        "trail" : [
++
++        ]
++      },
++      {
++        "actions" : [
++
++        ],
++        "aliases" : [
++
+         ],
+         "groups" : [
+ 
+@@ -2018,7 +2050,16 @@
+           "server"
+         ],
+         "groups" : [
+-
++          {
++            "key" : "settings.group.screenSharing",
++            "rows" : [
++              "macScreen.onlyPersonStartsViewing"
++            ],
++            "title" : {
++              "key" : "settings.group.screenSharing",
++              "text" : "Screen Sharing"
++            }
++          }
+         ],
+         "id" : "devices",
+         "lead" : [
+@@ -2307,6 +2348,7 @@
+           "chat",
+           "agents",
+           "computerUse",
++          "mcpServers",
+           "models",
+           "cloud",
+           "chief"
+@@ -16259,6 +16301,140 @@
+       },
+       "validation" : "portable"
+     },
++    {
++      "accepts" : [
++        true,
++        false
++      ],
++      "agent_refusal" : "network",
++      "agent_settable" : false,
++      "consumers" : [
++        "cmux-next"
++      ],
++      "default" : true,
++      "default_label" : null,
++      "group" : {
++        "key" : "settings.group.mcpServers",
++        "text" : "Agent Chats"
++      },
++      "help" : {
++        "key" : "settings.agents.mcpServers.enabled.help",
++        "text" : "New chats can use the servers listed above."
++      },
++      "kept_on_reset_all" : false,
++      "key" : "agents.mcpServers.enabled",
++      "keywords" : [
++        "mcp",
++        "servers",
++        "integrations",
++        "connections",
++        "agents",
++        "tools"
++      ],
++      "kind" : "toggle",
++      "page_hidden" : false,
++      "path" : [
++        "agents",
++        "mcpServers",
++        "enabled"
++      ],
++      "placeholder" : null,
++      "refuses" : [
++        "true",
++        1,
++        null
++      ],
++      "section" : "general",
++      "summary" : null,
++      "surfaces" : {
++        "cli" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "mcp" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get"
++          ],
++          "reason" : "agent_settable_false",
++          "row" : null
++        },
++        "palette" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : "toggle",
++          "offered" : true,
++          "operations" : [
++            "palette.toggleSetting"
++          ],
++          "reason" : null,
++          "row" : "setting:agents.mcpServers.enabled"
++        },
++        "socket" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++            "settings.unset"
++          ],
++          "app_operations" : [
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        }
++      },
++      "title" : {
++        "key" : "settings.agents.mcpServers.enabled",
++        "text" : "Saved Servers in Agent Chats"
++      },
++      "validation" : "portable"
++    },
+     {
+       "accepts" : [
+         true,
+@@ -16681,7 +16857,7 @@
+         false
+       ],
+       "agent_refusal" : null,
+-      "agent_settable" : false,
++      "agent_settable" : true,
+       "consumers" : [
+         "cmux-next"
+       ],
+@@ -16744,7 +16920,7 @@
+         },
+         "mcp" : {
+           "aliases" : [
+-
++            "settings.unset"
+           ],
+           "app_aliases" : [
+ 
+@@ -16756,9 +16932,11 @@
+           "offered" : true,
+           "operations" : [
+             "settings.list",
+-            "settings.get"
++            "settings.get",
++            "settings.set",
++            "settings.reset"
+           ],
+-          "reason" : "agent_settable_false",
++          "reason" : null,
+           "row" : null
+         },
+         "palette" : {
+@@ -26715,6 +26893,152 @@
+       },
+       "validation" : "portable"
+     },
++    {
++      "accepts" : [
++        [
++
++        ],
++        [
++          "ws-1",
++          "2B7F0C3A-workspace"
++        ]
++      ],
++      "agent_refusal" : null,
++      "agent_settable" : true,
++      "consumers" : [
++        "cmux-next"
++      ],
++      "default" : [
++
++      ],
++      "default_label" : null,
++      "group" : {
++        "key" : "settings.group.appTheme",
++        "text" : "App Theme"
++      },
++      "help" : {
++        "key" : "settings.appearance.themeFileExceptions.help",
++        "text" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."
++      },
++      "kept_on_reset_all" : false,
++      "key" : "appearance.themeFileExceptions",
++      "keywords" : [
++        "theme file",
++        "override",
++        "exception"
++      ],
++      "kind" : "string_list",
++      "page_hidden" : true,
++      "path" : [
++        "appearance",
++        "themeFileExceptions"
++      ],
++      "placeholder" : null,
++      "refuses" : [
++        "ws-1",
++        [
++          1
++        ],
++        [
++          ""
++        ],
++        {
++
++        }
++      ],
++      "section" : "appearance",
++      "summary" : null,
++      "surfaces" : {
++        "cli" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "mcp" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "palette" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : false,
++          "operations" : [
++
++          ],
++          "reason" : "a Settings change to a row the theme file sets edits it: a list of setting keys",
++          "row" : null
++        },
++        "socket" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++            "settings.unset"
++          ],
++          "app_operations" : [
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        }
++      },
++      "title" : {
++        "key" : "settings.appearance.themeFileExceptions",
++        "text" : "Changed Over Theme File"
++      },
++      "validation" : "portable"
++    },
+     {
+       "accepts" : [
+         "#1a2B3c",
+@@ -93650,7 +93974,7 @@
+       "consumers" : [
+         "cmux-next"
+       ],
+-      "default" : true,
++      "default" : false,
+       "default_label" : null,
+       "group" : {
+         "key" : "settings.group.chiefDock",
+@@ -106839,6 +107163,145 @@
+       },
+       "validation" : "portable"
+     },
++    {
++      "accepts" : [
++        true,
++        false
++      ],
++      "agent_refusal" : "userOnly",
++      "agent_settable" : false,
++      "consumers" : [
++        "cmux-next"
++      ],
++      "default" : false,
++      "default_label" : null,
++      "group" : {
++        "key" : "settings.group.screenSharing",
++        "text" : "Screen Sharing"
++      },
++      "help" : {
++        "key" : "settings.macScreen.onlyPersonStartsViewing.help",
++        "text" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
++      },
++      "kept_on_reset_all" : false,
++      "key" : "macScreen.onlyPersonStartsViewing",
++      "keywords" : [
++        "screen sharing",
++        "mac screen",
++        "agents",
++        "automation",
++        "cli",
++        "view",
++        "control",
++        "click",
++        "approve"
++      ],
++      "kind" : "toggle",
++      "page_hidden" : false,
++      "path" : [
++        "macScreen",
++        "onlyPersonStartsViewing"
++      ],
++      "placeholder" : null,
++      "refuses" : [
++        "true",
++        1,
++        null
++      ],
++      "section" : "machines",
++      "summary" : {
++        "key" : "settings.macScreen.onlyPersonStartsViewing.summary",
++        "text" : "Agents can't start viewing your screens"
++      },
++      "surfaces" : {
++        "cli" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "mcp" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get"
++          ],
++          "reason" : "agent_settable_false",
++          "row" : null
++        },
++        "palette" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : "toggle",
++          "offered" : true,
++          "operations" : [
++            "palette.toggleSetting"
++          ],
++          "reason" : null,
++          "row" : "setting:macScreen.onlyPersonStartsViewing"
++        },
++        "socket" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++            "settings.unset"
++          ],
++          "app_operations" : [
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        }
++      },
++      "title" : {
++        "key" : "settings.macScreen.onlyPersonStartsViewing",
++        "text" : "Only Your Click Starts Viewing a Screen"
++      },
++      "validation" : "portable"
++    },
+     {
+       "accepts" : [
+         true,
+diff --git a/web/data/next-docs/settings-reference.generated.json b/web/data/next-docs/settings-reference.generated.json
+index 77b4c7db597..51f4d97b987 100644
+--- a/web/data/next-docs/settings-reference.generated.json
++++ b/web/data/next-docs/settings-reference.generated.json
+@@ -1,6 +1,6 @@
+ {
+   "version": 1,
+-  "count": 623,
++  "count": 632,
+   "sections": [
+     {
+       "id": "general",
+@@ -301,6 +301,19 @@
+           "default": true,
+           "group": "Chats"
+         },
++        {
++          "key": "agents.cmuxMcp",
++          "title": "cmux Tools for Agents in cmux",
++          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
++          "kind": "choice",
++          "default": "ask",
++          "group": "cmux Tools",
++          "values": [
++            "ask",
++            "on",
++            "off"
++          ]
++        },
+         {
+           "key": "agents.defaultPermissionMode",
+           "title": "Permission Mode for New Chats",
+@@ -651,23 +664,78 @@
+           "group": "Chats"
+         },
+         {
+-          "key": "computerUse.driver",
+-          "title": "Computer Use Driver",
+-          "help": "Upstream is the new helper; macOS asks for its permissions again.",
++          "key": "computerUse.allowForeground",
++          "title": "Allow Foreground Input",
++          "help": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Computer Use"
++        },
++        {
++          "key": "computerUse.allowOwnMachines",
++          "title": "Allow My Other Machines",
++          "help": "Agents on your other machines, signed in to the same account, may use this Mac's apps.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Computer Use"
++        },
++        {
++          "key": "computerUse.cursorTag",
++          "title": "Agent Cursor Tag",
++          "help": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never.",
+           "kind": "choice",
+-          "default": "upstream",
++          "default": "hover",
+           "group": "Computer Use",
+           "values": [
+-            "legacy",
+-            "upstream"
++            "hover",
++            "always",
++            "never"
+           ]
+         },
+         {
+-          "key": "computerUse.enabled",
+-          "title": "Computer Use",
+-          "help": "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording.",
+-          "kind": "toggle",
+-          "default": false,
++          "key": "computerUse.deniedApps",
++          "title": "Denied Apps",
++          "help": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
++          "kind": "string_list",
++          "default": [
++            "com.apple.keychainaccess",
++            "com.apple.Passwords",
++            "com.1password.*",
++            "com.agilebits.onepassword*",
++            "com.bitwarden.*",
++            "com.dashlane.*",
++            "com.lastpass.*",
++            "com.nordpass.*",
++            "me.proton.pass",
++            "org.keepassxc.keepassxc",
++            "com.markmcguill.strongbox",
++            "in.sinew.enpass*",
++            "com.keepersecurity.*",
++            "1password.exe",
++            "bitwarden.exe",
++            "keepass.exe",
++            "keepassxc.exe",
++            "org.keepassxc.KeePassXC",
++            "1password",
++            "bitwarden",
++            "com.apple.systempreferences",
++            "com.apple.Terminal",
++            "com.googlecode.iterm2",
++            "com.mitchellh.ghostty",
++            "net.kovidgoyal.kitty",
++            "com.github.wez.wezterm",
++            "org.alacritty",
++            "dev.warp.*",
++            "windowsterminal.exe",
++            "cmd.exe",
++            "powershell.exe",
++            "pwsh.exe",
++            "org.gnome.Terminal",
++            "org.gnome.Ptyxis",
++            "org.kde.konsole",
++            "com.cmuxterm.app",
++            "com.cmuxterm.app.*"
++          ],
+           "group": "Computer Use"
+         },
+         {
+@@ -678,6 +746,62 @@
+           "default": true,
+           "group": "Computer Use"
+         },
++        {
++          "key": "computerUse.menus",
++          "title": "Menus in Background Apps",
++          "help": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
++          "kind": "choice",
++          "default": "open",
++          "group": "Computer Use",
++          "values": [
++            "open",
++            "refuse"
++          ]
++        },
++        {
++          "key": "computerUse.mode",
++          "title": "Computer Use",
++          "help": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",
++          "kind": "choice",
++          "default": "fullAccess",
++          "group": "Computer Use",
++          "values": [
++            "fullAccess",
++            "approvedApps",
++            "askEveryTime",
++            "lookOnly",
++            "off"
++          ]
++        },
++        {
++          "key": "computerUse.pauseOnTakeover",
++          "title": "Pause When I Use the Mouse or Keyboard",
++          "help": "While you use the mouse or keyboard, agents wait before their next click or key press.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Computer Use"
++        },
++        {
++          "key": "computerUse.settle",
++          "title": "After Each Action",
++          "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
++          "kind": "choice",
++          "default": "adaptive",
++          "group": "Computer Use",
++          "values": [
++            "adaptive",
++            "anthropic",
++            "openai"
++          ]
++        },
++        {
++          "key": "computerUse.showCursor",
++          "title": "Show Agent Cursor",
++          "help": "A blue cursor shows wherever an agent clicks or types.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Computer Use"
++        },
+         {
+           "key": "files.textEditor",
+           "title": "Text Editor",
+@@ -6661,6 +6785,14 @@
+           "default": false,
+           "group": "Cloud Workspaces"
+         },
++        {
++          "key": "macScreen.onlyPersonStartsViewing",
++          "title": "Only Your Click Starts Viewing a Screen",
++          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Screen Sharing"
++        },
+         {
+           "key": "phone.cloudDesktop",
+           "title": "Show Your Cloud Machine's Screen on Your Phone",
