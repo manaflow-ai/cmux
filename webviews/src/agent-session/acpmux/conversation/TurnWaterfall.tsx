@@ -147,7 +147,7 @@ export function TurnWaterfall({
         <button
           type="button"
           className={className}
-          title={title}
+          aria-description={title}
           data-tool-id={span.toolId}
           onClick={() => showCall(span.toolId!, span.item.tool?.startedAt)}
         >
@@ -156,7 +156,7 @@ export function TurnWaterfall({
       </li>
     ) : (
       <li key={key}>
-        <div className={className} title={title}>
+        <div className={className} aria-description={title}>
           {body}
         </div>
       </li>
@@ -165,7 +165,7 @@ export function TurnWaterfall({
   // The turn's time outside every call and thought, last, so the rows above and it fill the axis.
   const modelRow = (
     <li key="model">
-      <div className="cv-waterfall__span is-model" title={modelTitle}>
+      <div className="cv-waterfall__span is-model" aria-description={modelTitle}>
         <span className="cv-waterfall__label">
           <span className="cv-waterfall__name">{modelLabel}</span>
         </span>
