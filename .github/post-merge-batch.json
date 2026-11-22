@@ -3,7 +3,7 @@
   "suites": {
     "drill": {
       "workflow": "post-merge-drill.yml",
-      "paths": [".github/post-merge-drill-red"],
+      "paths": [".github/post-merge-drill-red", ".github/post-merge-drill/**"],
       "jobs": {"drill": "drill"}
     },
     "cmux-tui-windows-check": {
@@ -117,6 +117,38 @@
         ".github/workflows/swift-acpmux-protocol.yml"
       ],
       "jobs": {"check": "Swift acpmux calls are in the protocol"}
+    },
+    "rust-workspaces": {
+      "workflow": "rust-workspaces.yml",
+      "paths": [],
+      "jobs": {"workspace": "workspace"}
+    },
+    "web": {
+      "workflow": "ci-web.yml",
+      "paths": [],
+      "jobs": {
+        "web-typecheck": "web-typecheck",
+        "web-production-build": "web-production-build",
+        "web-tests": "Web tests",
+        "agent-pane-real-acpmux": "Agent pane on real acpmux",
+        "web-instant-navigation": "web-instant-navigation",
+        "react-apps-check-shard": "react-apps-check",
+        "react-doctor": "react-doctor",
+        "diff-sidecar-check": "diff-sidecar-check",
+        "web-db-migrations": "web-db-migrations"
+      }
+    },
+    "tip-test-compile": {
+      "workflow": "cmux-next-tip-test-compile.yml",
+      "paths": [
+        "Packages/**",
+        "vendor/**",
+        "scripts/ci/compile_test_plan.py",
+        "scripts/ci/package-test-lane.sh",
+        "scripts/ci/tip-test-compile.sh",
+        ".github/workflows/cmux-next-tip-test-compile.yml"
+      ],
+      "jobs": {"compile": "tip test-compile (fleet, background)"}
     }
   }
 }

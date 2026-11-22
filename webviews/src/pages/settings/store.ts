@@ -37,6 +37,7 @@ import {
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
+import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
@@ -52,8 +53,9 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -64,17 +66,10 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
-  type McpServersRun,
-  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
-  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -85,14 +80,22 @@ import {
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type RowNoteData,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -495,7 +498,14 @@ export class SettingsStore {
   async chooseBackdropImage(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
       const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      // A file that is no picture or movie says so, as a link does, not "Invalid value".
+      if (!reply.ok)
+        this.setError(
+          BACKGROUND,
+          isBackdropRefusal(reply.error.code)
+            ? { ...rowError(reply.error), message: linkRefusal(reply.error.code) }
+            : rowError(reply.error),
+        );
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
   }
@@ -687,6 +697,12 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** General > Language: Relaunch, so the native menus take the Language setting; false when the host refused. */
+  async runLanguageRelaunch(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.language.relaunch", {});
+    return reply.ok;
+  }
+
   /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
    * Throws the host's refusal (a managed key, an unreadable cmux.json). */
   async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
@@ -800,6 +816,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
+   * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
+   * message, which never carries a secret value). */
+  async runAgentConfig(run: AgentConfigRun): Promise<AgentConfigAnswer | { error: string }> {
+    const reply = await this.request("cmux.settings.agentConfig", run);
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? { code: "agentConfig", message: "" };
+    if ("code" in answer && !("agent" in answer))
+      return { error: answer.message || t("settingsWindow.agentConfig.error.notChanged") };
+    return answer;
   }
 
   /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
