@@ -90,8 +90,14 @@ final class InputLatencyUITests: XCTestCase {
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the chat's Send button\n\(app.debugDescription)")
             send.tap()
             RunLoop.current.run(until: Date().addingTimeInterval(1))
-            if !field.exists, reply.exists { reply.tap() }
-            XCTAssertTrue(field.waitForExistence(timeout: 10), "the chat composer after send \(index)\n\(app.debugDescription)")
+            // The running turn folds the composer back into "Reply to Claude"; a tap
+            // during that fold can land on the closing button, so tap until it opens.
+            let reopen = Date().addingTimeInterval(10)
+            while !field.exists, Date() < reopen {
+                if reply.exists, reply.isHittable { reply.tap() }
+                _ = field.waitForExistence(timeout: 1)
+            }
+            XCTAssertTrue(field.exists, "the chat composer after send \(index)\n\(app.debugDescription)")
             field.tap()
         }
         _ = waitFor(app, timeout: 10) { ($0["chat_send_visible"] as? [String: Any]).flatMap { $0["n"] as? Int } ?? 0 >= 5 }
