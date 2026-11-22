@@ -157,7 +157,7 @@ extension SettingsSchema {
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
-        "agentPane.newChatsIn",
+        "agentPane.newChatsIn", "agentPane.sessionWorktrees",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
@@ -247,7 +247,7 @@ extension SettingsSchema {
         "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
         "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
         "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
-        "agentPane.display.commandLabels",
+        "agentPane.display.rail.show", "agentPane.display.rail.control", "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
         "editor.letterSpacing", "editor.tabSize", "editor.insertSpaces", "editor.detectIndentation", "editor.wordWrap",

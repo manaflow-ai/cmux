@@ -111,8 +111,9 @@ impl Hub {
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && !self.continuation_pending(session)
             // A Claude chat with turns but none stored would wake as a fresh conversation with
-            // its transcript restored into the prompt (`claude_resume_refusal`): kept awake.
-            && !(session.meta().claude_unstored && session.meta().turn_count > 0)
+            // its transcript restored into the prompt (`claude_resume_refusal`): kept awake when
+            // its agent did work there; one that only got agent errors loses nothing (cmux#48917).
+            && !session.meta().keeps_unstored_awake()
     }
 
     /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
