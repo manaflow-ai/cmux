@@ -178,9 +178,9 @@ for (const kind of ["message", "notice"] as const)
     expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_RUN_GAP);
   });
 
-// A turn that ends on work (no reply) draws "Worked for" with an empty footer under it. The notice or
-// message that opens the next turn stood flush under that line (0 px: nothing follows "Worked for"
-// inside its turn), so it read as that turn's last step. It stands the block gap, as under a footer.
+// A turn that ends on work (no reply) draws "Worked for" and, since G04 (cmuxterm-hq#13766), its own
+// footer row with the calls' Copy. The notice or message that opens the next turn stands the block gap
+// under that footer, as under any finished turn's footer, so it never reads as that turn's last step.
 test("turn_result (ended on work) > user_message(turnId, notice) > turn_started: the notice has a block gap over it", async () => {
   const steps: Step[] = [
     ["mux", "user_message", { text: "Watch the broker", turnId: "t1" }],
@@ -214,6 +214,6 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
-    expect(gap(notice.id)).toBe(TRANSCRIPT_RUN_GAP);
+    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
   }
 });

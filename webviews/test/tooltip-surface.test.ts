@@ -393,39 +393,49 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     }
   });
 
-  test("wide rows keep compact scaled bubbles close to the control with title/detail hierarchy", async () => {
+  // A tooltip is one line, like the native one (Chief, 2026-11-21: "Make web tooltips one line, like
+  // native"; TooltipContentView.swift): a long title ends in an ellipsis at the widest tooltip, a
+  // title's second line never shows, and a detail line is gone (its words describe the control).
+  test("a tooltip is one line: a long title ends in an ellipsis, and only its first line shows", async () => {
+    const long = "Open the pull request for the payments service in a new tab beside this chat and keep it there";
     for (const scale of [1, 1.25]) {
       const page = await open(
         theme("dark", `--cmux-interface-scale:${scale};`),
-        '<button id="wide" style="position:absolute;left:20px;top:180px;width:450px;overflow:hidden;white-space:nowrap" title="Fork from here" data-tooltip-detail="Start a new thread. This one stays as it is.">A long truncated control label that extends beyond its row and must not dictate the tooltip width</button>',
+        `<button id="wide" style="position:absolute;left:20px;top:150px;width:28px;height:28px" title="${long}"></button>` +
+          '<button id="rows" style="position:absolute;left:80px;top:150px;width:28px;height:28px" title="Fork from here&#10;Start a new thread." data-tooltip-detail="This one stays as it is."></button>',
       );
       try {
-        await hoverAndWait(page, "wide");
-        const seen = await page.evaluate(() => {
-          const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
-          tip.getAnimations().forEach((animation) => animation.finish());
-          const rect = tip.getBoundingClientRect();
-          const anchor = document.getElementById("wide")!.getBoundingClientRect();
-          const title = getComputedStyle(tip.querySelector(".ui-tooltip-text")!);
-          const detail = getComputedStyle(tip.querySelector(".ui-tooltip-detail")!);
-          return {
-            width: rect.width,
-            gap: rect.top - anchor.bottom,
-            titleWeight: Number(title.fontWeight),
-            detailWeight: Number(detail.fontWeight),
-            titleColor: title.color,
-            detailColor: detail.color,
-            text: tip.textContent,
-          };
-        });
-        expect(seen.width).toBeLessThanOrEqual(320 * scale);
-        expect(seen.width).toBeLessThan(450);
-        // Placement rounds its top to a CSS pixel, including fractional scaled line heights.
-        expect(Math.abs(seen.gap - 4 * scale)).toBeLessThanOrEqual(0.5);
-        // One weight (the native tooltip's regular text); the detail is told apart by its dimmer ink.
-        expect(seen.titleWeight).toBe(seen.detailWeight);
-        expect(seen.titleColor).not.toBe(seen.detailColor);
-        expect(seen.text).toContain("This one stays as it is.");
+        const seen = async (id: string) => {
+          await hoverAndWait(page, id);
+          return page.evaluate(() => {
+            const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+            const text = tip.querySelector<HTMLElement>(".ui-tooltip-text")!;
+            const style = getComputedStyle(tip);
+            return {
+              text: tip.textContent,
+              width: tip.getBoundingClientRect().width,
+              height: tip.getBoundingClientRect().height,
+              line: parseFloat(style.lineHeight),
+              padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+              rim: parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth),
+              cut: text.scrollWidth > text.clientWidth,
+              ellipsis: getComputedStyle(text).textOverflow,
+              details: tip.querySelectorAll(".ui-tooltip-detail").length,
+            };
+          });
+        };
+        const wide = await seen("wide");
+        expect(wide.text).toBe(long);
+        expect(wide.width).toBeLessThanOrEqual(320 * scale + 0.5);
+        expect(Math.abs(wide.height - (wide.line + wide.padding + wide.rim))).toBeLessThanOrEqual(0.5);
+        expect(wide.cut).toBe(true);
+        expect(wide.ellipsis).toBe("ellipsis");
+        await page.mouse.move(400, 280);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden);
+        const rows = await seen("rows");
+        expect(rows.text).toBe("Fork from here");
+        expect(rows.details).toBe(0);
+        expect(Math.abs(rows.height - (rows.line + rows.padding + rows.rim))).toBeLessThanOrEqual(0.5);
       } finally {
         await page.close();
       }
