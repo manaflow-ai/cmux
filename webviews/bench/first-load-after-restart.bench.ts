@@ -93,7 +93,7 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
-import { restartSettled } from "./restartSettled";
+import { goneRows, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 
@@ -205,11 +205,15 @@ function replayLatest(records: readonly { kind: string; msg: unknown }[]): strin
   records.forEach((record, index) => {
     if (record.kind === "user_message") at = index;
   });
+  // The turn's last message, which stays drawn: the ones before it can fold under its "Worked for".
   let text = "";
+  let message: unknown;
   for (const record of records.slice(at + 1)) {
     if (record.kind !== "agent_message_chunk") continue;
     const params = (record.msg as { params?: { _meta?: { acpmux?: { subagent?: string } }; update?: any } }).params;
     if (params?._meta?.acpmux?.subagent) continue;
+    if (params?.update?.messageId !== message) text = "";
+    message = params?.update?.messageId;
     text += String(params?.update?.content?.text ?? "");
   }
   const words = text
@@ -1610,6 +1614,8 @@ try {
       })),
       median: medians,
       max: maxima,
+      // Rows a frame showed that the settled chat does not (restartSettled.ts `goneRows`), per round.
+      gone: rounds.map((r) => goneRows(r.frames)),
     };
     const row = mode.replace("-", "_");
     for (const [metric, key, unit] of [
