@@ -1,6 +1,7 @@
 // Shared by the run sheet and the full inline transcript; every stored step stays in order.
 import { memo, useMemo } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
+import { UrlChip } from "../../agent-session/acpmux/chips/LinkChips";
 import { HomeToolGroup } from "./HomeToolGroup";
 import { useT as usePaneT } from "../../agent-session/acpmux/i18n";
 import { runBlocks } from "./runBlocks";
@@ -24,9 +25,9 @@ export const RunSteps = memo(function RunSteps({
         {step.links
           .filter((link) => safeLink(link.url))
           .map((link, index) => (
-            <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer">
+            <UrlChip key={`${index}-${link.url}`} href={link.url} target="_blank">
               {link.label}
-            </a>
+            </UrlChip>
           ))}
       </p>
     );
@@ -71,7 +72,11 @@ export const RunSteps = memo(function RunSteps({
           <Thought key={block.key} text={block.step.text ?? ""} />
         ) : (
           <div key={block.key} className={`lg-run-block ${block.kind}`}>
-            {block.step.text && <Markdown className="hc-md">{block.step.text}</Markdown>}
+            {block.step.text && (
+              <Markdown className="hc-md" messageAt={block.step.at}>
+                {block.step.text}
+              </Markdown>
+            )}
             {stepLinks(block.step)}
           </div>
         ),

@@ -33,15 +33,15 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
+  turnTimeKey,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
+import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -59,7 +59,8 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -171,6 +172,7 @@ function groupNode(
         <AcpmuxSendLine
           key={sendKey(group.item.tool!.id, group.send.index) || index}
           tool={group.item.tool!}
+          messageAt={rowAt}
           send={group.send}
         />
       );
@@ -183,6 +185,7 @@ function groupNode(
               <AcpmuxSendLine
                 key={sendKey(entry.item.tool!.id, entry.send.index) || at}
                 tool={entry.item.tool!}
+                messageAt={rowAt}
                 send={entry.send}
                 grouped
               />
@@ -194,7 +197,14 @@ function groupNode(
       );
     }
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+      return (
+        <SubsessionCallCard
+          key={group.item.tool!.id || index}
+          call={group.call}
+          tool={group.item.tool!}
+          messageAt={rowAt}
+        />
+      );
     case "subsessionGroup":
       return (
         <SubsessionCallCard
@@ -348,9 +358,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
-    <span className="cv-turn-stopped" aria-description={forced ?? workedLabel(t, row)}>
-      {t("turn.stoppedMark")}
-    </span>
+    <WithFacts facts={[{ value: forced ?? workedLabel(t, row) }]}>
+      {(facts) => (
+        <span {...facts} className="cv-turn-stopped">
+          {t("turn.stoppedMark")}
+        </span>
+      )}
+    </WithFacts>
   );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
@@ -497,9 +511,14 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 )}
               </span>
             )}
-            {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
-            )}
+            {!messages &&
+              fork &&
+              seq !== undefined &&
+              (forkAny || seq === forkSeq ? (
+                <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+              ) : (
+                <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
+              ))}
             {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
               <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
             )}

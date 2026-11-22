@@ -9,7 +9,8 @@ import Observation
 /// item (`ChiefSidebar`), which draw only once the person adds that item. No Lanes item (Lawrence
 /// 2026-10-20). What's New never shows here: after an update it is only the bottom-left "cmux
 /// Updated!" card (Lawrence 2026-10-18). Feature modules may add transient rows through the
-/// `additional` source; those rows never enter the durable sidebar document.
+/// `additional` source (Hosts and other machines' chat groups, behind `labs.hostsSidebar`); those rows
+/// never enter the durable sidebar document. A look's nav block (`sidebar.nav`) draws first, above Home (`SidebarTransientItem.nav`).
 extension SidebarModel {
     /// Keeps `transientTopItems` current until cancelled. `document`: the app's own sidebar document, which every
     /// window of that app draws from.
@@ -36,7 +37,8 @@ extension SidebarModel {
     /// The items the feed shows now. Read inside an observation scope, so a change re-yields.
     /// The Chief's subagent rows draw only under the Chief item, in the top band.
     public static func topItems(chief: ChiefSidebar = .shared) -> [SidebarTransientItem] {
-        [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
+        SidebarTransientItem.nav(DesignSettings.shared.sidebarSections.nav)
+            + [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
             + chief.rows()
     }
 }

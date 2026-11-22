@@ -27,6 +27,7 @@ import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { factsCardText } from "../../../../test/support/factsCard";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -167,7 +168,8 @@ test("a background task an agent named reads as what it does, then its name", as
   const named = container.querySelector<HTMLElement>(".cv-bgtask__title")!;
   expect(named.textContent).toBe("Waiting 14m · hold");
   expect(named.title).toBe("");
-  expect(named.getAttribute("aria-description")).toBe("sleep 840; echo t");
+  // The command it runs shows on the name's hover card.
+  expect(await factsCardText(named)).toBe("sleep 840; echo t");
   expect(container.querySelector(".cv-bgtask__command")).toBeNull();
 });
 
