@@ -341,8 +341,6 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        // The name truncates in the middle, so hovering the row shows it whole.
-        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }

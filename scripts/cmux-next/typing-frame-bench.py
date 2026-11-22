@@ -51,6 +51,9 @@ carries `frame_timing.valid`, false for a mock-streamed load phase, because whet
 renderer producing frames like the real transport is not established (hq#15723). Every other number in the
 row stands either way.
 
+The perf cron's `typing` part runs the terminal surface only, idle (scripts/cmux-next/perf-cron.py PARTS): its row
+terminal.key_to_echo.idle pools every round's keys (`key_to_frame_values`), p50 and p95, budget p95 8 ms.
+
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
     --artifact artifacts/split-spring/report.json --arg=--suite=typing-frame [--arg=--stress] [--arg=--sample] \\
@@ -954,6 +957,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "mode_missing": (MODE or {}).get("nativeMissing") or [],
         "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
+        # Every measured key's value, so a reader pools the rounds (the perf cron's terminal.key_to_echo rows).
+        "key_to_frame_values": [round(v, 3) for v in f(column)],
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
         "dispatch_ms": pct([float(r["dispatch_end_ms"]) - float(r["dispatch_start_ms"]) for r in rows
                             if r.get("dispatch_end_ms") and r.get("dispatch_start_ms")]),
