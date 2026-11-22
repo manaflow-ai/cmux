@@ -26,7 +26,7 @@ pub use clock::{Clock, ManualClock, SystemClock};
 pub use compactor::{build_node, probe, run_node, Built, PROBE_NODE};
 pub use config::{
     api_key, Config, API_KEY_ENV, BASE_URL_ENV, DEFAULT_BASE_URL, DEFAULT_EFFORT,
-    DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, SUBROUTER_KEY,
+    DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, SEND_KEY_ENV, SUBROUTER_KEY,
 };
 pub use db::{Appended, NewMessage, StateWrite};
 pub use fault::{fault, FAULT_ENV};

@@ -308,16 +308,14 @@ def main():
                f"publish with build {build}, fallback {fallback}, recovered {recovered or '-'}: {'runs' if expected else 'skipped'}")
         _check(evaluate(all_jobs["sentry-dsyms"]["if"], values) == expected,
                f"sentry-dsyms with build {build}, fallback {fallback}: {'runs' if expected else 'skipped'}")
-    # The shipped Linux targets build fat in `build`; build-linux is the Cloud machine channel's thin
-    # copy, which publish never reads or waits for.
-    _check("build-linux" not in needs(publish), "publish never waits for the machine channel's thin build-linux")
-    _check("build-linux" not in str(publish["if"]), "publish never reads build-linux's result")
+    # MUSL_BUILT_ONCE: the Linux targets build once, fat, in `build`; no second Linux build call exists.
+    _check("build-linux" not in all_jobs, "the musl targets build once, in build")
 
     # 3b. FALLBACK_AFTER_TIMEOUT: the macOS fallback is planned after a build that its timeout cancelled
     # (2026-11-13, run 43346255778: the leg on an owned Mac ended `cancelled`, the plan read only `failure`,
     # and the tree was never published), and it builds on the builder the first build did not use.
     plan = all_jobs["darwin-fallback-plan"]
-    planned = {"__needs__": needs(plan), "needs.build-linux.result": "success",
+    planned = {"__needs__": needs(plan),
                "needs.tree-preflight.outputs.darwin_builder": "linux"}
     for build, expected in (("failure", True), ("cancelled", True), ("success", False), ("skipped", False)):
         _check(evaluate(plan["if"], dict(planned, **{"needs.build.result": build})) == expected,
