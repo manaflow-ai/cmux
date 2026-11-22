@@ -15,6 +15,9 @@
 // check the rate and the main display before measuring anything. Uses the private
 // CGVirtualDisplay API (as BetterDisplay and DeskPad do); the display goes away when this
 // process exits.
+// Then, when this Mac's acpmux share host has a hub device, prints "screen URL": the link that opens this
+// display live, view-only, in cmux on Leo's Mac or iPhone (`acpmux share-host link --display ID`, Rust). The
+// label is $CMUX_SCREEN_NAME, else "vdisplay"; $CMUX_ACPMUX names the acpmux to ask. No line when none answers.
 #import <AppKit/AppKit.h>
 #import <CoreVideo/CoreVideo.h>
 #include <mach/mach_time.h>
@@ -112,6 +115,46 @@ static double medianInterval(CGDirectDisplayID display) {
   return intervals[count / 2];
 }
 
+// The acpmux to ask for a screen link: $CMUX_ACPMUX, else the one on PATH, else an installed cmux's.
+static NSString *acpmuxPath(void) {
+  NSFileManager *files = NSFileManager.defaultManager;
+  NSString *named = NSProcessInfo.processInfo.environment[@"CMUX_ACPMUX"];
+  if (named.length) return [files isExecutableFileAtPath:named] ? named : nil;
+  for (NSString *dir in [NSProcessInfo.processInfo.environment[@"PATH"] componentsSeparatedByString:@":"]) {
+    NSString *path = [dir stringByAppendingPathComponent:@"acpmux"];
+    if (dir.length && [files isExecutableFileAtPath:path]) return path;
+  }
+  for (NSString *app in @[@"cmux NIGHTLY", @"cmux", @"cmux RC"]) {
+    NSString *path = [NSString stringWithFormat:@"/Applications/%@.app/Contents/Resources/bin/acpmux", app];
+    if ([files isExecutableFileAtPath:path]) return path;
+  }
+  return nil;
+}
+
+// Prints "screen URL" for the display, or nothing; gives up after 5 s so a slow daemon never holds a run.
+static void printScreenLink(CGDirectDisplayID display) {
+  NSString *acpmux = acpmuxPath();
+  if (!acpmux) return;
+  NSString *name = NSProcessInfo.processInfo.environment[@"CMUX_SCREEN_NAME"] ?: @"vdisplay";
+  NSTask *task = [NSTask new];
+  task.executableURL = [NSURL fileURLWithPath:acpmux];
+  task.arguments = @[@"share-host", @"link", @"--display", [NSString stringWithFormat:@"%u", display], @"--name", name];
+  NSPipe *pipe = [NSPipe pipe];
+  task.standardOutput = pipe;
+  task.standardError = [NSFileHandle fileHandleWithNullDevice];
+  dispatch_semaphore_t done = dispatch_semaphore_create(0);
+  task.terminationHandler = ^(NSTask *t) { dispatch_semaphore_signal(done); };
+  if (![task launchAndReturnError:nil]) return;
+  if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC))) {
+    [task terminate];
+    return;
+  }
+  if (task.terminationStatus != 0) return;
+  NSString *out = [[NSString alloc] initWithData:[pipe.fileHandleForReading readDataToEndOfFile] encoding:NSUTF8StringEncoding];
+  NSString *web = [[out componentsSeparatedByString:@"\n"] firstObject];
+  if ([web hasPrefix:@"https://"]) printf("screen %s\n", web.UTF8String);
+}
+
 int main(int argc, char **argv) {
   @autoreleasepool {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -199,6 +242,7 @@ int main(int argc, char **argv) {
     NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
     printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f scale=%.0f\n", display.displayID, medianInterval(display.displayID),
            CGMainDisplayID(), width, height, visible.size.width, visible.size.height, screen ? screen.backingScaleFactor : 0);
+    printScreenLink(display.displayID);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];
   }
   return 0;
