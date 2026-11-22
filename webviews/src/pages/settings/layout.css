@@ -1033,7 +1033,6 @@
     flex-direction: row;
     gap: var(--ds-space-1);
     overflow-x: auto;
-    scrollbar-width: none;
   }
 
   /* The side with categories past it fades them out (data-fade-left / data-fade-right,

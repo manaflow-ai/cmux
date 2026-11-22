@@ -303,7 +303,7 @@ export function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
+      <div className="row library-line" {...shared} aria-description={entryDetail(entry)}>
         <div className="row-main">
           <span className="library-position row-help">{entry.position}</span>
           <LibrarySwatches entry={entry} />

@@ -21,7 +21,7 @@ export function Link({ href, open, children }: { href: string; open: Open; child
     <a
       className="gh-md-link"
       href={url}
-      title={url}
+      aria-description={url}
       onClick={(event) => {
         event.preventDefault();
         open(url);
