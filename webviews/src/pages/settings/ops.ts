@@ -698,7 +698,9 @@ export type AllotmentPosition = AllotmentDecision["position"];
 
 /** One gesture of the Compute card: up and down apply the decision's `to_commit_micros`; hold
  * snoozes proposals 14 days. `auto` sets the mode. */
-export type AllotmentSet = { action: AllotmentPosition; auto?: boolean };
+/** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
+ * cloud.allotment.set does. `hold` snoozes proposals. */
+export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
 
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =

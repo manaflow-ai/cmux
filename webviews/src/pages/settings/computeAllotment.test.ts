@@ -114,7 +114,7 @@ test("the mock backend applies the proposal, snoozes on hold and flips Auto alon
   const held = runMockAllotment(mockAllotments.proposalUp, { action: "hold" });
   expect(held.allotment?.snoozed_until).toBe(MOCK_AS_OF + 14 * 86_400_000);
   expect(proposalSentence(held, en)).toBe("Holding at $300 until Dec 6, 2026. Nothing to decide.");
-  const auto = runMockAllotment(mockAllotments.proposalUp, { action: "hold", auto: true });
+  const auto = runMockAllotment(mockAllotments.proposalUp, { auto: true });
   expect(auto.allotment?.mode).toBe("auto");
   expect(auto.allotment?.snoozed_until).toBeNull();
   expect(auto.decision).toEqual(mockAllotments.proposalUp.decision);

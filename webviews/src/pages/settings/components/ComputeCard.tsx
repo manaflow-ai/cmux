@@ -173,7 +173,7 @@ function AutoSwitch({ model, busy, onSet }: PartProps) {
         aria-labelledby={label}
         checked={model.auto}
         disabled={busy || model.locked}
-        onCheckedChange={(on) => onSet({ action: "hold", auto: on })}
+        onCheckedChange={(on) => onSet({ auto: on })}
       />
     </span>
   );
@@ -283,6 +283,16 @@ function Meter({ model, busy, onSet }: PartProps) {
           {step("down", "-", "Scale down")}
           <span className="row-help whitespace-nowrap">{meter.allotLabel}</span>
           {step("up", "+", "Scale up")}
+          {!option("hold").proposed && (
+            <Button
+              size="sm"
+              disabled={busy || model.locked || option("hold").disabled}
+              data-compute-option="hold"
+              onClick={() => onSet({ action: "hold" })}
+            >
+              {option("hold").label}
+            </Button>
+          )}
         </div>
         {meter.capLabel && meter.cap !== null && (
           <span

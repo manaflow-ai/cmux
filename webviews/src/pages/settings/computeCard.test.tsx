@@ -84,11 +84,19 @@ test("the inbox's Accept applies its reason and Not now holds", async () => {
   second.unmount();
 });
 
-test("the Auto switch sends hold with auto and changes only the mode", async () => {
+test("the Auto switch sends only auto and changes only the mode", async () => {
   const page = await render(mockAllotments.proposalUp);
   await click(card(page).querySelector<HTMLElement>('[data-compute-auto] [role="switch"]')!);
-  expect(page.provider.allotmentRuns).toEqual([{ action: "hold", auto: true }]);
+  expect(page.provider.allotmentRuns).toEqual([{ auto: true }]);
   expect(page.provider.allotment?.allotment?.mode).toBe("auto");
   expect(page.provider.allotment?.allotment?.snoozed_until).toBeNull();
+  page.unmount();
+});
+
+test("the meter offers Hold while a proposal waits, and Hold snoozes it", async () => {
+  const page = await render(mockAllotments.proposalUp, "meter");
+  await click(option(page, "hold"));
+  expect(page.provider.allotmentRuns).toEqual([{ action: "hold" }]);
+  expect(page.provider.allotment?.allotment?.snoozed_until).not.toBeNull();
   page.unmount();
 });

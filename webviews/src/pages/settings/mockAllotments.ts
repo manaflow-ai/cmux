@@ -206,17 +206,18 @@ export const mockAllotments = { proposalUp, proposalDown, hold, empty, autoOn } 
 
 export type MockAllotmentState = keyof typeof mockAllotments;
 
-/** The backend's answer to one set: the view after it. A set that names `auto` with hold only
- * changes the mode (the Auto switch); hold alone snoozes proposals 14 days. */
+/** The backend's answer to one set: the view after it. A set with no action only
+ * changes the mode (the Auto switch); hold snoozes proposals 14 days. */
 export function runMockAllotment(view: AllotmentView, run: AllotmentSet, by = "Leo"): AllotmentView {
   const before = view.allotment ?? allotment(0, { tiers: {}, changed_at: view.as_of });
-  const commit = commitFor(view, run.action);
-  const onlyMode = run.action === "hold" && run.auto !== undefined;
+  const before0 = view.allotment?.commit_micros ?? 0;
+  const onlyMode = run.action === undefined;
+  const commit = run.action === undefined ? before0 : commitFor(view, run.action);
   const next: TeamAllotment = {
     ...before,
     commit_micros: commit,
     mode: run.auto === undefined ? before.mode : run.auto ? "auto" : "ask",
-    snoozed_until: run.action === "hold" && !onlyMode ? view.as_of + 14 * DAY_MS : before.snoozed_until,
+    snoozed_until: run.action === "hold" ? view.as_of + 14 * DAY_MS : before.snoozed_until,
     changed_at: view.as_of,
     changed_by: by,
   };

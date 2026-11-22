@@ -662,8 +662,10 @@ export class MockSettingsProvider {
         const run = params as AllotmentSet;
         this.allotmentRuns.push(run);
         if (!this.allotment) throw new ProtocolError("cmux.settings.unavailable", "this host has no Compute part");
-        if (run.action !== "down" && run.action !== "hold" && run.action !== "up")
+        if (run.action !== undefined && run.action !== "down" && run.action !== "hold" && run.action !== "up")
           throw new ProtocolError("cmux.settings.invalid", "action must be down, hold or up");
+        if (run.action === undefined && run.auto === undefined)
+          throw new ProtocolError("cmux.settings.invalid", "a set names an action or auto");
         this.allotment = runMockAllotment(this.allotment, run);
         return this.allotment;
       },
