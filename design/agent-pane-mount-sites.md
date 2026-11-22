@@ -16,7 +16,7 @@ the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` an
 
 | # | Surface | Site | Trigger | Loads while unseen? | Cache-first draw | Before | After | Read |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Mac, restored chat tab, focused | `CmuxNextApp/AgentTabs.swift` `makeView` → `PageWebView(.agent)` | launch | no | saved page JPEG (native layer), then the page's own saved copy, then kept tail | not measured | | code |
+| 1 | Mac, restored chat tab, focused | `CmuxNextApp/AgentTabs.swift` `makeView` → `PageWebView(.agent)` | launch | no | saved page JPEG (native layer), then the page's own saved copy, then kept tail | page only, see Baseline: first content 60 ms, settled 458 ms local to 1505 ms throttled; app, CEF and Swift start not measured | | run (page), code (native) |
 | 2 | Mac, restored chat tab, other pane | same, behind `AgentTabStore+Launch.swift` `deferAtLaunch` | focused terminal's first frame | waits for the terminal, then loads whether or not looked at | same as 1 | not measured | | code |
 | 3 | Mac, chat tab not selected in its pane | `AgentTabs.view(for:)` on first show or on hover (`PaneController+Neighbors.swift`) | show, hover | hover loads it before it shows | same as 1 | not measured | | code |
 | 4 | Mac, every agent page under Chromium | `CmuxNextPages/PageWebView.swift` init builds a `PageWKWebView` before the engine is chosen | every page | yes: a WebKit view nobody draws when the engine is CEF | n/a | first view in the process 26 to 43 ms main thread and 3.4 to 4.9 MB; each later one about 1 ms and about 75 KB (stand-in script, air-blue M5 under load average 57 to 85, 5 runs of 20 views; helper processes not checked) | not cut: about 1 ms a page | run |
@@ -32,6 +32,23 @@ the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` an
 | 14 | iOS chat | native `AgentChatScreen`; `WorkspaceTabsSource.chatStore()` | navigation; also card, accessory and menu bodies | a store is built for tabs never opened | `AgentTranscriptCache` head file | not measured | | code |
 | 15 | iOS Cloud chat | per-chat relay, `AcpmuxHub.transcriptCache == nil` | open | not traced | none | not measured | | code |
 | 16 | iOS Feed markdown pool | `WebMarkdownRenderer.prewarm` (2 web views) | Feed open | yes | n/a | not measured | | code |
+
+## Baseline: one restored chat against the terminal
+
+`scripts/measure/restart-settled-linux.sh links=local,rtt50,rtt200,throttled rounds=5 turns=120 down=0`, medians of
+5, tree 55298006b48d, Linux Chromium on a fleet runner (cmux-ci runs 45005743114 for the terminal, 45006868481 for
+the chat). One 120-turn chat, nothing streaming, one page: this is the quiet case, not duress.
+
+| Link | Chat first content | Chat settled | Chat attach answered | Chat bytes | Terminal first content = settled | Terminal bytes |
+|---|---|---|---|---|---|---|
+| local | 60 ms | 458 ms | 405 ms | 75,703 | 0.9 ms | 39,620 |
+| rtt50 | 59 ms | 590 ms | 478 ms | 75,703 | 151 ms | 40,118 |
+| rtt200 | 61 ms | 1103 ms | 766 ms | 75,703 | 601 ms | 40,118 |
+| throttled | 61 ms | 1505 ms | 650 ms | 75,703 | 776 ms | 39,620 |
+
+The chat's first content comes from its saved copy, so it does not move with the link; no layout shift in any
+round. What the link moves is the time until the chat is live: 0.46 s on a local link, where the terminal takes
+1 ms, and about 2x the terminal on the slower links.
 
 iOS has no web agent pane: its chat is native. Rows 14 to 16 are here because the same question applies.
 
