@@ -198,6 +198,7 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
     Auth as PlatformAuth, CallError as PlatformCallError, Platform,
@@ -323,6 +324,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "rpc",
     "remote-exec",
     "remote-cp",
+    "spill",
     "enroll",
     "known-daemons",
     "remote-probe",
@@ -995,6 +997,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
+        .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
