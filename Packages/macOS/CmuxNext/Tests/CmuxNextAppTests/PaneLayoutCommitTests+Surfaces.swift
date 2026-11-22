@@ -134,6 +134,26 @@ extension PaneLayoutCommitTests {
         #expect(harness.root.context.hosts[Self.left]?.showsLateGround == false, "the ground stays after the surface reported")
     }
 
+    /// A producer cannot hold a change without end: what it asks for is taken up to
+    /// `ScreenContentView.longestCommitWait` ticks, then the change shows.
+    @Test func aSurfaceAsksForAtMostTheLongestWait() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let left = try #require(harness.provider.surface(Self.left))
+        left.commitWaitTicks = 1_000
+
+        harness.model.apply(screens: Self.pairSplit(.horizontal))
+        let new = Rest(harness.model.screens, in: screen, style: style)
+        harness.root.syncWithModel()
+        #expect(ScreenContentView.longestCommitWait == 8, "the longest wait is \(ScreenContentView.longestCommitWait) ticks, not 8")
+        for _ in 1...8 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
+        #expect(!harness.root.advanceFrame(PaneMotionBench.frameBudget), "a frame tick is asked for after the longest wait")
+        #expect(new.isShown(by: Self.shown(screen)), "the change did not show after the longest wait")
+    }
+
     /// A pane that shows its ground for a late producer, whose producer then goes (its view hides): the next change
     /// that resizes the pane asks no producer and waits for none, and the pane shows its content again with that
     /// change. The ground never stays for a producer that is no longer there.

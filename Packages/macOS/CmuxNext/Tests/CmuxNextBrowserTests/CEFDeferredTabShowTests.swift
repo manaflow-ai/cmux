@@ -305,21 +305,29 @@ import Testing
         #expect(ready == 1, "the page reported twice for one commit")
     }
 
-    /// A page that does not lay out at the zoomed size in time is ready at its own bound, 2 display frames, one under
-    /// the commit's (3): it is never late, so its pane never shows its ground instead of the page.
+    /// A page that does not lay out at the zoomed size in time asks its commit to wait for it longer than the commit's
+    /// own bound (``CEFCommitPageWait/commitTicks``), and is ready at its own bound, one frame under that: it is never
+    /// late, so its pane never shows its ground instead of the page. Once it reported it asks for no more.
     @Test func aGrowingCommitWithoutAFenceIsReadyAtItsBoundWhenThePageIsSlow() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (_, first, window, answers, frames) = try Self.zoomablePage(runtime)
         defer { window.closeAfterTest() }
         defer { answers.answer(false) }
+        let page = first.container
+        #expect(page.commitWaitTicks == nil, "a page with no commit asks one to wait")
 
         var ready = 0
-        first.container.commitWillResize(by: CGSize(width: 480, height: 120)) { ready += 1 }
+        page.commitWillResize(by: CGSize(width: 480, height: 120)) { ready += 1 }
+        #expect(page.commitWaitTicks == CEFCommitPageWait.commitTicks, "a page laying out ahead does not ask its commit to wait for it")
+        #expect(CEFCommitPageWait.readyFrames == CEFCommitPageWait.commitTicks - 1, "the page's bound is not one frame under the ticks it asks for")
+        for frame in 1..<CEFCommitPageWait.readyFrames {
+            frames.tick()
+            #expect(ready == 0, "frame \(frame): a slow page is ready before its bound")
+        }
         frames.tick()
-        #expect(ready == 0)
-        frames.tick()
-        #expect(ready == 1, "a slow page is not ready at its bound of 2 frames: its pane would show its ground")
+        #expect(ready == 1, "a slow page is not ready at its bound: its pane would show its ground")
+        #expect(page.commitWaitTicks == nil, "a page that reported still asks its commit to wait")
     }
 
     /// A change taken back before it showed (`commitWillResize(by: .zero)`) gives the page its pane's size again at
@@ -360,6 +368,7 @@ import Testing
         #expect(ready == 1)
         #expect(host.hostView.frame.size == CGSize(width: 400, height: 300))
         #expect(answers.asked.isEmpty)
+        #expect(first.container.commitWaitTicks == nil, "a shrinking page asks its commit to wait for it")
     }
 
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear

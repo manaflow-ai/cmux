@@ -737,8 +737,12 @@ def film(name, label):
     perform(name)
     time.sleep(1.6)  # test harness: the act and the page's layout land
     rpc("debug.motion", {"action": "record_stop"})
-    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 10):
-        print(f"  (film of {label}: not written in 10 s)", flush=True)
+    # The app writes the files at the stop, not after ScreenCaptureKit's own stop (which can take its 10 s limit):
+    # 30 s is far past any write. Every take is a row, so a film that is missing or incomplete fails the run.
+    counts = wait(lambda: (lambda c: c if c.get("written") else None)(rpc("debug.motion", {"action": "record_read"}) or {}), 30) or {}
+    status = counts.get("movie_status") or "not written in 30 s"
+    detail = "".join(f", {key} {counts[key]}" for key in ("stop_error", "write_error") if counts.get(key))
+    row(f"film {label}: written", "completed", status + detail, status == "completed" and os.path.exists(path))
 
 
 def record(name, label):
