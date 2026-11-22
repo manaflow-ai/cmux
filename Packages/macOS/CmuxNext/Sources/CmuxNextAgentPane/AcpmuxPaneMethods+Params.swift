@@ -35,6 +35,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch": (["enabled", "limit", "afterSeq", "listEpoch"], []),
         // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
         "_acpmux/sessions": (["limit", "cursor", "usage"], []),
+        // `known`: the digest of the usage answer the page holds; acpmux answers `unchanged` while it is current.
+        "_acpmux/usage": (["known"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
@@ -116,6 +118,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
+        "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
