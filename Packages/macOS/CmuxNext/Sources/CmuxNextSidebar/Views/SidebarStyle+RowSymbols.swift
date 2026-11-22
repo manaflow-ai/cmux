@@ -11,14 +11,16 @@ extension SidebarStyle {
     /// The side every row symbol's image draws at: the side the leading pin takes once its ink fills the rows' one
     /// optical square (`rowGlyphOptics`), so the hover pin is the leading pin's size and the ⋮ and ✕ beside it share
     /// that scale and that stroke (the pack draws every glyph on one 24 pt grid with one stroke width). Never past a
-    /// control's square, the hit box every trailing control takes (`controlSize`), on half points so it draws crisp.
+    /// control's square, the hit box every trailing control takes (`controlSize`), on half points so it draws crisp, and
+    /// never under the pack's smallest icon (`iconFloor`), which every glyph clamps to: below it the hover controls would
+    /// draw at the floor while the side said less (Ultra-compact's 11.5 pt).
     @MainActor static var rowSymbolSide: CGFloat {
         let base = pinGlyphSide
         let image = NSImage.icon(.statePinned, size: base, style: .solid)
         let fitted = SidebarGlyphInk.shared.box(of: image, glyph: SidebarItemRowView.pinGlyph)
             .map { SidebarOpticalGlyph.fittedExtent($0.size) } ?? 0
         let side = fitted > 0 ? base * rowGlyphOpticalSide / fitted : base
-        return min(controlSize, (side * 2).rounded() / 2)
+        return min(controlSize, max(.iconFloor, (side * 2).rounded() / 2))
     }
 }
 

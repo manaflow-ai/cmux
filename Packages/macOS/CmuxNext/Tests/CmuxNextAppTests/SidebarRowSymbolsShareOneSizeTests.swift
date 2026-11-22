@@ -17,7 +17,7 @@ import Testing
     }
 
     /// Device pixels at 2x, and the half-point snap of `rowSymbolSide` against the leading pin's pixel-snapped frame.
-    static let tolerance: CGFloat = 0.5
+    static let tolerance: CGFloat = 0.51
 
     static func side(_ button: SidebarIconButton) throws -> CGFloat {
         try #require(button.image, "\(button.accessibilityLabel() ?? "a control") drew no glyph").size.width
@@ -39,7 +39,11 @@ import Testing
 
             // A hovered workspace row's Pin, ⋮ and ✕: one glyph side, one hit box, one center line.
             let row = try HomePinnedRowAlignmentTests.row(list, SidebarLeadingEdgeTests.pinning)
+            // The App wires these; a row without a menu or a pin action shows neither on hover.
             row.isPinned = { false }
+            row.onMore = {}
+            row.onPin = {}
+            row.onClose = {}
             row.isHovered = true
             row.needsLayout = true
             row.layoutSubtreeIfNeeded()

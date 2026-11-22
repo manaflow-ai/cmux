@@ -2681,3 +2681,5 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Dev build: the leading pin's ink measured 16×23 px and the hover Pin's 16×24 px at 2x. Regression:
   `SidebarRowSymbolsShareOneSizeTests`. https://github.com/manaflow-ai/cmux/issues/49583
   Sidebar-Look: "are all of these the same size icons wise… look at the top left one… fix the problem"
+  2026-11-22: `rowSymbolSide` never goes under the pack's `iconFloor` (12 pt), which every glyph clamps to (Ultra-compact
+  computed 11.5).
