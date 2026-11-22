@@ -1959,6 +1959,16 @@
       "title" : "Saturation",
       "type" : "number"
     },
+    "appearance.selection" : {
+      "default" : "accent",
+      "description" : "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+      "enum" : [
+        "accent",
+        "neutral"
+      ],
+      "title" : "Selection",
+      "type" : "string"
+    },
     "appearance.sidebarSurface" : {
       "default" : "same",
       "description" : "Separate shades the sidebar darker than the main pane.",
@@ -5200,6 +5210,17 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nav" : {
+      "default" : [
+
+      ],
+      "description" : "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Sidebar Nav Rows",
+      "type" : "array"
     },
     "sidebar.noFade" : {
       "default" : false,
