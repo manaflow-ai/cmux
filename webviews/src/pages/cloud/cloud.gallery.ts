@@ -1,11 +1,18 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
 import { sampleMachines, sampleSnapshots } from "./mockData";
-import type { CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
+import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
 const snapshots = sampleSnapshots();
-const diskReport = (free_mb: number, total_mb: number, floor_mb: number, observed_at = Date.now()) => ({
+const diskReport = (
+  free_mb: number,
+  total_mb: number,
+  floor_mb: number,
+  observed_at = Date.now(),
+): CloudDiskHealth => ({
+  // The Cloud API computes the state; the fixture mirrors its floor rule.
+  state: free_mb <= floor_mb ? "warning" : "healthy",
   free_mb,
   used_mb: total_mb - free_mb,
   total_mb,
