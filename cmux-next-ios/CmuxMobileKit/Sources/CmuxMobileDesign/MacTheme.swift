@@ -316,10 +316,14 @@ public final class CmuxMobileMacTheme: @unchecked Sendable {
     /// The last queued disk job: each one waits for it, so writes land in order.
     @ObservationIgnored private var diskTail: Task<Void, Never>?
 
-    /// Whether the chrome, the accent and the wallpaper follow the Mac's theme.
+    /// Posted when ``matchesMac`` changes: open terminals recolor (``CmuxMobileTerminalThemes``).
+    public static let matchesMacDidChange = Notification.Name("cmuxMobile.macTheme.matchesMacDidChange")
+
+    /// Whether the chrome, the accent, the wallpaper and the terminals follow the Mac's theme.
     public var matchesMac: Bool {
         didSet {
             defaults.set(matchesMac, forKey: Self.settingKey)
+            if matchesMac != oldValue { NotificationCenter.default.post(name: Self.matchesMacDidChange, object: self) }
             // Turned back on: the chat's picture, if the Mac shows one this phone lacks, is fetched now.
             guard matchesMac, !oldValue, let wanted = pictureWanted else { return }
             if Thread.isMainThread {

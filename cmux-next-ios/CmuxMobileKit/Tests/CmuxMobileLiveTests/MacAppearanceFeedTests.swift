@@ -76,22 +76,25 @@ import UIKit
         #expect(feed.latest.isEmpty)
     }
 
-    /// Each Mac's terminals take that Mac's terminal theme, whether or not the phone focuses it and
-    /// whatever Match Mac theme says (that switch is the phone's chrome).
-    @Test func everyMacsTerminalThemeIsKeptWhateverTheFocusAndTheSwitch() async {
+    /// Every linked Mac's terminal theme is kept for its own terminals, whatever Mac the phone
+    /// focuses, while Match Mac theme is on (the default). Off, every terminal shows the phone's
+    /// stock look, and each open one recolors at once; on again, each shows its Mac's newest theme.
+    /// Leo, 2026-11-22: "if someone adjusted their mac, the entire fucking point is that it follows
+    /// on the phone. if you want it different, then it's a toggle."
+    @Test func everyMacsTerminalThemeIsKeptWhateverTheFocusAndTheSwitchOverridesIt() async {
         let theme = Self.theme()
-        theme.matchesMac = false
-        let terminals = CmuxMobileTerminalThemes(cached: nil)
+        #expect(theme.matchesMac)
+        let terminals = CmuxMobileTerminalThemes(cached: nil, macTheme: theme)
         let feed = MacAppearanceFeed(theme: theme, terminalThemes: terminals)
         feed.focus(macID: "mac-a")
         let terminal = ##","terminal":["background = #2b0b3f","foreground = #f9e79f","palette = 1=#ff3864"]}"##
         var frame = String(decoding: Self.frame(background: "#202020"), as: UTF8.self)
         frame.removeLast()
         let changed = MacRecorder()
-        // Posted on the main thread, delivered there at once (no queue).
+        // Posted on the main thread, delivered there at once (no queue); "*" is every terminal.
         let observer = NotificationCenter.default.addObserver(forName: CmuxMobileTerminalThemes.didChange, object: terminals, queue: nil) { note in
             let mac = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
-            MainActor.assumeIsolated { if let mac { changed.ids.append(mac) } }
+            MainActor.assumeIsolated { changed.ids.append(mac ?? "*") }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
         feed.apply(Data((frame + terminal).utf8), macID: "mac-b")
@@ -104,6 +107,21 @@ import UIKit
         // The same frame again changes nothing.
         feed.apply(Self.frame(background: "#101010"), macID: "mac-a")
         #expect(changed.ids == ["mac-b", "mac-a"])
+
+        // The override: off, every terminal is the phone's stock black, recolored at once.
+        theme.matchesMac = false
+        #expect(changed.ids == ["mac-b", "mac-a", "*"])
+        #expect(terminals.theme(for: "mac-b") == .stock)
+        #expect(terminals.theme(for: "mac-a")?.background == "#000000")
+        // The Mac changes theme meanwhile: kept, not shown.
+        feed.apply(Self.frame(background: "#303030"), macID: "mac-a")
+        #expect(terminals.theme(for: "mac-a") == .stock)
+        #expect(changed.ids == ["mac-b", "mac-a", "*"])
+        // On again: each terminal shows its Mac's newest theme.
+        theme.matchesMac = true
+        #expect(changed.ids == ["mac-b", "mac-a", "*", "*"])
+        #expect(terminals.theme(for: "mac-a")?.background == "#303030")
+        #expect(terminals.theme(for: "mac-b")?.background == "#2b0b3f")
     }
 
     /// Leo, 2026-11-22: "the theming seemed to disappear maybe for the terminal/background". An

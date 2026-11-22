@@ -915,8 +915,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   selection, bold, contrast, faint and cursor opacity, palette generation, blending,
   colorspace, search colors). hostd drops any other key and any value that is not a plain
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
-  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
-  Match Mac theme switch says (that switch is the chrome's); a frame without `terminal` (an
+  of those keys and load these lines, live, whatever Mac the phone focuses, while its
+  Match Mac theme switch is on (the default; off, terminals show the phone's stock black,
+  since 2026-11-22); a frame without `terminal` (an
   older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
   `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
   phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,

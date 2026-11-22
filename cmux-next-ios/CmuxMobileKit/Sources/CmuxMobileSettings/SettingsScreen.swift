@@ -137,8 +137,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-                    // ask-87d30da8e5: on (the default), the chrome, wallpaper and accent (until one is picked)
-                    // follow the Mac's theme; off, the phone's own stock look. Terminals always show their Mac's.
+                    // ask-87d30da8e5: on (the default), the chrome, wallpaper, accent (until one is picked) and
+                    // terminals follow the Mac's theme; off, the phone's own stock look. Leo, 2026-11-22: "if you
+                    // want it different, then it's a toggle."
                     Toggle(isOn: $macTheme.matchesMac) {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
