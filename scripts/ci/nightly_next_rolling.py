@@ -135,6 +135,12 @@ FINISH_STEPS = ("Ask main's nightly-next tick at notarization", "Notarize app ti
 # one-slot rule and the rollback; 2 is one build per signer Mac (design hq#17011).
 SLOTS = 1
 MAX_SLOTS = 2
+# With 2 slots, the second start waits until the first has run SIGNER_STAGGER_MINUTES, half the measured build (run
+# 44907462015: 33.6 min from run start to nightly-next-one's end): two builds started together finish together, and a
+# landing just after them waits for both. Replaying the 809 feat-cmux-next landings of 2026-11-20 15:00Z to 2026-11-21
+# 15:00Z with that build: p95 merge-to-feed 66.2 min on one slot, 58.1 on two started at once, 50.1 on two half a
+# build apart.
+SIGNER_STAGGER_MINUTES = 16.0
 
 
 def leaving_slot(jobs: list[dict]) -> bool:
@@ -301,13 +307,23 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
                     and not (may_handoff and finishing(jobs))):
                 busy_count += 1
+                busy_run = run
                 if busy_count >= slots or not can_share_slot_capacity(jobs):
                     building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                                 f"{(run.get('head_sha') or head)[:12]}")
                     if busy_count < slots:
                         building += " (the slot may be shared or pending; a second pending run would replace it)"
                     break
-        if busy_count and not building:
+        if busy_count and not building and oldest_waiting is None:
+            # Nothing newer than nightly-next's head waits: a promotion would have nothing to build, the same
+            # answer (and reason) as one slot gives.
+            building = (f"nightly-next run {busy_run.get('html_url', busy_run.get('id'))} is building "
+                        f"{(busy_run.get('head_sha') or head)[:12]}")
+        elif busy_count and not building and since_start is not None and since_start < SIGNER_STAGGER_MINUTES:
+            return False, (f"{busy_count} of {slots} nightly-next slots busy, and the newest build started "
+                           f"{since_start:.0f} of {SIGNER_STAGGER_MINUTES:g} min ago; the next starts half a build "
+                           "after it, so the two finish apart")
+        elif busy_count and not building:
             return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
     if not building and skipped_retry:
         return True, (f"the open run is a retry of nightly-next's head {head[:12]} and a newer commit waits; ignoring "
