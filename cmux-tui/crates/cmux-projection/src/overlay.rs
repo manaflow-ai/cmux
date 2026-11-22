@@ -20,13 +20,14 @@
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache).
 
+use anyhow::Context as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -202,6 +203,9 @@ pub struct Overlay {
     cache: PathBuf,
     scratch: PathBuf,
     whiteouts_file: PathBuf,
+    /// The whiteouts file may end in a torn entry (an append and both its repairs failed): the
+    /// next change writes the whole file, not one more entry.
+    whiteouts_stale: AtomicBool,
     inner: Mutex<Inner>,
     handles: Mutex<HashMap<u64, Handle>>,
     next_handle: AtomicU64,
@@ -308,18 +312,41 @@ fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// The whole whiteouts of `text` (each ended by a NUL, or by a newline in an older file); a last
-/// one without its end is a torn append. Says too whether the file must be written again (a torn
-/// tail to cut, or the older format, so the next append starts an entry of its own).
-fn parse_whiteouts(text: &str) -> (BTreeSet<String>, bool) {
-    let ends = if text.contains('\0') { '\0' } else { '\n' };
-    let whole = text
-        .split_inclusive(ends)
-        .filter_map(|path| path.strip_suffix(ends))
+/// The whole whiteouts of `bytes` (each ended by a NUL, or by a newline in an older file); a last
+/// one without its end is a torn append, cut off as bytes (a crash can tear a name inside a
+/// multi-byte character). Each entry is decoded alone: one that is not UTF-8 is skipped, never
+/// the file with it. Says too whether the file must be written again (a torn tail to cut, an
+/// entry skipped, or the older format, so the next append starts an entry of its own).
+fn parse_whiteouts(bytes: &[u8]) -> (BTreeSet<String>, bool) {
+    let ends = if bytes.contains(&0) { 0 } else { b'\n' };
+    let mut skipped = false;
+    let whole = bytes
+        .split_inclusive(|byte| *byte == ends)
+        .filter_map(|path| path.strip_suffix(&[ends]))
         .filter(|path| !path.is_empty())
-        .map(str::to_owned)
+        .filter_map(|path| {
+            let path = String::from_utf8(path.to_vec()).ok();
+            skipped |= path.is_none();
+            path
+        })
         .collect();
-    (whole, !text.is_empty() && (ends != '\0' || !text.ends_with('\0')))
+    (whole, !bytes.is_empty() && (ends != 0 || bytes.last() != Some(&0) || skipped))
+}
+
+/// Appends `bytes` to `file` through `write`; when that fails part way (a full disk), cuts the
+/// file back to where it was, so no unterminated entry is left for the next append to glue onto.
+fn append_entry(
+    file: &mut fs::File,
+    bytes: &[u8],
+    write: impl FnOnce(&mut fs::File, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let len = file.metadata()?.len();
+    let written = write(file, bytes);
+    if written.is_err() {
+        // A cut that fails too leaves the caller's full rewrite to end the torn entry.
+        file.set_len(len)?;
+    }
+    written
 }
 
 impl Overlay {
@@ -348,8 +375,13 @@ impl Overlay {
             fs::remove_dir_all(&scratch)?;
         }
         fs::create_dir_all(&scratch)?;
-        let (whiteouts, rewrite) =
-            parse_whiteouts(&fs::read_to_string(&whiteouts_file).unwrap_or_default());
+        // Only a file not there is no whiteouts: one that cannot be read fails the open, never
+        // shows every deleted lower path again.
+        let bytes = match fs::read(&whiteouts_file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            read => read.with_context(|| format!("reading {}", whiteouts_file.display()))?,
+        };
+        let (whiteouts, rewrite) = parse_whiteouts(&bytes);
         let next = manifest.len() as u64 + 2;
         let overlay = Self {
             manifest,
@@ -359,6 +391,7 @@ impl Overlay {
             cache,
             scratch,
             whiteouts_file,
+            whiteouts_stale: AtomicBool::new(false),
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
             handles: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
@@ -642,8 +675,12 @@ impl Overlay {
             text.push('\0');
         }
         let temp = self.scratch_path();
-        fs::write(&temp, text).map_err(|error| io_errno(&error))?;
-        fs::rename(&temp, &self.whiteouts_file).map_err(|error| io_errno(&error))
+        let written = fs::write(&temp, text).and_then(|()| fs::rename(&temp, &self.whiteouts_file));
+        if written.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        self.whiteouts_stale.store(written.is_err(), Ordering::Relaxed);
+        written.map_err(|error| io_errno(&error))
     }
 
     fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
@@ -653,7 +690,7 @@ impl Overlay {
         if !changed {
             return Ok(());
         }
-        if on {
+        if on && !self.whiteouts_stale.load(Ordering::Relaxed) {
             // A new whiteout is one appended entry (one write: a crash leaves it whole or not
             // there), not a rewrite of every whiteout so far.
             let entry = format!("{path}\0");
@@ -661,7 +698,9 @@ impl Overlay {
                 .append(true)
                 .create(true)
                 .open(&self.whiteouts_file)
-                .and_then(|mut file| file.write_all(entry.as_bytes()));
+                .and_then(|mut file| {
+                    append_entry(&mut file, entry.as_bytes(), |file, bytes| file.write_all(bytes))
+                });
             if appended.is_ok() {
                 return Ok(());
             }
@@ -674,16 +713,23 @@ impl Overlay {
     /// a folder deleted and made again comes back empty.
     fn unhide(&self, path: &str) -> Result<(), i32> {
         let mut inner = self.lock();
-        if !inner.whiteouts.remove(path) {
+        if !inner.whiteouts.contains(path) {
             return Ok(());
         }
+        let before = inner.whiteouts.clone();
+        inner.whiteouts.remove(path);
         if let Some(index) = self.manifest.resolve(path) {
             let (_, children) = self.manifest.children(index);
             for entry in children {
                 inner.whiteouts.insert(join(path, &entry.name));
             }
         }
-        self.write_whiteouts(&inner)
+        let written = self.write_whiteouts(&inner);
+        if written.is_err() {
+            // What the file on disk still says: the path stays deleted.
+            inner.whiteouts = before;
+        }
+        written
     }
 
     fn scratch_path(&self) -> PathBuf {
@@ -1249,8 +1295,13 @@ impl Overlay {
             }
             opened => opened?,
         };
-        // After the file is there: a failed create leaves a deleted lower path deleted.
-        self.unhide(&child)?;
+        // After the file is there: a failed create leaves a deleted lower path deleted, and no
+        // new upper file to show through it.
+        if let Err(error) = self.unhide(&child) {
+            drop(file);
+            let _ = self.in_folder(&parent, || self.upper.unlink(&child));
+            return Err(error);
+        }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         let attr = self.lookup_path(&child)?;
         let handle =

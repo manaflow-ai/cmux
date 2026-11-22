@@ -501,3 +501,62 @@ fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
     overlay.readdir(overlay.root()).unwrap();
     assert_eq!(overlay.getattr(overlay.root()).unwrap().atime_ns, root_atime);
 }
+
+#[test]
+fn a_torn_append_inside_a_multi_byte_name_keeps_the_other_whiteouts() {
+    let (state, manifest, fake) = setup(false);
+    let file = state.path().join("whiteouts");
+    // The crash cut `src/é.rs` between the two bytes of `é`: the file is not valid UTF-8.
+    fs::write(&file, b"src/b.rs\0src/c.rs\0src/\xc3").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+    assert_eq!(fs::read(&file).unwrap(), b"src/b.rs\0src/c.rs\0");
+    drop(overlay);
+    // A whole entry that is not UTF-8 is skipped alone, not the file with it.
+    fs::write(&file, b"src/b.rs\0src/\xff.rs\0src/c.rs\0").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs", "src/c.rs"]);
+}
+
+#[test]
+fn a_whiteouts_file_that_cannot_be_read_fails_the_open() {
+    let (state, manifest, fake) = setup(false);
+    // Not there: no whiteouts. There and unreadable: no open, never an empty set.
+    fs::create_dir(state.path().join("whiteouts")).unwrap();
+    let opened = Overlay::open(manifest, state.path(), fake, (me().uid, me().gid));
+    assert!(opened.is_err());
+}
+
+#[test]
+fn a_failed_append_leaves_no_torn_entry() {
+    let state = tempfile::tempdir().unwrap();
+    let path = state.path().join("whiteouts");
+    fs::write(&path, b"src/a.rs\0").unwrap();
+    // A write that lands half its bytes, then fails (a full disk).
+    let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let half = |file: &mut fs::File, bytes: &[u8]| -> std::io::Result<()> {
+        file.write_all(&bytes[..bytes.len() / 2])?;
+        Err(std::io::Error::from_raw_os_error(libc::ENOSPC))
+    };
+    assert!(append_entry(&mut file, b"src/b.rs\0", half).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"src/a.rs\0");
+    append_entry(&mut file, b"src/c.rs\0", |file, bytes| file.write_all(bytes)).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"src/a.rs\0src/c.rs\0");
+}
+
+#[test]
+fn a_create_whose_whiteout_cannot_go_leaves_nothing_behind() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "a.rs").unwrap();
+    // The whiteouts file can no longer be written again (a folder in its place).
+    let file = state.path().join("whiteouts");
+    fs::remove_file(&file).unwrap();
+    fs::create_dir(&file).unwrap();
+    assert!(overlay.create(src, "a.rs", 0o644, me()).is_err());
+    assert!(!overlay.upper_dir().join("src/a.rs").exists(), "the new upper file is gone");
+    // The lower file stays deleted, as the file on disk still says.
+    assert_eq!(overlay.lookup(src, "a.rs"), Err(ENOENT));
+    assert_eq!(overlay.whiteouts(), ["src/a.rs"]);
+}

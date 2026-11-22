@@ -357,3 +357,29 @@ fn rewinddir_lists_names_made_since_the_folder_was_opened() {
     assert!(names.contains(&"second".to_owned()), "rewinddir sees a name made since: {names:?}");
     mounted.unmount();
 }
+
+#[test]
+fn a_version_seen_while_racy_never_earns_the_kept_cache() {
+    let state = tempfile::tempdir().unwrap();
+    let items = vec![Item {
+        path: "lower.txt".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 1,
+        mtime_ns: 1,
+        link: None,
+    }];
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let owner = (std::fs::metadata(state.path()).unwrap().uid(), 0);
+    let overlay =
+        Overlay::open(manifest, state.path(), Arc::new(Files(HashMap::new())), owner).unwrap();
+    // An upper file changed just now: its version is racy at this open.
+    std::fs::write(overlay.upper_dir().join("lower.txt"), b"x").unwrap();
+    let ino = overlay.lookup(overlay.root(), "lower.txt").unwrap().ino;
+    let (versions, notifier) = (Mutex::new(HashMap::new()), OnceLock::new());
+    assert_eq!(open_flags(&overlay, &versions, &notifier, ino), 0);
+    std::thread::sleep(Duration::from_millis(1100));
+    // The racy sighting proved nothing: this open is the first that counts.
+    assert_eq!(open_flags(&overlay, &versions, &notifier, ino), 0);
+    assert_eq!(open_flags(&overlay, &versions, &notifier, ino), FOPEN_KEEP_CACHE);
+}

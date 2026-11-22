@@ -282,18 +282,28 @@ fn open_flags(
         versions.remove(&ino);
         return 0;
     };
-    let before = versions.insert(ino, now);
+    // An upper file changed under a second ago is never recorded (git's "racily clean"): on a
+    // disk with coarse timestamps a same-size rewrite in the same tick leaves size, mtime and
+    // ctime as they were, so only a version seen a second or more after its change can later
+    // earn the kept cache.
+    let before = if racy(&now) { versions.remove(&ino) } else { versions.insert(ino, now) };
     drop(versions);
+    let inval = || {
+        if let Some(notifier) = notifier.get() {
+            // ENOENT: the kernel holds nothing of it, which is fine.
+            let _ = notifier.inval_inode(ino, -1, 0);
+        }
+    };
     match before {
-        // An upper file changed under a second ago is never trusted equal (git's "racily
-        // clean"): on a disk with coarse timestamps a same-size rewrite in the same tick leaves
-        // size, mtime and ctime as they were.
         Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
         Some(_) => {
-            if let Some(notifier) = notifier.get() {
-                // ENOENT: the kernel holds nothing of it, which is fine.
-                let _ = notifier.inval_inode(ino, -1, 0);
-            }
+            inval();
+            0
+        }
+        // A first open of an upper version (a copy-up since the lookup): drop the lower attrs
+        // the kernel keeps for an hour.
+        None if matches!(now, Version::Upper { .. }) => {
+            inval();
             0
         }
         None => 0,
