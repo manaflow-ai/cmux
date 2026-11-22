@@ -70,6 +70,8 @@ nonisolated extension SidebarLayout {
             if moved { setRow(later, at: i) }
             i += 1
         }
+        // Under the tree a later node's row can draw above the new one (a sub-session under an earlier root).
+        if nests { renumberEarlierRows(before: at, in: section.id, from: sibling, by: 1) }
         // The section's header counts its nodes.
         if let header = position(of: .section(section.id)) {
             var counted = rows[header]
@@ -117,6 +119,7 @@ nonisolated extension SidebarLayout {
             if moved { setRow(later, at: i) }
             i += 1
         }
+        if o.sessionTree != nil { renumberEarlierRows(before: at, in: section.id, from: k + 1, by: -1) }
         if let header = position(of: .section(section.id)) {
             var counted = rows[header]
             counted.childCount -= 1
@@ -124,6 +127,24 @@ nonisolated extension SidebarLayout {
         }
         SidebarPerfCounters.add(.layoutRows)
         return true
+    }
+
+    /// The session tree draws a sub-session right under its parent, so a row above the spliced one can be a later
+    /// node's: the rows of `section` before `at` whose node index is `first` or more move by `delta`, as the rows
+    /// after it do. Without a tree the rows draw in node order and none above is a later node's.
+    private mutating func renumberEarlierRows(before at: Int, in section: SectionID, from first: Int, by delta: Int) {
+        var i = at - 1
+        while i >= 0, rows[i].section == section {
+            var earlier = rows[i], moved = false
+            switch earlier.key {
+            case .section, .doneFold, .showMore: break // no node's index
+            default:
+                if earlier.parentIndex == nil, earlier.siblingIndex >= first { (earlier.siblingIndex, moved) = (earlier.siblingIndex + delta, true) }
+            }
+            if let parent = earlier.parentIndex, parent >= first { (earlier.parentIndex, moved) = (parent + delta, true) }
+            if moved { setRow(earlier, at: i) }
+            i -= 1
+        }
     }
 
     /// Whether a one-row splice can stand for the full layout under the session tree `o` draws (none: always).

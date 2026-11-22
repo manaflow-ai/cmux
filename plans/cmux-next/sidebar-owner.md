@@ -83,7 +83,8 @@
   selection. Under lineage nesting (the default since #28103) a row no session started and that started none splices as
   without it (`SidebarLayout.insertLoose` / `removeLoose`, `splicesUnderTree`); the selection's fold reveal is part of
   the same render (`SidebarView.render`), and a leaving row drops its selection fill (`clearStraySelection`). No
-  default changes: `sidebar.insertMotion` and `ui.animations.newWorkspace` stay as they were. Regression:
+  default changes: `sidebar.insertMotion` and `ui.animations.newWorkspace` stay as they were. A sub-session's row drawn
+  above the spliced one takes its new node index too (`renumberEarlierRows`). Regression:
   `SidebarCreateCloseMotionTests`, `SidebarCloseMoveSpliceTests`.
 - 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
   left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
