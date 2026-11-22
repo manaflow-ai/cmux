@@ -1,0 +1,35 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/rex-whole",
+  "name": "Rex",
+  "version": "1.0.0",
+  "description": "Open and find sessions, browse chats by host or by activity, and use the combined terminal, window and appearance settings.",
+  "settings": {
+    "appearance.themeFile": "rex-graphite",
+    "appearance.chromeStyle": "panes",
+    "appearance.borders": "default",
+    "layout.paneSeparation": "borders",
+    "layout.panePadding": 4,
+    "layout.paneCornerRadius": 12,
+    "layout.paneBorderWidth": 0.5,
+    "appearance.metrics.columnGap": 8,
+    "appearance.metrics.tabStripHeight": 32,
+    "tabs.barPosition": "top",
+    "tabs.toolbarButtons": [
+      "splitRight",
+      "splitDown",
+      "toggleSplitZoom"
+    ],
+    "window.titlebarButtons": "always",
+    "tabs.newTabApp": "local/customize",
+    "tabs.plusButton": "always",
+    "tabs.nativeNewTabPage": false,
+    "notifications.desktop": "whenInactive",
+    "notifications.dockBadge": true,
+    "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+    "notifications.attention.showOnTab": true,
+    "sidebar.textSize": "large",
+    "terminal.fontSize": 13
+  }
+}

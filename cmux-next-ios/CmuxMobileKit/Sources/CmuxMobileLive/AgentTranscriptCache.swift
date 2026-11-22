@@ -106,7 +106,7 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     /// head is (`LiveSnapshotStore.loadFirstScreen`). The head says `earlier` when the kept copy
     /// holds more; ``load(_:)`` reads that off the main thread. Nil when nothing is kept, or it was
     /// kept before head files. Leo, 2026-11-14: "i also want all our connectivity stuff to shut the
-    /// fuck up and load faster/percievably load faster".
+    /// f*** up and load faster/percievably load faster".
     @MainActor public func firstScreen(_ key: String) -> AgentTranscriptEntry? {
         if let held = cached(key) { return held }
         if let lastHead, lastHead.key == key { return lastHead.entry }
