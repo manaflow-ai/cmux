@@ -246,7 +246,8 @@ public struct LaunchShellLook {
 }
 
 /// The launch record's and the image store's paths in the app's Application Support folder.
-public enum LaunchShellPaths {
+public struct LaunchShellPaths {
+    public init() {}
     public static func record(in support: URL) -> URL { support.appending(path: "launch-record.bin", directoryHint: .notDirectory) }
     public static func images(in support: URL) -> URL { support.appending(path: "launch-images", directoryHint: .isDirectory) }
 
@@ -361,7 +362,8 @@ private final class LaunchShellImageView: NSView {
 }
 
 /// Held events, rebuilt for the real window (same frame, so the same window location).
-public enum LaunchShellReplay {
+public struct LaunchShellReplay {
+    public init() {}
     /// The Rust `InputKind` of an event type.
     public static func kind(_ type: NSEvent.EventType) -> UInt8 {
         switch type {
