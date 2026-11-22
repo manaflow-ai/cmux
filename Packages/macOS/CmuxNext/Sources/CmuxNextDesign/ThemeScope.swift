@@ -430,6 +430,7 @@ public final class ThemeScope {
     private func update(animated: Bool, repaint: Bool) {
         var next = inheritedInput
         next.accent = store.accent
+        next.selection = store.selection
         // Art Color: the hue of the art this scope shows, else the theme's own accent.
         if store.accentFollowsArt, level != .config {
             next.accentColor = backdropArt?.accentHue ?? themeAccentColor

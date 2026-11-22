@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import type { ClaimCheck } from "../model";
 import { TurnActionsContext } from "./turnActions";
 import "./ClaimMark.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How a mark draws. `underline` ships; the others are the gallery's alternatives.
 export type ClaimLook = "underline" | "glyph" | "chip";
@@ -43,9 +44,13 @@ export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: Re
   );
   if (!toolCallId || !showCall)
     return (
-      <span className={className} title={label} data-claim-verdict={claim.verdict}>
-        {body}
-      </span>
+      <WithFacts facts={[{ value: label }]}>
+        {(facts) => (
+          <span {...facts} className={className} data-claim-verdict={claim.verdict}>
+            {body}
+          </span>
+        )}
+      </WithFacts>
     );
   return (
     // A link, not a <button>: a button is an atomic inline box, so a phrase that wrapped as text
@@ -53,7 +58,6 @@ export function ClaimMark({ claim, children }: { claim: ClaimCheck; children: Re
     <a
       href={`#tool-${toolCallId}`}
       className={className}
-      title={label}
       aria-label={label}
       data-claim-verdict={claim.verdict}
       onClick={(event) => {
