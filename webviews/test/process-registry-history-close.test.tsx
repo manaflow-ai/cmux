@@ -23,6 +23,7 @@ afterAll(async () => {
 });
 
 const SESSION = "history-close";
+const WINDOW = { calls: [] as string[], endedWithin: 0 };
 const rows = (running = false) =>
   Array.from({ length: 700 }, (_, n) => ({
     id: `${SESSION}/${n}`,
@@ -40,11 +41,13 @@ function harness() {
       calls.push(recent);
       return new Promise((resolve) => pending.push(resolve));
     },
+    listProcessCalls: () => new Promise(() => {}),
     watchProcesses: () => () => {},
   };
   let state: ProcessRegistry = { processes: [], listed: false };
+  // `all`: a list of the whole history shows, so the registry reads it whole (no window).
   function View({ live, all }: { live: boolean; all: boolean }) {
-    state = useProcessRegistry(source, SESSION, live, all);
+    state = useProcessRegistry(source, SESSION, live, all ? undefined : WINDOW);
     return null;
   }
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -72,6 +75,7 @@ test("closing idle history releases old rows without listing again", async () =>
     await view.render(false, false);
     expect(view.state().processes).toHaveLength(PROCESS_LIST_RECENT);
     expect(view.state().processes[0]?.id).toBe(`${SESSION}/200`);
+    expect(view.state().omitted).toBe(200);
     expect(view.state().listed).toBe(true);
     expect(view.calls).toEqual([undefined]);
   } finally {
