@@ -88,6 +88,13 @@ const FOLLOW_SLACK_PX = 4;
 const seen = (row: Row) => row[3] > SEEN_INK;
 const shownTop = (row: Row) => row[4] ?? row[1];
 const shownHeight = (row: Row) => row[5] ?? row[2];
+/** The band of a row the reader sees: what its clip shows (the sampler reads a clipped row's inside the
+ *  view), else its box, cut to the view (`view`, its height): a clip coming off a row past the view's edge,
+ *  or a row growing past it, moves nothing on screen. */
+const seenBand = (row: Row, view: number) => {
+  const top = Math.min(view, Math.max(0, shownTop(row)));
+  return { top, height: Math.min(view, Math.max(0, shownTop(row) + shownHeight(row))) - top };
+};
 const round = (value: number) => Math.round(value * 10) / 10;
 /** Fold copies and replace snapshots are drawn for the fold only; they are never an anchor. */
 const transient = (key: string) => key.startsWith("ghost-") || key.startsWith("snap:") || key === "fold-card";
@@ -113,15 +120,18 @@ export function analyze(run: FuzzRun, spec?: Pick<FuzzSpec, "viewport">) {
   const moved: number[] = [];
   for (let index = from; index < samples.length; index += 1) {
     const prior = new Map(samples[index - 1]?.rows.map((row) => [row[0], row]) ?? []);
+    const view = samples[index]!.view;
     let most = 0;
     for (const row of samples[index]!.rows) {
       const was = prior.get(row[0]);
       if (!was || !seen(row) || !seen(was)) continue;
+      const band = seenBand(row, view);
+      const before = seenBand(was, samples[index - 1]!.view);
       most = Math.max(
         most,
         Math.abs(row[1] - was[1]),
-        Math.abs(shownTop(row) - shownTop(was)),
-        Math.abs(shownHeight(row) - shownHeight(was)),
+        Math.abs(band.top - before.top),
+        Math.abs(band.height - before.height),
       );
     }
     moved.push(most);
