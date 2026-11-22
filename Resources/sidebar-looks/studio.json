@@ -1,10 +1,10 @@
-// Sidebar look "studio" (`sidebar.look`): a coding studio's sidebar: one flat list of threads, status in words and icons.
+// Sidebar look "studio" (`sidebar.look`): a coding studio's sidebar: threads under a heading per project, status in words and icons.
 // Every value here is an ordinary public sidebar setting. It fills only the keys that your
 // cmux-next.json, a theme file and managed settings leave unset, so your own settings still win.
 // To make your own, copy these lines into ~/.config/cmux/cmux-next.json and edit them.
 //
 // Measured from the reference captures (docs/cmux-next/sidebar-customization.md, "Sidebar looks"):
-// - One flat list of threads, newest work first; no folder headings.
+// - Threads under a plain heading per project, newest work first, as the studio's sidebar shows them.
 // - A row is the title and, at its trailing edge, the compact time ("now", "5m").
 // - Status says what it is: working, waiting, error and done each have their own icon.
 // - No icon or color on a row. No spaces strip.
@@ -12,9 +12,9 @@
 // cmux's shared grid (`sidebar.density`, `appearance.metrics.*`), so switching looks moves no pane.
 {
   "name": "Studio",
-  "description": "One flat list of threads; title and time; an icon per status.",
+  "description": "Threads under each project; title and time; an icon per status.",
 
-  "sidebar.groupBy": "none",
+  "sidebar.groupBy": "folder",
   "sidebar.groupHeader.background": "sections",
   "sidebar.groupHeader.memberCount": false,
   "sidebar.groupHeader.unreadCount": false,

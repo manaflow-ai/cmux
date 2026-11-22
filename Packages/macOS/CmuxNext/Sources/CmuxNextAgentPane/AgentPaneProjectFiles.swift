@@ -66,7 +66,7 @@ enum AgentPaneProjectFiles {
         guard await Task.detached(operation: { AgentPaneProjectCopy.append(lines, to: path) }).value else {
             return AgentPaneReply.failure(code: "copy_failed", message: copyFailedMessage)
         }
-        guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab) else {
+        guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab, nil) else {
             return AgentPaneReply.failure(code: "open_failed", message: AgentPaneModel.openFileFailedMessage)
         }
         return AgentPaneReply.success(["added": added, "path": url.path])
