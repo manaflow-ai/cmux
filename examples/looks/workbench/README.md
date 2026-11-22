@@ -19,7 +19,7 @@ Workbench v1 optimizes for scanning a lot of agent work at once: many threads ac
 | Chat type | `agentPane.display.font.preset` `mono` at 13 px, `font.ui` `system-ui-tight`, `code.scale` 0.95, `width` 960, `minimap` `compact`, `harnessPlacement` `compact` |
 | Sidebar | `sidebar.density` `compact`, `groupBy` `folder`, `sessionTree` on, timestamps, branch and last activity on the row, `controlsOnHover`, `groupHeader.background` `sections` with member counts |
 | Chrome | `appearance.chromeStyle` `flat-sidebar-line`, `density` `compact`, a 232 pt sidebar of 24 pt rows, 12 pt chrome text, a 30 pt tab strip (theme file) |
-| Color | `themes/workbench.json`: blue-gray near-black, a darker sidebar, one calm blue |
+| Color | `themes/workbench.json` (blue-gray near-black, a darker sidebar, one calm blue) and `themes/workbench-light.json` (cool off-white, blue-gray ink); pick the light one with `appearance.themeFile` `workbench-light` |
 | The chat's paint | `agent-pane/theme.css`: small corners, crisp card hairlines, links in the accent |
 | Sidebar view | `customize/`: a terse hover card that leads with the folder and agent; regular rows with a braille spinner |
 
