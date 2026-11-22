@@ -93,8 +93,9 @@ async fn open_liveness(
                 datagram = out.recv() => {
                     // The link closed.
                     let Some(datagram) = datagram else { return };
+                    let answer = crate::link::is_liveness_answer(&datagram);
                     if let Err(cmux_wg::WgError::Shutdown) =
-                        socket.send_to(&datagram, peer, cmux_wg::Priority::Interactive).await
+                        socket.send_liveness(&datagram, peer, answer).await
                     {
                         return;
                     }
@@ -686,10 +687,6 @@ struct HandshakeRepeat {
 /// The roaming side of the tunnel (`roam.rs`) changes the carriers through
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
-thread_local! { static TRACE: std::cell::Cell<&'static str> = const { std::cell::Cell::new("?") }; }
-fn tr(t: &'static str) {
-    TRACE.with(|c| c.set(t));
-}
 
 struct HybridUnderlay {
     socket: UdpSocket,
@@ -791,6 +788,9 @@ struct HybridUnderlay {
     learned: Vec<SocketAddr>,
     /// The selector's quiet route was replayed through the relays.
     suspect_replayed: bool,
+    /// What is being sent answers the peer's liveness ping: nothing comes
+    /// back for it, so it does not start the route's silence watch.
+    answering: bool,
     /// Test support (`DialOptions::impair_inbound`): received datagrams
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
@@ -870,6 +870,7 @@ impl HybridUnderlay {
             last_turn_source: None,
             learned: Vec::new(),
             suspect_replayed: false,
+            answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
         };
@@ -1216,7 +1217,6 @@ impl HybridUnderlay {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
         for (datagram, class) in recent {
-            tr("replay");
             self.transmit(&datagram, class);
         }
     }
@@ -1352,16 +1352,6 @@ impl HybridUnderlay {
         }
         if let Some(on_sent) = self.options.on_udp_sent {
             on_sent(&target, datagram.len());
-            if std::env::var_os("COST_TRACE").is_some() {
-                eprintln!(
-                    "UDPTRACE {:?} {} {} b0={} {}",
-                    std::time::Instant::now(),
-                    target,
-                    datagram.len(),
-                    datagram[0],
-                    TRACE.with(|t| t.get())
-                );
-            }
         }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
@@ -1415,7 +1405,6 @@ impl HybridUnderlay {
     /// Plain UDP to every usable candidate and learned peer address but
     /// `except`.
     fn spray(&mut self, datagram: &[u8], except: Option<SocketAddr>) {
-        tr("spray");
         let mut refused = Vec::new();
         let learned = self.learned.iter().copied().filter(|addr| !self.candidates.contains(addr));
         let targets: Vec<SocketAddr> = self.candidates.iter().copied().chain(learned).collect();
@@ -1565,7 +1554,9 @@ impl HybridUnderlay {
             }
             self.publish_path();
             if self.send_route(route, datagram, class) {
-                self.paths.sent(route, now);
+                if !self.answering {
+                    self.paths.sent(route, now);
+                }
                 self.maybe_spray(datagram, route);
                 return true;
             }
@@ -1581,8 +1572,9 @@ impl HybridUnderlay {
                 self.suspect_replayed = true;
                 self.replay_on_relays();
             }
-            self.paths.sent_everywhere(now);
-            tr("suspect");
+            if !self.answering {
+                self.paths.sent_everywhere(now);
+            }
             self.spray(datagram, None);
             self.send_turn_targets(datagram, class);
             return true;
@@ -1644,7 +1636,6 @@ impl HybridUnderlay {
 
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
-        tr("send");
         self.drain_control();
         let class = send_class(datagram);
         self.record(datagram, class);
@@ -1653,16 +1644,21 @@ impl Underlay for HybridUnderlay {
     }
 
     fn send_classified(&mut self, datagram: &[u8], priority: cmux_wg::Priority) {
-        tr(match priority {
-            cmux_wg::Priority::Interactive => "cls-int",
-            cmux_wg::Priority::Bulk => "cls-bulk",
-            cmux_wg::Priority::Media => "cls-media",
-        });
         self.drain_control();
         let class = send_class_of(datagram, priority);
         self.record(datagram, class);
         self.transmit(datagram, class);
         self.note_initiation(datagram, class);
+    }
+
+    /// A liveness ping or pong: on the routes data takes, but not kept for
+    /// a replay (the link resends its pings), and a pong starts no
+    /// silence watch.
+    fn send_liveness(&mut self, datagram: &[u8], answer: bool) {
+        self.drain_control();
+        self.answering = answer;
+        self.transmit(datagram, SendClass::Input);
+        self.answering = false;
     }
 
     /// A probe on one of the selector's paths goes on its route only. A
@@ -1671,7 +1667,6 @@ impl Underlay for HybridUnderlay {
     /// proves both directions of one route, so a route that works only one
     /// way (macOS Local Network privacy, a firewall) never becomes alive.
     fn send_on(&mut self, path: PathId, datagram: &[u8]) {
-        tr("send_on");
         self.drain_control();
         let class = send_class(datagram);
         if let Some(route) = self.paths.route_of(path) {
@@ -2585,6 +2580,52 @@ mod tests {
             .expect("the spray reaches the learned address")
             .unwrap();
         assert_eq!(&buffer[..len], b"stream datagram");
+    }
+
+    /// A liveness pong expects nothing back, so the quiet after it does not
+    /// make the route suspect; a ping, like data, does.
+    #[tokio::test]
+    async fn a_liveness_answer_arms_no_silence_watch() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mapped = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[mapped.to_string()],
+                peer_relayed: &[],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let start = Instant::now();
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(mapped) });
+        for (path, probe) in underlay.poll_probes(start).pings {
+            underlay.on_pong(path, probe, start + Duration::from_millis(1));
+        }
+        assert_eq!(underlay.paths.current(), Some(Route { carrier: Carrier::Udp, addr: mapped }));
+        // Settle the route: every probe answered, so its next one is an
+        // interval away.
+        let mut at = start;
+        for _ in 0..40 {
+            at += Duration::from_millis(100);
+            for (path, probe) in underlay.poll_probes(at).pings {
+                underlay.on_pong(path, probe, at + Duration::from_millis(1));
+            }
+        }
+        underlay.socket.writable().await.unwrap();
+        underlay.send_liveness(b"pong", true);
+        let due = underlay.poll_probes(at + Duration::from_millis(300)).pings;
+        assert!(due.is_empty(), "a pong starts no silence watch: {due:?}");
+        underlay.send_liveness(b"ping", false);
+        let due = underlay.poll_probes(at + Duration::from_millis(600)).pings;
+        assert!(!due.is_empty(), "the quiet after a ping probes the route at once");
     }
 
     /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7

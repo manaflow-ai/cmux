@@ -216,6 +216,12 @@ fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
     datagram
 }
 
+/// Whether `datagram` answers a liveness ping (a pong): the transport
+/// sends it expecting nothing back.
+pub(crate) fn is_liveness_answer(datagram: &[u8]) -> bool {
+    datagram.first() == Some(&DATAGRAM_PONG)
+}
+
 fn parse_liveness_datagram(datagram: &[u8]) -> Option<(u8, u64, u8)> {
     if datagram.len() != DATAGRAM_LEN || !matches!(datagram[0], DATAGRAM_PING | DATAGRAM_PONG) {
         return None;
