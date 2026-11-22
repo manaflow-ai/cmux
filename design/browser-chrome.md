@@ -83,6 +83,10 @@ Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the nu
 ## States
 
 - **Idle.** The bar is a tonal fill over the toolbar (fg at 7%), a lift on hover (10%).
+  Nothing that carries no news shows inside it: a secure page's chip, the hollow star and the tab's
+  profile avatar are clear until the pointer is on the bar or the bar has the keyboard, and keep
+  their room so no text moves (`AddressBarView+QuietIcons.swift`). A Not secure chip and a filled
+  star always show.
 - **Focused / editing.** No fill, a 2 pt neutral ring, the full URL, the chip's label hidden and
   its icon describing the input (search, or the highlighted suggestion's kind). Focus changes the
   look in the press's own frame; only hover eases.

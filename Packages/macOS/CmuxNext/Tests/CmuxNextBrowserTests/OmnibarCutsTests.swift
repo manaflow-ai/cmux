@@ -74,6 +74,23 @@ struct OmnibarCutsTests {
         #expect(bar.field.frame == fieldAtRest, "the icons' coming moved the field: \(fieldAtRest) to \(bar.field.frame)")
     }
 
+    /// The profile avatar is clear at rest too and keeps its room; focus shows it (Leo 2026-11-22, "why do we have the
+    /// profile icon here if it's always visible").
+    @Test func theProfileAvatarIsClearAtRestAndKeepsItsRoom() throws {
+        let (bar, window) = try bar("https://github.com/manaflow-ai/cmux")
+        defer { window.closeAfterTest() }
+        bar.setProfileBadge(BrowserProfileBadge(monogram: "D", color: nil, name: "Default"))
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(bar.profileBadgeView.alphaValue == 0, "the profile avatar shows at rest")
+        #expect(!bar.profileBadgeView.isHidden, "the quiet avatar keeps its room")
+        let fieldAtRest = bar.field.frame
+
+        bar.focus()
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(bar.profileBadgeView.alphaValue == 1, "focus does not show the profile avatar")
+        #expect(bar.field.frame == fieldAtRest, "the avatar's coming moved the field: \(fieldAtRest) to \(bar.field.frame)")
+    }
+
     @Test func aPageThatIsNotSecureShowsItsChip() throws {
         let (bar, window) = try bar("http://example.com/login", security: .insecure)
         defer { window.closeAfterTest() }
