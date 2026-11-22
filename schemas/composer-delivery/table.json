@@ -1,0 +1,1358 @@
+{
+  "data": "A failed state's hop and code are the event's (refused, unanswered), overridden by the row's set; fail_timer's come from set.",
+  "events": [
+    "submit",
+    "submit_behind_turn",
+    "hold_trust",
+    "hold_machine_waking",
+    "release",
+    "accepted",
+    "read",
+    "refused",
+    "unanswered",
+    "host_away",
+    "slow_timer",
+    "fail_timer",
+    "hand_back"
+  ],
+  "generations": "A row whose effects include send_prompt writes under a new generation (issued + 1), which becomes the state's attempt and issued; every other row keeps both. A state's attempt is the generation it awaits.",
+  "refusals": [
+    "in_flight",
+    "not_sent",
+    "held",
+    "not_held",
+    "not_draft",
+    "already_taken",
+    "already_read",
+    "already_refused",
+    "already_slow",
+    "not_awaited",
+    "stale_generation"
+  ],
+  "source": "cmux-tui/crates/acpmux-client/src/delivery.rs",
+  "stale": "An answer or timer (refused, unanswered, host_away, slow_timer, fail_timer) under another generation than the state's attempt is refused stale_generation where its row is a transition, and with the row's own refusal where its row is one. A refusal leaves the machine unchanged.",
+  "states": [
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": false,
+      "key": "draft",
+      "slow": false,
+      "state": "draft",
+      "word": null
+    },
+    {
+      "awaits": true,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": true,
+      "key": "sending",
+      "slow": false,
+      "state": "sending",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": true,
+      "key": "sending_slow",
+      "slow": true,
+      "state": "sending",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": true,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": true,
+      "key": "queued_behind_turn",
+      "slow": false,
+      "state": "queued_behind_turn",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": true,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": true,
+      "key": "queued_behind_turn_slow",
+      "slow": true,
+      "state": "queued_behind_turn",
+      "word": "sending"
+    },
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": "trust",
+      "inFlight": false,
+      "key": "held_trust",
+      "slow": false,
+      "state": "held",
+      "word": null
+    },
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": "machine_waking",
+      "inFlight": false,
+      "key": "held_machine_waking",
+      "slow": false,
+      "state": "held",
+      "word": null
+    },
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": true,
+      "hold": "host_starting",
+      "inFlight": false,
+      "key": "held_host_starting",
+      "slow": false,
+      "state": "held",
+      "word": "sending"
+    },
+    {
+      "awaits": false,
+      "behindTurn": true,
+      "heldForHost": true,
+      "hold": "host_starting",
+      "inFlight": false,
+      "key": "held_host_starting_behind_turn",
+      "slow": false,
+      "state": "held",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": false,
+      "heldForHost": true,
+      "hold": "host_starting",
+      "inFlight": true,
+      "key": "held_host_starting_resent",
+      "slow": false,
+      "state": "held",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": true,
+      "heldForHost": true,
+      "hold": "host_starting",
+      "inFlight": true,
+      "key": "held_host_starting_resent_behind_turn",
+      "slow": false,
+      "state": "held",
+      "word": "sending"
+    },
+    {
+      "awaits": true,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": false,
+      "key": "delivered",
+      "slow": false,
+      "state": "delivered",
+      "word": "delivered"
+    },
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": false,
+      "key": "read",
+      "slow": false,
+      "state": "read",
+      "word": "read"
+    },
+    {
+      "awaits": false,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": false,
+      "key": "failed",
+      "slow": false,
+      "state": "failed",
+      "word": "failed"
+    },
+    {
+      "awaits": true,
+      "behindTurn": false,
+      "heldForHost": false,
+      "hold": null,
+      "inFlight": false,
+      "key": "failed_unanswered",
+      "slow": false,
+      "state": "failed",
+      "word": "failed"
+    }
+  ],
+  "transitions": [
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit",
+      "from": "draft",
+      "to": "sending"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit_behind_turn",
+      "from": "draft",
+      "to": "queued_behind_turn"
+    },
+    {
+      "effects": [],
+      "event": "hold_trust",
+      "from": "draft",
+      "to": "held_trust"
+    },
+    {
+      "effects": [],
+      "event": "hold_machine_waking",
+      "from": "draft",
+      "to": "held_machine_waking"
+    },
+    {
+      "event": "release",
+      "from": "draft",
+      "refusal": "not_held"
+    },
+    {
+      "event": "accepted",
+      "from": "draft",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "read",
+      "from": "draft",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "refused",
+      "from": "draft",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "draft",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "draft",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "draft",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "draft",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "hand_back",
+      "from": "draft",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "submit",
+      "from": "sending",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "sending",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "sending",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "sending",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "sending",
+      "refusal": "not_held"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "sending",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "sending",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "sending",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "sending",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "sending",
+      "to": "held_host_starting"
+    },
+    {
+      "effects": [],
+      "event": "slow_timer",
+      "from": "sending",
+      "to": "sending_slow"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "sending",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "sending",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "sending_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "sending_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "sending_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "sending_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "sending_slow",
+      "refusal": "not_held"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "sending_slow",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "sending_slow",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "sending_slow",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "sending_slow",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "sending_slow",
+      "to": "held_host_starting"
+    },
+    {
+      "event": "slow_timer",
+      "from": "sending_slow",
+      "refusal": "already_slow"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "sending_slow",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "sending_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "queued_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "queued_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "queued_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "queued_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "queued_behind_turn",
+      "refusal": "not_held"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "queued_behind_turn",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "queued_behind_turn",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "queued_behind_turn",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "queued_behind_turn",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "queued_behind_turn",
+      "to": "held_host_starting_behind_turn"
+    },
+    {
+      "effects": [],
+      "event": "slow_timer",
+      "from": "queued_behind_turn",
+      "to": "queued_behind_turn_slow"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "queued_behind_turn",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "queued_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "queued_behind_turn_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "queued_behind_turn_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "queued_behind_turn_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "queued_behind_turn_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "queued_behind_turn_slow",
+      "refusal": "not_held"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "queued_behind_turn_slow",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "queued_behind_turn_slow",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "queued_behind_turn_slow",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "queued_behind_turn_slow",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "queued_behind_turn_slow",
+      "to": "held_host_starting_behind_turn"
+    },
+    {
+      "event": "slow_timer",
+      "from": "queued_behind_turn_slow",
+      "refusal": "already_slow"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "queued_behind_turn_slow",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "queued_behind_turn_slow",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "held_trust",
+      "refusal": "held"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_trust",
+      "refusal": "held"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_trust",
+      "refusal": "held"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_trust",
+      "refusal": "held"
+    },
+    {
+      "effects": [],
+      "event": "release",
+      "from": "held_trust",
+      "to": "draft"
+    },
+    {
+      "event": "accepted",
+      "from": "held_trust",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "read",
+      "from": "held_trust",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "refused",
+      "from": "held_trust",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "held_trust",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "held_trust",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_trust",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "held_trust",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [],
+      "event": "hand_back",
+      "from": "held_trust",
+      "to": "draft"
+    },
+    {
+      "event": "submit",
+      "from": "held_machine_waking",
+      "refusal": "held"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_machine_waking",
+      "refusal": "held"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_machine_waking",
+      "refusal": "held"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_machine_waking",
+      "refusal": "held"
+    },
+    {
+      "effects": [],
+      "event": "release",
+      "from": "held_machine_waking",
+      "to": "draft"
+    },
+    {
+      "event": "accepted",
+      "from": "held_machine_waking",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "read",
+      "from": "held_machine_waking",
+      "refusal": "not_sent"
+    },
+    {
+      "event": "refused",
+      "from": "held_machine_waking",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "held_machine_waking",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "held_machine_waking",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_machine_waking",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "held_machine_waking",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [],
+      "event": "hand_back",
+      "from": "held_machine_waking",
+      "to": "draft"
+    },
+    {
+      "event": "submit",
+      "from": "held_host_starting",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_host_starting",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_host_starting",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_host_starting",
+      "refusal": "in_flight"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "release",
+      "from": "held_host_starting",
+      "to": "held_host_starting_resent"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "held_host_starting",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "held_host_starting",
+      "to": "read"
+    },
+    {
+      "event": "refused",
+      "from": "held_host_starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "held_host_starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "held_host_starting",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_host_starting",
+      "refusal": "held"
+    },
+    {
+      "event": "fail_timer",
+      "from": "held_host_starting",
+      "refusal": "held"
+    },
+    {
+      "event": "hand_back",
+      "from": "held_host_starting",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "release",
+      "from": "held_host_starting_behind_turn",
+      "to": "held_host_starting_resent_behind_turn"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "held_host_starting_behind_turn",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "held_host_starting_behind_turn",
+      "to": "read"
+    },
+    {
+      "event": "refused",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "held"
+    },
+    {
+      "event": "fail_timer",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "held"
+    },
+    {
+      "event": "hand_back",
+      "from": "held_host_starting_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "held_host_starting_resent",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "held_host_starting_resent",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "held_host_starting_resent",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "held_host_starting_resent",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "held_host_starting_resent",
+      "to": "held_host_starting"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_host_starting_resent",
+      "refusal": "held"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "held_host_starting_resent",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "held_host_starting_resent",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_trust",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "release",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "held_host_starting_resent_behind_turn",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "held_host_starting_resent_behind_turn",
+      "to": "read"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "refused",
+      "from": "held_host_starting_resent_behind_turn",
+      "to": "failed"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "unanswered",
+      "from": "held_host_starting_resent_behind_turn",
+      "to": "failed_unanswered"
+    },
+    {
+      "effects": [],
+      "event": "host_away",
+      "from": "held_host_starting_resent_behind_turn",
+      "to": "held_host_starting_behind_turn"
+    },
+    {
+      "event": "slow_timer",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "held"
+    },
+    {
+      "effects": [],
+      "event": "fail_timer",
+      "from": "held_host_starting_resent_behind_turn",
+      "set": {
+        "code": "timeout",
+        "hop": "acpmux"
+      },
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "hand_back",
+      "from": "held_host_starting_resent_behind_turn",
+      "refusal": "in_flight"
+    },
+    {
+      "event": "submit",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "hold_trust",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "release",
+      "from": "delivered",
+      "refusal": "not_held"
+    },
+    {
+      "event": "accepted",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "effects": [],
+      "event": "read",
+      "from": "delivered",
+      "to": "read"
+    },
+    {
+      "effects": [],
+      "event": "refused",
+      "from": "delivered",
+      "set": {
+        "hop": "agent"
+      },
+      "to": "failed"
+    },
+    {
+      "event": "unanswered",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "host_away",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "slow_timer",
+      "from": "delivered",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "delivered",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "hand_back",
+      "from": "delivered",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "submit",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "event": "submit_behind_turn",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "event": "hold_trust",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "event": "release",
+      "from": "read",
+      "refusal": "not_held"
+    },
+    {
+      "event": "accepted",
+      "from": "read",
+      "refusal": "already_taken"
+    },
+    {
+      "event": "read",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "event": "refused",
+      "from": "read",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "unanswered",
+      "from": "read",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "host_away",
+      "from": "read",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "read",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "read",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "hand_back",
+      "from": "read",
+      "refusal": "already_read"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit",
+      "from": "failed",
+      "to": "sending"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit_behind_turn",
+      "from": "failed",
+      "to": "queued_behind_turn"
+    },
+    {
+      "event": "hold_trust",
+      "from": "failed",
+      "refusal": "not_draft"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "failed",
+      "refusal": "not_draft"
+    },
+    {
+      "event": "release",
+      "from": "failed",
+      "refusal": "not_held"
+    },
+    {
+      "event": "accepted",
+      "from": "failed",
+      "refusal": "already_refused"
+    },
+    {
+      "event": "read",
+      "from": "failed",
+      "refusal": "already_refused"
+    },
+    {
+      "event": "refused",
+      "from": "failed",
+      "refusal": "already_refused"
+    },
+    {
+      "event": "unanswered",
+      "from": "failed",
+      "refusal": "already_refused"
+    },
+    {
+      "event": "host_away",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "failed",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [],
+      "event": "hand_back",
+      "from": "failed",
+      "to": "draft"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit",
+      "from": "failed_unanswered",
+      "to": "sending"
+    },
+    {
+      "effects": [
+        "send_prompt",
+        "arm_timers"
+      ],
+      "event": "submit_behind_turn",
+      "from": "failed_unanswered",
+      "to": "queued_behind_turn"
+    },
+    {
+      "event": "hold_trust",
+      "from": "failed_unanswered",
+      "refusal": "not_draft"
+    },
+    {
+      "event": "hold_machine_waking",
+      "from": "failed_unanswered",
+      "refusal": "not_draft"
+    },
+    {
+      "event": "release",
+      "from": "failed_unanswered",
+      "refusal": "not_held"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "accepted",
+      "from": "failed_unanswered",
+      "to": "delivered"
+    },
+    {
+      "effects": [
+        "clear_timers"
+      ],
+      "event": "read",
+      "from": "failed_unanswered",
+      "to": "read"
+    },
+    {
+      "effects": [],
+      "event": "refused",
+      "from": "failed_unanswered",
+      "to": "failed"
+    },
+    {
+      "effects": [],
+      "event": "unanswered",
+      "from": "failed_unanswered",
+      "to": "failed_unanswered"
+    },
+    {
+      "event": "host_away",
+      "from": "failed_unanswered",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "slow_timer",
+      "from": "failed_unanswered",
+      "refusal": "not_awaited"
+    },
+    {
+      "event": "fail_timer",
+      "from": "failed_unanswered",
+      "refusal": "not_awaited"
+    },
+    {
+      "effects": [],
+      "event": "hand_back",
+      "from": "failed_unanswered",
+      "to": "draft"
+    }
+  ],
+  "unansweredCodes": [
+    "timeout",
+    "native.timed_out"
+  ],
+  "version": 1
+}
