@@ -245,7 +245,7 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import LANE_LABEL  # noqa: E402
-from pr_runner_pool import OWNED_EPHEMERAL_LINUX  # noqa: E402
+from pr_runner_pool import OWNED_POOL_LEAD_LINUX  # noqa: E402
 from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
@@ -746,11 +746,11 @@ def paid_portable_label(job: Mapping[str, Any]) -> str | None:
 
 
 def owned_linux_label(job: Mapping[str, Any]) -> str | None:
-    """The owned Mac fleet's Linux VM label (pr_runner_pool.OWNED_EPHEMERAL_LINUX) a job asked for, if any.
+    """The owned Linux label (pr_runner_pool.OWNED_POOL_LEAD_LINUX: the Mac fleet's VMs, the GCP pool) a job asked for.
 
     runner_pools.py may lead a pool with one; it reads this label's queue and starts from the snapshot to move the
     pool to Blacksmith once every VM is taken (runner_pools.label_evidence())."""
-    return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_EPHEMERAL_LINUX), None)
+    return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_POOL_LEAD_LINUX), None)
 
 
 def lane_label(job: Mapping[str, Any]) -> str | None:
@@ -1329,7 +1329,7 @@ def label_started(runs: Sequence[Mapping[str, Any]],
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
                 if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
-                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label) or label in OWNED_EPHEMERAL_LINUX):
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label) or label in OWNED_POOL_LEAD_LINUX):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
