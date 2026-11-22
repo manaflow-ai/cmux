@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- Cross-document View Transitions test page. ?id=N from ../pages/catalog.js.
+     The harness injects `@view-transition { navigation: auto }` at document start
+     (as CEFDocumentScripts would); the page itself opts into nothing. -->
+<html><head><meta charset="utf-8"><title>vt</title>
+<script>
+  // Measure on the incoming page: did a view transition run, when did it reveal and finish.
+  window.__vt = { reveal: null, ready: null, finished: null, frames: [] };
+  addEventListener("pagereveal", e => {
+    const t = e.viewTransition; __vt.reveal = performance.now(); __vt.hadTransition = !!t;
+    if (t) {
+      t.ready.then(() => __vt.ready = performance.now(), () => {});
+      t.finished.then(() => __vt.finished = performance.now());
+    }
+    const end = performance.now() + 500;
+    const step = () => { __vt.frames.push(performance.now()); if (performance.now() < end) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+  addEventListener("pageswap", e => { sessionStorage.swapHadTransition = String(!!e.viewTransition); });
+</script>
+<style>
+  html,body{margin:0;height:100%;font:15px/1.5 system-ui,sans-serif}
+  main{padding:24px 32px} a{font-size:18px;margin-right:18px;color:inherit}
+  .line{height:12px;border-radius:6px;background:currentColor;opacity:.18;margin:10px 0}
+  .card{border:1px solid #8884;border-radius:8px;padding:14px;margin:14px 0}
+</style></head>
+<body><main>
+<h1 id="h"></h1>
+<p><a id="same" href="#">same-origin next</a><a id="cross" href="#">cross-origin next</a></p>
+<div id="body"></div></main>
+<script>
+  const pages = [["#ffffff","#1f2328","light"],["#0d1117","#e6edf3","dark"],["#f6f6ef","#000","light"],["#1e1e1e","#ddd","dark"]];
+  const id = Number(new URLSearchParams(location.search).get("id") || 0), p = pages[id % pages.length];
+  document.body.style.background = p[0]; document.body.style.color = p[1]; document.documentElement.style.colorScheme = p[2];
+  document.getElementById("h").textContent = `page ${id} (${p[2]})`;
+  document.getElementById("body").innerHTML = Array.from({length:6},(_,i)=>`<div class="card">${Array.from({length:4},(_,j)=>`<div class="line" style="width:${50+((i*31+j*17+id*7)%50)}%"></div>`).join("")}</div>`).join("");
+  const next = (id + 1) % pages.length;
+  document.getElementById("same").href = `${location.origin}/vt/page.html?id=${next}`;
+  const other = location.hostname === "localhost" ? "127.0.0.1" : "localhost";
+  document.getElementById("cross").href = `${location.protocol}//${other}:${location.port}/vt/page.html?id=${next}`;
+  for (const a of document.querySelectorAll("a")) a.addEventListener("click", () => { sessionStorage.clickEpoch = String(performance.timeOrigin + performance.now()); localStorage.clickEpoch = sessionStorage.clickEpoch; });
+</script></body></html>
