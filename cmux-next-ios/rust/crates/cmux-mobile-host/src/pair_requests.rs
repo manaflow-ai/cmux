@@ -151,7 +151,13 @@ pub fn handle(pairing: Option<&Pairing>, asker: &Asker<'_>, args: &Value) -> Res
         "answer" => {
             let device_id = text("deviceId");
             let wanted = text("fingerprint");
-            let Some(allow) = args.get("allow").and_then(Value::as_bool) else {
+            // The phone's channel args are a string map: `"true"` and `"false"` count too.
+            let Some(allow) = args.get("allow").and_then(|v| match v {
+                Value::Bool(b) => Some(*b),
+                Value::String(s) if s == "true" => Some(true),
+                Value::String(s) if s == "false" => Some(false),
+                _ => None,
+            }) else {
                 return Err(("bad_request", "allow is true or false".into()));
             };
             if device_id.is_empty() || wanted.is_empty() {
@@ -250,6 +256,24 @@ mod tests {
 
     fn answer(id: &str, fingerprint: &str, allow: bool) -> Value {
         json!({"action": "answer", "deviceId": id, "fingerprint": fingerprint, "allow": allow})
+    }
+
+    #[test]
+    fn allow_as_text_from_the_phone_is_taken() {
+        let (pairing, events) = pairing();
+        let _held = pairing.waiting.hold(request("probe"));
+        let fingerprint = request("probe").fingerprint();
+        for (text, allow) in [("true", true), ("false", false)] {
+            let args =
+                json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": text});
+            assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap(), json!({"ok": true}));
+            assert!(
+                matches!(events.lock().unwrap().last(), Some(Event::PairAnswer { allow: a, .. }) if *a == allow)
+            );
+        }
+        let args =
+            json!({"action": "answer", "deviceId": "probe", "fingerprint": fingerprint, "allow": "yes"});
+        assert_eq!(handle(Some(&pairing), &PAIRED_PHONE, &args).unwrap_err().0, "bad_request");
     }
 
     #[test]

@@ -17,6 +17,7 @@ use tokio::runtime::Runtime;
 mod browser;
 mod classic_leftovers;
 mod link_side;
+mod pair_requests;
 mod terminal_chat;
 mod terminal_prediction;
 

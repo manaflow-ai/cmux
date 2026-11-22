@@ -285,6 +285,14 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        #if canImport(CmuxMobileLinkFFI)
+        // Other devices waiting for this Mac's Allow, answered from here (ask-45c37458ea).
+        pairRequests.linkServed(macID: macID, source: MacPairRequests.Source(
+            link: { [weak session] in session?.servedLink },
+            name: { [weak session] in session?.name ?? "" },
+            capabilities: { [weak self] in self?.store.macCapabilities[macID] }
+        ))
+        #endif
         await chats.value
         guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
