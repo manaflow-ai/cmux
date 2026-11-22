@@ -488,6 +488,21 @@ jobs:
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
+      # The native leg (the macOS fallback, or a feat-cmux-next push leg on a free mini) built
+      # into cmux-tui/target, which actions/checkout's clean empties every job, so every one
+      # compiled cold: run 44947539922's fallback took 2h01m here and the job timeout cancelled
+      # it before it shipped. On an owned Mac it now starts from an APFS clone of the target the
+      # last feat-cmux-next native build kept ("Keep the warm Mac target" below);
+      # scripts/ci/cmux-tui-mac-warm-target.sh prints "mac warm target: hit, ..." or "miss (...)".
+      - name: Start from feat-cmux-next's warm Mac target
+        if: matrix.cross == false && runner.os == 'macOS'
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh restore ${{ matrix.build_target }} \
+            || echo "warning: mac warm target restore failed; building as is" >&2
+
       - name: Build cmux-tui (native)
         if: matrix.cross == false
         env:
@@ -1006,6 +1021,18 @@ jobs:
           [[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"
           scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
             || echo "warning: warm target record failed" >&2
+
+      # A feat-cmux-next push or dispatch's native Mac build, once staged, becomes the base tree every later
+      # native leg on that Mac (a lane's macOS fallback included) clones before it builds. A lane
+      # never writes it. scripts/ci/cmux-tui-mac-warm-target.sh.
+      - name: Keep the warm Mac target (feat-cmux-next)
+        if: success() && matrix.cross == false && runner.os == 'macOS' && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
+        env:
+          LTO: ${{ inputs.lto }}
+        shell: bash
+        run: |
+          scripts/ci/cmux-tui-mac-warm-target.sh record ${{ matrix.build_target }} \
+            || echo "warning: mac warm target record failed" >&2
 
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
