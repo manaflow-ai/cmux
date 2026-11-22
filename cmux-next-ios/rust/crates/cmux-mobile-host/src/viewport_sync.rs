@@ -78,7 +78,7 @@ pub struct Config {
     pub resend_unmeasured: Duration,
     /// How much the pacer may save up while idle, as time at its rate.
     pub burst: Duration,
-    /// On a jittery link (the round trip's variation at least an eighth of it), each new
+    /// On a jittery link (the round trips' middle half spans a quarter of their median), each new
     /// diff goes this many more times, `copy_spacing` apart, each copy drawing its own delay:
     /// the phone holds it at the fastest copy's arrival, and a lost fragment has a stand-in.
     /// A copy goes only while the diff is the newest and unacked, and only on the pacer's
@@ -378,11 +378,12 @@ pub struct ViewportSync {
     /// The newest diff's copies still to go: its seq, its datagrams (unstamped), how many more,
     /// and when the next is due.
     copy: Option<Copies>,
+    jitter: bool,
     copies_sent: u64,
     copy_bytes: u64,
 }
 
-/// Below this much round-trip variation the copies would only spend bytes (good wifi's few ms).
+/// Below this much round-trip spread the copies would only spend bytes (good wifi's few ms).
 const COPY_JITTER: Duration = Duration::from_millis(10);
 
 struct Copies {
@@ -441,6 +442,7 @@ impl ViewportSync {
             captures: None,
             feeds: None,
             copy: None,
+            jitter: false,
             copies_sent: 0,
             copy_bytes: 0,
         }
@@ -722,10 +724,10 @@ impl ViewportSync {
         datagrams
     }
 
-    /// The round trip varies by at least an eighth of itself, and by at least `COPY_JITTER`:
-    /// copies beat the jitter.
+    /// Set by the pacer's look at the round trips (at least `2 * MIN_RECENT` of them): copies
+    /// beat the jitter.
     fn jittery(&self) -> bool {
-        self.rttvar >= COPY_JITTER && self.srtt.is_some_and(|srtt| self.rttvar * 8 >= srtt)
+        self.jitter
     }
 
     /// The copy due now, if its diff is still the newest unacked and the pacer has budget.
@@ -895,6 +897,9 @@ impl ViewportSync {
         recent.sort_unstable();
         let floor = long[0];
         let spread = long[long.len() * 3 / 4].saturating_sub(long[long.len() / 4]);
+        // Jitter dominates when the round trips' middle half spans a quarter of their median:
+        // lossy-3 (about 180 of 370 ms), not lossy-10 (about 180 of 1300) or lte (none).
+        self.jitter = spread >= COPY_JITTER && spread * 4 >= long[long.len() / 2];
         let threshold = Duration::from_millis(25).max(floor / 4).max(spread / 2);
         let lifted = recent[0]
             .saturating_sub(floor)
@@ -1340,8 +1345,7 @@ mod tests {
     fn viewport_sync_a_copy_never_outlives_its_diff() {
         let start = Instant::now();
         let mut sync = driver(start);
-        sync.srtt = Some(Duration::from_millis(300));
-        sync.rttvar = Duration::from_millis(100);
+        sync.jitter = true;
         sync.feed(b"one");
         assert!(!sync.poll(start).is_empty());
         let at = sync.next_wake(start).expect("a copy is due");
