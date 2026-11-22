@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextBrowser
 import Darwin
 import Foundation
 import Testing
