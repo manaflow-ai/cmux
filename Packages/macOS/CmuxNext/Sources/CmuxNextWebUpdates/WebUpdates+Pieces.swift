@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextPages
 import CmuxNextUpdater
@@ -172,11 +173,11 @@ extension WebUpdates {
     }
 
     @concurrent nonisolated static func hasKept(_ store: WebUpdateStore) async -> Bool {
-        FileManager.default.fileExists(atPath: store.base.appending(path: keptFile).path)
+        FileManager.checked.fileExists(atPath: store.base.appending(path: keptFile).path)
     }
 
     @concurrent nonisolated static func kept(_ store: WebUpdateStore) async -> [WebUpdatePointer] {
-        guard let data = try? Data(contentsOf: store.base.appending(path: keptFile)) else { return [] }
+        guard let data = try? Data(blockingContentsOf: store.base.appending(path: keptFile)) else { return [] }
         return (try? JSONDecoder().decode(Kept.self, from: data))?.pointers ?? []
     }
 
@@ -185,10 +186,10 @@ extension WebUpdates {
     @concurrent nonisolated static func keep(_ pointers: [WebUpdatePointer], switched: Bool = false, in store: WebUpdateStore) async {
         let file = store.base.appending(path: keptFile)
         guard switched else {
-            if FileManager.default.fileExists(atPath: file.path) { try? FileManager.default.removeItem(at: file) }
+            if FileManager.checked.fileExists(atPath: file.path) { try? FileManager.checked.removeItem(at: file) }
             return
         }
-        try? FileManager.default.createDirectory(at: store.base, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(Kept(pointers: pointers)).write(to: file, options: .atomic)
+        try? FileManager.checked.createDirectory(at: store.base, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(Kept(pointers: pointers)).blockingWrite(to: file, options: .atomic)
     }
 }
