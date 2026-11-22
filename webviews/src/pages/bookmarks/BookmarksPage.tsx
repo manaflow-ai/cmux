@@ -500,7 +500,7 @@ function BookmarkRow({ node, style, index, layout, selected, focused, drop, deta
       data-bookmark={node.id}
       className={`bm-row${selected ? " selected" : ""}${drop ? ` drop-${drop}` : ""}`}
       style={style}
-      title={layout === "compact" && node.url ? node.url : undefined}
+      aria-description={layout === "compact" && node.url ? node.url : undefined}
       draggable
       onClick={on.onClick}
       onDoubleClick={on.onOpen}

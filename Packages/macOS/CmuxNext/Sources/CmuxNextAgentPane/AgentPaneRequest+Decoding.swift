@@ -705,7 +705,10 @@ extension AgentPaneRequest {
         case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
-        case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
+        case "transport.gesture":
+            var refusal: String?
+            let intent = AgentPaneGestureIntent(gestureParams: params, refusal: &refusal)
+            self = .transportGesture(intent, method: AgentPaneGestureIntent.method(gestureParams: params), refusal: refusal)
         case "transport.gesture.release": self = .transportGestureRelease
         case "transport.send":
             if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],

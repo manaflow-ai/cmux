@@ -198,6 +198,7 @@ import {
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
+import { setStartRecoveryPreview } from "./startRecoveryPreview";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
@@ -8333,6 +8334,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setStartRecoveryPreview(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyLiveTree(on) {
