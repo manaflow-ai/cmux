@@ -561,13 +561,24 @@ button.cv-subagent > :last-child {
   background: transparent;
   box-shadow: none;
 }
+/* One line per step in the hat: the step's first line ends in an ellipsis (its tooltip holds the
+   rest), its detail shows under it muted on one line, and the mark sits on the first line's centre
+   whether a detail follows or not (Leo, 2026-11-22: ">1 line is ok IFF it's rendered and styled
+   properly"). */
 .acpmux-running-tray__plan .cv-plan__item {
-  align-items: center;
+  align-items: flex-start;
   min-height: var(--ui-row-height, 28px);
-  padding-block: 0;
+  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
 }
 .acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: 0;
+  margin-top: var(--grid-half-step);
+}
+.acpmux-running-tray__plan .cv-plan__title,
+.acpmux-running-tray__plan .cv-plan__detail {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
@@ -2577,6 +2588,15 @@ button.cv-subagent > :last-child {
   cursor: ns-resize;
   touch-action: none;
 }
+/* While the rim drags, the hat follows the cursor alone: no transition eases a height, a fold or a
+   row behind it (Leo, 2026-11-22: "the dragging isn't properly relative accurate to the cursor"),
+   the resize cursor holds wherever the pointer goes, and no text selects under it. */
+.acpmux-running-tray[data-dragging],
+.acpmux-running-tray[data-dragging] * {
+  transition: none !important;
+  cursor: ns-resize !important;
+  user-select: none;
+}
 /* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
    the default five lines are), with or without the latest-step second lines. Last in the file, so
    it wins over the default caps above of the same weight. It keeps their 2px allowance for the
@@ -2655,7 +2675,6 @@ button.cv-subagent > :last-child {
   left: calc(var(--hat-face-index) * var(--hat-face-step));
   display: inline-flex;
   line-height: 0;
-  cursor: pointer;
   border-radius: 999px;
   /* A thin ring of the hat's own glass between overlapping icons, so each reads as its own. */
   box-shadow: 0 0 0 1.5px var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 85%, transparent));
@@ -2706,5 +2725,6 @@ button.cv-subagent > :last-child {
   inset: calc(-1 * var(--ds-space-1)) auto calc(-1 * var(--ds-space-1)) calc(-1 * var(--ds-space-1));
   width: calc(var(--hat-face-open-width) + 2 * var(--ds-space-1));
   border-radius: 999px;
+  /* chat-surface-allow: the fan's backing is the page colour, so the faces read over the transcript */
   background: var(--acpmux-hat-face-ring, color-mix(in srgb, var(--agent-bg, Canvas) 92%, transparent));
 }
