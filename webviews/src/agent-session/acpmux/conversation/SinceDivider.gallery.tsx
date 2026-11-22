@@ -62,10 +62,12 @@ function Reply({ text }: { text: string }) {
   return <p style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>{text}</p>;
 }
 
-/// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css).
+/// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css), the
+/// toggle's included: its divider sits a foot gap under its words, and the mark must light that
+/// divider, not draw its own over the words' bottom (manaflow-ai/cmux#51002).
 function Worked() {
   return (
-    <div className="cv-worked has-divider" style={{ color: "var(--agent-muted)" }}>
+    <div className="cv-worked has-divider is-toggle" style={{ color: "var(--agent-muted)" }}>
       Worked for 31s
     </div>
   );
