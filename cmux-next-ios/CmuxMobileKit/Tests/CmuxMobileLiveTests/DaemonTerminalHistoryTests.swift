@@ -10,13 +10,17 @@ import Testing
 /// chunks, without the terminal ever leaving the attached state. An older
 /// daemon, or a lane that refuses the field, gets today's whole replay.
 @MainActor @Suite struct DaemonTerminalHistoryTests {
-    private func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog) -> DaemonTerminalSession {
+    /// `prefetch`: the history behind the screen follows by itself (off in
+    /// the tests of the on-demand chunks).
+    private func session(_ daemon: FakeTerminalDaemon, _ channels: ChannelLog, prefetch: Duration? = nil) -> DaemonTerminalSession {
         let link = MockMacLink { service, line in daemon.respond(service, line) }
-        return DaemonTerminalSession(surface: 7) {
+        let session = DaemonTerminalSession(surface: 7) {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             channels.append(channel)
             return DaemonClient(channel: channel)
         }
+        session.historyPrefetchDelay = prefetch
+        return session
     }
 
     private func attaches(_ daemon: FakeTerminalDaemon) -> [[String: Any]] {
@@ -164,6 +168,92 @@ import Testing
         #expect(attaches(daemon).count == 1)
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 2 * DaemonTerminalSession.historyChunkRows)
         #expect(session.historyRowsOmitted == 5_000)
+    }
+
+    // MARK: History behind the screen (Leo, 2026-11-22: "so the phone side is clearly doing something off")
+
+    /// The screen comes first and is live alone; the history follows by
+    /// itself on a replacing attach, so a reader scrolling up reads rows the
+    /// phone already holds instead of waiting at the top for the Mac.
+    @Test func theHistoryFollowsTheScreenByItself() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 3_500
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(50))
+        defer { session.stop() }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0, "the screen still comes first")
+        #expect(text(events) == "\u{1B}c[0 rows]hello\r\n$ ")
+        events.removeAll()
+
+        try await waitUntil { session.historyRowsOmitted == 0 }
+        #expect(attaches(daemon).count == 2)
+        #expect(attaches(daemon).last?["replay_history_rows"] == nil, "3,500 rows fit the prefetch: all of them")
+        #expect(text(events) == "\u{1B}chello\r\n$ ", "the whole history: no row count")
+        #expect(!events.contains { if case .connection(let state) = $0 { !state.isAttached } else { false } })
+        #expect(session.isAttached)
+        // Once: a scroll to the top has nothing left to fetch.
+        try await Task.sleep(for: .milliseconds(150))
+        session.loadOlderHistory()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(attaches(daemon).count == 2)
+    }
+
+    /// A longer history: the prefetch brings ``prefetchHistoryRows`` and the
+    /// rows older than that still come in chunks at the top.
+    @Test func aLongHistoryPrefetchesItsLatestRowsAndChunksTheRest() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 25_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(50))
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await waitUntil { session.historyRowsOmitted == 25_000 - DaemonTerminalSession.prefetchHistoryRows }
+        #expect(attaches(daemon).count == 2)
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int == DaemonTerminalSession.prefetchHistoryRows)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(attaches(daemon).count == 2, "one prefetch per session")
+        session.loadOlderHistory()
+        try await waitUntil { attaches(daemon).count == 3 }
+        #expect(attaches(daemon).last?["replay_history_rows"] as? Int
+            == DaemonTerminalSession.prefetchHistoryRows + DaemonTerminalSession.historyChunkRows)
+    }
+
+    /// An older daemon replays the whole history already: no prefetch.
+    @Test func anOlderDaemonGetsNoPrefetch() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.historyRows = 9_000
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(20))
+        defer { session.stop() }
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(attaches(daemon).count == 1)
+    }
+
+    /// Stopped before the wait ends (a tab cooled out of the warm set): nothing goes.
+    @Test func aStoppedSessionPrefetchesNothing() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.tailReplay = true
+        daemon.historyRows = 9_000
+        daemon.afterAttach = nil
+        let session = session(daemon, ChannelLog(), prefetch: .milliseconds(200))
+        session.start { _ in }
+        try await waitUntil { session.isAttached }
+        session.stop()
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(attaches(daemon).count == 1)
+    }
+
+    @Test func theDefaultSessionPrefetches() {
+        let session = DaemonTerminalSession(surface: 7) { throw CancellationError() }
+        #expect(session.historyPrefetchDelay == DaemonTerminalSession.defaultHistoryPrefetchDelay)
+        #expect(DaemonTerminalSession.prefetchHistoryRows >= 5 * DaemonTerminalSession.historyChunkRows)
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {
