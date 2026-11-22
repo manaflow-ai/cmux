@@ -1690,6 +1690,8 @@ impl Hub {
         if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
         {
             self.rate_turn_ok(session);
+            // Nothing its process said before this end explains a later exit (`exit_reason.rs`).
+            session.exit_line.lock().unwrap_or_else(|e| e.into_inner()).turn_ended_well();
         }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());

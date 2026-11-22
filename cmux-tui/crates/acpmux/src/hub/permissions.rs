@@ -274,6 +274,11 @@ impl Hub {
                         &mut session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()),
                         &clean,
                     );
+                    session
+                        .exit_line
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .heard(&short_text(&clean, STDERR_LINE_CAP));
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
@@ -349,6 +354,8 @@ impl Hub {
                         && session.status() != SessionStatus::Closed;
                     let intentional = hibernating
                         || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // This process's line, taken at every exit so the next process starts with none.
+                    let last = session.exit_line.lock().unwrap_or_else(|e| e.into_inner()).take();
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
@@ -360,16 +367,9 @@ impl Hub {
                             } else if intentional {
                                 json!({"code": code})
                             } else {
-                                // Its stderr was queued before its exit (`agent.rs`): the tail
-                                // holds what it said last (`exit_reason.rs`).
-                                let tail =
-                                    session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner());
-                                super::exit_reason::exited_data(
-                                    code,
-                                    super::exit_reason::last_explaining(
-                                        tail.iter().map(String::as_str),
-                                    ),
-                                )
+                                // Its stderr was queued before its exit (`agent.rs`): the line is
+                                // what it said last since its last good turn (`exit_reason.rs`).
+                                super::exit_reason::exited_data(code, last.as_deref())
                             },
                         );
                     }
