@@ -37,6 +37,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
         var services: AsyncStream<RemoteRdJSON>.Continuation?
+        var hostStats: AsyncStream<RemoteRdHostStats>.Continuation?
         /// Host stats reports seen (one in five is logged).
         var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
@@ -291,7 +292,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     applySurfaceStreams(body)
                     _ = state.withLock { $0.services?.yield(body) }
                 }
-                if case let .stats(stats) = control { logHostStats(stats) }
+                if case let .stats(stats) = control {
+                    logHostStats(stats)
+                    _ = state.withLock { $0.hostStats?.yield(stats) }
+                }
                 if case let .cursorShape(message) = control, let shape = message.cursorShape {
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
@@ -402,6 +406,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             state.units?.finish()
             state.cursors?.finish()
             state.services?.finish()
+            state.hostStats?.finish()
             state.surfaces.endAll()
             state.statuses?.finish()
         }
