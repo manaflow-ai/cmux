@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Map, Value};
 
 use crate::limits::objects;
+use crate::model::MAX_KEY_BYTES;
 
 /// The longest workspace name the daemon takes, in UTF-8 bytes.
 pub const MAX_NAME_BYTES: usize = 1024;
@@ -155,13 +156,17 @@ pub fn fitting(name: &str, bytes: usize) -> String {
 }
 
 /// The workspace's identity across classic saves: `stableId`, else
-/// `workspaceId`, else (a very old snapshot) an FNV-1a digest of its folder,
-/// its name and its panel ids.
+/// `workspaceId`, else (a very old snapshot, or ids too long for the ledger
+/// step that records them) an FNV-1a digest of its folder, its name and its
+/// panel ids.
 pub fn key(value: &Map<String, Value>, name: &str, home: &str) -> String {
-    // The first field holding a non-empty string wins.
-    let id = ["stableId", "stable_id", "workspaceId", "workspace_id"]
-        .iter()
-        .find_map(|field| value.get(*field).and_then(Value::as_str).filter(|id| !id.is_empty()));
+    // The first field holding a non-empty string that fits a ledger step wins.
+    let id = ["stableId", "stable_id", "workspaceId", "workspace_id"].iter().find_map(|field| {
+        value
+            .get(*field)
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && id.len() <= MAX_KEY_BYTES)
+    });
     if let Some(id) = id {
         return id.to_string();
     }
