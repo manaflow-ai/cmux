@@ -8,7 +8,17 @@ extension CEFTab {
     }
 
     public func setDevToolsFocused(_ focused: Bool) {
+        // In tree the tools' view takes the keys as cmux's window's first responder, which only a grant lets through.
+        if focused, let host = devToolsController.views?.host, host.inTree.isInTree {
+            host.inTree.grantFocus { devToolsController.setFocused(true) }
+            return
+        }
         devToolsController.setFocused(focused)
+    }
+
+    public func devToolsContains(view: NSView) -> Bool {
+        guard devTools.isOpen, let host = devToolsController.views?.host, host.inTree.isInTree else { return false }
+        return view.isDescendant(of: host)
     }
 
     public func devToolsContains(window: NSWindow) -> Bool {
