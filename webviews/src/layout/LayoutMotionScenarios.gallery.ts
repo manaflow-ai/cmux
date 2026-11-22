@@ -250,6 +250,32 @@ export default agentPaneEntry({
         await settleFrames(ctx, 40);
       },
     },
+    // The shape the fix is about: the turn ends on an answer that carries a tagged ask, so the card
+    // only a concluded turn used to draw is in play. On base it is appended at the swap at its full
+    // height and the pinned bottom lifts every row above it (37.75px on the unit test's fixture); the
+    // variants that end on calls alone never reach that row, which is how the judged scenario missed it.
+    "turn-end-ask": {
+      note: "Play: trailing tool calls arrive, then the turn ends on an answer that carries a tagged ask. The ask's card is drawn while the turn still runs, so the end appends nothing; the fold is the one declared move.",
+      ready: { transport: "mock" },
+      snapshot: chat([]),
+      play: async (ctx) => {
+        const debug = await seededChat(ctx);
+        trace(ctx, "turn-end-ask", 60);
+        await debug.loadTools({
+          count: 3,
+          gap_ms: 60,
+          keep_open: false,
+          reply: [
+            "Landed the fix and the gate is green.",
+            "",
+            "- **[taste]** Should the fold keep the old look?",
+            "  - Keep it",
+            "  - Use the new one",
+          ].join("\n"),
+        });
+        await settleFrames(ctx, 40);
+      },
+    },
     "turn-end-scrolled-away": {
       note: "Play: the reader is scrolled up into the finished turns while trailing calls arrive and the turn ends. The view follows nothing, so on screen nothing may move at all.",
       ready: { transport: "mock" },
