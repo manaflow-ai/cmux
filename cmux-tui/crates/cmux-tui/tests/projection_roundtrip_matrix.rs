@@ -397,7 +397,8 @@ impl Trip {
     }
 
     /// Ends the folder's server and serves the folder again, as after this Mac restarted: the
-    /// machine attaches it to the mount it kept. The new server, ended when it drops.
+    /// machine attaches it to the mount it kept, or mounts the Mac's newer listing. The new
+    /// server, ended when it drops.
     fn restart_server(&self) -> Server {
         let stopped =
             self.mac.cmux().args(["link", "project", "stop", "--at"]).arg(&self.folder).output();
@@ -424,7 +425,7 @@ impl Trip {
         .unwrap();
         let answer: Value = serde_json::from_str(line.trim()).unwrap_or(Value::Null);
         assert_eq!(answer["ok"], true, "serve again: {line}");
-        assert_eq!(answer["data"]["attached"], true, "serve again: {line}");
+        eprintln!("serve again: {line}");
         Server(child)
     }
 
