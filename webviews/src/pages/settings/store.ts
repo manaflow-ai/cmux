@@ -39,6 +39,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
+import { machineLoadsFromStatus, type MachineLoad } from "../../ui/machineLoad";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import {
@@ -992,6 +993,13 @@ export class SettingsStore {
   async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
     const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Machines: each machine's load row, by acpmux name (ui/machineLoad.ts), from the app's
+   * relay of `_acpmux/peers`; empty when acpmux does not answer or the host has no relay. */
+  async machineLoads(): Promise<Record<string, MachineLoad>> {
+    const reply = await this.request("cmux.settings.machines.load", {});
+    return reply.ok ? machineLoadsFromStatus(reply.value) : {};
   }
 
   /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first

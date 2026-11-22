@@ -1168,7 +1168,7 @@ impl Hub {
             "harnesses": cfg.harnesses.keys().collect::<Vec<_>>(),
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),
-            "peers": self.peers(),
+            "peers": self.peers_with_load(),
             "remoteSessions": self.remote_sessions.read().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
             // Messages this daemon sent near the per-message cap, or refused over it

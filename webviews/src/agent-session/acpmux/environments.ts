@@ -1,3 +1,4 @@
+import type { MachineLoad } from "../../ui/machineLoad";
 import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
 import { intl } from "../../ui/intl";
 
@@ -19,6 +20,8 @@ export type Environment = {
   connected?: boolean;
   state?: string;
   loadWarning?: string;
+  /// Its load row (ui/machineLoad.ts), from a daemon that sends one: the row draws it (MachineLoadLine).
+  load?: MachineLoad;
   /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
   /// it is not connected; absent from an older daemon.
   downSince?: number;

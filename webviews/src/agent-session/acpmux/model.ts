@@ -31,6 +31,7 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
+import type { MachineLoad } from "../../ui/machineLoad";
 import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
@@ -1293,6 +1294,9 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's load row (`peers[].load`, acpmux placement.rs `load_row`): the numbers and verdict
+  /// every machine list draws (ui/machineLoad.ts).
+  peerLoads?: Record<string, MachineLoad>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one

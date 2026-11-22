@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { translate as t, type StringKey } from "./i18n";
 import { type Environment, type EnvironmentSection } from "./environments";
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
+import { MACHINE_LOAD_REFRESH_MS } from "../../ui/machineLoad";
 
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
 export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
@@ -44,7 +45,7 @@ export const ENVIRONMENT_SEARCH_MIN = 8;
 
 /// How often an open machine list reads the machines again: acpmux sends no peer events, so a
 /// machine that connects or drops while the list is open shows within this long.
-export const MACHINES_REFRESH_MS = 5_000;
+export const MACHINES_REFRESH_MS = MACHINE_LOAD_REFRESH_MS;
 
 /// While a machine list is open, `refresh` runs as it opens and then every MACHINES_REFRESH_MS;
 /// the timer stops when the list closes or the picker unmounts.
