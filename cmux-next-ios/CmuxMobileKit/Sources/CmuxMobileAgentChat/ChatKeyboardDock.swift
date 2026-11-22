@@ -652,6 +652,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// timing never has to match SwiftUI's.
     private func stackHeightFrame(_ height: CGFloat) {
         guard abs(stackHeight - height) > 0.01 else { return }
+        // A frame of the stack's own spring toward the height it settles at
+        // (`surface.stackHeight`, its laid-out height): the transcript takes that
+        // height once, on a UIKit spring with the stack's timing
+        // (`cmuxMobileSmooth`), so the render server moves the newest turn.
+        // Setting the inset and offset on every frame laid out the list and its
+        // hosted rows each frame, alongside the keyboard: 27 main-thread
+        // iterations of 4 ms and more per show (KeyboardMotionBenchUITests with
+        // `-cmux-mobile-input-latency`, step 517bb683).
+        if let target = surface.stackHeight, target > 0, abs(target - height) > 0.5,
+           view.window != nil, !UIAccessibility.isReduceMotionEnabled {
+            guard abs(stackHeight - target) > 0.01 else { return }
+            UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.applyStackHeight(target)
+                self.view.layoutIfNeeded()
+            }
+            return
+        }
+        applyStackHeight(height)
+    }
+
+    private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
         dockContainer?.interactiveHeight = height
         dockHeightConstraint?.constant = height
