@@ -12730,8 +12730,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // (Leo 2026-11-22: "are their permissions/model locked right then and there? does it make sense
   // to be able to reveal the fork or whatever switching model behaviour for it?"). Never a pick of
   // the chat's model or mode: that would change the chat, not the subagent.
-  const shownSubagent = readOnlySubagent ? freshAgents.find((entry) => entry.id === shownSubagentId) : undefined;
-  const subagentForkId = shownSubagent?.agentId ?? shownSubagent?.id;
+  const relayedSubagent = readOnlySubagent ? freshAgents.find((entry) => entry.id === shownSubagentId) : undefined;
+  const subagentForkId = relayedSubagent?.agentId ?? relayedSubagent?.id;
   const subagentFacts = useMemo(() => {
     if (!readOnlySubagent || workflowRequest) return undefined;
     const summary = snapshot.summary;
@@ -12746,7 +12746,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         modeId: summary?.modes?.currentModeId,
         modes: summary?.modes?.availableModes ?? [],
         models,
-        subagentModel: shownSubagent?.spawnModel ?? shownSubagent?.model,
+        subagentModel: relayedSubagent?.spawnModel ?? relayedSubagent?.model,
         canFork: snapshot.canForkSubagent === true && subagentForkId !== undefined,
       },
       t,
@@ -12758,8 +12758,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.catalog,
     snapshot.canForkSubagent,
     chatName,
-    shownSubagent?.spawnModel,
-    shownSubagent?.model,
+    relayedSubagent?.spawnModel,
+    relayedSubagent?.model,
     subagentForkId,
     t,
   ]);

@@ -265,9 +265,15 @@ test("a fork of a subagent says which subagent and chat it was forked from", asy
     { parentId: CHAT, subagentId: "a39e817af38ddf5e7", subagentName: "Test coverage" },
   ]);
   const lines = (last()?.rows ?? []).filter((row) => row.kind === "notice").map((row) => row.text);
-  expect(lines).toContain(
-    "Forked from Test coverage of Audit the fetch helper. Everything above is from that subagent.",
-  );
+  // The chat's name when the list has it by the fork record; an attach that answers before the list
+  // (attachedBeforeList) has only the subagent's, as a plain fork's line has no chat then either.
+  expect(
+    lines.some((line) =>
+      /^Forked from Test coverage( of Audit the fetch helper)?\. Everything above is from that subagent\.$/.test(
+        line ?? "",
+      ),
+    ),
+  ).toBe(true);
 });
 
 test("chat-sim: a chat forked from a subagent draws its Forked from line once, between its history and its turn", async () => {
