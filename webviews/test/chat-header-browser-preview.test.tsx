@@ -1,8 +1,8 @@
-// The chat header's Browser opens what the chat is about (Leo 2026-10-20: "something different was
-// opening here"): with a local page from the chat's last turns it opens that page beside the chat,
-// names it in its tooltip and lights while it is open, and a second click closes it; without one it
-// opens a plain browser split, as before. Preview is no longer a button of its own by default; a
-// person who shows it gets the separate Preview and a plain Browser back.
+// The chat header's Browser (the globe) always opens a new, blank browser
+// (https://github.com/manaflow-ai/cmux/issues/49623). It used to open the local page the chat's last
+// turns mentioned, and a dev build's Tag Opener link (http://127.0.0.1:17320/<tag>) is such a page: the
+// globe reopened it and relaunched the build. The chat's page stays Preview's: a "..." row by default
+// (chat-header-fold.test.tsx), or its own button.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -32,7 +32,7 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-test("Browser opens the chat's local page beside it, lights while it is open, and closes it again", async () => {
+test("Browser opens a blank browser even with a local page in the chat, and never lights for one", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
@@ -67,38 +67,39 @@ test("Browser opens the chat's local page beside it, lights while it is open, an
   act(() => browser()!.click());
   expect(runs).toEqual(["browser toggle"]);
 
-  // A page: the same button opens it and says so.
+  // The chat handed over a dev build: its Tag Opener link is the chat's latest local page. The globe
+  // still opens a blank browser and says nothing about the page.
   runs.length = 0;
-  render("http://localhost:5173/");
+  render("http://127.0.0.1:17320/49623-globe-opens-old-tab");
   expect(button("Preview")).toBeNull();
-  expect(browser()?.getAttribute("title")).toBe("Preview localhost:5173");
+  expect(browser()?.getAttribute("title")).toBe("Browser");
   expect(browser()?.getAttribute("aria-pressed")).toBe("false");
   act(() => browser()!.click());
-  expect(runs).toEqual(["preview toggle http://localhost:5173/"]);
+  expect(runs).toEqual(["browser toggle"]);
 
-  // Open: lit, and the next click closes the preview it opened.
+  // A preview open beside the chat is not the globe's: it stays unlit and still opens a blank browser.
+  runs.length = 0;
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [HEADER_ACTIONS.preview] } }));
-  expect(browser()?.getAttribute("aria-pressed")).toBe("true");
+  expect(browser()?.getAttribute("aria-pressed")).toBe("false");
   act(() => browser()!.click());
-  // The page goes along: a preview closed since the last state push opens again rather than nothing.
-  expect(runs).toEqual(["preview toggle http://localhost:5173/", "preview toggle http://localhost:5173/"]);
+  expect(runs).toEqual(["browser toggle"]);
 
-  // A plain browser split already open: the click closes that one, not opens the page.
+  // Its own browser split open: lit, and the click toggles that one.
   runs.length = 0;
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [HEADER_ACTIONS.browser] } }));
   expect(browser()?.getAttribute("aria-pressed")).toBe("true");
   act(() => browser()!.click());
   expect(runs).toEqual(["browser toggle"]);
 
-  // Preview shown as its own button (layout.json): Browser is a plain browser again.
+  // Preview shown as its own button (layout.json): it opens the page; Browser stays blank.
   runs.length = 0;
   act(() => applyHostEvent({ kind: "headerState", value: { lit: [] } }));
   act(() => configureQuickActions({ quickActions: ["preview", "terminal", "browser"] }));
   render("http://localhost:5173/");
   expect(button("Preview")).not.toBeNull();
-  expect(browser()?.getAttribute("title")).toBe("Browser");
+  act(() => button("Preview")!.click());
   act(() => browser()!.click());
-  expect(runs).toEqual(["browser toggle"]);
+  expect(runs).toEqual(["preview toggle http://localhost:5173/", "browser toggle"]);
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});
