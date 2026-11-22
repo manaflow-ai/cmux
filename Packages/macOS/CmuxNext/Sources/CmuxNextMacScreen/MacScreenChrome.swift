@@ -85,15 +85,27 @@ final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
     let toolbar: MacScreenToolbarView
     let card: MacScreenCardView
-    private let model: MacScreenPaneModel
+    /// Look B's status strip, made the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown.
+    var statusStrip: MacScreenStatusStrip?
+    /// The look's layer over the picture: the toolbar's auto-hide and the control edge (``MacScreenViewerStyle``).
+    let overlay: MacScreenViewerOverlay
+    let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
         self.model = model
         toolbar = MacScreenToolbarView(model: model, actions: actions)
         card = MacScreenCardView(model: model, actions: actions)
+        overlay = MacScreenViewerOverlay(model: model, toolbar: toolbar)
     }
 
-    var showsCard: Bool { model.card != nil }
+    var showsCard: Bool { model.card != nil && !(model.viewerLook.style.outageKeepsPicture && model.outageOverPicture) }
+
+    /// The button the keyboard lands on while a state shows: under look B's strip the strip's (the card is hidden there),
+    /// else the shown card's; nil while live.
+    var keyButton: MacScreenButton? {
+        if model.viewerLook.style.statusStrip { return model.card == nil ? nil : statusStrip?.bar.keyButton }
+        return showsCard ? card.keyButton : nil
+    }
 }
 
 extension MacScreenPaneModel {

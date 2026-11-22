@@ -35,7 +35,7 @@ final class ComposeParagraphDirection: NSObject, NSTextStorageDelegate {
         let last = editedInside.length > 0 ? NSMaxRange(editedInside) - 1 : paragraph.location
         guard direction(at: paragraph.location) != wanted || direction(at: last) != wanted else { return }
         storage.enumerateAttribute(.paragraphStyle, in: paragraph) { value, run, _ in
-            let style = ((value as? NSParagraphStyle) ?? .default).mutableCopy() as! NSMutableParagraphStyle
+            guard let style = ((value as? NSParagraphStyle) ?? .default).mutableCopy() as? NSMutableParagraphStyle else { return }
             style.baseWritingDirection = wanted
             storage.addAttribute(.paragraphStyle, value: style, range: run)
         }
@@ -47,7 +47,7 @@ final class ComposeParagraphDirection: NSObject, NSTextStorageDelegate {
         let end = NSMaxRange(paragraph)
         while i < end {
             let c = units.character(at: i)
-            if UTF16.isLeadSurrogate(c), i + 1 < end {
+            if UTF16.isLeadSurrogate(c), i + 1 < end, UTF16.isTrailSurrogate(units.character(at: i + 1)) {
                 let scalar = UTF16.decode(c, units.character(at: i + 1))
                 if let strong = strongDirection(scalar) { return strong }
                 i += 2
@@ -77,8 +77,8 @@ final class ComposeParagraphDirection: NSObject, NSTextStorageDelegate {
 }
 
 private extension UTF16 {
-    /// The scalar value of a surrogate pair.
+    /// The scalar value of a surrogate pair (the caller checks both halves; wrapping math never traps).
     static func decode(_ lead: UInt16, _ trail: UInt16) -> UInt32 {
-        0x10000 + ((UInt32(lead) - 0xD800) << 10) + (UInt32(trail) - 0xDC00)
+        0x10000 &+ ((UInt32(truncatingIfNeeded: lead) &- 0xD800) << 10) &+ (UInt32(truncatingIfNeeded: trail) &- 0xDC00)
     }
 }

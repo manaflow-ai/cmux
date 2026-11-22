@@ -457,6 +457,13 @@ public final class AppStore {
         return from
     }
 
+    /// Sets a workspace's pane layout (a drag on the Panes page, before the Mac lists it, or its rollback).
+    public func setLayout(_ layout: WorkspaceLayout?, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].layout = layout
+    }
+
     /// Puts back a tab whose close the Mac refused, at its old position.
     public func insertTab(_ tab: WorkspaceTab, at position: Int, in workspaceID: String) {
         let workspaceID = resolvedWorkspaceID(workspaceID)

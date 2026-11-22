@@ -1433,9 +1433,49 @@ An explicit CLI `--class` or MCP `class` is passed to the relay as `ACPMUX_SEND_
 The relay must forward this value to preserve the message's class. Without an explicit class,
 the variable is removed, including an inherited value; the relay argv stays `SESSION -`.
 
+**A relay for starting on machines no peer reaches (`newRelay`).** The same host may still start
+a session on another machine through a command of its own, such as a placer that hands the start
+to a broker the driving machine keeps a connection to:
+
+```json
+{"newRelay": {"argv": ["my-placer", "new"]}}
+```
+
+When `new --machine HOST` (or `--host HOST`) is refused because HOST names no peer of this daemon,
+the CLI runs `my-placer new --machine HOST WORDS...`, WORDS being the caller's other `new` words
+verbatim and in order (global flags such as `--json` and the `--machine` flag left out), with
+stdin, stdout and stderr inherited, and exits with the command's status, so a refusal there is
+this `new`'s failure. `--json` captures the command's stdout and prints
+`{"machine", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A peer that is
+configured but down is never relayed, nor `--machine auto`, `auto-build`, `local` or this
+machine's own name. The command runs with `ACPMUX_NEW_RELAYED=1`, and a `new` that sees it set is
+refused as before instead of relaying again, so a relay that calls `acpmux new --machine HOST`
+back cannot loop. Unset (the default), nothing changes.
+
 Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
 `_acpmux/prompt_accepted` was dropped on the way back.
+
+### Who sent it: the `Sent-by:` line
+
+Every message one session sends another ends with one line the daemon writes, never the sender
+(Leo, 2026-11-21: "well i was also saying attribution auto for messages between sessions"):
+
+```text
+PR #1 is green.
+
+Sent-by: devbox/lane-x harness=claude model=claude-opus-5-5
+```
+
+The host is the short hostname of the daemon that proved the sender's session (its caller
+token), the session its name, the harness its family, and the model the id its harness reports
+running now; a field the daemon does not know is left out, and an alias (`opus`) is never written
+as a model. It is stamped once, where that daemon takes the send (`server/requests.rs`, before
+the outbox keeps it or a peer gets it), so `acpmux send`, the MCP `send` tool, fan-out and tag
+sends and cross-host sends all carry it. A text with a `Sent-by: ` line already (a lane VM's
+broker relay) keeps its own. Notices, acpmux's own prompts, a session's note to itself and a send
+no session proved get none. The format is shared with the lane-gh broker relay and the stats
+parser; `src/sent_by.rs` holds it.
 
 ## Claude Code: native stdio backend
 

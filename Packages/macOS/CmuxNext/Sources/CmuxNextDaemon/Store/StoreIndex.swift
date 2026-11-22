@@ -106,6 +106,16 @@ import Foundation
     /// audit 2026-11-18 finding 7: O(1,600 tabs) on main per turn end of any of ~30 machines).
     private var recordsByAgentSession: [String: [ObjectIdentifier]] = [:]
 
+    /// Every indexed tab record per terminal public id (``TabModel/terminalResourceID``): each view of a
+    /// terminal shown in several tabs, which an `agent-changed` of the terminal reaches in O(its tabs)
+    /// (cmux#49392). ``tabsByTerminalResource`` keeps one of them.
+    private var recordsByTerminalResource: [ResourceID: [ObjectIdentifier]] = [:]
+
+    /// The indexed tab records that show terminal `terminal` (its views), in O(its tabs).
+    func tabs(terminalResource terminal: ResourceID) -> [TabModel] {
+        (recordsByTerminalResource[terminal] ?? []).compactMap { entries[$0]?.record as? TabModel }
+    }
+
     /// The indexed tab records that show acpmux session `session` (normally zero or one), in O(its tabs).
     func tabs(agentSession session: String) -> [TabModel] {
         (recordsByAgentSession[session] ?? []).compactMap { entries[$0]?.record as? TabModel }
@@ -290,7 +300,10 @@ import Foundation
             tabsByID[id] = tab
             if let terminal { tabsByTerminal[terminal] = tab }
             if let resource { tabsByResource[resource] = tab }
-            if let terminalResource { tabsByTerminalResource[terminalResource] = tab }
+            if let terminalResource {
+                tabsByTerminalResource[terminalResource] = tab
+                recordsByTerminalResource[terminalResource, default: []].append(ObjectIdentifier(tab))
+            }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
         }
     }
@@ -341,7 +354,11 @@ import Foundation
             Self.drop(id, from: &tabsByID, if: record)
             if let terminal { Self.drop(terminal, from: &tabsByTerminal, if: record) }
             if let resource { Self.drop(resource, from: &tabsByResource, if: record) }
-            if let terminalResource { Self.drop(terminalResource, from: &tabsByTerminalResource, if: record) }
+            if let terminalResource {
+                Self.drop(terminalResource, from: &tabsByTerminalResource, if: record)
+                recordsByTerminalResource[terminalResource]?.removeAll { $0 == ObjectIdentifier(record) }
+                if recordsByTerminalResource[terminalResource]?.isEmpty == true { recordsByTerminalResource[terminalResource] = nil }
+            }
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount -= 1 }
         }
     }
