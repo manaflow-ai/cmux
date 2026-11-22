@@ -42,7 +42,11 @@ pub struct ReadKey {
 }
 
 impl ReadKey {
-    pub fn new(scope: impl Into<String>, device: impl Into<String>, kind: impl Into<String>) -> Self {
+    pub fn new(
+        scope: impl Into<String>,
+        device: impl Into<String>,
+        kind: impl Into<String>,
+    ) -> Self {
         Self { scope: scope.into(), device: device.into(), kind: kind.into() }
     }
 
@@ -89,14 +93,19 @@ impl Default for ReadStoreLimits {
 #[derive(Debug)]
 pub enum ReadStoreError {
     /// The value is larger than [`ReadStoreLimits::max_value_bytes`].
-    TooLarge { size: usize, limit: usize },
+    TooLarge {
+        size: usize,
+        limit: usize,
+    },
     Io(io::Error),
 }
 
 impl std::fmt::Display for ReadStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TooLarge { size, limit } => write!(f, "value of {size} bytes is over the {limit} byte limit"),
+            Self::TooLarge { size, limit } => {
+                write!(f, "value of {size} bytes is over the {limit} byte limit")
+            }
             Self::Io(error) => write!(f, "{error}"),
         }
     }
@@ -149,7 +158,10 @@ impl ReadStore {
     /// entries written longest ago leave.
     pub fn put(&self, key: &ReadKey, value: &[u8]) -> Result<(), ReadStoreError> {
         if value.len() > self.limits.max_value_bytes {
-            return Err(ReadStoreError::TooLarge { size: value.len(), limit: self.limits.max_value_bytes });
+            return Err(ReadStoreError::TooLarge {
+                size: value.len(),
+                limit: self.limits.max_value_bytes,
+            });
         }
         let _turn = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Signed out (remove_all) or deleted by the system: start the directory again.
@@ -209,7 +221,12 @@ impl ReadStore {
     /// The entries kept now (their count, for tests and the app's log).
     pub fn len(&self) -> usize {
         fs::read_dir(&self.directory)
-            .map(|entries| entries.flatten().filter(|entry| has_extension(&entry.path(), ENTRY_EXTENSION)).count())
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| has_extension(&entry.path(), ENTRY_EXTENSION))
+                    .count()
+            })
             .unwrap_or(0)
     }
 
@@ -227,7 +244,9 @@ impl ReadStore {
             .filter(|path| has_extension(path, ENTRY_EXTENSION))
             .filter(|path| path.file_name().is_some_and(|name| name != keep))
             .map(|path| {
-                let modified = fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+                let modified = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
                 (modified, path)
             })
             .collect();
@@ -257,5 +276,8 @@ fn has_extension(path: &Path, extension: &str) -> bool {
 fn is_store_file(path: &Path) -> bool {
     has_extension(path, ENTRY_EXTENSION)
         || (has_extension(path, TEMP_EXTENSION)
-            && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains(&format!(".{ENTRY_EXTENSION}."))))
+            && path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.contains(&format!(".{ENTRY_EXTENSION}."))))
 }
