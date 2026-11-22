@@ -197,6 +197,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -286,6 +288,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
@@ -434,6 +438,8 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
