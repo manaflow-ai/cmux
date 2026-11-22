@@ -3,7 +3,10 @@ name: Web complexity candidate
 on:
   # This is a fast, contributor-side diagnostic. The authoritative required
   # check runs from the base branch in web-complexity-trusted.yml.
+  # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `web-complexity`
+  # (pr-pipeline.yml); a pull request into any other base still runs them here.
   pull_request:
+    branches-ignore: [feat-cmux-next]
     paths:
       - web/**
   push:

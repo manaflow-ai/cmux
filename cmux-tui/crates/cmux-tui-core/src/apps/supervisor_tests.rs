@@ -708,6 +708,31 @@ fn focus_ops_need_the_gesture_the_supervisor_minted() {
     );
 }
 
+/// A run of an app the catalog lacks names what the catalog holds, so a
+/// missing `cmux/cloud` says whether its folder was refused or never found.
+#[test]
+fn a_run_of_an_unknown_app_names_the_catalog_and_its_refusals() {
+    let root = temp_dir();
+    let broken = root.0.join("bundled/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("cmux-app.json"), "{").unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let error = run_op(&f, "cmux/cloud", "cloud.machine.list", Origin::Cli).unwrap_err();
+    assert_eq!(error.code, "apps.unknown");
+    assert_eq!(error.message, "no such app");
+    let details = error.details.expect("details");
+    assert_eq!(details["app"], "cmux/cloud");
+    assert!(details["first_party"].is_null(), "{details}");
+    let packages = details["packages"].as_array().unwrap();
+    assert!(packages.contains(&json!("cmux/demo")), "{details}");
+    let rejected = details["rejected"].as_array().unwrap();
+    let refused = rejected
+        .iter()
+        .find(|r| r["dir"].as_str().is_some_and(|d| d.ends_with("broken")))
+        .unwrap_or_else(|| panic!("{details}"));
+    assert!(!refused["issue"].as_str().unwrap().is_empty(), "{details}");
+}
+
 #[test]
 fn unknown_ops_ungranted_ops_storage_and_egress() {
     let f = fixture();

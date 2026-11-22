@@ -142,6 +142,7 @@ jobs:
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/
