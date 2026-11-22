@@ -160,7 +160,14 @@ import {
   rowHolds,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import {
+  LIVE_THINKING,
+  THINKING,
+  foldCovers,
+  turnFooterFrom,
+  retryTargetIn,
+  workingHeaderId,
+} from "./conversation/turns";
 import { createLiveLinePulse, LiveLinePulseContext } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -4964,12 +4971,16 @@ function TranscriptView({
         stack.row.setAttribute("data-bottom-fold", "");
       }
       // The clicked line: its open state, and the other keys a joined run's line is open under.
-      const clicked = shown.find((row) => row.id === id);
+      // A running turn's "Working for" toggles its turn's "Worked for" key (#50987): its motion starts
+      // from the line it is drawn as.
+      const live = !shown.some((row) => row.id === id) && id.startsWith(`${WORKED}-`);
+      const anchor = live ? workingHeaderId(id.slice(WORKED.length + 1)) : id;
+      const clicked = shown.find((row) => row.id === anchor);
       const fold =
         node && !stack
           ? startTurnFold(
               host,
-              id,
+              anchor,
               !(clicked?.foldOpen ?? foldInputs.current.expanded.has(id)),
               {
                 count: shown.length,

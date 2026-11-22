@@ -42,7 +42,14 @@ afterAll(async () => {
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
 /** An attach reply: the page acpmux answers for a chat, and whether it holds older records. */
-type Page = { events: Step[]; from?: number; hasMore?: boolean; queue?: { promptId: string; prompt: string }[] };
+type Page = {
+  events: Step[];
+  from?: number;
+  hasMore?: boolean;
+  queue?: { promptId: string; prompt: string }[];
+  /** Answers with a settled view (`settled-attach-v1`), so a page that meets the kept tail is laid on it. */
+  settled?: boolean;
+};
 
 const events = (sessionId: string, page: Page) =>
   page.events.map(([dir, kind, msg], at) => {
@@ -239,6 +246,7 @@ class Daemon {
         lastSeq: records.at(-1)?.seq ?? 0,
         events: records,
         hasMore: page.hasMore === true,
+        ...(page.settled ? { settled: { lastSeq: records.at(-1)?.seq ?? 0, forkSeqs: [] } } : {}),
       };
     } else if (message.method === "_acpmux/events") {
       const older = message.params?.beforeSeq !== undefined ? this.older.get(sessionId) : undefined;
@@ -454,8 +462,9 @@ test("a turn that ended while away does not come back as a running turn", async 
 
 // #50987: the tail kept while the turn ran ends without its turn_result. Drawn as it came, that
 // turn showed every call open for the second the attach took, then folded under the reader.
-test("a turn that ended while away draws folded on the frame back, before its attach answers", async () => {
-  const daemon = new Daemon("turn-ended-folded");
+for (const settled of [false, true])
+test(`a turn that ended while away draws folded on the frame back, before its attach answers (${settled ? "laid on the tail" : "read again"})`, async () => {
+  const daemon = new Daemon(`turn-ended-folded-${settled}`);
   const [A, B] = [daemon.sessionA, daemon.sessionB];
   const started: Step = ["mux", "turn_started", { turnId: "turn-1" }];
   const call: Step = [
@@ -479,7 +488,10 @@ test("a turn that ended while away draws folded on the frame back, before its at
   const running = [prompt("Run it"), started, reply(A, "Checking."), call];
   daemon.pages.set(A, [
     { events: running },
-    { events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]] },
+    {
+      events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]],
+      settled,
+    },
   ]);
   daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   daemon.status.set(A, "running");
@@ -509,6 +521,13 @@ test("a turn that ended while away draws folded on the frame back, before its at
     expect(text(last())).toContain("All done.");
     const shapedRead = turnView(last().rows, NO_FOLDS, { agentFamily: "codex" });
     expect(shapedRead.find((row) => row.kind === WORKED)?.id).toBe(shapedKept.find((row) => row.kind === WORKED)?.id);
+    // The turn ends after all of its rows, the reply the attach brought included: a page laid on
+    // the tail reopens the provisional end before its records (direct.ts `reopenKeptTurn`).
+    const ids = last().rows.map((row) => row.id);
+    expect(ids.at(-1)).toBe("summary-turn-1");
+    expect(text(last()).indexOf("All done.")).toBeGreaterThan(-1);
+    expect(last().rows.findIndex((row) => JSON.stringify(row).includes("All done."))).toBeLessThan(ids.length - 1);
+    expect(last().rows.find((row) => row.id === "summary-turn-1")?.turnStartedAtMs).toBeDefined();
   } finally {
     client.close();
   }
