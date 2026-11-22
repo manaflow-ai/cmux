@@ -459,11 +459,27 @@ export interface ForkParams {
   /** With `live`: the harness the fork runs on, carrying the conversation over (a model switch). */
   harness?: (string | null);
   live?: (boolean | null);
-  /** With `harness`: the model the fork starts on, at most 256 bytes. */
+  /**
+   * With `live`: the permission mode the fork starts in, one of the modes the chat's harness
+   * lists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.
+   */
+  mode?: (string | null);
+  /**
+   * The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the
+   * chat's own harness's (set before the reply, or the fork is refused and removed).
+   */
   model?: (string | null);
   /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
   requestId?: (string | null);
   sessionId: string;
+  /**
+   * With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's
+   * own conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`
+   * names it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).
+   * A Claude Code or Codex chat only; a running subagent forks through its last settled step.
+   * Capability `acp.session.fork.subagent.v1`.
+   */
+  subagentId?: (string | null);
   throughSeq?: (number | null);
 }
 

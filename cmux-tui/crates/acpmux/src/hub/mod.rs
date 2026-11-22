@@ -117,6 +117,7 @@ pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
