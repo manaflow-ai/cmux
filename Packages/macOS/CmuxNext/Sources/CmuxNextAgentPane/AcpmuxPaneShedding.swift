@@ -47,7 +47,7 @@ nonisolated enum AcpmuxPaneShedding {
     static func sheddable(_ text: String, method: String?) -> Bool {
         guard let method else { return false }
         if method == "_acpmux/event" {
-            return !UTF8Search.containsAny(text, AcpmuxRequestIds.eventObserverMarkers)
+            return !text.utf8ContainsAny(AcpmuxRequestIds.eventObserverMarkers)
         }
         return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
     }

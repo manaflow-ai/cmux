@@ -14,7 +14,7 @@ extension AcpmuxPaneSocket {
     nonisolated static func pageWaits(on text: String, method: String?) -> Bool {
         switch method {
         case "_acpmux/prompt_accepted", "session/request_permission": true
-        case "_acpmux/event": UTF8Search.hasValue(of: "kind", in: waitedEventKinds, text)
+        case "_acpmux/event": text.utf8HasValue(of: "kind", in: waitedEventKinds)
         case nil: pageWaits(on: text)
         default: false
         }
@@ -22,12 +22,12 @@ extension AcpmuxPaneSocket {
 
     /// ``pageWaits(on:method:)`` for a frame whose method was not read: byte searches for the same names.
     nonisolated static func pageWaits(on text: String) -> Bool {
-        guard UTF8Search.contains(text, "\"method\"") else { return false }
-        if UTF8Search.containsAny(text, ["\"_acpmux/prompt_accepted\"", "\"session/request_permission\""]) {
+        guard text.utf8Contains("\"method\"") else { return false }
+        if text.utf8ContainsAny(["\"_acpmux/prompt_accepted\"", "\"session/request_permission\""]) {
             return true
         }
-        guard UTF8Search.contains(text, "\"_acpmux/event\"") else { return false }
-        return UTF8Search.hasValue(of: "kind", in: waitedEventKinds, text)
+        guard text.utf8Contains("\"_acpmux/event\"") else { return false }
+        return text.utf8HasValue(of: "kind", in: waitedEventKinds)
     }
 
     /// Whether the page waits on a daemon frame, so a pane nobody can see still gets it soon

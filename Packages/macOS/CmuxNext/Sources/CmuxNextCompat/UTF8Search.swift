@@ -1,6 +1,6 @@
 import Foundation
 
-/// Byte searches over a protocol frame's UTF-8, for the hot paths that look for a JSON name or marker in text they do
+/// Byte searches over a protocol frame's UTF-8 (`utf8Contains`, `utf8ContainsAny`, `utf8HasValue`), for the hot paths that look for a JSON name or marker in text they do
 /// not parse.
 ///
 /// `String.contains(_:)` with a string argument is Foundation's `StringProtocol.range(of:)`: a Unicode-aware compare that
@@ -10,33 +10,26 @@ import Foundation
 /// per needle at memory speed. The DevTools router hit the same cost on 2026-10-29 (``DevToolsMessageHead``).
 ///
 /// The needles are protocol names and quoted JSON keys, so a byte match is the match: no normalization is wanted.
-public nonisolated enum UTF8Search {
-    /// Whether `needle`'s UTF-8 bytes occur in `text`'s.
-    /// - Parameters:
-    ///   - text: The text searched (native strings are read in place; a bridged one is copied once).
-    ///   - needle: The text to look for; an empty needle is always found.
-    /// - Returns: True when `needle` occurs anywhere in `text`.
-    public static func contains(_ text: String, _ needle: String) -> Bool {
-        var haystack = text
-        return haystack.withUTF8 { bytes in contains(bytes, needle) }
+public nonisolated extension String {
+    /// Whether `needle`'s UTF-8 bytes occur in this text's (a native string is read in place; a bridged one is
+    /// copied once).
+    /// - Parameter needle: The text to look for; an empty needle is always found.
+    /// - Returns: True when `needle` occurs anywhere in the text.
+    func utf8Contains(_ needle: String) -> Bool {
+        var haystack = self
+        return haystack.withUTF8 { bytes in Self.utf8(bytes, contain: needle) }
     }
 
-    /// Whether any of `needles` occurs in `text`, reading `text`'s bytes in place once.
-    /// - Parameters:
-    ///   - text: The text searched.
-    ///   - needles: The texts to look for.
+    /// Whether any of `needles` occurs in this text, reading its bytes in place once.
+    /// - Parameter needles: The texts to look for.
     /// - Returns: True when one of them occurs.
-    public static func containsAny(_ text: String, _ needles: [String]) -> Bool {
-        var haystack = text
-        return haystack.withUTF8 { bytes in needles.contains { contains(bytes, $0) } }
+    func utf8ContainsAny(_ needles: [String]) -> Bool {
+        var haystack = self
+        return haystack.withUTF8 { bytes in needles.contains { Self.utf8(bytes, contain: $0) } }
     }
 
-    /// Whether `needle` occurs in `bytes`.
-    /// - Parameters:
-    ///   - bytes: UTF-8 bytes.
-    ///   - needle: The text to look for.
-    /// - Returns: True when its UTF-8 bytes occur in `bytes`.
-    public static func contains(_ bytes: UnsafeBufferPointer<UInt8>, _ needle: String) -> Bool {
+    /// Whether `needle`'s UTF-8 bytes occur in `bytes`.
+    private static func utf8(_ bytes: UnsafeBufferPointer<UInt8>, contain needle: String) -> Bool {
         var pattern = needle
         return pattern.withUTF8 { wanted in
             guard !wanted.isEmpty else { return true }
@@ -45,16 +38,15 @@ public nonisolated enum UTF8Search {
         }
     }
 
-    /// Whether some `"key"` in `text`, at any depth, has a plain string value in `values` (`"kind":"turn_end"`, with
+    /// Whether some `"key"` in this JSON text, at any depth, has a plain string value in `values` (`"kind":"turn_end"`, with
     /// any whitespace around the colon). One `memmem` hop per occurrence of the key; a value with an escape never
     /// matches (no protocol value here has one).
     /// - Parameters:
     ///   - key: The JSON key, unquoted.
     ///   - values: The string values looked for.
-    ///   - text: The JSON text searched.
     /// - Returns: True when one occurrence of the key has one of the values.
-    public static func hasValue(of key: String, in values: Set<String>, _ text: String) -> Bool {
-        var haystack = text
+    func utf8HasValue(of key: String, in values: Set<String>) -> Bool {
+        var haystack = self
         let quoted = Array("\"\(key)\"".utf8)
         return haystack.withUTF8 { bytes in
             guard let base = bytes.baseAddress, quoted.count <= bytes.count else { return false }
