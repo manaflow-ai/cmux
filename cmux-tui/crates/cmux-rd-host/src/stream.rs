@@ -1115,8 +1115,13 @@ mod encode_off_loop_tests {
         let ready = UnixStream::pair().expect("socket pair");
         use std::io::Write;
         (&ready.0).write_all(&[1]).expect("make the carrier readable");
-        let mut carrier =
-            FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, queue_stats: None, ready };
+        let mut carrier = FakeCarrier {
+            seen: seen.clone(),
+            release: Some(release_tx),
+            sent_input: false,
+            queue_stats: None,
+            ready,
+        };
         let viewer = Principal {
             user: "owner".into(),
             install: "test".into(),
