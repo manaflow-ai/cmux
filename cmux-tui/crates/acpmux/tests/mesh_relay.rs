@@ -497,25 +497,26 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
-    // The chat's info once it is idle with `ran` turns or more (bounded at 30 s).
-    async fn settled(local: &mut Client, session: &str, ran: u64) -> Value {
-        let mut info = Value::Null;
-        for _ in 0..600 {
-            info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-            let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-            if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        info
+    // The prompt ids in the chat's records: a turn's or an inbox item's. Another agent's message
+    // to a chat that already ran a turn goes to its inbox, not a turn of its own (`hub/inbox.rs`),
+    // so the chat's turn count says nothing about what reached it.
+    async fn held(local: &mut Client, session: &str) -> Vec<String> {
+        let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+        let mut ids: Vec<String> = page
+            .pointer("/result/events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e["msg"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
     }
     let own = acpmux::pairing::machine_name();
-    let mut ran = 0;
+    let mut ran: Vec<String> = Vec::new();
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run. Two agent messages
-        // that come close together go in as one turn by design (`hub/digest.rs`), so each runs
-        // its own turn before the next is sent, and the count says each ran.
+        // Its own host, as a field and as a prefix, is this one: those reach the chat.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -524,22 +525,19 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.lease(InMessage { message_id: id.into(), ..to(target) });
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
-            ran += 1;
-            settled(&mut local, &session, ran).await;
+            ran.push(id.to_owned());
         }
     }
-    let info = settled(&mut local, &session, ran).await;
-    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    // The chat's records, each kind with its prompt's id, so a failure says which prompt ran.
-    let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
-    let records: Vec<String> = page
-        .pointer("/result/events")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|e| format!("{} {}", e["kind"], e["msg"]["promptId"]))
-        .collect();
-    assert_eq!(count, ran, "a message for elsewhere ran here: {records:?} {info}");
+    ran.sort();
+    let mut got = Vec::new();
+    for _ in 0..600 {
+        got = held(&mut local, &session).await;
+        if got.len() >= ran.len() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(got, ran, "a message for elsewhere reached the chat here, or one for here did not");
     relay.stop().await;
 }
 
