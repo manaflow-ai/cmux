@@ -48,6 +48,9 @@ extension TerminalSurfaceView {
     /// refresh, and the view keeps its size, its old frame on the `anchor` edge of `frame`, until its window's commit
     /// shows the frame drawn at the new size with the new bounds. One size waits at a time; the newest goes next.
     func place(_ frame: CGRect, anchor: PaneMotionAnchor) { // perf-hot: 1ms motion-frame (each frame of a key resize)
+        #if DEBUG
+        framePresenter?.placeHook?(self, frame)
+        #endif
         guard frameOwnership.embedderPresents, isShown, window != nil, surface != nil else {
             // A size or a scale that waits gives way: the view takes this frame now (hidden, parked, no window).
             let cancels = frameOwnership.inFlight != nil || frameOwnership.scale != nil || frameOwnership.ahead != nil
