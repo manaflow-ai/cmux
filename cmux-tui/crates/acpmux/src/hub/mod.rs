@@ -117,6 +117,8 @@ pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_request;
+mod fork_start;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -1943,6 +1945,7 @@ impl Hub {
         if let Some(link) = meta.subsession.as_ref() {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
+        let cut_off = fork_start::close_cut_off(&mut meta);
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
             session.meta_writer.note_saved(&meta);
@@ -1954,6 +1957,10 @@ impl Hub {
         session.log_loaded.store(false, Ordering::SeqCst);
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
+        // Closed for good: the next start finds it closed and says nothing again.
+        if cut_off {
+            self.save_meta(&session);
+        }
         self.update_live_session_index(&session);
         // A session read from the store may be another row's parent: every closed row is built
         // again, and no cursor from before it is followed (`Events::changed`), which costs one
@@ -2092,6 +2099,8 @@ impl Hub {
         // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
+        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -2171,8 +2180,8 @@ impl Hub {
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
-            rehydrate: AtomicBool::new(false),
-            rehydrate_note: StdMutex::new(None),
+            rehydrate: AtomicBool::new(rehydrate),
+            rehydrate_note: StdMutex::new(rehydrate_note),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
@@ -2194,7 +2203,7 @@ impl Hub {
             wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
-            fork_from: StdMutex::new(None),
+            fork_from: StdMutex::new(fork_from),
             applied: StdMutex::new(session::Applied::default()),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),

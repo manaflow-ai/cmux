@@ -607,6 +607,7 @@ impl Hub {
         }
         if fork {
             *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+            session.keep_fork_start(true);
         }
         self.save_meta(session);
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has no `watching`.
