@@ -741,6 +741,7 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(part["run_seconds"], 3000)
         self.assertIn("--scale", part["args"])
         self.assertIn("--vdisplay-hold=3600", part["args"])
+        self.assertIn("--config=bench", part["args"], "the shipped build: a Debug build's mirror check walks every workspace")
         self.assertEqual(cron.part_for_row("workspace_scale.switch.ratio_5000@cmux20-bench"), "workspace-scale")
         self.assertEqual(cron.part_for_row("workspace_scaling.switch.1000@cmux20-bench"), "workspace-scaling")
         report = {"rows": [

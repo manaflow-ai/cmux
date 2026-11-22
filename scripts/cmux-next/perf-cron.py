@@ -200,7 +200,10 @@ PARTS = [
     # own part, so the 1/100/1000 trend keeps its hour: two app launches, each growing one list to 5,000 rows.
     # run_seconds: the part ran about 2,400 s on a measure Mac (a cold app build of about 1,750 s, the two probes 642 s),
     # plus margin for the 5,000-row seeding it could not reach there (the app held 4,096).
-    {"name": "workspace-scale", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling", "--scale"],
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people run:
+    # a Debug build's mirror check (DaemonStore+MirrorCheck.swift, `#if DEBUG`) walks every workspace's screens, panes
+    # and tabs twice in a Cmd-D's key turn, so a Debug row grows with the workspace count where the shipped app does not.
+    {"name": "workspace-scale", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=workspace-scaling", "--scale"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scale", "run_seconds": 3000},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
