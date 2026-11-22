@@ -1909,19 +1909,22 @@ jobs:
 
       # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
       # alone would replace the whole accumulated history with one run. The artifact first; when its list or download
-      # answers no (a 403 from the repository's spent token quota), the cached copy.
+      # answers no (a 403 from the repository's spent token quota), the cached copy. A spent quota that resets within
+      # 25 min is waited out (the ticks come every 30): from 2026-11-21 22:21Z every tick's 403 saved no history, and the
+      # pull requests' base checks replayed a day of base reds against it (job 137269052440: 168 files, 55 min).
       - name: Restore the history
         id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 2
+        timeout-minutes: 27
         env:
           GITHUB_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.ref_name }}
         run: |
           history="$RUNNER_TEMP/webviews-test-history/history.json"
           cached=.webviews-test-history-cache/history.json
-          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read ||
+          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read \
+            --wait-rate-limit 1500 ||
             { [ -s "$cached" ] && cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"; }
 
       - name: Add this push to the history
