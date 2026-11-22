@@ -27,7 +27,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Checkout feat-cmux-next review package (trusted)
-        if: hashFiles('ios10-asc/notes-mode') != ''
+        if: hashFiles('ios10-asc/notes-mode', 'ios10-asc/apply') != ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: feat-cmux-next
@@ -51,6 +51,11 @@ jobs:
           export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8"
           mode=read
           [ -f ios10-asc/plan.json ] && mode=plan
+          if [ -f ios10-asc/apply ]; then
+            echo "########## apply"
+            SHOTS_DIR="$RUNNER_TEMP/ref-shots" python3 -I ios10-asc/apply.py
+            echo "########## read after apply"
+          fi
           python3 -I ios10-asc/probe.py "$mode"
           if [ -f ios10-asc/ref-app ]; then
             echo; echo "########## reference app $(cat ios10-asc/ref-app) (read only)"
@@ -60,6 +65,19 @@ jobs:
             nm="$(tr -d '[:space:]' < ios10-asc/notes-mode)"
             ver="$(tr -d '[:space:]' < ios10-asc/notes-version)"
             args=(--app "$ASC_APP_ID" sync-notes --version "$ver")
-            [ "$nm" = write ] || args+=(--dry-run)
-            python3 -I next/cmux-next-ios/scripts/asc_review_package.py "${args[@]}"
+            echo "########## sync-notes dry run"
+            python3 -I next/cmux-next-ios/scripts/asc_review_package.py "${args[@]}" --dry-run
+            if [ "$nm" = write ]; then
+              echo "########## sync-notes write"
+              python3 -I next/cmux-next-ios/scripts/asc_review_package.py "${args[@]}"
+              ASC_APP_ID=6791408425 python3 -I ios10-asc/probe.py read | grep -A1 reviewDetail
+            fi
           fi
+      - name: Public record en-US screenshots (for review)
+        if: always() && hashFiles('ios10-asc/apply') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios10-ref-shots
+          path: ${{ runner.temp }}/ref-shots
+          if-no-files-found: warn
+          retention-days: 3
