@@ -42,6 +42,18 @@ impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
         assert!(op.raw.offset + op.raw.length <= bytes.len());
         match &op.change {
+            // A row taken back is the settle or patch it was before the leave op, hidden.
+            Change::Leave(row) => {
+                assert!(!row.open);
+                assert_eq!(row.fields.get("hidden").map(String::as_str), Some("true"));
+                assert_eq!(row.phase(), crate::row::Phase::Leaving);
+                let change = if row.rev <= 1 {
+                    Change::Row(row.clone())
+                } else {
+                    Change::Patch(row.clone())
+                };
+                self.apply(&Op { raw: op.raw, change }, bytes);
+            }
             Change::Row(row) => {
                 if let Some(old) = self.rows.get(&row.id) {
                     assert!(old.open, "settled row {} changed", row.id);

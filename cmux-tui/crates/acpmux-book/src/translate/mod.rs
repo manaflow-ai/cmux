@@ -25,15 +25,16 @@ mod user;
 mod user_tests;
 mod v1;
 
-use crate::row::{Row, RowKind};
+use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 10 writes the card rows, patched by their later records (decisions 253, 254); version
+/// Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 10;
+pub const VERSION: u32 = 11;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -92,6 +93,11 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// A row taken back: a reply the harness superseded, a prompt that never ran. Its body
+    /// becomes `{"hidden":true}`, its estimate zero and its phase `leaving`; its id and place stay.
+    /// At rev 1 the row was open and settles so; past 1 it had settled and is patched. The page
+    /// plays the row's exit from this one op, never from a diff of two windows.
+    Leave(OwnedRow),
     /// Add or update one bounded prompt-queue entry, or remove it by id hash.
     Queue(QueueChange),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
@@ -230,11 +236,29 @@ pub struct OwnedRow {
     pub group: Option<u64>,
     pub at: u64,
     pub open: bool,
+    /// Born on the line the translator read last: an open row reads `entering` until the next
+    /// line begins, then `live` ([`OwnedRow::phase`]).
+    pub entering: bool,
     pub bytes: u64,
     pub lines: u64,
     pub fields: BTreeMap<String, String>,
 }
 impl OwnedRow {
+    /// Where the row is in its life, from its own state only, so a replay writes the same text:
+    /// a row taken back ([`Change::Leave`], its body `{"hidden":true}`) is leaving, a closed row
+    /// settled, an open one entering on the line that bore it and live after.
+    pub fn phase(&self) -> Phase {
+        if !self.open {
+            if self.hidden() { Phase::Leaving } else { Phase::Settled }
+        } else if self.entering {
+            Phase::Entering
+        } else {
+            Phase::Live
+        }
+    }
+    fn hidden(&self) -> bool {
+        self.fields.get("hidden").is_some_and(|s| s == "true")
+    }
     pub fn as_row<'a>(&self, body: &'a str) -> Row<'a> {
         Row {
             id: self.id,
@@ -244,8 +268,9 @@ impl OwnedRow {
             group: self.group,
             at: self.at,
             open: self.open,
+            phase: self.phase(),
             body,
-            est: if self.fields.get("hidden").is_some_and(|s| s == "true") {
+            est: if self.hidden() {
                 0
             } else {
                 u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX)
@@ -588,6 +613,8 @@ pub fn translate(
         state.invalid_records = state.invalid_records.saturating_add(1);
         return Ok(Vec::new());
     }
+    // A row born on the line before has been offered as entering: from this line on it is live.
+    state.rows_went_live();
     let result = match harness {
         Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
@@ -755,6 +782,27 @@ impl State {
             .chain(self.prompts.values().map(|p| &p.row))
             .chain(self.asks.values().map(|ask| &ask.row))
     }
+    /// Every open row the translator holds, to change in place.
+    fn stored_rows_mut(&mut self) -> impl Iterator<Item = &mut OwnedRow> {
+        self.reply
+            .iter_mut()
+            .map(|s| &mut s.row)
+            .chain(self.thought.iter_mut().map(|s| &mut s.row))
+            .chain(self.tools.values_mut())
+            .chain(self.subs.values_mut())
+            .chain(self.group.iter_mut())
+            .chain(self.plan.iter_mut())
+            .chain(self.compaction.iter_mut())
+            .chain(self.prompts.values_mut().map(|p| &mut p.row))
+            .chain(self.asks.values_mut().map(|ask| &mut ask.row))
+    }
+    /// The rows born on the last line are entering no more. Costs the open rows the translator
+    /// holds, which its bounds keep under about 200.
+    fn rows_went_live(&mut self) {
+        for row in self.stored_rows_mut() {
+            row.entering = false;
+        }
+    }
     fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
         if !matches!(kind, RowKind::User | RowKind::Group) {
             self.bound_counted_rows(63, out);
@@ -772,6 +820,7 @@ impl State {
             },
             at: self.at,
             open: true,
+            entering: true,
             bytes: 0,
             lines: 0,
             fields: BTreeMap::new(),
@@ -1156,7 +1205,7 @@ impl State {
                     row.open = false;
                     row.fields.clear();
                     row.fields.insert("hidden".into(), "true".into());
-                    out.emit(Change::Patch(row));
+                    out.emit(Change::Leave(row));
                 }
             }
             if stream.row.open {
@@ -1165,7 +1214,7 @@ impl State {
                 stream.row.bytes = 0;
                 stream.row.lines = 0;
                 stream.row.open = false;
-                out.row(&stream.row);
+                out.emit(Change::Leave(stream.row));
             }
         }
     }
@@ -1182,8 +1231,10 @@ impl State {
             if hidden || !prompt.has_body {
                 prompt.row.fields.clear();
                 prompt.row.fields.insert("hidden".into(), "true".into());
+                out.emit(Change::Leave(prompt.row));
+            } else {
+                out.row(&prompt.row);
             }
-            out.row(&prompt.row);
             if !hidden && prompt.has_body {
                 self.settled_prompt(hash);
             }
