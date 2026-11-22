@@ -46,6 +46,9 @@ use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
+/// Measured: each connection may hold its replay window (SessionLimits: 16 MiB on each of its 4
+/// lanes) and its multiplexer's 32 MiB incoming budget (`service.rs`): about 96 MiB a client at
+/// worst, 6 GiB for 64.
 const MAX_CLIENT_CONNECTIONS: usize = 64;
 const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 const MAX_PENDING_APPROVALS: usize = 64;

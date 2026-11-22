@@ -972,7 +972,6 @@ impl Refusal {
         match error {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }

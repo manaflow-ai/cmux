@@ -57,6 +57,8 @@ const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
 /// Calls this gateway takes at once (the API's own cap per team); one more is answered busy.
+/// Measured: not ours to measure; it mirrors the Cloud inference API's limit of 32 concurrent
+/// calls per team, so a 33rd would be refused upstream anyway.
 const MAX_CALLS: usize = 32;
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;

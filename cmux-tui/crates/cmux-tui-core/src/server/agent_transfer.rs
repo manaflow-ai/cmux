@@ -588,7 +588,6 @@ impl From<LinkError> for Failure {
         match error {
             LinkError::Closed => Self::Refusal(Refusal::Unavailable),
             LinkError::Timeout => Self::Refusal(Refusal::Timeout),
-            LinkError::Busy => Self::Refusal(Refusal::Limit),
             LinkError::MethodNotFound(message) | LinkError::BadList(message) => {
                 Self::Acpmux(message)
             }

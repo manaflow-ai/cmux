@@ -63,6 +63,7 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 /// Measured: not yet; a whole CEF process tree each (browser, GPU, network, renderer,
 /// utility processes), to be measured with `shared_host_bench.rs`.
 pub(crate) const MAX_RUNTIMES_PER_CLIENT: usize = 4;
+/// Measured: not yet; a whole CEF process tree each, as for [`MAX_RUNTIMES_PER_CLIENT`].
 pub(crate) const MAX_RUNTIMES_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
