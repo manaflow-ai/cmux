@@ -188,6 +188,7 @@ export function settlePopup(element: HTMLElement): () => void {
   observer.observe(element);
   arm();
   return () => {
+    if (closed) return;
     closed = true;
     cancel();
     observer.disconnect();

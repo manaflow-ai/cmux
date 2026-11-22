@@ -86,6 +86,9 @@ class FakeView {
 
 let view: FakeView;
 let timers: { at: number; run: () => void }[];
+// settlePopup keeps its open popups (and whether the window is listened to) for the whole module:
+// every popup a test opens is stopped after it, or the next test's window never gets listeners.
+let stops: (() => void)[] = [];
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
 const realInstance = globalThis.Node;
@@ -105,6 +108,8 @@ beforeEach(() => {
   };
 });
 afterEach(() => {
+  for (const stop of stops) stop();
+  stops = [];
   globalThis.setTimeout = realSetTimeout;
   globalThis.clearTimeout = realClearTimeout;
   (globalThis as { Node: unknown }).Node = realInstance;
@@ -123,6 +128,7 @@ function open(setup?: (element: FakeElement) => void) {
   const element = new FakeElement(view);
   setup?.(element);
   const stop = settlePopup(element as unknown as HTMLElement);
+  stops.push(stop);
   return { element, stop };
 }
 
