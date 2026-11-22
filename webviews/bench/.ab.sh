@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # A/B of the lazy cuts on one runner: after (this tree), then before (the cuts reverted), then after again.
 set -uo pipefail
+CUT=webviews/bench/.facts-cut.patch
 cd "$(dirname "$0")/.."
 out=${FAST_CHECKS_OUT:-/tmp/ab}
 echo "=== AFTER (CPU=${CPU:-1}) ==="
 SHOTS=$out/after ROUNDS=${ROUNDS:-5} bun bench/home-pane-imports.bench.ts; echo "after rc=$?"
-git -C .. apply -R webviews/bench/.lazy-cut.patch 2>/dev/null || (cd .. && patch -R -p1 < webviews/bench/.lazy-cut.patch); echo "revert rc=$?"
+git -C .. apply -R $CUT 2>/dev/null || (cd .. && patch -R -p1 < $CUT); echo "revert rc=$?"
 echo "=== BEFORE (CPU=${CPU:-1}) ==="
 SHOTS=$out/before ROUNDS=${ROUNDS:-5} bun bench/home-pane-imports.bench.ts; echo "before rc=$?"
 python3 - "$out" <<'PY'

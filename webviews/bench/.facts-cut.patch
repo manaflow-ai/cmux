@@ -1,0 +1,228 @@
+diff --git a/webviews/src/agent-session/acpmux/chips/FactsCard.tsx b/webviews/src/agent-session/acpmux/chips/FactsCard.tsx
+new file mode 100644
+index 000000000000..10d50471f024
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/chips/FactsCard.tsx
+@@ -0,0 +1,44 @@
++// The facts hover card itself (FactsHoverCard.tsx's WithFacts draws it): the card glass and its
++// positioner (ui/Tooltip.tsx AnchoredCard, Base UI's tooltip). A page draws a card only on hover or
++// focus, so this file is its own chunk, fetched once the page is idle (`loadFactsCard`), and a
++// page whose first screen shows triggers only (Home Messages, Home Channels) starts without it. Its
++// stylesheet stays with WithFacts (factsCard.css), so a surface's CSS has it from the first frame.
++import { AnchoredCard } from "../../../ui/Tooltip";
++import type { HoverFact } from "./FactsHoverCard";
++import type { useHoverCard } from "./useHoverCard";
++
++/** The card of WithFacts' `lines` at `anchor` (none while it is closed); `card` is useHoverCard's. */
++export function FactsCard({
++  anchor,
++  side,
++  lines,
++  card,
++}: {
++  anchor: HTMLElement | null;
++  side: "top" | "bottom";
++  lines: readonly HoverFact[];
++  card: ReturnType<typeof useHoverCard>["card"];
++}) {
++  return (
++    <AnchoredCard
++      anchor={anchor}
++      className="ui-facts-card"
++      side={side}
++      instant
++      hoverBridgeId={card["data-cmux-hover-bridge"]}
++      onPointerEnter={card.onPointerEnter}
++      onPointerLeave={card.onPointerLeave}
++    >
++      <div className="ui-facts-card__body" data-facts-card="" {...card}>
++        {lines.map((fact, index) => (
++          <div key={index} className="ui-facts-card__fact">
++            {fact.label && <span className="ui-facts-card__label">{fact.label}</span>}
++            <span className="ui-facts-card__value" data-code={fact.code ? "" : undefined}>
++              {fact.value}
++            </span>
++          </div>
++        ))}
++      </div>
++    </AnchoredCard>
++  );
++}
+diff --git a/webviews/src/agent-session/acpmux/chips/FactsHoverCard.tsx b/webviews/src/agent-session/acpmux/chips/FactsHoverCard.tsx
+index 06c1daa3e8df..70523b4cb74d 100644
+--- a/webviews/src/agent-session/acpmux/chips/FactsHoverCard.tsx
++++ b/webviews/src/agent-session/acpmux/chips/FactsHoverCard.tsx
+@@ -5,11 +5,68 @@
+ // (useHoverCard), and it opens at once on keyboard focus. Its facts are also the trigger's accessible
+ // description, always, through a hidden element (`aria-describedby`), so VoiceOver reads them on any
+ // role (an `aria-description` is not allowed on a button, link or list item: jsx-a11y).
+-import { useId, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
+-import { AnchoredCard } from "../../../ui/Tooltip";
++//
++// The card (FactsCard.tsx, with the card glass and Base UI's positioner) is its own chunk: a trigger
++// draws without it, and the first trigger fetches it once the page is idle, so a hover finds it
++// loaded. A card asked for before then opens when the chunk arrives.
++import { useEffect, useId, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
++import { lazyChunk } from "../../../lazyChunk";
+ import { useHoverCard } from "./useHoverCard";
+ import "./factsCard.css";
+ 
++type FactsCardModule = typeof import("./FactsCard");
++let factsCard: FactsCardModule | undefined;
++let factsCardLoad: Promise<FactsCardModule> | undefined;
++
++/** Fetches the card's chunk once; resolves to it. */
++export const loadFactsCard = lazyChunk((): Promise<FactsCardModule> => {
++  factsCardLoad ??= import("./FactsCard").then(
++    (module) => (factsCard = module),
++    (error: unknown) => {
++      // A failed fetch (a web update swapped the files) is tried again on the next ask.
++      factsCardLoad = undefined;
++      throw error;
++    },
++  );
++  return factsCardLoad;
++});
++
++let idleLoad: Promise<FactsCardModule> | undefined;
++/** Fetches the card's chunk when the page is next idle (at most 2 s later), once. */
++function loadFactsCardWhenIdle(): Promise<FactsCardModule> {
++  idleLoad ??= new Promise<void>((resolve) => {
++    if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 2000 });
++    else setTimeout(resolve, 0);
++  })
++    .then(loadFactsCard)
++    .catch((error: unknown) => {
++      idleLoad = undefined;
++      throw error;
++    });
++  return idleLoad;
++}
++
++/**
++ * The card's module: at once when it is loaded; else from when the page is idle, or as soon as the
++ * chunk arrives when `wanted` (the card was asked for first). Once there, the card stays drawn
++ * (closed) under its trigger, as it was before the split.
++ */
++function useFactsCard(wanted: boolean): FactsCardModule | undefined {
++  const [module, setModule] = useState(factsCard);
++  useEffect(() => {
++    if (module) return;
++    let live = true;
++    (wanted ? loadFactsCard() : loadFactsCardWhenIdle()).then(
++      (loaded) => live && setModule(() => loaded),
++      () => undefined,
++    );
++    return () => {
++      live = false;
++    };
++  }, [module, wanted]);
++  return module;
++}
++
+ /** One line of a facts card: a value, and what it is when the value alone does not say. */
+ export interface HoverFact {
+   /** What the value is ("Schedule"), already localized; none when the value says it (a path, a URL). */
+@@ -65,6 +122,7 @@ export function WithFacts({
+   const hover = useHoverCard();
+   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+   const id = useId();
++  const card = useFactsCard(hover.open);
+   if (lines.length === 0) return <>{children({ ref: setAnchor })}</>;
+   return (
+     <>
+@@ -72,26 +130,7 @@ export function WithFacts({
+       <span id={id} hidden>
+         {spoken(lines)}
+       </span>
+-      <AnchoredCard
+-        anchor={hover.open ? anchor : null}
+-        className="ui-facts-card"
+-        side={side}
+-        instant
+-        hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
+-        onPointerEnter={hover.card.onPointerEnter}
+-        onPointerLeave={hover.card.onPointerLeave}
+-      >
+-        <div className="ui-facts-card__body" data-facts-card="" {...hover.card}>
+-          {lines.map((fact, index) => (
+-            <div key={index} className="ui-facts-card__fact">
+-              {fact.label && <span className="ui-facts-card__label">{fact.label}</span>}
+-              <span className="ui-facts-card__value" data-code={fact.code ? "" : undefined}>
+-                {fact.value}
+-              </span>
+-            </div>
+-          ))}
+-        </div>
+-      </AnchoredCard>
++      {card && <card.FactsCard anchor={hover.open ? anchor : null} side={side} lines={lines} card={hover.card} />}
+     </>
+   );
+ }
+diff --git a/webviews/src/lazyChunk.ts b/webviews/src/lazyChunk.ts
+new file mode 100644
+index 000000000000..6ee1b7fde032
+--- /dev/null
++++ b/webviews/src/lazyChunk.ts
+@@ -0,0 +1,16 @@
++// The chunks a page fetches once it is idle after its first frame (the facts hover card,
++// chips/FactsHoverCard.tsx). Each module that splits one off names its loader here when it loads,
++// so whoever needs them all in place can ask for every one at once: the tests do, before a file's
++// first test (test/preload.ts), as a page has them by the time anyone points at a card.
++const loaders = new Set<() => Promise<unknown>>();
++
++/** `load`, kept with the others. */
++export function lazyChunk<T>(load: () => Promise<T>): () => Promise<T> {
++  loaders.add(load);
++  return load;
++}
++
++/** Every chunk named so far, fetched; resolves once all are in. */
++export function loadLazyChunks(): Promise<unknown[]> {
++  return Promise.all(Array.from(loaders, (load) => load()));
++}
+diff --git a/webviews/test/preload.ts b/webviews/test/preload.ts
+index 92833292a44c..7da8f21e9f04 100644
+--- a/webviews/test/preload.ts
++++ b/webviews/test/preload.ts
+@@ -118,6 +118,18 @@ if (!("Element" in scope)) {
+   refusePlaywrightOnMacs([chromium, webkit, firefox]);
+ }
+ 
++// The chunks a page fetches once it is idle after its first frame (src/lazyChunk.ts: the facts hover
++// card) are in place before a file's first test, as they are on a page by the time anyone points at
++// a card: a render draws them at once, with no update outside act. Before the first test, not here: a
++// chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
++// installed its window, as they did when they were the file's own imports. A file that imports none
++// of them fetches nothing.
++{
++  const { beforeAll } = await import("bun:test");
++  const { loadLazyChunks } = await import("../src/lazyChunk");
++  beforeAll(() => loadLazyChunks());
++}
++
+ // Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind
+ // for the next file fails, naming what it left (support/leakDetector.ts says how).
+ {
+diff --git a/webviews/test/support/factsCard.ts b/webviews/test/support/factsCard.ts
+index d60741866b0a..5efb63acb8b9 100644
+--- a/webviews/test/support/factsCard.ts
++++ b/webviews/test/support/factsCard.ts
+@@ -3,6 +3,7 @@
+ // no dwell), not the trigger's hidden description.
+ import { act, type ReactNode } from "react";
+ import type { Root } from "react-dom/client";
++import { loadLazyChunks } from "../../src/lazyChunk";
+ import { settleReact } from "./domTeardown";
+ 
+ /// Opens `element`'s facts card as keyboard focus does, reads what it shows, then closes it again.
+@@ -17,6 +18,9 @@ export async function factsCardText(element: Element): Promise<string> {
+   try {
+     await act(async () => {
+       element.dispatchEvent(new view.FocusEvent("focusin", { bubbles: true }));
++      // A card asked for before its chunk is in opens when it arrives (src/lazyChunk.ts): a file
++      // that loaded the card's trigger after its first test began has it fetched only now.
++      await loadLazyChunks();
+     });
+     const card = element.ownerDocument.querySelector("[data-facts-card]");
+     const text = card?.textContent ?? "";
