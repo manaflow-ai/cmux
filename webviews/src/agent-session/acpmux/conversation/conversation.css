@@ -763,6 +763,10 @@
 .cv-user__cancel:disabled:hover {
   color: inherit;
 }
+/* Why Retry waits, before it, in the quieter ink. */
+.cv-user__retry-wait {
+  color: var(--cv-text-muted);
+}
 .cv-user__failure {
   display: flex;
   flex-wrap: wrap;
@@ -3610,6 +3614,11 @@ pre.cv-math-source {
 .acpmux-row.acpmux-activity {
   min-height: 0;
   padding-bottom: var(--cv-tool-run-bottom-gap);
+}
+/* A later part of a running turn's long run (runParts.ts) keeps the room the run's flex gap gave
+   its entry (`.cv-tools` gap above), so the parts draw as the one row did; model.ts counts it. */
+.acpmux-row.acpmux-row--run-part {
+  padding-top: var(--grid-base);
 }
 /* Gallery versions for the transcript spacing review. The selected default is the root rhythm
    above; these are capture-only comparisons. */
@@ -7353,7 +7362,7 @@ a.cv-sha:focus-visible {
     transparent var(--acpmux-view-top, 0px),
     #000 calc(var(--acpmux-view-top, 0px) + var(--acpmux-fade-top, 0px) * var(--acpmux-fade-top-reach)),
     #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px) * var(--acpmux-fade-bottom-reach)),
-    transparent var(--acpmux-view-foot)
+    transparent var(--acpmux-view-foot) var(--acpmux-dock-holes,)
   );
   -webkit-mask-image:
     var(--acpmux-view-mask),
@@ -8569,6 +8578,10 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   padding: 0 var(--ds-space-2);
   border-radius: var(--ds-radius-control);
   box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
+  color: var(--cv-text-muted);
+}
+/* Why a machine cannot run the command, after its name in the quieter ink (a disabled choice gets no hover). */
+.cv-run-elsewhere__why {
   color: var(--cv-text-muted);
 }
 .cv-run-elsewhere__machine input {
