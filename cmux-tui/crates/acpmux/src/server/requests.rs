@@ -2096,7 +2096,15 @@ async fn dispatch_request_with_identity(
             let provenance = provenance.map(|p| match conn.origin {
                 super::Origin::Peer => {
                     let via = mux_meta(&params).and_then(|m| m.get("via")).and_then(Value::as_str);
-                    crate::prompt_provenance::forwarded_by_peer(p, via)
+                    let p = crate::prompt_provenance::forwarded_by_peer(p, via);
+                    // Its outbox sent it again: it waited for this machine to come back, and
+                    // the chat wakes for it (`prompt_provenance::waited`).
+                    let resend = mux_meta(&params).and_then(|m| m.get("resend"));
+                    if conn.auth.peer_daemon() && resend == Some(&Value::Bool(true)) {
+                        crate::prompt_provenance::mark_waited(p)
+                    } else {
+                        p
+                    }
                 }
                 _ => p,
             });

@@ -10546,6 +10546,141 @@
         }
       }
     },
+    "settings.group.storage": {
+      "comment": "Settings > General: group of the machine cleanup toggles (agent worktrees and build caches on this Mac's disk).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Storage"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "التخزين"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pohrana"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lagerplads"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Speicher"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Almacenamiento"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Stockage"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spazio di archiviazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ストレージ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំផ្ទុក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "저장 공간"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Lagring"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pamięć"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Armazenamento"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Хранилище"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "พื้นที่จัดเก็บ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Depolama"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Сховище"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dung lượng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "存储空间"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "儲存空間"}}
+      }
+    },
+    "settings.worktrees.autoCleanup": {
+      "comment": "Settings > General > Storage: toggle that lets cmux remove the git worktrees agents finished with and trim idle ones' build output.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Clean Up Agent Worktrees"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تنظيف worktrees الخاصة بالوكلاء"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Očisti worktreeje agenata"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ryd op i agenters worktrees"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agenten-Worktrees aufräumen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Limpiar worktrees de agentes"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Nettoyer les worktrees des agents"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Pulisci i worktree degli agenti"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントのワークツリーを整理"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "សម្អាត worktree របស់ភ្នាក់ងារ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트 워크트리 정리"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Rydd opp i agenters worktrees"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Porządkuj worktree agentów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Limpar worktrees de agentes"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Очищать рабочие деревья агентов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ล้าง worktree ของเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajan worktree'lerini temizle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Очищати робочі дерева агентів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dọn worktree của agent"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "清理代理工作树"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "清理代理工作樹"}}
+      }
+    },
+    "settings.worktrees.autoCleanup.help": {
+      "comment": "Settings > General > Storage: help for the Clean Up Agent Worktrees toggle. Unpushed commits stay in the repository and the worktree is restored when its chat is opened again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يؤرشف worktrees التي أنهى الوكلاء العمل عليها ويزيلها، ويقلّص مخرجات البناء للخاملة منها. يُحفظ العمل غير المدفوع في git ويعود عند إعادة فتح الدردشة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Arhivira i uklanja worktreeje s kojima su agenti završili i smanjuje izlaz builda neaktivnih. Neposlani rad ostaje u gitu i vraća se kad se chat ponovo otvori."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Arkiverer og fjerner worktrees, agenter er færdige med, og trimmer build-output fra inaktive. Arbejde, der ikke er pushet, bevares i git og kommer tilbage, når chatten åbnes igen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Archiviert und entfernt Worktrees, mit denen Agenten fertig sind, und verkleinert die Build-Ausgabe ruhender. Nicht gepushte Arbeit bleibt in Git und kommt zurück, wenn der Chat wieder geöffnet wird."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Archiva y elimina los worktrees que los agentes terminaron y recorta la salida de compilación de los inactivos. El trabajo sin enviar se guarda en git y vuelve al reabrir el chat."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Archive et supprime les worktrees dont les agents ont fini, et allège la sortie de build de ceux inactifs. Le travail non poussé reste dans git et revient à la réouverture du chat."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Archivia e rimuove i worktree che gli agenti hanno finito e riduce l’output di build di quelli inattivi. Il lavoro non inviato resta in git e torna quando la chat viene riaperta."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントが作業を終えたワークツリーをアーカイブして削除し、使われていないワークツリーのビルド出力を減らします。プッシュしていない作業は git に残り、チャットを再び開くと戻ります。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទុកក្នុងបណ្ណសារ និងលុប worktree ដែលភ្នាក់ងារបានធ្វើរួច ហើយកាត់បន្ថយលទ្ធផល build របស់ worktree ដែលមិនប្រើ។ ការងារដែលមិនទាន់ push ត្រូវបានរក្សាក្នុង git ហើយត្រឡប់មកវិញពេលបើកការជជែកម្តងទៀត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트가 작업을 마친 워크트리를 보관하고 제거하며, 쓰지 않는 워크트리의 빌드 결과물을 줄입니다. 푸시하지 않은 작업은 git에 남아 있다가 채팅을 다시 열면 돌아옵니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Arkiverer og fjerner worktrees agenter er ferdige med, og trimmer byggeutdata fra inaktive. Arbeid som ikke er pushet, beholdes i git og kommer tilbake når chatten åpnes igjen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Archiwizuje i usuwa worktree, z którymi agenci skończyli, oraz przycina wyniki budowania nieużywanych. Niewypchnięta praca zostaje w git i wraca po ponownym otwarciu czatu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Arquiva e remove os worktrees que os agentes terminaram e reduz a saída de build dos inativos. O trabalho não enviado fica no git e volta quando o chat é reaberto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Архивирует и удаляет рабочие деревья, с которыми агенты закончили, и сокращает результаты сборки неактивных. Неотправленная работа остаётся в git и возвращается при повторном открытии чата."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เก็บถาวรและลบ worktree ที่เอเจนต์ทำเสร็จแล้ว และลดผลลัพธ์บิลด์ของ worktree ที่ไม่ได้ใช้ งานที่ยังไม่ได้ push จะเก็บไว้ใน git และกลับมาเมื่อเปิดแชตอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların işini bitirdiği worktree'leri arşivler ve kaldırır, boştakilerin derleme çıktısını küçültür. Gönderilmemiş iş git'te kalır ve sohbet yeniden açıldığında geri gelir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Архівує та видаляє робочі дерева, з якими агенти завершили, і скорочує результати збирання неактивних. Невідправлена робота лишається в git і повертається, коли чат знову відкрито."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lưu trữ và xóa các worktree agent đã xong, đồng thời thu gọn kết quả build của các worktree không dùng. Công việc chưa push được giữ trong git và quay lại khi mở lại cuộc trò chuyện."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "归档并移除代理已用完的工作树，并精简闲置工作树的构建产物。未推送的工作保留在 git 中，重新打开聊天时会恢复。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "封存並移除代理已用完的工作樹，並精簡閒置工作樹的建置產物。未推送的工作保留在 git 中，重新開啟聊天時會恢復。"}}
+      }
+    },
+    "settings.worktrees.cleanBuildCaches": {
+      "comment": "Settings > General > Storage: toggle that lets cmux remove build caches on this Mac that were not used lately.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Clean Up Build Caches"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تنظيف ذاكرات البناء المؤقتة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Očisti keš builda"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ryd op i build-caches"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Build-Caches aufräumen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Limpiar cachés de compilación"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Nettoyer les caches de build"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Pulisci le cache di build"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ビルドキャッシュを整理"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "សម្អាតឃ្លាំងសម្ងាត់ build"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "빌드 캐시 정리"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Rydd opp i byggebuffere"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Porządkuj pamięć podręczną budowania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Limpar caches de build"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Очищать кэши сборки"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ล้างแคชบิลด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Derleme önbelleklerini temizle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Очищати кеші збирання"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Dọn bộ nhớ đệm build"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "清理构建缓存"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "清理建置快取"}}
+      }
+    },
+    "settings.worktrees.cleanBuildCaches.help": {
+      "comment": "Settings > General > Storage: help for the Clean Up Build Caches toggle. Xcode DerivedData is a product folder name and stays as is; package caches are those of package managers.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يزيل أيضًا ذاكرات البناء المؤقتة على هذا الـ Mac التي لم يستخدمها أحد مؤخرًا، مثل Xcode DerivedData. لا تُزال ذاكرات الحزم المؤقتة إلا عندما يكاد القرص يمتلئ."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uklanja i keš builda na ovom Macu koji niko nije nedavno koristio, kao što je Xcode DerivedData. Keš paketa se uklanja samo kad je disk skoro pun."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fjerner også build-caches på denne Mac, som ingen har brugt for nylig, f.eks. Xcode DerivedData. Pakke-caches fjernes kun, når disken er næsten fuld."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Entfernt auch Build-Caches dieses Macs, die zuletzt niemand genutzt hat, etwa Xcode DerivedData. Paket-Caches werden nur entfernt, wenn das Volume fast voll ist."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "También elimina las cachés de compilación de este Mac que nadie usó últimamente, como Xcode DerivedData. Las cachés de paquetes solo se eliminan cuando el disco está casi lleno."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Supprime aussi les caches de build de ce Mac que personne n’a utilisés récemment, comme Xcode DerivedData. Les caches de paquets ne partent que lorsque le disque est presque plein."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Rimuove anche le cache di build di questo Mac che nessuno ha usato di recente, come Xcode DerivedData. Le cache dei pacchetti vengono rimosse solo quando il disco è quasi pieno."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac で最近使われていないビルドキャッシュ（Xcode の DerivedData など）も削除します。パッケージのキャッシュは、ディスクがほぼいっぱいのときだけ削除します。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "លុបឃ្លាំងសម្ងាត់ build នៅលើ Mac នេះដែលគ្មាននរណាប្រើថ្មីៗ ដូចជា Xcode DerivedData ផងដែរ។ ឃ្លាំងសម្ងាត់កញ្ចប់ត្រូវលុបតែពេលថាសជិតពេញប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Mac에서 최근 아무도 쓰지 않은 빌드 캐시(Xcode DerivedData 등)도 제거합니다. 패키지 캐시는 디스크가 거의 가득 찼을 때만 제거합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Fjerner også byggebuffere på denne Macen som ingen har brukt i det siste, som Xcode DerivedData. Pakkebuffere fjernes bare når disken er nesten full."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Usuwa też pamięć podręczną budowania na tym Macu, z której nikt ostatnio nie korzystał, np. Xcode DerivedData. Pamięć podręczna pakietów znika tylko, gdy dysk jest prawie pełny."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Também remove os caches de build deste Mac que ninguém usou recentemente, como o Xcode DerivedData. Os caches de pacotes só saem quando o disco está quase cheio."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Также удаляет кэши сборки на этом Mac, которыми давно никто не пользовался, например Xcode DerivedData. Кэши пакетов удаляются, только когда диск почти заполнен."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลบแคชบิลด์บน Mac เครื่องนี้ที่ไม่มีใครใช้เมื่อเร็วๆ นี้ด้วย เช่น Xcode DerivedData แคชแพ็กเกจจะถูกลบเฉพาะเมื่อดิสก์ใกล้เต็มเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Mac'te son zamanlarda kimsenin kullanmadığı derleme önbelleklerini de kaldırır; örneğin Xcode DerivedData. Paket önbellekleri yalnızca disk neredeyse dolduğunda kaldırılır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Також видаляє кеші збирання на цьому Mac, якими останнім часом ніхто не користувався, як-от Xcode DerivedData. Кеші пакетів видаляються, лише коли диск майже заповнений."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đồng thời xóa bộ nhớ đệm build trên máy Mac này mà gần đây không ai dùng, như Xcode DerivedData. Bộ nhớ đệm gói chỉ bị xóa khi ổ đĩa gần đầy."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "同时移除这台 Mac 上最近没人用过的构建缓存，例如 Xcode DerivedData。软件包缓存只在磁盘快满时才会移除。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "同時移除這台 Mac 上最近沒人用過的建置快取，例如 Xcode DerivedData。套件快取只在磁碟快滿時才會移除。"}}
+      }
+    },
     "settings.group.sshLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -156166,6 +156301,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "隱藏的 Chromium 分頁會停止執行直到你顯示它，以節省電力。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showAutomaticSessions": {
+      "comment": "Settings toggle title: show sessions that scripts and tools start in place in the sidebar.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Automatic Sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الجلسات التلقائية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži automatske sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis automatiske sessioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Sitzungen anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar sesiones automáticas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les sessions automatiques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra sessioni automatiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動セッションを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញវគ្គស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 세션 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis automatiske økter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj sesje automatyczne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar sessões automáticas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать автоматические сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเซสชันอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik oturumları göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати автоматичні сеанси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện phiên tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示自动会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示自動工作階段"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showAutomaticSessions.help": {
+      "comment": "Help for the Show Automatic Sessions setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر الجلسات التي تبدؤها البرامج النصية والأدوات في مكانها. عند الإيقاف، تنتظر في «تلقائية» في نهاية قائمتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesije koje pokreću skripte i alati prikazuju se na svom mjestu. Kad je isključeno, čekaju u Automatske na kraju svoje liste."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessioner, som scripts og værktøjer starter, vises på deres plads. Slået fra venter de i Automatiske nederst på deres liste."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen, die Skripte und Tools starten, erscheinen an ihrem Platz. Aus warten sie unter Automatisch am Ende ihrer Liste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las sesiones que inician scripts y herramientas se muestran en su lugar. Desactivado, esperan en Automáticas al final de su lista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sessions lancées par des scripts et des outils s’affichent à leur place. Désactivé, elles attendent dans Automatiques en fin de liste."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sessioni avviate da script e strumenti compaiono al loro posto. Disattivato, attendono in Automatiche in fondo all’elenco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトやツールが開始したセッションをその場所に表示します。オフにすると、リストの末尾の「自動」にまとめられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គដែលស្គ្រីប និងឧបករណ៍ចាប់ផ្ដើម បង្ហាញនៅកន្លែងរបស់វា។ ពេលបិទ វារង់ចាំក្នុង ស្វ័យប្រវត្តិ នៅចុងបញ្ជី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트와 도구가 시작한 세션을 제자리에 표시합니다. 끄면 목록 끝의 자동에 모입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økter som skript og verktøy starter, vises på sin plass. Av venter de i Automatiske nederst i listen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesje uruchomione przez skrypty i narzędzia są widoczne na swoim miejscu. Wyłączone czekają w Automatyczne na końcu listy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessões iniciadas por scripts e ferramentas aparecem no lugar. Desativado, elas ficam em Automáticas no fim da lista."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеансы, запущенные скриптами и инструментами, видны на своём месте. Если выключено, они ждут в «Автоматические» в конце списка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันที่สคริปต์และเครื่องมือเริ่มจะแสดงในตำแหน่งของมัน เมื่อปิด จะรออยู่ใน อัตโนมัติ ที่ท้ายรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betiklerin ve araçların başlattığı oturumlar yerinde görünür. Kapalıyken listenin sonundaki Otomatik altında bekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанси, запущені скриптами й інструментами, видно на своєму місці. Якщо вимкнено, вони чекають у «Автоматичні» в кінці списку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các phiên do script và công cụ khởi động hiện tại chỗ. Khi tắt, chúng nằm trong Tự động ở cuối danh sách."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本和工具启动的会话在原处显示。关闭时，它们收在列表末尾的“自动”中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本和工具啟動的工作階段會在原處顯示。關閉時，它們收在清單末尾的「自動」中。"
           }
         }
       }
