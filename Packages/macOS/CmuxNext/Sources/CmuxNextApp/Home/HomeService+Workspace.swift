@@ -31,6 +31,8 @@ extension HomeService {
 
     /// Asks the store for its home workspace, then gives it the chief tab.
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
+        // A second ensure cancels the first wherever it is (its dock steps included): the launch marks say when.
+        DebugTimings.markLaunch(homeWorkspaceTask == nil ? "home.ensure_start" : "home.ensure_again")
         homeWorkspaceTask?.cancel()
         homeWorkspaceStep = "ensure_home"
         chiefTabStep = .notStarted
@@ -45,7 +47,8 @@ extension HomeService {
                 homeWorkspaceID = home
                 ensure.settle(generation); DebugTimings.markLaunch("home.ensure_home")
                 async let chiefTab: Void = ensureChiefTab(connection, home: home, generation: generation) // beside the dock steps: Home's first page waits for both
-                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
+                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home,
+                                                                                                             mark: { DebugTimings.markLaunch("home.\($0)") }) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
                 // Each window's own Home is docked on every connect too (cmux#27880), never behind the Chief's owner.
