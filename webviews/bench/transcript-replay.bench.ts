@@ -699,7 +699,24 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       };
       const records = burst.toSeq - burst.fromSeq + 1;
       let probe: BurstResult["probe"];
-      if (PROBE) {
+      if (process.env.LCMC_EXP && burst.kind === "tool_call") {
+        const fsx = await import("node:fs");
+        await page.evaluate(fsx.readFileSync("/tmp/lcmc-scripts/exp2-install.js", "utf8"));
+        await page.evaluate(fsx.readFileSync("/tmp/lcmc-scripts/exp2-dump.js", "utf8"));
+        await playBurst();
+        await paint(page, 2);
+        console.log(`EXP2 at ${burst.rows}: ` + (await page.evaluate(fsx.readFileSync("/tmp/lcmc-scripts/exp2-dump.js", "utf8"))));
+        const evs: any[] = [];
+        const onData = (d: { value: object[] }) => evs.push(...d.value);
+        cdp.on("Tracing.dataCollected", onData);
+        await cdp.send("Tracing.start", { traceConfig: { recordMode: "recordAsMuchAsPossible", includedCategories: (process.env.LCMC_CATS ?? "*").split(",") }, transferMode: "ReportEvents" });
+        console.log(`EXP at ${burst.rows} rows\n` + (await page.evaluate((await import("node:fs")).readFileSync(process.env.LCMC_EXP, "utf8"))));
+        const done = new Promise<void>((r) => cdp.once("Tracing.tracingComplete", () => r()));
+        await cdp.send("Tracing.end");
+        await done;
+        cdp.off("Tracing.dataCollected", onData);
+        (await import("node:fs")).writeFileSync(`/tmp/lcmc-exptrace-${burst.rows}.json`, JSON.stringify(evs));
+      } else if (PROBE) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
         const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
