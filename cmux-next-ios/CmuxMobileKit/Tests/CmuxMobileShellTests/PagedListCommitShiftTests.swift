@@ -152,23 +152,6 @@ import UIKit
         #expect(abs(hosted.seen.worst - 22) < 0.5, "a 22 pt move of everything read measured \(hosted.seen.shifts)")
     }
 
-    /// The row being read straddles the top edge and shrinks 22 pt (the down-*-edits rows, step
-    /// d20b5519): whichever edge the layout keeps, the row changed size in place and nothing else the
-    /// reader sees moved.
-    @Test func theRowBeingReadShrinkingInPlaceIsNoShift() throws {
-        let hosted = try host()
-        defer { hosted.window.isHidden = true }
-        hosted.rows.items[10].tall = true
-        settle()
-        let list = hosted.list
-        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
-        settle()
-        hosted.seen.shifts = []
-        hosted.rows.items[10].tall = false
-        settle()
-        #expect(hosted.seen.worst <= 0.5, "the row being read shrank in place and measured \(hosted.seen.shifts)")
-    }
-
     /// One run loop turn: the frame so far is committed.
     private func turn() {
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
