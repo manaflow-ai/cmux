@@ -208,6 +208,11 @@
   --acpmux-codex-row-bottom: calc(10px * var(--acpmux-density));
   --acpmux-studio-send: calc(30px * var(--acpmux-density));
   --acpmux-studio-rule: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --acpmux-studio-glyph: 16px;
+  --acpmux-studio-chevron: 14px;
+  --acpmux-studio-rule-gap: 6px;
+  --acpmux-studio-attach-start: 4px;
+  --acpmux-studio-on-danger: #fff;
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-variant="studio"]) {
@@ -223,7 +228,7 @@
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 3;
-  margin-inline: 4px 2px;
+  margin-inline: var(--acpmux-studio-attach-start) var(--grid-half-step);
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 4;
@@ -250,17 +255,17 @@
   content: "";
   flex: none;
   width: var(--cmux-hairline, 0.5px);
-  height: 16px;
-  margin-inline: 6px;
+  height: var(--acpmux-studio-glyph);
+  margin-inline: var(--acpmux-studio-rule-gap);
   background: var(--acpmux-studio-rule);
 }
 /* The model chip's chevron, drawn as the access chip's (ChevronIcon). */
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-composer-foot .acpmux-model .acpmux-picker-button::after {
   content: "";
   flex: none;
-  width: 14px;
-  height: 14px;
-  margin-inline-start: 2px;
+  width: var(--acpmux-studio-chevron);
+  height: var(--acpmux-studio-chevron);
+  margin-inline-start: var(--grid-half-step);
   background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.6 6.3 8 9.6l3.4-3.3'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.6 6.3 8 9.6l3.4-3.3'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -269,8 +274,8 @@
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-composer-foot .acpmux-effort .acpmux-picker-button::before {
   content: "";
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--acpmux-studio-glyph);
+  height: var(--acpmux-studio-glyph);
   margin-inline-end: 0;
   background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z'/%3E%3Cpath d='M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z'/%3E%3Cpath d='M12 5v13'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -289,7 +294,7 @@
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send.acpmux-cancel:not([data-escape-armed]) {
   background: var(--agent-danger, #e5484d);
-  color: #fff;
+  color: var(--acpmux-studio-on-danger);
 }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"] .acpmux-send:not(:disabled):hover {
