@@ -161,6 +161,10 @@ const TRACE = process.env.TRACE === "1";
 /// printed as the functions with the most self time over all rounds (an unminified build).
 const PROFILE = process.env.PROFILE === "1";
 const SOURCES = process.env.SOURCES === "1";
+/// BOUND=1 also times each round's derived bound (settled-page.bench.ts): the settled page, scripts and the
+/// copy's host removed, loaded as a static document in the same context state (a cold context with PAGES
+/// pages for a relaunch, the warm renderer for a reopen), navigation to its first painted frame.
+const BOUND = process.env.BOUND === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
 const THEME = "bench-theme";
@@ -662,6 +666,8 @@ type Round = {
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
+  /// The derived bound (BOUND=1), ms from navigation to the settled copy's first painted frame, else null.
+  boundMs: number | null;
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
 };
@@ -849,6 +855,8 @@ try {
       '<main id="root"></main>\n<script async src="/__snapshot/chat.js"></script>\n<script src="/chat-snapshot.js"></script>',
   );
 
+  /// The settled page the bound loads (BOUND=1): scripts removed, offset restored inline, paint marked.
+  let boundHtml = "";
   /// The copy the host serves this load (`__snapshot/chat.js`): null on the warm load, as with none kept.
   let servedCopy: ChatSnapshot | null = null;
   // A spare New Tab page's load (`servingSpare`) is served no restored chat: it is no chat's page until adopted.
@@ -869,6 +877,8 @@ try {
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
       if (pathname === "/chat-snapshot.js") return script(bootScript);
+      if (pathname === "/__bound.html")
+        return new Response(boundHtml, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
       const file = Bun.file(path.join(out, pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -1172,11 +1182,48 @@ try {
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
+        boundMs: null,
         bytesDown: 0,
       };
     } finally {
       servingSpare = false;
       await page.close();
+    }
+  };
+
+  /// The settled page as a static document: no scripts, no copy host, the scroller's offset restored inline.
+  const settledDocument = (page: Page) =>
+    page.evaluate((hostTag) => {
+      const clone = document.documentElement.cloneNode(true) as HTMLElement;
+      for (const node of clone.querySelectorAll(`script, ${hostTag}`)) node.remove();
+      const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+      return `<!doctype html>${clone.outerHTML}`.replace(
+        "</body>",
+        `<script>{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop};` +
+          `requestAnimationFrame(()=>setTimeout(()=>{window.__boundPaint=performance.now()},0))}</script></body>`,
+      );
+    }, SNAPSHOT_HOST_TAG);
+  /// The derived bound: the settled document loaded in the same context state as the round.
+  const timeBound = async (mode: Mode, html: string): Promise<number> => {
+    boundHtml = html;
+    const context =
+      isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
+    const pages = await Promise.all(Array.from({ length: PAGES }, () => context.newPage()));
+    try {
+      for (const one of pages) {
+        if (context === warmContext) await one.setViewportSize(RELAUNCH_VIEWPORT);
+        if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      }
+      const base = `http://127.0.0.1:${statics.port}/__bound.html`;
+      await Promise.all(pages.map((one) => one.goto(base, { waitUntil: "commit" })));
+      await pages[0]!.waitForFunction(() => (window as unknown as { __boundPaint?: number }).__boundPaint, null, {
+        timeout: 30_000,
+        polling: 50,
+      });
+      return await pages[0]!.evaluate(() => (window as unknown as { __boundPaint: number }).__boundPaint);
+    } finally {
+      if (context === warmContext) for (const one of pages) await one.close();
+      else await context.close();
     }
   };
 
@@ -1245,7 +1292,9 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await timeBound(mode, await settledDocument(page)) : null;
       return {
+        boundMs,
         mode,
         metrics: classifyFrames(got.frames),
         frames: got.frames,

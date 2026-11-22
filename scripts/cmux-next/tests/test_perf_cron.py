@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-settled", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "web-ui-scroll", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1054,6 +1054,13 @@ class WebUiTests(unittest.TestCase):
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
         self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_settled_page_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-settled"))
+        self.assertEqual(cron.part_for_row("webui.settled_page.score_max@linux"), "web-ui-settled")
+        self.assertEqual(cron.part_for_row("webui.settled_page.chat_switch.stream.ratio@linux"), "web-ui-settled")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-settled")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "settled-page"])
 
     def test_the_state_growth_rows_have_their_own_part_god_rows_too(self):
         self.assertTrue(cron.is_linux_part("web-ui-growth"))
