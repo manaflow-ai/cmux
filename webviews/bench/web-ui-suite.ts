@@ -165,6 +165,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_770_000,
     ownPart: true,
   },
+  // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared
+  // renderer listing 3,000 chats; the cost per added item at 100 over at 10 (sim_ladder.ratio_max). perf-cron.py's
+  // web-ui-ladder part runs it, under that part's 30-minute run cap.
+  {
+    name: "sim-ladder",
+    file: "sim-ladder.bench.ts",
+    args: ["--sessions", "3000"],
+    timeoutMs: 1_700_000,
+    ownPart: true,
+  },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
   // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
   // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
