@@ -151,11 +151,12 @@ test("a hidden Changes or Preview folds into the chat menu while it applies; the
   expect(await open()).toEqual(["Changes", "Hide tabs", "Rename"]);
   await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
   expect(runs).toEqual(["changes:toggle"]);
-  // The diff and the preview opened since this render: the refresh as "..." opens lists the diff;
-  // the preview is Browser's, lit on its button.
+  // The diff and the preview opened since this render: the refresh as "..." opens lists both. Browser
+  // never stands in for Preview, so the preview folds beside a Browser button too
+  // (https://github.com/manaflow-ai/cmux/issues/49623).
   render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
-  expect(await open()).toEqual(["Changes", "New tab", "Rename"]);
-  // Without a Browser button, the open preview folds into "..." as before.
+  expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);
+  // Without a Browser button, the same.
   act(() => configureQuickActions({ quickActions: ["terminal"] }));
   render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
   expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);
