@@ -156,7 +156,7 @@ extension CMUXCLI {
         let upgrade: String
         if planID.lowercased() == "max" {
             upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
-        } else if (planID.lowercased() == "go" || planID.lowercased() == "free") &&
+        } else if planID.lowercased() == "free" &&
                     ((resource == .memory && requested <= 16 * 1_024) ||
                      (resource == .vcpus && requested <= 8) ||
                      (resource == .disk && requested <= 128 * 1_024)) {
