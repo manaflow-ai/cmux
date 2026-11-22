@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG && os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
