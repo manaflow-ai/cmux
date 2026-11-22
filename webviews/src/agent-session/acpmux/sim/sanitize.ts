@@ -128,9 +128,32 @@ export function scrubText(value: string): string {
 /** Strings longer than this keep their first part only (a tool's output: the pane draws its first lines). */
 const MAX_TEXT = 1_200;
 
+/** A harness's own tool names, which a call's bare title can be: the pane reads some by name (a
+ *  SendMessage title is a "Sent to" row, agentMessages.ts), so they stay. They say nothing private. */
+const TOOL_TITLES = new Set([
+  "Agent",
+  "Bash",
+  "Edit",
+  "Glob",
+  "Grep",
+  "Monitor",
+  "Read",
+  "ScheduleWakeup",
+  "SendMessage",
+  "Skill",
+  "TaskOutput",
+  "TaskStop",
+  "TodoWrite",
+  "ToolSearch",
+  "WebFetch",
+  "WebSearch",
+  "Write",
+]);
+
 function scrub(value: unknown, key: string | undefined): unknown {
   if (typeof value === "string") {
     if (key && KEEP_KEYS.has(key) && ENUM.test(value)) return value;
+    if (key === "title" && TOOL_TITLES.has(value)) return value;
     // Who sent an incoming message, as the pane reads it (incomingMessage.ts): a named agent, or a
     // session by id after `acp:`.
     if (key === "from" && value === "fromAgent") return value;
