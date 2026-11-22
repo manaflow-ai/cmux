@@ -1,7 +1,7 @@
 // Cell Light: Cell v0.1, light. The terminal theme is the whole color system. Every surface below is derived
 // from two of its colors: the page is the background (#fafaf8); the sidebar, tab bar and docks are
 // the background 4% toward the foreground (#f1f1ef), which is Cell's two-tone: one small
-// luminance step, no hue; lines are the background 14% toward the foreground (#dadbda). The accent
+// luminance step, no hue; lines are the background 14% toward the foreground (#d7d7d6). The accent
 // is the terminal's blue (color 4), status is its red, green and yellow (1, 2, 3). To re-theme the
 // app, replace the sixteen colors, the background and the foreground, and re-derive those three.
 {
@@ -13,10 +13,10 @@
   // gray) at 4.5:1 so dim text made from it is still text.
   "colors": {
     "background": "#fafaf8",
-    "foreground": "#1b1e23",
+    "foreground": "#0b0d10",
     "selection": "#d3e1f7",
     "accent": "#1d5cc0",
-    "0": "#1b1e23",
+    "0": "#0b0d10",
     "1": "#b4252f",
     "2": "#25733a",
     "3": "#855d00",
@@ -32,17 +32,17 @@
     "13": "#672a93",
     "14": "#085a60",
     "15": "#eceef1",
-    "cursor": "#1b1e23"
+    "cursor": "#0b0d10"
   },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #fafaf8",
-    "foreground = #1b1e23",
-    "cursor-color = #1b1e23",
+    "foreground = #0b0d10",
+    "cursor-color = #0b0d10",
     "cursor-text = #fafaf8",
     "selection-background = #d3e1f7",
-    "selection-foreground = #1b1e23",
-    "palette = 0=#1b1e23",
+    "selection-foreground = #0b0d10",
+    "palette = 0=#0b0d10",
     "palette = 1=#b4252f",
     "palette = 2=#25733a",
     "palette = 3=#855d00",
@@ -133,7 +133,7 @@
   "appearance.surfaces.browserChrome.opacity": 1,
   "appearance.surfaces.docks.color": "#f1f1ef",
   "appearance.surfaces.docks.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#dadbda",
+  "appearance.surfaces.splitDivider.color": "#d7d7d6",
   "appearance.surfaces.splitDivider.opacity": 1,
   // Nothing moves after it lands: the fast speed (80 to 120 ms), no color cross-fade.
   "ui.animationSpeed": "fast"

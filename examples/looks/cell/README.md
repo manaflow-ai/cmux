@@ -12,8 +12,8 @@ default.
 
 | Theme file | Page | Sidebar and bars | Lines | Ink | Accent |
 | --- | --- | --- | --- | --- | --- |
-| `cell` (default, dark) | `#15171B` | `#1D1F23` (page 4% toward ink) | `#32353A` (14%) | `#D7DBE2` (12.9:1) | terminal blue `#7AA8F2` |
-| `cell-light` | `#FAFAF8` | `#F1F1EF` | `#DADBDA` | `#1B1E23` (16.0:1) | terminal blue `#1D5CC0` |
+| `cell` (default, dark) | `#15171B` | `#1D1F23` (page 4% toward ink) | `#303237` (14%) | `#D7DBE2` (12.9:1) | terminal blue `#7AA8F2` |
+| `cell-light` | `#FAFAF8` | `#F1F1EF` | `#D7D7D6` | `#0B0D10` (18.6:1) | terminal blue `#1D5CC0` |
 
 Colors 1 to 6 and 8 to 14 of both palettes hold 4.5:1 or more over the page, so any of them can be
 text.
@@ -40,7 +40,7 @@ divider to 14%.
 | Part | Why |
 | --- | --- |
 | The window chrome in the monospace face | No setting picks the chrome's font family; `appearance.metrics.chromeFontSize` sets only its size. Sidebar rows, tabs, menus and Settings stay in the system font. |
-| Tool rows at the chat's size | Tool rows draw at the app's 12 and 11 px label sizes whatever `agentPane.display.font.size` is. |
+| Card headers and captions at the chat's size | Tool rows follow `agentPane.display.font.size`; a card's header (a diff's file name) and captions stay at the app's 12 and 11 px label steps. |
 | The column in cells | `agentPane.display.width` is in pixels, so 96 cells is right for SF Mono at 13 px only. |
 | Surfaces derived from the terminal theme at run time | A theme file states the sidebar and line colors as literals; no key says "background 4% toward foreground". |
 | A square tab, a flat composer, flat menus and toasts | No setting reaches the tab's shape, the composer's corner, rim and shadow, or the material of native menus and toasts. |

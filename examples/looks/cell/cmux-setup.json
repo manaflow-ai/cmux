@@ -33,8 +33,9 @@
     "agentPane.display.width": 752,
     "agentPane.display.minimap": "off",
     "agentPane.display.harnessPlacement": "compact",
-    // Pending cmux#46778: tool rows draw at the app's 12 and 11 px label sizes whatever the chat's
-    // size is; Cell wants them at the chat's 13 px (docs RFD "Cell v0.1", section 9).
+    // Tool rows already draw at the chat's size. Card headers and captions (a diff's file name, a
+    // permission card's note) draw at the app's 12 and 11 px label steps whatever the chat's size
+    // is; Cell wants them at 13 px too, and no setting reaches them (cmux#46778 was the attempt).
     // Pending cmux#46738: the composer has no paint tokens; Cell wants a 4 px corner, a one-pixel
     // edge and no rim or drop shadow.
 
