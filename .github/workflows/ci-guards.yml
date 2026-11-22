@@ -148,6 +148,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_zig_free_step_lockfiles.py
 
+      - name: No new hard-coded team host in cmux-tui or OptChat product code
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_team_hosts.py
+
       - name: Validate CMUX workload profile contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
