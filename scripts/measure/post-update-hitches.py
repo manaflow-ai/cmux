@@ -1302,7 +1302,7 @@ def run(opts, root: Path, report):
         (home / ".config/cmux/cmux-next.json").write_text(json.dumps(
             # downloadAutomatically: a person who keeps automatic updates; it is user-only over the socket
             # (setting_user_only), so it goes in the person's own file, before the launch.
-            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}},
+            {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "automatic": "download"}},
             indent=1))
         # A file that already went through the one-time "forget stored defaults" pass
         # (SettingsController+StoredDefaults.swift, record `cmux-next.json.defaults-forgotten.json`), as a person's

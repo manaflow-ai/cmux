@@ -120,13 +120,11 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
-/// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does.
+/// An unset row that replaced retired keys reads the first of them whose value
+/// the retired-keys table lists (`super::retired`), as the app does.
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    let stored = crate::value::value_at(root, &row.path).or_else(|| {
-        let replaced = super::replaced_by_row(&row.path)?;
-        replaced.read(crate::value::value_at(root, &replaced.old)?)
-    });
+    let stored =
+        crate::value::value_at(root, &row.path).or_else(|| super::replaced_value(&row.path, root));
     match stored {
         Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
         _ => row.default.clone(),

@@ -174,6 +174,10 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
     }
 
+    /// The toggle `updates.automatic` replaced (Leo 2026-11-22: "maybe too many settings and bullshit that
+    /// can be consolidated"); files written before still carry it, and it still answers for the choice.
+    static let oldDownloadPath = ["updates", "downloadAutomatically"]
+
     /// cmux-next.json is one file for every build on the Mac (NIGHTLY, RC, each tagged DEV build), and
     /// each build has its own UserDefaults. The pass runs once per file: a build that launches later
     /// on the same file leaves the person's pick of a former default alone. It ran once per build, so
@@ -187,8 +191,8 @@ import Testing
         #expect(try await nightly.forgetStoredDefaults(marker: try marker()) != nil)
 
         // The person turns Automatic Updates on (it was the default once) after the pass.
-        try await nightly.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user)
-        #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        try await nightly.setSetting(at: UpdatesSettings.automaticPath, to: .string("download"), by: .user)
+        #expect(try await nightly.file.value(at: UpdatesSettings.automaticPath) == .string("download"))
 
         // A DEV build launches on the same file with its own UserDefaults.
         let dev = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
@@ -197,7 +201,7 @@ import Testing
         let devMarker = try marker()
         #expect(try await dev.forgetStoredDefaults(marker: devMarker) == nil)
         #expect(devMarker.bool(forKey: SettingsController.storedDefaultsForgottenKey), "the build records it too")
-        #expect(try await dev.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(try await dev.file.value(at: UpdatesSettings.automaticPath) == .string("download"))
     }
 
     /// A pass that found nothing to drop still counts as run for the file.
@@ -207,9 +211,9 @@ import Testing
         let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
         #expect(report.dropped.isEmpty)
 
-        try await settings.file.set(.bool(true), at: UpdatesSettings.downloadAutomaticallyPath)
+        try await settings.file.set(.bool(true), at: Self.oldDownloadPath)
         #expect(try await settings.forgetStoredDefaults(marker: try marker()) == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(true))
     }
 
     /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
@@ -222,8 +226,8 @@ import Testing
         let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
 
         let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
-        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(report.dropped[Self.oldDownloadPath.joined(separator: ".")] == nil)
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(true))
         #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
@@ -242,7 +246,7 @@ import Testing
         try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
 
         await settings.runLaunchMigrations(marker: try marker())
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(true))
         #expect(settings.snapshot.updates.downloadAutomatically)
         #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
         #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
@@ -255,11 +259,11 @@ import Testing
         try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
 
         #expect(try await settings.restoreWronglyForgottenDefaults() == [])
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(false))
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(false))
 
-        try await settings.file.remove(UpdatesSettings.downloadAutomaticallyPath)
+        try await settings.file.remove(Self.oldDownloadPath)
         #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
     }
 
     /// With no record beside the file (the pass never dropped anything), nothing is put back.
@@ -267,7 +271,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await controller("{}")
         #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil)
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.

@@ -187,6 +187,27 @@
       "key": "home.chiefPanel.seesScreen",
       "reason": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
       "why": "Lawrence (2026-11-20): \"remove share screen with chief\". Its capture host had already gone with the cmux Computer Use helper."
+    },
+    {
+      "key": "updates.checkAutomatically",
+      "reason": "Automatic Updates (updates.automatic) is one choice now: Off, Notify Only, Download Automatically or Install When Idle (false reads as Off)",
+      "replaced_by": "updates.automatic",
+      "values": [{"from": false, "to": "off"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
+    },
+    {
+      "key": "updates.installWhenIdle",
+      "reason": "Automatic Updates (updates.automatic) is one choice now (true reads as Install When Idle)",
+      "replaced_by": "updates.automatic",
+      "values": [{"from": true, "to": "idle"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
+    },
+    {
+      "key": "updates.downloadAutomatically",
+      "reason": "Automatic Updates (updates.automatic) is one choice now (true reads as Download Automatically, false as Notify Only)",
+      "replaced_by": "updates.automatic",
+      "values": [{"from": true, "to": "download"}, {"from": false, "to": "notify"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
     }
   ]
 }
