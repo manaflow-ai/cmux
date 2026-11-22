@@ -141,8 +141,10 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("");
     // A line typed while the next step is on its way stays in the field once that step lands.
     const slow = "Then rebase on the base";
-    const finished = (await rows(page)).findIndex((row) => row.reason === "review");
+    const listed = await rows(page);
+    const finished = listed.findIndex((row) => row.reason === "review");
     expect(finished).toBeGreaterThanOrEqual(0);
+    const others = listed.map((row) => row.name).filter((name) => name !== listed[finished]!.name);
     await page.keyboard.press(`${finished + 1}`);
     await page.keyboard.type(slow);
     await page.evaluate(() => {
@@ -161,6 +163,10 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
       { timeout: 30_000 },
     );
     expect(await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).value)).toBe("and push");
+    // That line stays with the chat it was typed for: the focus does not move on to another chat,
+    // whose name the field would show, for the next Return to send it there.
+    const aim = await page.$eval(".acpmux-steer-field", (field) => (field as HTMLInputElement).placeholder);
+    expect(others.filter((name) => aim.includes(name))).toEqual([]);
     await page.evaluate(() => {
       delete (globalThis as { cmuxAcpmuxMockSlowMethod?: string }).cmuxAcpmuxMockSlowMethod;
     });
