@@ -52,6 +52,9 @@ extension MacScreenQualityReadout {
         return false
     }
 
+    /// The rate row's label: the row a strained stream marks in the attention ink, wherever it sits.
+    static var rateLabel: String { L.t("macScreen.readout.rate", "Rate") }
+
     /// The full readout, one row per number, in reading order. A number the host has not sent is left out.
     static func rows(_ stats: MacScreenSession.LiveStats, frameSize: CGSize, path: String) -> [(label: String, value: String)] {
         var rows: [(String, String)] = []
@@ -60,7 +63,7 @@ extension MacScreenQualityReadout {
             let word = profileWord(profile) ?? L.t("macScreen.readout.standard", "Standard")
             rows.append((L.t("macScreen.readout.mode", "Mode"), word))
         }
-        if let kbps = stats.hostKbps { rows.append((L.t("macScreen.readout.rate", "Rate"), rateText(kbps: kbps))) }
+        if let kbps = stats.hostKbps { rows.append((rateLabel, rateText(kbps: kbps))) }
         let measured = stats.fps.isFinite ? Int(stats.fps.rounded()) : 0
         rows.append((L.t("macScreen.readout.fps", "Frames"),
                      stats.targetFps.map { "\(measured)/\($0) fps" } ?? "\(measured) fps"))

@@ -308,10 +308,11 @@ final class MacScreenStatsPanel: MacScreenThemedView {
         style.tabStops = [NSTextTab(textAlignment: .left, location: labelWidth + Metrics.space4)]
         style.lineSpacing = Metrics.space1
         let out = NSMutableAttributedString()
+        let rateLabel = MacScreenQualityReadout.rateLabel
         for (index, row) in rows.enumerated() {
             if index > 0 { out.append(NSAttributedString(string: "\n")) }
             out.append(NSAttributedString(string: row.label + "\t", attributes: [.font: font, .foregroundColor: colors.tertiary, .paragraphStyle: style]))
-            let ink = strained && index == 0 ? colors.attention : colors.primary
+            let ink = strained && row.label == rateLabel ? colors.attention : colors.primary
             out.append(NSAttributedString(string: row.value, attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: style]))
         }
         text.attributedStringValue = out
