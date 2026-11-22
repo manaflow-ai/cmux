@@ -324,7 +324,8 @@ def scan_web_file(surface: str, rel: str, text: str, defs: WebDefs, out: list[Si
         if prop.startswith("--"):
             if not value or WAIT_NAME.search(prop):
                 continue
-            first = next((t for t in split_top(split_top(value, ",")[0], " ") if is_time_token(t)), None)
+            head = split_top(value, ",")
+            first = next((t for t in split_top(head[0], " ") if is_time_token(t)), None) if head else None
             if first is None:
                 continue
             res = defs.resolve(first)

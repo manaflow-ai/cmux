@@ -451,7 +451,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
+import { trackEditableTurns, type EditableTurns, trackPromptTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -883,8 +883,10 @@ import { defaultRegistry } from "./rows/registry";
 import { ReadOnlyRecapRow } from "./rows/RecapRow";
 import { oneRecap } from "./conversation/oneRecap";
 import { ReadOnlyMemoryOfferRow } from "./rows/MemoryOfferRow";
+import { ReadOnlySkillOfferRow } from "./rows/SkillOfferRow";
 import { ReadOnlyPresetApprovalRow } from "./rows/PresetApprovalRow";
 import { MEMORY_OFFER } from "./conversation/memoryInbox";
+import { SKILL_OFFER } from "./conversation/skillOffer";
 import { ReadOnlyPromptCoachRow } from "./rows/PromptCoachRow";
 import { PROMPT_COACH } from "./conversation/promptCoach";
 import { PRESET_APPROVAL } from "./conversation/presetApproval";
@@ -4719,13 +4721,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw
-  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, its prompt coach card no ×, and its
-  /// preset approvals no Approve or Not now.
+  /// no × (ReadOnlyRecapRow), its memory offers no Accept or Dismiss, its skill offers no Save, Edit
+  /// or Not now, its prompt coach card no ×, and its preset approvals no Approve or Not now.
   const noDismissRegistry = useMemo(
     () => ({
       ...registry,
       recap: ReadOnlyRecapRow,
       [MEMORY_OFFER]: ReadOnlyMemoryOfferRow,
+      [SKILL_OFFER]: ReadOnlySkillOfferRow,
       [PROMPT_COACH]: ReadOnlyPromptCoachRow,
       [PRESET_APPROVAL]: ReadOnlyPresetApprovalRow,
     }),
@@ -9661,6 +9664,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               String(offerId),
               Array.isArray(accept) ? accept.map(String) : [],
               Array.isArray(dismiss) ? dismiss.map(String) : [],
+            ),
+          // Save or Not now on a skill offer (conversation/SkillOfferCard.tsx), with its draft as
+          // drawn or edited.
+          "chat.skill.resolve": async ({ offerId, action, name, description, body }) =>
+            client.resolveSkill(
+              String(offerId),
+              action === "save" ? "save" : "dismiss",
+              action === "save" &&
+                typeof name === "string" &&
+                typeof description === "string" &&
+                typeof body === "string"
+                ? { name, description, body }
+                : undefined,
             ),
           // Approve or Not now on a no-prompt preset's card (conversation/PresetApprovalCard.tsx).
           "chat.presetApproval.answer": async ({ rowId, approve }) =>

@@ -249,6 +249,16 @@ import {
 } from "./conversation/memoryInbox";
 import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
 import {
+  SKILL_OFFER,
+  settleSkillOffer,
+  skillOfferFromRecord,
+  skillRequestFailed,
+  skillRequestStarted,
+  skillRowId,
+  type SkillAction,
+  type SkillDraft,
+} from "./conversation/skillOffer";
+import {
   coachIdOf,
   coachOfferFromRecord,
   coachRowId,
@@ -839,6 +849,9 @@ const AGENT_LOGIN_MACHINE_FEATURE = "agent_login_machine";
 /// The capability id an acpmux that serves the memory inbox names (`memory_offer` records and
 /// `_acpmux/memory_resolve`): without it no memory card draws.
 const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
+/// The capability id an acpmux that serves the skill distiller names (`skill_offer` records and
+/// `_acpmux/skill_resolve`): without it no skill card draws.
+const SKILL_DISTILL_CAPABILITY = "skill-distill-v1";
 /// The capability id an acpmux that serves the prompt coach names (`coach_offer` and `coach` records,
 /// `_acpmux/prompt_coach`): without it the page never asks for a rewrite.
 const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
@@ -10328,6 +10341,22 @@ export class AcpmuxDirectClient {
         // Some of an offer's facts settled (accepted or dismissed, here or from another client).
         const offerId = typeof msg.offerId === "string" ? msg.offerId : "";
         if (offerId) this.settleMemoryRow(offerId, msg);
+      } else if (event.kind === "skill_offer") {
+        // A skill acpmux drafted once the person had agents do the same kind of task three times in
+        // this project: one card on the closing turn of the third chat (conversation/SkillOfferCard.tsx).
+        // A resolution heard first (an older page read later) settles it as it is drawn.
+        const offer = this.supportsSkillDistill ? skillOfferFromRecord(msg) : undefined;
+        if (offer) {
+          const id = skillRowId(offer.offerId);
+          const early = this.skillEarly.get(offer.offerId) ?? [];
+          this.skillEarly.delete(offer.offerId);
+          const skill = early.reduce(settleSkillOffer, offer);
+          this.rows.set(id, { id, version: 1, at: event.at, kind: SKILL_OFFER, skill });
+        }
+      } else if (event.kind === "skill_resolved") {
+        // The offer was saved or declined (here or from another client).
+        const offerId = typeof msg.offerId === "string" ? msg.offerId : "";
+        if (offerId) this.settleSkillRow(offerId, msg);
       } else if (event.kind === "coach_offer") {
         // The chat qualified for the prompt coach (the person corrected the agent three or more times
         // before moving on): no row of its own. Once the batch it came in is folded, the page asks
@@ -13774,6 +13803,10 @@ export class AcpmuxDirectClient {
   get supportsMemoryInbox(): boolean {
     return this.capabilities?.has(MEMORY_INBOX_CAPABILITY) === true || this.features.has(MEMORY_INBOX_CAPABILITY);
   }
+  /// Whether this acpmux serves the skill distiller (`skill-distill-v1` in its capabilities).
+  get supportsSkillDistill(): boolean {
+    return this.capabilities?.has(SKILL_DISTILL_CAPABILITY) === true || this.features.has(SKILL_DISTILL_CAPABILITY);
+  }
   /// Starts `agent`'s own login on chat `sessionId`'s machine (`_acpmux/agent_login/start`; acpmux
   /// forwards a call that names a chat to the machine it lives on): the page to open, Codex's
   /// device code, and whether the page gives a code to paste back (Claude). With no `sessionId` (a
@@ -15354,6 +15387,59 @@ export class AcpmuxDirectClient {
       if (this.selectedSessionId !== sessionId) return;
       const message = error instanceof Error ? error.message : String(error);
       this.updateMemoryRow(offerId, (memory) => memoryRequestFailed(memory, facts, message));
+    }
+  }
+  /// Resolutions of skill offers whose `skill_offer` record has not been read yet, by offer id.
+  private readonly skillEarly = new Map<string, unknown[]>();
+  /// Settles an offer's row from a `skill_resolved` record or a `skill_resolve` result; one for an
+  /// offer not drawn yet waits for it. Returns whether a row changed.
+  private settleSkillRow(offerId: string, resolution: unknown): boolean {
+    const id = skillRowId(offerId);
+    const row = this.rows.get(id);
+    if (!row?.skill) {
+      const early = this.skillEarly.get(offerId) ?? [];
+      early.push(resolution);
+      this.skillEarly.set(offerId, early);
+      return false;
+    }
+    const skill = settleSkillOffer(row.skill, resolution);
+    if (skill === row.skill) return false;
+    this.rows.set(id, { ...row, version: row.version + 1, skill });
+    return true;
+  }
+  private updateSkillRow(offerId: string, change: (skill: NonNullable<AcpmuxRow["skill"]>) => AcpmuxRow["skill"]) {
+    const id = skillRowId(offerId);
+    const row = this.rows.get(id);
+    if (!row?.skill) return;
+    this.rows.set(id, { ...row, version: row.version + 1, skill: change(row.skill) });
+    this.emit();
+  }
+  /// Save or Not now on a skill offer (`_acpmux/skill_resolve`): the buttons wait while the daemon
+  /// writes the skill (or records the decline), then the card settles from its answer (its
+  /// `skill_resolved` record settles it the same way). Save sends `draft`, the person's edits, or the
+  /// offer's own draft. A refusal (a name that exists, a write that failed) leaves the offer open with
+  /// the daemon's message on the card.
+  async resolveSkill(offerId: string, action: SkillAction, draft?: SkillDraft): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    const row = this.rows.get(skillRowId(offerId));
+    if (!sessionId || !row?.skill || row.skill.outcome || row.skill.busy) return;
+    const { name, description, body } = draft ?? row.skill;
+    this.updateSkillRow(offerId, (skill) => skillRequestStarted(skill, action));
+    try {
+      const result = await this.typed(
+        "_acpmux/skill_resolve",
+        action === "save" ? { sessionId, offerId, action, name, description, body } : { sessionId, offerId, action },
+      );
+      if (this.selectedSessionId !== sessionId) return;
+      const answer = result && typeof result === "object" ? (result as Record<string, unknown>) : {};
+      if (this.settleSkillRow(offerId, { action, ...(action === "save" ? { name } : {}), ...answer, offerId }))
+        this.emit();
+      // Already settled elsewhere: the record that did it has drawn it, or frees the buttons here.
+      else this.updateSkillRow(offerId, (skill) => (skill.outcome ? skill : skillRequestFailed(skill, "")));
+    } catch (error) {
+      if (this.selectedSessionId !== sessionId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateSkillRow(offerId, (skill) => skillRequestFailed(skill, message));
     }
   }
   /// Takes out a line `notice` put in (a lost prompt's "Not sent" once the host sent it after all).

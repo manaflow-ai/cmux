@@ -2459,6 +2459,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
+mod skill_distill;
 mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
