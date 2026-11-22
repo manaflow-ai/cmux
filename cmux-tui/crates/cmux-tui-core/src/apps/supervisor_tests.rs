@@ -216,6 +216,8 @@ fn scripted_app_host() {
                 }
             }
             ToHost::Unmount { .. } => {}
+            // The scripted host never watches a signal.
+            ToHost::Watch { .. } => {}
             // A widget tick: the scripted render draws the clock it got.
             ToHost::Tick { mount, now_ms } => {
                 send(FromHost::Scene {

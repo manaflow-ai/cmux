@@ -82,8 +82,7 @@ impl Supervisor {
     pub(super) fn unwatch_locked(&self, inner: &Inner, key: &HostKey, watch: u64, refresh: bool) {
         let w = watcher(key, watch);
         let now = Instant::now();
-        let fx =
-            if refresh { self.signals().refresh(&w, now) } else { self.signals().unwatch(&w, now) };
+        let fx = if refresh { self.signals().refresh(&w) } else { self.signals().unwatch(&w, now) };
         self.apply_signals(inner, fx);
     }
 
@@ -109,13 +108,13 @@ impl Supervisor {
 
     /// A change event of `stream` landed.
     pub(super) fn signals_pushed_locked(&self, inner: &Inner, stream: &str) {
-        let fx = self.signals().pushed(stream, Instant::now());
+        let fx = self.signals().pushed(stream);
         self.apply_signals(inner, fx);
     }
 
     fn signal_due(&self, entry: &str, epoch: u64) {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let fx = self.signals().due(entry, epoch, Instant::now());
+        let fx = self.signals().due(entry, epoch);
         self.apply_signals(&inner, fx);
     }
 

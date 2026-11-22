@@ -72,19 +72,19 @@ fn pushes_coalesce_to_one_read_in_flight_and_one_queued() {
     let key = entry_key("agent.list", &json!({}));
     c.watch(1, "a", &pushed_source(), json!({}), None, None, now);
     c.landed(&key, Ok(json!([])), now, 1);
-    let first = c.pushed("agent.changed", now);
+    let first = c.pushed("agent.changed");
     assert_eq!(first.reads.len(), 1);
     // The value stays on screen while it re-reads.
     assert_eq!(first.tell[0].1["status"], "stale");
-    assert!(c.pushed("agent.changed", now).reads.is_empty());
-    assert!(c.pushed("agent.changed", now).reads.is_empty());
+    assert!(c.pushed("agent.changed").reads.is_empty());
+    assert!(c.pushed("agent.changed").reads.is_empty());
     let fx = c.landed(&key, Ok(json!([1])), now, 2);
     assert_eq!(fx.reads.len(), 1, "one queued read follows");
     let fx = c.landed(&key, Ok(json!([1])), now, 3);
     assert!(fx.reads.is_empty());
     assert_eq!(c.reads, 3);
     // Another stream does nothing.
-    assert!(c.pushed("chat.changed", now).reads.is_empty());
+    assert!(c.pushed("chat.changed").reads.is_empty());
 }
 
 #[test]
@@ -102,8 +102,8 @@ fn an_unpushed_source_polls_at_stale_after_and_never_under_the_floor() {
     assert_eq!(fx.arm.last().unwrap().2, Duration::from_secs(5));
     let (k, epoch, _) = fx.arm.last().unwrap().clone();
     // An older timer does nothing; the current one reads.
-    assert!(c.due(&k, epoch - 1, now).reads.is_empty());
-    assert_eq!(c.due(&k, epoch, now + Duration::from_secs(5)).reads.len(), 1);
+    assert!(c.due(&k, epoch - 1).reads.is_empty());
+    assert_eq!(c.due(&k, epoch).reads.len(), 1);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn hidden_mounts_stop_the_poll_and_showing_one_catches_up() {
     // Both hidden: no timer, and an old timer finds nothing to do.
     let fx = c.mount_visible(&"m2", false, now);
     assert!(fx.arm.is_empty());
-    assert!(c.due(&key, epoch, now + Duration::from_secs(60)).reads.is_empty());
+    assert!(c.due(&key, epoch).reads.is_empty());
     // Shown again before stale: the poll is armed for what is left of it.
     let later = now + Duration::from_secs(20);
     let fx = c.mount_visible(&"m1", true, later);
@@ -142,7 +142,7 @@ fn a_push_while_hidden_reads_when_a_mount_is_shown() {
     c.watch(1, "a", &pushed_source(), json!({}), Some("m1"), None, now);
     c.landed(&key, Ok(json!([])), now, 1);
     c.mount_visible(&"m1", false, now);
-    assert!(c.pushed("agent.changed", now).reads.is_empty());
+    assert!(c.pushed("agent.changed").reads.is_empty());
     let fx = c.mount_visible(&"m1", true, now);
     assert_eq!(fx.reads.len(), 1);
     // Shown with nothing missed: no read.
@@ -162,18 +162,18 @@ fn errors_back_off_from_the_floor_and_final_errors_stop() {
     let fx = c.landed(&key, Err(err.clone()), now, 1);
     assert_eq!(fx.tell[0].1["status"], "error");
     assert_eq!(fx.arm[0].2, Duration::from_secs(5));
-    c.refresh(&1, now);
+    c.refresh(&1);
     let fx = c.landed(&key, Err(err.clone()), now, 1);
     assert_eq!(fx.arm[0].2, Duration::from_secs(10));
     // A good answer, then a failed re-read: the value stays, stale.
-    c.refresh(&1, now);
+    c.refresh(&1);
     c.landed(&key, Ok(json!(1)), now, 2);
-    c.refresh(&1, now);
+    c.refresh(&1);
     let fx = c.landed(&key, Err(err), now, 3);
     assert_eq!(fx.tell[0].1["status"], "stale");
     assert_eq!(fx.tell[0].1["value"], 1);
     // scope.missing is not retried.
-    c.refresh(&1, now);
+    c.refresh(&1);
     let fx = c.landed(&key, Err(json!({"code": "scope.missing", "message": "no"})), now, 4);
     assert!(fx.arm.is_empty());
 }
@@ -193,5 +193,5 @@ fn unwatched_entries_disarm_and_are_pruned_past_the_idle_cap() {
     // A host that exits drops its watchers.
     c.watch(1000, "a", &source, json!({}), None, None, now);
     c.unwatch_where(|w| *w == 1000, now);
-    assert!(c.refresh(&1000, now).reads.is_empty());
+    assert!(c.refresh(&1000).reads.is_empty());
 }

@@ -344,7 +344,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
     }
 
     /// An event of `stream` landed: every entry it pushes re-reads, or is marked dirty while hidden.
-    pub fn pushed(&mut self, stream: &str, now: Instant) -> Effects<W> {
+    pub fn pushed(&mut self, stream: &str) -> Effects<W> {
         let keys: Vec<String> = self
             .entries
             .iter()
@@ -354,7 +354,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         let mut fx = Effects::default();
         for key in keys {
             if self.awake(&key) {
-                self.read(&key, now, &mut fx);
+                self.read(&key, &mut fx);
             } else if let Some(e) = self.entries.get_mut(&key) {
                 e.dirty = true;
             }
@@ -363,18 +363,18 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
     }
 
     /// Watcher `w` asks for a read now (`refresh()`).
-    pub fn refresh(&mut self, w: &W, now: Instant) -> Effects<W> {
+    pub fn refresh(&mut self, w: &W) -> Effects<W> {
         let mut fx = Effects::default();
         let Some(key) = self.watchers.get(w).map(|x| x.key.clone()) else { return fx };
         if let Some(e) = self.entries.get_mut(&key) {
             e.stopped = false;
         }
-        self.read(&key, now, &mut fx);
+        self.read(&key, &mut fx);
         fx
     }
 
     /// The timer armed with `epoch` for `key` fired.
-    pub fn due(&mut self, key: &str, epoch: u64, now: Instant) -> Effects<W> {
+    pub fn due(&mut self, key: &str, epoch: u64) -> Effects<W> {
         let mut fx = Effects::default();
         let Some(e) = self.entries.get_mut(key) else { return fx };
         if e.epoch != epoch || !e.armed {
@@ -382,7 +382,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         }
         e.armed = false;
         if self.awake(key) {
-            self.read(key, now, &mut fx);
+            self.read(key, &mut fx);
         }
         fx
     }
@@ -419,7 +419,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         let state = e.state();
         fx.tell.extend(e.watchers.iter().map(|w| (w.clone(), state.clone())));
         if std::mem::take(&mut e.again) {
-            self.read(key, now, &mut fx);
+            self.read(key, &mut fx);
         } else {
             self.rearm(key, now, &mut fx);
         }
@@ -437,13 +437,13 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
             || e.status != Status::Fresh
             || age.is_none_or(|a| a >= e.source.stale_after);
         if due && !e.stopped {
-            self.read(key, now, fx);
+            self.read(key, fx);
         } else {
             self.rearm(key, now, fx);
         }
     }
 
-    fn read(&mut self, key: &str, now: Instant, fx: &mut Effects<W>) {
+    fn read(&mut self, key: &str, fx: &mut Effects<W>) {
         let app = {
             let Some(e) = self.entries.get(key) else { return };
             let Some(w) = e.watchers.iter().find(|w| self.shown(w)).or(e.watchers.iter().next())
