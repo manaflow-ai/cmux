@@ -11,7 +11,6 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
@@ -105,7 +104,7 @@ import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { type NewTabTranslate, useNt } from "./strings";
 import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, screenTemplate, type ScreenTemplate } from "./templates";
 import { useT } from "../i18n";
-import { sendsHeldForHost } from "../sendWhenReady";
+import { useHeldForHostLate } from "../sendWhenReady";
 import { composerPlusRegistry, composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ComposerPlusMenu } from "../ComposerPlusMenu";
 import { ChromeArea } from "../../../ui/HideableChrome";
@@ -1123,8 +1122,9 @@ export function NewTabScreen(props: Props) {
   const returnAction =
     !shell && !commandsOpen && returns.takes && returns.row && returns.row.type !== "ask" ? returns.row : undefined;
   const t = useT();
-  // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
-  const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
+  // A send held while acpmux comes back stays in the prompt, and nothing says so until it has waited
+  // past SEND_LATE_MS: then one quiet line under it (sendWhenReady.ts).
+  const heldForHost = useHeldForHostLate();
   const targetAuthText = authText(targetAuth, t);
   const signedOut = authBlocksSend(targetAuth);
   /// The signed-out note's fix: the agent's own login in a terminal tab on this Mac (the same login the
@@ -2519,7 +2519,7 @@ export function NewTabScreen(props: Props) {
             attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
             pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
             {...(command.error || attachError || heldForHost
-              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
+              ? { error: command.error ?? attachError ?? t("prompt.delivery.lateHere") }
               : {})}
             codex={harness === "codex"}
             // A strip chip's × takes its node out of the text too (the strip view shows placed ones

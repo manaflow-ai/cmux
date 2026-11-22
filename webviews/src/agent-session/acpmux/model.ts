@@ -344,7 +344,7 @@ export type PromptDelivery = {
   /// turn, never "Not sent".
   queued?: boolean;
   /// acpmux is starting or reconnecting: the pane holds the prompt and sends it once acpmux answers
-  /// (sendWhenReady.ts). The row says "Sending when ready".
+  /// (sendWhenReady.ts). The row says nothing of it until SEND_LATE_MS, then "Not sent yet, sends when …".
   waitingForHost?: boolean;
   hop?: PromptDeliveryHop;
   /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's

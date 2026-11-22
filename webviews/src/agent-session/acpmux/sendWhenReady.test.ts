@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import {
+  SEND_LATE_MS,
   SEND_RETRY_FIRST_MS,
   heldStartStop,
   sendWaitsForHost,
@@ -165,6 +166,23 @@ test("the composer's held count rises and falls with each held send", () => {
   expect(sendsHeldForHost.get()).toBe(false);
   expect(seen).toEqual([true, false]);
   unsubscribe();
+});
+
+test("the held count keeps when its first held send began, and forgets it once none waits", () => {
+  // Nothing says a send waits until it has waited SEND_LATE_MS (Leo, 2026-11-22: "i want it to just
+  // connect"); the composer counts from here.
+  expect(SEND_LATE_MS).toBe(120_000);
+  expect(sendsHeldForHost.since()).toBeUndefined();
+  const before = Date.now();
+  const first = sendsHeldForHost.hold();
+  const since = sendsHeldForHost.since();
+  expect(since).toBeGreaterThanOrEqual(before);
+  const second = sendsHeldForHost.hold();
+  expect(sendsHeldForHost.since()).toBe(since);
+  first();
+  expect(sendsHeldForHost.since()).toBe(since);
+  second();
+  expect(sendsHeldForHost.since()).toBeUndefined();
 });
 
 test("a held start stops once another chat is selected, so the prompt never goes there", async () => {
