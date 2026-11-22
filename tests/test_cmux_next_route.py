@@ -2209,7 +2209,8 @@ class HotAwareWorkflows(unittest.TestCase):
                 probe = f"{relative}/x" if event != "open" or os.path.isdir(path) else relative
                 if os.path.exists(path) and not sparse_includes(patterns, probe):
                     outside.add(relative)
-        self.assertEqual(sorted(outside), [], "the hot-only route reads these outside its sparse checkout")
+        self.assertEqual(sorted(outside), [], "the hot-only route reads these outside its sparse checkout:\n"
+                         + "\n".join(sorted(outside)))
 
     def test_tooling_tests_skips_the_mini_only_when_hot(self):
         import yaml
