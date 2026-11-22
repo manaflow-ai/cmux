@@ -14,6 +14,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
+import plistlib
 import pwd
 import re
 import shutil
@@ -44,8 +46,9 @@ def source(name: str) -> tuple[str, str]:
     if name == "chrome":
         return time.strftime("%Y-%m-%d"), "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
     if name == "edge":
-        # Microsoft's stable channel, universal (the link edge's own download page uses for macOS).
-        return time.strftime("%Y-%m-%d"), "https://go.microsoft.com/fwlink/?linkid=2069148"
+        # Microsoft's stable channel, universal (arm64 and x86_64). linkid=2069148 is the Intel-only
+        # package, which an arm64 Mac without Rosetta refuses ("incorrect executable format").
+        return "universal-" + time.strftime("%Y-%m-%d"), "https://go.microsoft.com/fwlink/?linkid=2093504"
     if name == "helium":
         return github_dmg("imputnet/helium-macos", r"_arm64-macos\.dmg$")
     if name == "ardia":
@@ -63,7 +66,8 @@ def install(name: str, url: str, dest: str):
     work = tempfile.mkdtemp(prefix=f"xbench-{name}-")
     try:
         dmg = os.path.join(work, "app.dmg")
-        subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", dmg, url], check=True, timeout=1800)
+        subprocess.run(["curl", "-fsSL", "--connect-timeout", "20", "--retry", "5", "--retry-all-errors", "--retry-delay", "5",
+                        "-C", "-", "-o", dmg, url], check=True, timeout=1800)
         with open(dmg, "rb") as handle:
             is_pkg = handle.read(4) == b"xar!"  # Edge ships a flat installer package, not a disk image
         if is_pkg:
@@ -110,10 +114,24 @@ def install_pkg(name: str, pkg: str, dest: str, work: str):
     os.makedirs(dest)
     bundle = os.path.join(dest, os.path.basename(found[0]))
     subprocess.run(["ditto", found[0], bundle], check=True, timeout=600)
+    subprocess.run(["xattr", "-cr", bundle], capture_output=True)
     verified = subprocess.run(["codesign", "--verify", "--deep", "--strict", bundle], capture_output=True, text=True)
     if verified.returncode != 0:
         raise RuntimeError(f"{name}: codesign verify failed: {verified.stderr.strip()[:300]}")
     subprocess.run(["chmod", "-R", "a-w", bundle], check=True)
+
+
+def runs_here(bundle: str) -> bool:
+    """Whether the bundle's main executable has a slice for this Mac's architecture (no Rosetta
+    on the bench workers, so an Intel-only copy cannot launch)."""
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            executable = plistlib.load(handle)["CFBundleExecutable"]
+        archs = subprocess.run(["lipo", "-archs", os.path.join(bundle, "Contents", "MacOS", executable)],
+                               capture_output=True, text=True, timeout=30).stdout.split()
+    except Exception:  # noqa: BLE001 - unreadable means unusable
+        return False
+    return platform.machine() in archs
 
 
 def bundle_in(dest: str) -> str | None:
@@ -137,6 +155,12 @@ def main():
             version, url = source(name)
             dest = os.path.join(args.cache, name, re.sub(r"[^A-Za-z0-9._-]", "_", version))
             bundle = bundle_in(dest)
+            if bundle is not None and not runs_here(bundle):
+                print(f"fetch_browsers: {name} cached copy has no {platform.machine()} slice; fetching again",
+                      file=sys.stderr)
+                bundle = None
+                subprocess.run(["chmod", "-R", "u+w", dest], capture_output=True)
+                shutil.rmtree(dest, ignore_errors=True)
             if bundle is None:
                 print(f"fetch_browsers: {name} {version} from {url}", file=sys.stderr)
                 parent = os.path.dirname(dest)
@@ -146,6 +170,8 @@ def main():
                         shutil.rmtree(os.path.join(parent, old), ignore_errors=True)
                 install(name, url, dest)
                 bundle = bundle_in(dest)
+                if bundle is None or not runs_here(bundle):
+                    raise RuntimeError(f"no {platform.machine()} slice in the downloaded app ({url})")
             print(f"{name}={bundle}", flush=True)
         except Exception as error:  # noqa: BLE001 - one missing browser skips its column, not the run
             print(f"fetch_browsers: {name} unavailable: {error}", file=sys.stderr)
