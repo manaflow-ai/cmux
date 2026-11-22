@@ -27,12 +27,37 @@
 //!   blob it lacks: those are already on their way.
 //! - A queued hash the store no longer holds is skipped.
 //! - [`Session::without_push`] turns push off: blobs move only on `want`.
+//! - A row filter ([`Session::set_row_filter`]) hides tabs from this phone:
+//!   its manifest and deltas carry only the tabs the filter passes, and a
+//!   blob goes out (pushed or wanted) only when a passed row names it. A new
+//!   filter is answered with a fresh manifest.
 
 use crate::hash::BlobHash;
 use crate::producer::Producer;
 use crate::wire::{Message, Viewport, WireError, encode_blob};
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
+use std::sync::Arc;
+
+/// A predicate on `tabId`: true when this phone may see the tab.
+#[derive(Clone)]
+pub struct RowFilter(Arc<dyn Fn(&str) -> bool + Send + Sync>);
+
+impl RowFilter {
+    pub fn new(pass: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        Self(Arc::new(pass))
+    }
+
+    pub fn passes(&self, tab_id: &str) -> bool {
+        (self.0)(tab_id)
+    }
+}
+
+impl fmt::Debug for RowFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RowFilter")
+    }
+}
 
 /// Why a phone frame was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +91,8 @@ pub struct SessionStats {
     pub skipped_gone: u64,
     /// Blobs sent again because a `want` named a hash sent before.
     pub resent: u64,
+    /// Queued hashes skipped because no row the filter passes names them.
+    pub skipped_hidden: u64,
 }
 
 /// One queued hash. `wanted` is true for a hash the phone named in `want`.
@@ -91,6 +118,7 @@ pub struct Session {
     queue: VecDeque<Queued>,
     viewport: Option<Viewport>,
     push: bool,
+    filter: Option<RowFilter>,
     stats: SessionStats,
 }
 
@@ -106,6 +134,7 @@ impl Default for Session {
             queue: VecDeque::new(),
             viewport: None,
             push: true,
+            filter: None,
             stats: SessionStats::default(),
         }
     }
@@ -125,6 +154,27 @@ impl Session {
     /// True when this session pushes card blobs without `want`.
     pub fn pushes(&self) -> bool {
         self.push
+    }
+
+    /// Sets (or with `None` clears) the row filter. The phone's next frame
+    /// is a manifest of the rows the new filter passes, and queued hashes no
+    /// passed row names are dropped when pulled.
+    pub fn set_row_filter(&mut self, filter: Option<RowFilter>) {
+        self.filter = filter;
+        self.phone_rev = None;
+        self.answer_resume = false;
+    }
+
+    fn visible(&self, tab_id: &str) -> bool {
+        self.filter.as_ref().is_none_or(|f| f.passes(tab_id))
+    }
+
+    /// True when a row this phone may see names `hash`.
+    fn visible_hash(&self, producer: &Producer, hash: &BlobHash) -> bool {
+        if self.filter.is_none() {
+            return true;
+        }
+        producer.rows().iter().any(|r| self.visible(&r.tab_id) && r.hashes().any(|h| h == *hash))
     }
 
     /// Opens the session without waiting for the phone's first frame.
@@ -201,6 +251,10 @@ impl Session {
                 self.stats.skipped_held = self.stats.skipped_held.saturating_add(1);
                 continue;
             }
+            if !self.visible_hash(producer, &hash) {
+                self.stats.skipped_hidden = self.stats.skipped_hidden.saturating_add(1);
+                continue;
+            }
             let Some(blob) = producer.store().get(&hash) else {
                 self.stats.skipped_gone = self.stats.skipped_gone.saturating_add(1);
                 continue;
@@ -226,6 +280,7 @@ impl Session {
         let card = producer
             .rows()
             .iter()
+            .filter(|r| self.visible(&r.tab_id))
             .flat_map(|r| [r.favicon_hash, r.thumb_hash, r.screen_hash])
             .flatten();
         for hash in card {
@@ -250,13 +305,24 @@ impl Session {
             self.queue_push(producer);
         }
         Some(match delta {
-            Some(delta) => {
+            Some(mut delta) => {
                 self.stats.deltas = self.stats.deltas.saturating_add(1);
+                if self.filter.is_some() {
+                    delta.changed.retain(|p| self.visible(&p.tab_id));
+                    delta.removed.retain(|id| self.visible(id));
+                    if let Some(order) = delta.order.as_mut() {
+                        order.retain(|id| self.visible(id));
+                    }
+                }
                 Message::Delta(delta).encode()
             }
             None => {
                 self.stats.manifests = self.stats.manifests.saturating_add(1);
-                Message::Manifest(producer.manifest()).encode()
+                let mut manifest = producer.manifest();
+                if self.filter.is_some() {
+                    manifest.rows.retain(|r| self.visible(&r.tab_id));
+                }
+                Message::Manifest(manifest).encode()
             }
         })
     }

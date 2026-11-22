@@ -24,6 +24,6 @@ pub use hash::{BlobHash, Mime};
 pub use mirror::{Applied, Mirror, MirrorError};
 pub use producer::{FaviconInput, ImageInput, Observation, Producer, ScreenInput};
 pub use row::{Kind, Row, RowPatch};
-pub use session::{Session, SessionError, SessionStats};
+pub use session::{RowFilter, Session, SessionError, SessionStats};
 pub use store::{BlobStore, StoreStats, StoredBlob};
 pub use wire::{BlobFrame, Delta, Manifest, Message, Resume, Viewport, WireError};
