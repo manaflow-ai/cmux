@@ -33,6 +33,13 @@ extension UpdatesSettings {
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
+    /// `updates.installWhenIdle`: Update when idle (Leo 2026-11-19: "maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle"): a downloaded update installs after updates.installWhenIdleMinutes of idle, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent. Off by default.
+    public nonisolated static let installWhenIdlePath = ["updates", "installWhenIdle"]
+    public nonisolated static let installWhenIdleDefault = false
+    /// `updates.installWhenIdleMinutes`: How long cmux must be idle before updates.installWhenIdle installs a downloaded update.
+    public nonisolated static let installWhenIdleMinutesPath = ["updates", "installWhenIdleMinutes"]
+    public nonisolated static let installWhenIdleMinutesDefault: Double = 15
+    public nonisolated static let installWhenIdleMinutesRange: ClosedRange<Double> = 1...240
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
     public nonisolated static let notifyPath = ["updates", "notify"]
     public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
@@ -45,7 +52,7 @@ extension UpdatesSettings {
     public nonisolated static let showWhatsNewDefault = true
     /// `updates.showFeatureTips`: Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).
     public nonisolated static let showFeatureTipsPath = ["updates", "showFeatureTips"]
-    public nonisolated static let showFeatureTipsDefault = true
+    public nonisolated static let showFeatureTipsDefault = false
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
     public nonisolated static let idleInstallMaxWaitDefault: Double = 600
@@ -181,6 +188,26 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.installOnQuitDefault),
                 keywords: ["update", "install", "quit"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.installWhenIdlePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.installWhenIdle", "Update When Idle"),
+                help: SettingsText.keyed("settings.updates.installWhenIdle.help", "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.installWhenIdleDefault),
+                keywords: ["update", "install", "idle", "automatic", "restart"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.installWhenIdleMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.installWhenIdleMinutes", "Idle Time Before Updating"),
+                help: SettingsText.keyed("settings.updates.installWhenIdleMinutes.help", "How long cmux must be idle before Update When Idle installs."),
+                kind: .number(SettingNumber(UpdatesSettings.installWhenIdleMinutesRange, step: 1, unit: .minutes)),
+                default: .number(UpdatesSettings.installWhenIdleMinutesDefault),
+                keywords: ["update", "install", "idle", "automatic", "restart", "minutes"]
             ),
             SettingDescriptor(
                 UpdatesSettings.notifyPath,
