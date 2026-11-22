@@ -162,10 +162,10 @@ pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
             let _ = super::project::stop_server(&found.remote);
             forget(&found.name);
             Ok(json!({"ok": true, "released": true,
-                      "freed_bytes": answer["data"]["freed_bytes"]}))
+                      "freed_bytes": field(&answer, "/data/freed_bytes")}))
         }
-        Err(answer) => Ok(json!({"ok": false, "error": answer["error"],
-                                 "error_code": answer["error_code"]})),
+        Err(answer) => Ok(json!({"ok": false, "error": field(&answer, "/error"),
+                                 "error_code": field(&answer, "/error_code")})),
     }
 }
 
@@ -193,9 +193,10 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
 
     let (answer, mut reader) =
         dial(socket, &json!({"cmd": "projection.layer", "name": found.name}), &[])?;
-    let bytes = answer["data"]["bytes"].as_u64().context("the machine sent no listing size")?;
+    let bytes =
+        field(&answer, "/data/bytes").as_u64().context("the machine sent no listing size")?;
     // The upper layer as the machine read it: what `projection.brought_back` frees.
-    let mark = answer["data"]["mark"].as_str().map(str::to_owned);
+    let mark = field(&answer, "/data/mark").as_str().map(str::to_owned);
     let mut raw = Vec::new();
     (&mut reader).take(bytes).read_to_end(&mut raw)?;
     anyhow::ensure!(raw.len() as u64 == bytes, "the machine's listing ended early");
@@ -317,14 +318,21 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         };
         match dial_answer(socket, &line)? {
             Ok(answer) => {
-                dropped = answer["data"]["dropped"] == true;
-                freed_bytes = answer["data"]["freed_bytes"].as_u64();
+                dropped = field(&answer, "/data/dropped").as_bool() == Some(true);
+                freed_bytes = field(&answer, "/data/freed_bytes").as_u64();
                 let _ = super::project::stop_server(&found.remote);
                 forget(&found.name);
             }
-            Err(answer) if answer["error_code"] == "projection.edited_since" => edited_since = true,
+            Err(answer)
+                if field(&answer, "/error_code").as_str() == Some("projection.edited_since") =>
+            {
+                edited_since = true;
+            }
             Err(answer) => {
-                bail!("{}", answer["error"].as_str().unwrap_or("the machine refused Bring Back"))
+                bail!(
+                    "{}",
+                    field(&answer, "/error").as_str().unwrap_or("the machine refused Bring Back")
+                )
             }
         }
     }
@@ -810,7 +818,13 @@ fn apply(
 /// `Err` with it when refused.
 fn dial_answer(socket: &Path, line: &Value) -> anyhow::Result<Result<Value, Value>> {
     let (answer, _) = dial_raw(socket, line, &[])?;
-    Ok(if answer["ok"] == true { Ok(answer) } else { Err(answer) })
+    Ok(if field(&answer, "/ok").as_bool() == Some(true) { Ok(answer) } else { Err(answer) })
+}
+
+/// The value at `pointer` in a machine's answer, `null` when it has none.
+fn field<'a>(answer: &'a Value, pointer: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    answer.pointer(pointer).unwrap_or(&NULL)
 }
 
 /// One Bring Back dial: `line` (with an id added) and `body`, then the machine's answer line,
@@ -821,11 +835,12 @@ fn dial(
     body: &[u8],
 ) -> anyhow::Result<(Value, BufReader<UnixStream>)> {
     let (answer, reader) = dial_raw(socket, line, body)?;
-    if answer["ok"] != true {
-        if answer["error_code"] == "projection.unavailable" || answer.get("error_code").is_none() {
+    if field(&answer, "/ok").as_bool() != Some(true) {
+        let code = answer.get("error_code");
+        if code.is_none_or(|code| code.as_str() == Some("projection.unavailable")) {
             bail!("the machine does not serve Bring Back for projected folders: {answer}");
         }
-        bail!("{}", answer["error"].as_str().unwrap_or("the machine refused Bring Back"));
+        bail!("{}", field(&answer, "/error").as_str().unwrap_or("the machine refused Bring Back"));
     }
     Ok((answer, reader))
 }
@@ -839,7 +854,9 @@ fn dial_raw(
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
     let mut line = line.clone();
-    line["id"] = json!(1);
+    if let Some(fields) = line.as_object_mut() {
+        fields.insert("id".to_owned(), json!(1));
+    }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
     stream.write_all(&bytes)?;
