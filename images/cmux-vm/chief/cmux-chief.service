@@ -20,6 +20,9 @@ Environment=HOME=/home/cmux
 Environment=OPTCHAT_CLOUD_INSTALL=/home/cmux/.cmux/chief/cloud/install.json
 # The acpmux the host trusts as its socket peer (acpmux_peer.rs): the image's, the cmux-tui multicall binary.
 Environment=ACPMUX_BIN=/opt/cmux/current/bin/acpmux
+# Its own acpmux home: the host starts that daemon as its child. The machine's ~/.acpmux daemon makes
+# itself not dumpable, so its /proc/PID/exe is hidden and acpmux_peer.rs admits only a daemon this host started.
+Environment=ACPMUX_HOME=/home/cmux/.cmux/chief/acpmux
 EnvironmentFile=-/etc/cmux/chief.env
 # First start on a machine whose image carries no build yet: fetch the newest one (root, the `+`).
 ExecStartPre=+/usr/local/sbin/cmux-chief-update --if-missing
