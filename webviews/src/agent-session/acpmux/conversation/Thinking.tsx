@@ -6,7 +6,7 @@
 // the prompt waits for its agent to start, the same line already reads "Thinking", with no start
 // status and no Cancel (Leo, 2026-11-01), so the line keeps one place and one look from send to
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
-// ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
+// ask above the composer, waitingOn.ts), the line says that instead, with no time, under the same sweep (Leo, 2026-11-22: all in the thinking spot glimmers):
 // never "Thinking" while the agent is blocked on them. It reads as Claude desktop's "Needs your input"
 // pill: the attention dot and the words on a tinted pill. Once answered, the dot shrinks into the
 // Thinking line that takes its place (Leo, 2026-11-05: "there's a little animation that plays. It,
@@ -440,6 +440,11 @@ function LiveWords({
   );
 }
 
+/// The one shimmer every status in the live spot draws with (conversation.css `.cv-thinking.is-shimmer`):
+/// "Thinking", a step, "Sending message to …", "Waiting", "Writing", a compaction, a retry and a wait
+/// on the person alike.
+export const SHIMMER_CLASS = "is-shimmer";
+
 export function Thinking({
   starting = false,
   since,
@@ -693,8 +698,9 @@ export function Thinking({
     .join(" · ");
   const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
   const lineRef = useRef<HTMLDivElement>(null);
-  // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
-  const calm = compactLook === "calm" || silent;
+  // Every status in this spot shimmers as "Thinking" does, a wait and each compaction look too: one
+  // look for the live spot, no plain or white special case (Leo, 2026-11-22: "the "waiting" also
+  // shouldnt be special cased as white. all in the "thinking" spot should glimmer like that").
   // Everything the line draws that sizes or places its words and counts; a streamed chunk changes
   // none of it (its `quietKey` and `heardKey` only time the line).
   const moved = useLineMoved(lineRef, [
@@ -702,7 +708,6 @@ export function Thinking({
     waiting,
     asked,
     answered,
-    calm,
     decorative,
     compacting,
     label,
@@ -732,7 +737,11 @@ export function Thinking({
         data-lead-slot
         data-retrying=""
       >
-        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-retrying`}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={parts.label} />
+          </span>
+        </output>
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
@@ -771,13 +780,17 @@ export function Thinking({
       data-roll={waiting || roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
     >
       {waiting ? (
-        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
+        <output className={`cv-thinking ${SHIMMER_CLASS} cv-waiting`} data-waiting={waiting}>
           <span
             className={`cv-needs-input-glyph${asked ? " is-asked" : ""}`}
             aria-hidden="true"
             onAnimationEnd={asked ? grown : undefined}
           />
-          <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
+          <span className="cv-waiting__pill">
+            <span className="cv-shimmer__row">
+              <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+            </span>
+          </span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
@@ -809,23 +822,19 @@ export function Thinking({
             />
           )}
           <output
-            className={`cv-thinking${calm ? "" : " is-shimmer"}`}
+            className={`cv-thinking ${SHIMMER_CLASS}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            {calm ? (
-              label
-            ) : (
-              <LiveWords
-                decorative={decorative}
-                label={label}
-                lead={lead}
-                verbs={verbs}
-                elapsed={elapsed}
-                elapsedMs={elapsedMs}
-              />
-            )}
+            <LiveWords
+              decorative={decorative}
+              label={label}
+              lead={lead}
+              verbs={verbs}
+              elapsed={elapsed}
+              elapsedMs={elapsedMs}
+            />
           </output>
           {elapsed && (
             // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.

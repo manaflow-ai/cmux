@@ -130,7 +130,7 @@ test("the thinking time advances with the clock alone, no new event", () => {
   expect(drawn(line, T0 + 38_000)).toBe("Thinking 8s · turn 38s");
 });
 
-test("after SILENT_MS with nothing heard the line says Waiting, calmly, with the time since it last heard", () => {
+test("after SILENT_MS with nothing heard the line says Waiting, under the same shimmer, with the time since it last heard", () => {
   const line = liveLine([prompt, ran, thinking]);
   const at = T0 + 33_000 + SILENT_MS + 2_000;
   expect(drawn(line, T0 + 33_000 + SILENT_MS - 1_000)).toStartWith("Thinking");
@@ -147,8 +147,9 @@ test("after SILENT_MS with nothing heard the line says Waiting, calmly, with the
       />,
     ),
   );
-  // No sweep says work goes on while it waits.
-  expect(html).not.toContain("is-shimmer");
+  // "Waiting" is no special case: it shimmers as "Thinking" does (Leo, 2026-11-22: "the "waiting"
+  // also shouldnt be special cased as white").
+  expect(html).toContain('class="cv-thinking is-shimmer"');
 });
 
 test("before the turn's first output it stays Thinking, however long the model takes", () => {
