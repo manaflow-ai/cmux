@@ -7573,7 +7573,8 @@ export class AcpmuxDirectClient {
   private sendAttach(sessionId: string, generation: number, reads: boolean, afterSeq?: number): SentAttach {
     const visible = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible) : undefined;
-    const ask = (settled: boolean, after = afterSeq) =>
+    // `forward: false` drops `afterSeq` (an `undefined` argument would take the default back).
+    const ask = (settled: boolean, forward = true) =>
       this.typed(
         "_acpmux/attach",
         hold ??
@@ -7582,7 +7583,7 @@ export class AcpmuxDirectClient {
             visible,
             local: this.localOrigin,
             maxBytes: OPEN_PAGE_BYTES,
-            afterSeq: after,
+            afterSeq: forward ? afterSeq : undefined,
           }),
       );
     // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
@@ -7601,7 +7602,7 @@ export class AcpmuxDirectClient {
           ? ask(false).catch((error: unknown) => {
               if (!forwardAttachRefused(error)) throw error;
               this.wire.lifecycle("forward attach refused, asked the newest page", { sessionId, afterSeq });
-              return ask(false, undefined);
+              return ask(false, false);
             })
           : ask(false);
     const out = { sessionId };
