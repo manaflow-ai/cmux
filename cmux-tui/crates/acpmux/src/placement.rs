@@ -25,7 +25,8 @@
 //! than the `max_swap_used_fraction` its entry sets (none by default: a Linux
 //! host often keeps a small swap full with plenty of RAM free, which is not
 //! pressure); it is refused when its role forbids the work. When every host
-//! is passed over for room, load or swap, the one with the most room takes
+//! is passed over for room, load or swap, the one least far past its limits
+//! (lanes over its cap, RAM under its floor, counted in lanes) takes
 //! the work anyway and the verdict says so (`overloaded`): load, swap and lane
 //! caps only warn, and no launch is refused for them (Leo's rulebook, as
 //! lane-place does). A host whose resources are unknown (an old build, no reading yet,
@@ -41,6 +42,8 @@
 //!
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
+
+pub(crate) mod move_targets;
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -426,11 +429,30 @@ fn stopped(machine: &Value) -> Option<String> {
 /// Why a peer row (`Hub::peers`, `peer.rs` `summary`) is no candidate now: its link is not up.
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
+///
+/// A machine only the mesh hub lists (`via: "hub"`, `mesh_book_hosts`) is never one, whatever its
+/// row says: a session is started on a peer over its link (`new --machine HOST`), and this
+/// daemon has none to it, so a pick of it fails with `no peer "HOST"` and nothing starts. That
+/// is what a lane VM at its lane cap hit on 2026-11-20 (`new --machine auto` picked
+/// gcp-codex-swarm-01, which it reached only through the hub). It is listed as passed over with
+/// why, and the pick goes to a host the work can start on.
 pub fn peer_down(row: &Value) -> Option<String> {
+    if row.get("via").and_then(Value::as_str) == Some("hub") {
+        let name = row.get("name").and_then(Value::as_str).unwrap_or("HOST");
+        return Some(hub_only(name));
+    }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));
     (!up).then(|| format!("not connected ({})", state.unwrap_or("down")))
+}
+
+/// Why a machine only the mesh hub reaches takes no placed work, and the two ways to start there.
+pub fn hub_only(name: &str) -> String {
+    format!(
+        "only the mesh hub reaches it, and a new session starts only over a direct link: \
+         `acpmux machine add {name}` links it, or start the session from a machine linked to it"
+    )
 }
 
 /// `verdict` with each peer `down` names (its name and `peer_down`'s why) listed in `hosts` as
@@ -563,6 +585,10 @@ struct Weighed {
     local: bool,
     lanes: Lanes,
     room: Option<f64>,
+    /// How far its tightest term is past its limit, in lanes (0 or less; 0 with room or no
+    /// reading): `-32` for a host 32 sessions over its lane cap. Room is clamped at 0, so this
+    /// is what tells two hosts with no room apart in the overloaded fallback (`place`).
+    short: f64,
     /// Live agents from the reading; `None` when it has none (unknown, never 0).
     live: Option<u64>,
     refused: Option<String>,
@@ -621,6 +647,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         local: c.local,
         lanes: lanes.clone().unwrap_or_default(),
         room: None,
+        short: 0.0,
         live,
         refused: None,
         load: false,
@@ -680,6 +707,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
+    w.short = tightest.map_or(0.0, |(_, r)| r.min(0.0));
     if over_budget {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
@@ -800,13 +828,16 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             .cmp(&cap_rank(b))
             .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
+            // With no room, the host least far past its limits first: one 32 sessions over its
+            // cap never ties with one at it (a lane host ran 38 against a cap of 6 on 2026-11-20).
+            .then(b.short.total_cmp(&a.short))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))
     });
     let pick = order.first();
     let why = match pick {
         Some(w) if overloaded => format!(
-            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn)",
+            "{}: {} ({}; no host has room, so the one least far past its limits takes it: load and lane caps only warn)",
             w.name,
             w.why,
             w.refused.as_deref().unwrap_or_default()

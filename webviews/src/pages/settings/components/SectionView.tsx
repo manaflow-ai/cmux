@@ -2,12 +2,15 @@ import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
 import { CloudModelsCard } from "./CloudModelsCard";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import type { ReactNode } from "react";
+import { useRouterState } from "@tanstack/react-router";
 import { categoryById, type CategoryCard } from "../categories";
+import { useSettingsRouter } from "../context";
 import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
+import { AgentCustomizationCard } from "./AgentCustomizationCard";
 import { AgentToolsCard } from "./AgentToolsCard";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
@@ -25,8 +28,8 @@ import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
+import { TextSizeCard } from "./TextSizeCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
-import { PERSONALIZATION_KEYS, PersonalizationCard } from "./PersonalizationCard";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
@@ -37,6 +40,7 @@ import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
+import { AgentSkillsCard } from "./AgentSkillsCard";
 import { TailnetCard } from "./TailnetCard";
 import { ModelsCard } from "./ModelsCard";
 import { SectionActions } from "./SectionActions";
@@ -69,15 +73,18 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
+  agentCustomization: () => <AgentCustomizationCard />,
   agentTools: () => <AgentToolsCard />,
+  agentSkills: () => <AgentSkillsCard />,
   chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
-  backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
+  backdrops: (focus, workspace) => <BackdropsSlot focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
   devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: (focus) => <DensityCard focus={focus} />,
+  textSize: () => <TextSizeCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: (focus) => <ChannelsCard focus={focus} />,
   appUpdate: () => <AppUpdateCard />,
@@ -95,12 +102,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   models: (focus) => <ModelsCard focus={focus} />,
   worktreeSetup: () => <WorktreeSetupCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
-  personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
-
-/** Every key Personalization draws: its one home on the page. */
-// The density card there also draws Text Size and the custom densities (DENSITY_CARD_ROWS).
-const HUB_KEYS: ReadonlySet<string> = new Set([...PERSONALIZATION_KEYS, ...DENSITY_CARD_ROWS]);
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -119,10 +121,7 @@ export function SectionView({
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
   // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
   // schema's group for them would draw each a second time (a second "App Theme" card).
-  // Personalization is the one home of what it draws (the theme studio among it): no other page
-  // draws those rows, and it does not draw them a second time as rows under its parts.
-  const hub = category.lead.includes("personalization");
-  const studio = hub || category.lead.includes("themeStudio");
+  const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
     studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
   );
@@ -147,7 +146,6 @@ export function SectionView({
         (row) =>
           row.key !== THEME_EDITS_KEY &&
           row.key !== FAVORITE_THEMES_KEY &&
-          !HUB_KEYS.has(row.key) &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
@@ -158,8 +156,7 @@ export function SectionView({
       ),
     }))
     .filter((group) => group.rows.length > 0);
-  // Each row's level and the merged cards (rowLevels.ts). Only Personalization has a jump bar (its own
-  // card); a category page is short enough without one (Lucas 2026-11-11).
+  // Each row's level and the merged cards (rowLevels.ts).
   const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
@@ -191,4 +188,13 @@ function CardSlot({
   reveal: boolean;
 }) {
   return CARDS[card](focus, workspace, reveal);
+}
+
+/** The background picker. The host adds a fresh `open` token to each Change Background… request:
+ * the picker mounts again and reveals the saved tile, even when Appearance already shows. */
+function BackdropsSlot({ focus, workspace }: { focus: string | null; workspace: string | null }) {
+  const router = useSettingsRouter();
+  const search = useRouterState({ router, select: (state) => state.location.searchStr });
+  const open = new URLSearchParams(search).get("open");
+  return <Backdrops key={JSON.stringify([workspace, open])} focus={focus} workspace={workspace} />;
 }
