@@ -10,5 +10,89 @@
     "superseded": false
   },
   "rolled_back": false,
-  "rollback": null
+  "rollback": null,
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44985733783",
+  "recorded_at": "2026-11-22T05:18:50Z",
+  "reason": "cmux-tui 35051d42ef06 changes the image's cmux-tui (pinned 6b8c79ba6820)",
+  "dry_run": false,
+  "cmux_tui": "35051d42ef06307c294f5df95c6879092a57e668",
+  "fixes": [
+    {
+      "sha": "35051d42ef06307c294f5df95c6879092a57e668",
+      "mergedAt": "2026-11-22T04:00:34+00:00",
+      "subject": "fix(acpmux): only an approval mode needs the person on a config set (#49627)"
+    },
+    {
+      "sha": "0473e25a26856ac863dec33ffa3cd1361b0c429c",
+      "mergedAt": "2026-11-22T03:50:08+00:00",
+      "subject": "cmux-fault: network-conditions harness for the iPhone app (seeded link shaper, link profiles, ios-network-conditions.sh) (#49310)"
+    },
+    {
+      "sha": "05f5295188581b9dc5bca9203261b4a4b2bbc2c5",
+      "mergedAt": "2026-11-22T03:49:58+00:00",
+      "subject": "acpmux send: a class rides the mesh relay as a first line; ordering per session; a held message waits in the outbox (#49350)"
+    },
+    {
+      "sha": "90832e8b99a336da058dcc607eee627c87daf5d5",
+      "mergedAt": "2026-11-22T03:48:58+00:00",
+      "subject": "Move to Cloud can project the chat's folder instead of copying it (opt-in; successor of #48642) (#49491)"
+    },
+    {
+      "sha": "3b3d80675bb13877bf7c248f998a5061ea8d0ff1",
+      "mergedAt": "2026-11-22T03:44:37+00:00",
+      "subject": "machine-join: make the channel's cmux-rd executable; replace a dangling symlink; name a directory (#49553)"
+    },
+    {
+      "sha": "6d1c3f8f5a5148157f1fbb28ac5b5d668a56c9a2",
+      "mergedAt": "2026-11-22T03:37:12+00:00",
+      "subject": "acpmux: an agent that resumed an older copy of its session is told the turns it missed (#37342)"
+    },
+    {
+      "sha": "92f39285bb1ea56a3066db7892c19a1e86c003a8",
+      "mergedAt": "2026-11-22T03:35:13+00:00",
+      "subject": "Looks: shadcn, Material (gooey tabs) and Apple exemplar looks, listed in the gallery (carries #46887) (#49472)"
+    },
+    {
+      "sha": "4449a67314a3b95962bbf014a902f23357adb252",
+      "mergedAt": "2026-11-21T19:10:55-08:00",
+      "subject": "cmux-tui: the 4 lib reds the stack overflow hid"
+    },
+    {
+      "sha": "92c64ba3a8a8d062883bc91837f9e6ca3b23bb4a",
+      "mergedAt": "2026-11-22T02:55:24+00:00",
+      "subject": "cmux-remote: a direct WebSocket dial and the first connect end within a bound (#40976)"
+    },
+    {
+      "sha": "0eb2f6d96e76bd729ea95f8f91a56751abb54575",
+      "mergedAt": "2026-11-21T19:46:51-07:00",
+      "subject": "acpmux: a test holds every chat to a process budget and none outlives it (#49445)"
+    },
+    {
+      "sha": "0412ec9b8d6ee44aa323160d20e822e1a5ac2fcd",
+      "mergedAt": "2026-11-21T18:37:14-08:00",
+      "subject": "cmux server: renew unit files and serialize service commands (ACL, race gaps)"
+    },
+    {
+      "sha": "603b35d2227f139111b328ecaa139319b886e747",
+      "mergedAt": "2026-11-21T18:22:58-08:00",
+      "subject": "cmux-tui: fix the 5 lib test reds on feat-cmux-next"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T05:18:50Z",
+    "snapshot_id": "sh-df8601a38aea4b6fae99fd8fb66c048e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44985733783): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0ebac92170eb7ae0554522602fec0ddb15e649ee",
+    "image": "cloud-native-auto-35051d42-44985733783-1",
+    "revision": "ci-44985733783-1",
+    "at": "2026-11-22T05:18:50Z"
+  }
 }
