@@ -902,6 +902,7 @@ import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
+import { shownChrome } from "./shownChrome";
 import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
@@ -6763,6 +6764,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useLayoutEffect(() => pendingPaneDraw.committed(clientSnapshot), [pendingPaneDraw, clientSnapshot]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
+  /// A chat's chrome the page drew before its attach answered stays drawn until then (shownChrome.ts):
+  /// what the page showed first (the reload copy) until the first frame replaces it, then the last one.
+  const [chrome] = useState(() => shownChrome());
+  const firstShown = useRef<AcpmuxSnapshot | undefined>(clientSnapshot);
   const readSendAgain = useCallback((): SendPromptAgainState => {
     const current = snapshotRef.current;
     const config = sendAgainConfig.current;
@@ -8332,8 +8337,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         )
           setContinuing(true);
       },
-      receive(next) {
-        if (next.protocolVersion !== 1) return;
+      receive(given) {
+        if (given.protocolVersion !== 1) return;
+        const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
         harnessSwitch.reconcile(next);
         rowsRef.current = next.rows;
         snapshotRef.current = next;
@@ -8806,7 +8812,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("connectStart");
         const client = await AcpmuxDirectClient.connect(
           config,
-          (next) => {
+          (given) => {
+            const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
@@ -8884,6 +8891,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             harnessSwitch.disconnect(switchPort);
             setStartModeSource(undefined);
             catalogClientId.current += 1;
+            chrome.clientLost();
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
             notifyDraftActionsChanged();
