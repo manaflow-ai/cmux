@@ -1,0 +1,167 @@
+public import AppKit
+public import CmuxNextPages
+import os
+
+nonisolated private let reloadCoverLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
+
+/// A chat that drew keeps its last frame on screen while its page gets a new document (``AgentPaneReloadCover``).
+extension AgentPaneView {
+    /// The page's document is about to change or is gone (``PageWebView/onDocumentWillChange``, and the old
+    /// host's navigation and crash calls).
+    public func documentWillChange(_ change: PageDocumentChange) {
+        switch change {
+        case .reload:
+            // The old document still draws until the new one commits: its picture now, kept by the cover when
+            // it lands before the commit, and the last one meanwhile. With none, nothing covers a page that
+            // still draws; its commit does.
+            rememberLastFrame(fresh: true) { [weak self] in self?.coverNewDocument(.reload, onlyWithPicture: true) }
+            coverNewDocument(.reload, onlyWithPicture: true)
+        case .contentEnded:
+            reloadCover.pageEnded = true
+            coverNewDocument(.contentEnded)
+        case .rendererRestart:
+            reloadCover.pageEnded = true
+            coverNewDocument(.rendererRestart)
+        case .committed:
+            reloadCover.documentCommitted()
+            coverNewDocument(.newDocument, afterCommit: true)
+        }
+    }
+
+    /// Puts the cover over a page that drew before: its last frame when it has one of this size and look,
+    /// else the loading state. `onlyWithPicture`: nothing without a picture (the old document still draws).
+    func coverNewDocument(_ cause: AgentPaneReloadCover.Cause, onlyWithPicture: Bool = false, afterCommit: Bool = false) {
+        let cover = reloadCover
+        // A first document has the loading state; a crash notice says what happened.
+        guard model.hasPainted, loadingView.superview !== self, crashNotice == nil else { return }
+        let place = topBar.pageFrame(in: bounds)
+        let picture = cover.picture(size: place.size, appearance: launchImageAppearance)
+        if cover.isShown {
+            // A fresh picture of the old document that landed before its reload committed replaces the older one.
+            if let picture, cover.documentsSince == 0, cover.cause == .reload { drawCoverPicture(picture, in: cover) }
+            return
+        }
+        if onlyWithPicture, picture == nil { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cover.began(cause, picture: picture != nil, afterCommit: afterCommit)
+        let view = cover.view
+        view.frame = place
+        view.paint(performWithTheme { AgentPaneTheme.pageColor(themeTokens, surface: surfaceKind, backgrounds: themeScope.surfaceBackgrounds) }.nsColor)
+        view.marksLoading = { [weak cover] in cover?.showsPicture == false }
+        drawCoverPicture(picture, in: cover)
+        view.isHidden = false
+        addSubview(view, positioned: .above, relativeTo: nil)
+        view.showMarkLater()
+        if pageDrawsOverCovers {
+            // Chromium draws in its own window over any cover: the page waits outside the window.
+            if !holdsPageAway {
+                holdsPageAway = true
+                cover.heldPageAway = true
+                pageContent.frame = Self.awayFrame(of: place)
+                page?.chromiumWindowMoved()
+            }
+        } else if pageContent.alphaValue != 0 {
+            pageContent.alphaValue = 0
+            cover.hidPage = true
+        }
+        CATransaction.commit()
+        let age = cover.frameAgeMilliseconds.map(String.init) ?? "-"
+        reloadCoverLogger.error("agent pane keeps its last frame over a new document cause=\(cause.rawValue, privacy: .public) session=\(self.model.sessionId ?? "none", privacy: .public) engine=\(self.engineName, privacy: .public) picture=\(picture != nil) picture_age_ms=\(age, privacy: .public)")
+        flickerLog?.record("reload-cover", ["cause": cause.rawValue, "page": AgentPageFlickerLog.pageName(self),
+                                            "engine": engineName, "picture": picture != nil])
+    }
+
+    private func drawCoverPicture(_ picture: NSImage?, in cover: AgentPaneReloadCover) {
+        let layer = cover.view.layer
+        layer?.contentsGravity = .resize
+        layer?.contents = picture
+        if picture != nil {
+            cover.pictureShown()
+            cover.view.hideMark()
+        }
+    }
+
+    /// From the model, at each `pane.painted`: the first report of a document that committed after the cover
+    /// went up ends it, and the page's new frame is remembered a moment later.
+    func reloadCoverPaintReported() {
+        if reloadCover.isShown, reloadCover.documentsSince > 0 { endReloadCover(painted: true) }
+        rememberLastFrameSoon()
+    }
+
+    /// Takes the cover away and shows the page again; `painted`: the new document reported its first paint.
+    func endReloadCover(painted: Bool, reason: String = "painted") {
+        let cover = reloadCover
+        guard cover.isShown else { return }
+        let cause = cover.cause
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cover.view.hideMark()
+        cover.view.removeFromSuperview()
+        cover.view.layer?.contents = nil
+        if cover.heldPageAway {
+            cover.heldPageAway = false
+            if holdsPageAway {
+                holdsPageAway = false
+                pageContent.frame = topBar.pageFrame(in: bounds)
+                applyNativeRects()
+                needsLayout = true
+                page?.chromiumWindowMoved()
+            }
+        }
+        if cover.hidPage {
+            cover.hidPage = false
+            pageContent.alphaValue = 1
+            PageWebView.syncChromiumVisibility(in: pageContent)
+        }
+        CATransaction.commit()
+        guard let recovery = cover.ended(painted: painted) else {
+            reloadCoverLogger.error("agent pane cover over a new document ended unpainted cause=\(cause?.rawValue ?? "-", privacy: .public) reason=\(reason, privacy: .public) session=\(self.model.sessionId ?? "none", privacy: .public)")
+            return
+        }
+        reloadCoverLogger.error("agent pane page drew again after cause=\(recovery.cause.rawValue, privacy: .public) first_paint_ms=\(recovery.milliseconds) picture=\(recovery.picture) session=\(self.model.sessionId ?? "none", privacy: .public) engine=\(self.engineName, privacy: .public)")
+        flickerLog?.record("reload-cover-ended", ["cause": recovery.cause.rawValue, "page": AgentPageFlickerLog.pageName(self),
+                                                  "first_paint_ms": recovery.milliseconds, "picture": recovery.picture])
+    }
+
+    /// The cover follows the page's place; a picture of another size gives way to the loading state.
+    func layOutReloadCover(_ place: NSRect) {
+        let cover = reloadCover
+        guard cover.isShown, cover.view.superview === self else { return }
+        if cover.view.frame.size != place.size, cover.showsPicture {
+            cover.view.layer?.contents = nil
+            cover.droppedPicture()
+            cover.view.showMarkLater()
+        }
+        cover.view.frame = place
+    }
+
+    /// Remembers the page's frame a moment from now (after its paint report or the person's click or key in it).
+    func rememberLastFrameSoon() {
+        guard model.hasPainted else { return }
+        reloadCover.captureTimer.schedule(after: AgentPaneReloadCover.captureDelay) { @MainActor [weak self] in
+            self?.rememberLastFrame(fresh: false)
+        }
+    }
+
+    /// Takes the page's picture (``pageImage()``) as the cover's last frame. Not of a page that has not drawn,
+    /// one whose renderer ended (its picture is empty), one frozen (its thaw is work for nobody), one out of a
+    /// window, or one under the cover (but for a reload asked for while the old document still draws).
+    /// `fresh`: a reload was asked for, so the throttle does not apply; `done` runs when the picture was kept.
+    func rememberLastFrame(fresh: Bool, done: (@MainActor () -> Void)? = nil) {
+        let cover = reloadCover
+        guard model.hasPainted, !cover.pageEnded, !pageIsFrozen, window != nil, !isHiddenOrHasHiddenAncestor, cover.documentsSince == 0,
+              !cover.isShown || (fresh && cover.cause == .reload), cover.mayCapture(fresh: fresh) else { return }
+        let size = topBar.pageFrame(in: bounds).size
+        guard size.width > 0, size.height > 0 else { return }
+        let appearance = launchImageAppearance
+        let serial = cover.captureStarted()
+        // task-owner: one picture of the page; dropped when a new document committed meanwhile
+        Task { [weak self, weak cover] in
+            guard let self, let cover else { return }
+            let image: NSImage?
+            if let take = cover.takePicture { image = await take(self) } else { image = await pageImage() }
+            if cover.captureEnded(image, size: size, appearance: appearance, serial: serial) { done?() }
+        }
+    }
+}

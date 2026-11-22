@@ -256,12 +256,30 @@ extension AgentPaneView {
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
         #endif
+        armPaintGiveUp()
+    }
+
+    /// The loading state's give-up (``AgentPaneLoadingView/giveUpWhenSeenUnpainted(_:)``): a page that drew a
+    /// frame but never reported it shows as it is. One whose document drew nothing at all yet (``PageWebView/hasPainted``,
+    /// the native first-frame probe) keeps the loading state, or the picture under it, and is checked again: showing
+    /// it showed an empty document over the wallpaper for as long as the load took (12 to 70 s under load, Leo
+    /// 2026-11-22: "compLETELY blanked out this agent chat").
+    func armPaintGiveUp() {
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
             guard let self, !model.hasPainted else { return }
+            if Self.giveUpKeepsCover(documentDrew: page.map(\.hasPainted)) {
+                loadingLogger.error("agent pane page did not report its first paint in sight and its document drew nothing; keeps its loading state session=\(self.model.sessionId ?? "none", privacy: .public)")
+                armPaintGiveUp()
+                return
+            }
             loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
             model.markPainted()
         }
     }
+
+    /// Whether the give-up keeps the cover: the page host knows its document drew no frame yet. The old host
+    /// (nil) has no such probe and shows the page, as before.
+    static func giveUpKeepsCover(documentDrew: Bool?) -> Bool { documentDrew == false }
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
