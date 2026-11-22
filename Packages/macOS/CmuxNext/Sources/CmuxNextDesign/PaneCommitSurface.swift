@@ -32,6 +32,20 @@ public protocol PaneCommitSurface: NSView {
     ///   - ready: Call it once, on the main actor, when a picture drawn for the new size shows in a commit made from
     ///     then on; in this call when one already does.
     func commitWillResize(by change: CGSize, ready: @escaping @MainActor () -> Void)
+
+    /// The frame ticks this view's next commit may wait for its report, when the view needs more than the commit's own
+    /// bound (`ScreenContentView.commitBound`); nil: that bound. The layout reads it right after
+    /// ``commitWillResize(by:ready:)`` and takes it up to `ScreenContentView.longestCommitWait`.
+    ///
+    /// A Chromium page on an engine with no resize fence asks for more while it lays out at a size it took ahead: its
+    /// frame at that size shows some refreshes after its own layout, and a slow page (a 30 ms relayout) needs longer
+    /// than the commit's bound, so the commit would show its old frame beside its backdrop in the growing pane.
+    var commitWaitTicks: Int? { get }
+}
+
+public extension PaneCommitSurface {
+    /// The commit's own bound: a surface that draws in time asks for no more.
+    var commitWaitTicks: Int? { nil }
 }
 
 public extension NSView {
