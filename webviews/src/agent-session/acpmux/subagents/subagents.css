@@ -592,15 +592,24 @@ button.cv-subagent > :last-child {
    chevrons stay under the header's. test/composer-hat-head-still.test.ts measures both states. */
 .acpmux-running-tray__head {
   padding-inline: var(--acpmux-tray-inset);
-  height: var(--ui-row-height, 28px);
+  height: var(--acpmux-tray-head-height);
 }
 /* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
-   folded tray is this one row, so it alone grows; the lines keep their row height. */
-.acpmux-running-tray[data-head-height="roomy"] > .acpmux-running-tray__head {
-  height: calc(8.5 * var(--grid-base));
+   folded tray is this one row, so it alone grows; the lines keep their row height. One property, so
+   the controls that lie over the header (its panel button, the `hide` arm's button) centre on the row
+   it draws, never on the lines' shorter one (Leo, 2026-11-22: the Background tasks button sat 3px
+   above the counts and the chevron, "chief among them is the little sidebar button").
+   test/composer-hat-head-align.test.ts measures every centre. */
+.acpmux-running-tray {
+  --acpmux-tray-head-height: var(--ui-row-height, 28px);
+  /* Where a row-tall control over the header starts, so its centre is the header's. */
+  --acpmux-tray-head-control-top: calc((var(--acpmux-tray-head-height) - var(--ui-row-height, 28px)) / 2);
 }
-.acpmux-running-tray[data-head-height="tall"] > .acpmux-running-tray__head {
-  height: calc(10 * var(--grid-base));
+.acpmux-running-tray[data-head-height="roomy"] {
+  --acpmux-tray-head-height: calc(8.5 * var(--grid-base));
+}
+.acpmux-running-tray[data-head-height="tall"] {
+  --acpmux-tray-head-height: calc(10 * var(--grid-base));
 }
 /* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
    lines' icon column, the kinds apart by the counts' separator. They give way before the time and the
@@ -1801,7 +1810,8 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__open {
   position: absolute;
-  top: 0;
+  /* The lines' row-tall button, centred on the header's row, however tall the header is. */
+  top: var(--acpmux-tray-head-control-top);
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   width: var(--acpmux-tray-stop-width);

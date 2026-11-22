@@ -686,3 +686,58 @@
     opacity: 1;
   }
 }
+/* What the rail shows (railShow.ts; Leo, 2026-11-21: "why cant you see an agents'? why cant you filter
+   it? customize it immediately?"). The agent's replies draw by replies.experiment.ts's arm. `lens`, the
+   default, draws them as every other tick: one column, one x, one width at rest (the rule above), and
+   the head control names the list. `ruler` draws them as minor ticks, shorter and a step dimmer, between
+   the prompts they answer. `lanes` sets them in an inner lane, 8 px in. */
+.acpmux-minimap__rail[data-replies-look="ruler"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
+  width: 14px;
+}
+.acpmux-minimap__rail[data-replies-look="ruler"] .acpmux-minimap__tick[data-reply][data-tone="rest"] .acpmux-minimap__bar {
+  opacity: 0.25;
+}
+.acpmux-minimap__rail[data-replies-look="lanes"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
+  margin-inline-start: 8px;
+  width: 18px;
+}
+/* The head control (RailShowControl.tsx): the list's name in the rail's muted type, just above its
+   first row, on the rail's own edge. It draws while the pointer or focus is on the rail, or while a
+   choice other than every prompt is on, so a filtered rail always says so; it takes no room. */
+.acpmux-minimap__show {
+  position: absolute;
+  bottom: 100%;
+  inset-inline-start: 0;
+  margin-bottom: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-space-1);
+  background: transparent;
+  color: var(--acpmux-minimap-rest);
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__show {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+.acpmux-minimap__rail:is([data-hovering], :focus-within, [data-show]) .acpmux-minimap__show,
+.acpmux-minimap__show[data-popup-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-minimap__rail[data-show]:not([data-hovering], :focus-within) .acpmux-minimap__show {
+  opacity: 0.6;
+}
+.acpmux-minimap__show:hover,
+.acpmux-minimap__show[data-popup-open] {
+  color: var(--acpmux-minimap-text);
+  background: var(--acpmux-minimap-card);
+}
+.acpmux-minimap__show:focus-visible {
+  outline: 1px solid var(--agent-focus-ring, var(--acpmux-minimap-text));
+}

@@ -163,6 +163,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -180,6 +181,7 @@ import {
   SessionPager,
   withUsage,
   LIST_FOLLOW_CAPABILITY,
+  USAGE_CAPABILITY,
   allSessionsWanted,
   onWantAllSessions,
   inNewestOrder,
@@ -3569,6 +3571,10 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
+  /// The chat's held surge, its newest snapshot by seq (conversation/surgeHold.ts): the composer hat's
+  /// one row for it (SurgeHoldRow.tsx). A full refold keeps it: its events set it again or leave a
+  /// listing's newer one.
+  private surge?: SurgeHold;
   /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
   /// are whole through below a page merged past that gap. A copy kept, or the next open's resume,
   /// continues from the lowest of them, not from `lastSeq`, so the records in a hole are read once
@@ -3589,6 +3595,13 @@ export class AcpmuxDirectClient {
   private lagRead?: { sessionId: string; generation: number; again?: number; at: number };
   private gapReadKeys = 0;
   private turnOpen = false;
+  /// The pane's fold saw its last turn end (`turn_end`, `turn_result`, or acpmux holding none,
+  /// ``hostEndedTurn``) and no turn start since. It is the one "turn ended" signal every end path
+  /// sets: a summary that still says "running" without naming a turn the pane has not seen end is
+  /// from before that end (``staleRun``), so the live line and its Thinking clock go with the end,
+  /// not with acpmux's later status change (Leo, 2026-11-21: "the thinking timer is overstaying its
+  /// welome after you just replied!").
+  private turnEndSeen = false;
   /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
   /// record is outside the held page): the live line's clock counts from it, never from an older
   /// prompt a resumed turn still opens with. Unset falls back to the prompt's time (turns.ts).
@@ -4531,6 +4544,7 @@ export class AcpmuxDirectClient {
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       this.sessionPages.follows = this.capabilities?.has(LIST_FOLLOW_CAPABILITY) === true;
+      this.sessionPages.usageAlone = this.capabilities?.has(USAGE_CAPABILITY) === true;
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
@@ -4941,6 +4955,7 @@ export class AcpmuxDirectClient {
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
+    this.surge = undefined;
     this.presetApprovalRemoved.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
@@ -4983,6 +4998,7 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.turnEndSeen = false;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
     this.lastReplyRow = undefined;
@@ -5541,6 +5557,7 @@ export class AcpmuxDirectClient {
       return false;
     this.copyLive = undefined;
     this.turnOpen = false;
+    this.turnEndSeen = false;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
     this.drewKeptTail = true;
@@ -5574,7 +5591,8 @@ export class AcpmuxDirectClient {
     this.summary = keptSummary;
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
-    this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnEndSeen = false;
+    this.turnOpen = this.summaryRuns(listed);
     this.turnOpenedSeq = undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
@@ -8253,12 +8271,27 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  /// A summary of a paused queue that says "running" from before its turn failed: it names no
-  /// running turn, or one this page saw end. A turn sent now while prompts stay held runs.
+  /// A summary that says "running" from before a turn's end: it names a turn this page saw end, or
+  /// names none (acpmux clears `turn` before it logs the end and sets the chat's status only after
+  /// the end's wrap-up, hub/turns.rs) while the pane's last turn ended, or is a paused queue's that
+  /// names none (its turn failed). Every end path reads the same: reply, error, Stop, a forced stop,
+  /// the agent's exit, any stop reason. A turn that starts after it, or one acpmux names that this
+  /// page never saw end, runs.
   private staleRun(summary: Record<string, any>): boolean {
-    if (summary.queuePaused !== true) return false;
     const turnId = summary.turn?.turnId;
-    return typeof turnId !== "string" || this.endedTurns.has(turnId);
+    if (typeof turnId === "string" && turnId) return this.endedTurns.has(turnId);
+    return this.turnEndSeen || summary.queuePaused === true;
+  }
+
+  /// Whether the summary's status says a turn runs, as ``staleRun`` reads it. A status other than
+  /// "running" read after an end settles it: a "running" after that is a new turn's (acpmux lists
+  /// the chat running before its prompt reaches this page), never the ended one's carried over.
+  private summaryRuns(summary: Record<string, any> | undefined): boolean {
+    if (summary?.status !== "running") {
+      if (summary !== undefined) this.turnEndSeen = false;
+      return false;
+    }
+    return !this.staleRun(summary);
   }
 
   private sessionChanged(params: SessionChanged): void {
@@ -8941,7 +8974,7 @@ export class AcpmuxDirectClient {
     return (
       this.replayThrough === undefined &&
       // acpmux may still list a paused queue as running after its turn failed.
-      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)))
+      (this.turnOpen || this.summaryRuns(summary))
     );
   }
 
@@ -9169,6 +9202,7 @@ export class AcpmuxDirectClient {
     this.forgetSuggestion();
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnEndSeen = false;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
     this.runningTurnId = undefined;
@@ -10310,6 +10344,9 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "inbox" || event.kind === "inbox_triaged") {
+        // A held surge's snapshot (acpmux's receiver): the hat's one row, never a row per message.
+        this.surge = newerSurge(this.surge, surgeOfEvent(event.kind, msg, event.seq, event.at));
       } else if (event.kind === "recap") {
         this.recordRecap(event, msg);
       } else if (event.kind === "memory_offer") {
@@ -10698,6 +10735,7 @@ export class AcpmuxDirectClient {
           this.turnOpenedSeq = event.seq;
         }
         this.turnOpen = true;
+        this.turnEndSeen = false;
         if (bgDone) {
           // No prompt row: the background line opens the turn, as a `background_turn` record's does.
           this.rows.delete(durableRowId);
@@ -10744,6 +10782,7 @@ export class AcpmuxDirectClient {
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
         this.carryPrompts(msg.carried, startedTurnId);
         this.turnOpen = true;
+        this.turnEndSeen = false;
         this.turnStartedAtMs = event.at;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
@@ -10810,6 +10849,7 @@ export class AcpmuxDirectClient {
         // its `turn_started` but not its prompt, and "Worked for" still counts from the start.
         const endedTurnStartedAt = this.turnStartedAtMs;
         this.turnOpen = false;
+        this.turnEndSeen = true;
         this.turnStartedAtMs = undefined;
         this.turnPromptAtMs = undefined;
         this.turnPrompt = undefined;
@@ -11549,6 +11589,7 @@ export class AcpmuxDirectClient {
     if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
     if (!this.turnOpen) {
       this.turnOpen = true;
+      this.turnEndSeen = false;
       this.turnStartedAtMs = undefined;
       if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
       if (!this.rows.has("typing"))
@@ -11573,6 +11614,7 @@ export class AcpmuxDirectClient {
   /// record still settles it (`turn_end`, `turn_result`).
   private hostEndedTurn(): void {
     this.turnOpen = false;
+    this.turnEndSeen = true;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
     this.turnPrompt = undefined;
@@ -11913,6 +11955,7 @@ export class AcpmuxDirectClient {
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
+      ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
@@ -13176,7 +13219,7 @@ export class AcpmuxDirectClient {
     throw new Error("turn pictures still being taken");
   }
   async continueIn(harness: string): Promise<string | undefined> {
-    if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
+    if (!this.handoffSupported || this.turnOpen || this.summaryRuns(this.summary) || this.queue.length > 0) return;
     const generation = this.selectionGeneration;
     const record = await this.handoff.prepare(harness);
     if (!record || generation !== this.selectionGeneration) return;
@@ -13655,6 +13698,22 @@ export class AcpmuxDirectClient {
       messages?: unknown;
     } | null;
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
+  }
+  /// The chat's inbox threads (acpmux `_acpmux/inbox_threads`), as acpmux sent them, for the held
+  /// surge's panel (SurgeHoldRow.tsx). A reply that carries the surge's snapshot is as new as every
+  /// event the page has heard, so it takes the row's place until a later event moves it.
+  async inboxThreads(): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const reply = (await this.request("_acpmux/inbox_threads", { sessionId }, 15_000)) as {
+      surge?: unknown;
+    } | null;
+    const counts = surgeCounts(reply?.surge);
+    if (counts && this.selectedSessionId === sessionId) {
+      this.surge = newerSurge(this.surge, { ...counts, seq: this.lastSeq });
+      this.emit();
+    }
+    return reply;
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
@@ -14506,7 +14565,7 @@ export class AcpmuxDirectClient {
   }
   /// A turn is running in the shown session.
   turnRunning(): boolean {
-    return this.turnOpen || this.summary?.status === "running";
+    return this.turnOpen || this.summaryRuns(this.summary);
   }
   /// Stops showing the selected session: a harness switch draws its new chat meanwhile. The
   /// session keeps running in acpmux; only this client's attach ends.
@@ -16536,6 +16595,7 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      turnEndSeen: this.turnEndSeen,
       turnStartedAtMs: this.turnStartedAtMs,
       turnPromptAtMs: this.turnPromptAtMs,
       // The running turn's prompt is the held events', never an older page's.
@@ -16584,6 +16644,7 @@ export class AcpmuxDirectClient {
     const held = new Map(this.rows);
     this.runningTurnId = undefined;
     this.turnOpen = false;
+    this.turnEndSeen = false;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
     this.turnPrompt = undefined;
