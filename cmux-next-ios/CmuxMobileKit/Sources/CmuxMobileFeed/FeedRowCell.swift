@@ -171,11 +171,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     private let send = UIButton(type: .custom)
     private var footerButtons: [UIButton] = []
 
-    /// Row cells made (tests: none while the Feed scrolls once its spare cells are ready).
-    static var made = 0
-
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        Self.made += 1
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("init", t0) }

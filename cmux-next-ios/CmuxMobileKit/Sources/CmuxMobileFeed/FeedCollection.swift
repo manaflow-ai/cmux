@@ -5,7 +5,6 @@ import CmuxMobileDesign
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import Observation
-import OSLog
 import SwiftUI
 import UIKit
 
@@ -193,8 +192,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.sectionFooterHeight = 0
         view.delegate = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
-        // Row cells are not registered: the cell provider takes one from the table's reuse pool, else a
-        // spare made while the Feed was idle (`spares`), else a new one (classic dequeue).
+        view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -217,9 +215,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     if let self { cell.contentConfiguration = UIHostingConfiguration { self.header }.margins(.all, 0) }
                     return cell
                 }
-                let row = (tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID) as? FeedRowCell)
-                    ?? self?.takeSpare() ?? self?.newRowCell() ?? FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
-                guard let self, let layout = self.layout(for: id) else { return row }
+                let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
+                guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
                 row.delegate = self
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
                 return row
@@ -520,19 +517,6 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// Row shapes already drawn once (kind, body, quote, replies): the first draw of a font, a
     /// symbol or a code style cost ~20 ms on the frame a row of that shape first scrolled in.
     private var warmed: Set<String> = []
-    /// One layout of each shape warmed, for the spare cells to build their parts from.
-    private var warmedLayouts: [FeedRowLayout] = []
-    /// Row cells made while the Feed was idle, each with the parts of every shape shown so far
-    /// built (a permission card's command block, a quote bubble, the buttons): the first rows the
-    /// list scrolls to take these, so a scroll frame neither makes a cell nor its parts (profile
-    /// 8a637e86: the first permission row's new cell was 10 ms of one frame, a dropped frame).
-    private var spares: [FeedRowCell] = []
-    /// How many spare cells the Feed keeps ready: more than the rows a fast flick shows past the
-    /// reuse pool's first fill.
-    static let spareTarget = 6
-    /// How long the list must have been still before a spare is built (seconds).
-    static let spareStillness: CFTimeInterval = 0.5
-    private(set) var sparesMade = 0
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
     private lazy var warmCell: FeedRowCell = {
@@ -577,16 +561,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         for id in ids {
             guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
             let shape = Self.shape(layout)
-            if warmed.insert(shape).inserted {
-                warmQueue.append(layout)
-                warmedLayouts.append(layout)
-            }
+            if warmed.insert(shape).inserted { warmQueue.append(layout) }
         }
         pumpWarmUp()
     }
 
     private func pumpWarmUp() {
-        guard !warmScheduled, !warmQueue.isEmpty || (spares.count < Self.spareTarget && !shownOrder.isEmpty) else { return }
+        guard !warmScheduled, !warmQueue.isEmpty else { return }
         warmScheduled = true
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
             MainActor.assumeIsolated {
@@ -604,22 +585,6 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 let t0 = CACurrentMediaTime()
                 defer { FeedCellTiming.log("warm", t0) }
                 #endif
-                guard !self.warmQueue.isEmpty else {
-                    // A spare only once the list has been still for a while: a scroll driven from code
-                    // (the list rig, a jump to the top) sets no tracking flag, and a spare built
-                    // between two of its frames would cost one of them.
-                    let still = CACurrentMediaTime() - self.lastScroll
-                    if still < Self.spareStillness {
-                        Task { @MainActor [weak self] in
-                            try? await Task.sleep(for: .milliseconds(Int((Self.spareStillness - still) * 1000) + 20))
-                            self?.pumpWarmUp()
-                        }
-                        return
-                    }
-                    self.makeSpare()
-                    self.pumpWarmUp()
-                    return
-                }
                 let layout = self.warmQueue.removeFirst()
                 let cell = self.warmCell
                 cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
@@ -632,85 +597,6 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
         }
     }
-
-    /// A spare, reset as the table resets a dequeued cell (it was last filled with a warm-up row).
-    private func takeSpare() -> FeedRowCell? {
-        guard let cell = spares.popLast() else { return nil }
-        cell.prepareForReuse()
-        sparesTaken += 1
-        return cell
-    }
-
-    private(set) var sparesTaken = 0
-    /// Row cells the cell provider had to make itself: no reused cell and no spare (tests: none in
-    /// a scroll once the Feed has been idle).
-    private(set) var newCells = 0
-
-    private func newRowCell() -> FeedRowCell {
-        newCells += 1
-        #if DEBUG
-        if FeedStressRig.shared.config.isActive {
-            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
-                "FRAMELOG list-stress feed-cell new=\(self.newCells, privacy: .public) spares=\(self.spares.count, privacy: .public) taken=\(self.sparesTaken, privacy: .public) made=\(self.sparesMade, privacy: .public) warmed=\(self.warmedLayouts.count, privacy: .public)")
-        }
-        #endif
-        return FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
-    }
-
-    /// One laid-out row of each shape the list holds (its first rows, where a scroll starts): what a
-    /// spare builds the parts for. From the layouts at hand, not only the warm-up queue's (which
-    /// sees just the rows a change added: none had a layout yet on the first one, green-10).
-    private func spareShapes() -> [FeedRowLayout] {
-        var seen: Set<String> = []
-        var result = warmedLayouts
-        for layout in warmedLayouts { seen.insert(Self.shape(layout)) }
-        for id in shownOrder.prefix(200) {
-            guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
-            if seen.insert(Self.shape(layout)).inserted { result.append(layout) }
-        }
-        return result
-    }
-
-    /// One spare row cell with every shape's parts built (one per idle run-loop turn, while the list
-    /// has been still `spareStillness`, never under a finger or a coast; at most `spareTarget`).
-    private func makeSpare() {
-        #if DEBUG
-        let t0 = CACurrentMediaTime()
-        let before = Self.footprint()
-        #endif
-        let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
-        cell.overrideUserInterfaceStyle = collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
-        for layout in spareShapes() {
-            cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
-            cell.apply(layout, item: items[layout.key.item.id], settled: false)
-            cell.layoutIfNeeded()
-        }
-        cell.overrideUserInterfaceStyle = .unspecified
-        spares.append(cell)
-        sparesMade += 1
-        #if DEBUG
-        let ms = (CACurrentMediaTime() - t0) * 1000
-        spareBuildMaxMs = max(spareBuildMaxMs, ms)
-        if FeedStressRig.shared.config.isActive {
-            Logger(subsystem: "dev.cmux.mobile", category: "frames").notice(
-                "FRAMELOG list-stress feed-spare made=\(self.sparesMade, privacy: .public) ms=\(ms, format: .fixed(precision: 2), privacy: .public) max_ms=\(self.spareBuildMaxMs, format: .fixed(precision: 2), privacy: .public) footprint_delta_kb=\((Self.footprint() - before) / 1024, privacy: .public) since_scroll_ms=\(Int((CACurrentMediaTime() - self.lastScroll) * 1000), privacy: .public)")
-        }
-        #endif
-    }
-
-    #if DEBUG
-    /// The longest spare build so far (ms): a frame's budget it must stay well under.
-    private(set) var spareBuildMaxMs = 0.0
-
-    static func footprint() -> Int64 {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
-        }
-        return result == KERN_SUCCESS ? Int64(info.phys_footprint) : 0
-    }
-    #endif
 
     private static let emptyKey = FeedRowKey(
         item: FeedItem(id: "", kind: .finished, workspaceID: "", tabID: "", agentName: "", harness: "", workspaceTitle: "", markdown: "",
@@ -1028,8 +914,6 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             self.settleTask = nil
             self.rowsSettled = true
             self.visibleCells.forEach { $0.scrollSettled() }
-            // Still again: spares the scroll took are made again, off the scroll.
-            self.pumpWarmUp()
         }
     }
 
