@@ -1,0 +1,19 @@
+{
+  "family": "reaction",
+  "ops": {
+    "reaction.add": {
+      "source": "cloud",
+      "owner": "cloud:ConversationDO",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "digest": "516f080bc403f8a0"
+    },
+    "reaction.remove": {
+      "source": "cloud",
+      "owner": "cloud:ConversationDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "1f25613f95f4ee64"
+    }
+  }
+}
