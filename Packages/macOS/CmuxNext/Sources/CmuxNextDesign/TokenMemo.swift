@@ -46,7 +46,10 @@ final class TokenMemo<Value> {
         // A change is landing: compute in the caller's own tracking, keep nothing.
         guard settling.load(ordering: .acquiring) == 0 else { return compute() }
         if let stored, now == storedEpoch, active == storedActive { return stored }
-        let fresh = tracking.track(shape: [], compute, onChange: { [weak self] in self?.drop() })
+        // Keyed on the store's activation: a registration armed while it was inert holds no tunable (`override` returns
+        // before it registers), so activation arms a fresh one that does.
+        let fresh = tracking.track(shape: active ? [ObjectIdentifier(TunableStore.shared)] : [], compute,
+                                   onChange: { [weak self] in self?.drop() })
         if epoch.load(ordering: .acquiring) == now, settling.load(ordering: .acquiring) == 0 {
             stored = fresh
             storedEpoch = now
