@@ -1,8 +1,8 @@
 // l10n-allow-file: experiment descriptions are gallery/debug text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
 
-/// Contextual copy and quiet starts for empty surfaces. The existing empty states remain the
-/// shipped arm until the treatment is deliberately enabled for a dogfood or gallery run.
+/// Contextual copy and quiet starts for empty surfaces. `contextual` ships (Leo, 2026-11-22: "the taste ones i
+/// agree with all actually"); `now`, the earlier copy and controls, stays as an arm to compare against.
 export const emptyStateContext = defineExperiment({
   id: "empty-state-context",
   title: "Empty state context",
@@ -17,5 +17,5 @@ export const emptyStateContext = defineExperiment({
       description: "Name the query, give one next step, and show up to three quiet chat starts.",
     },
   },
-  defaultArm: "now",
+  defaultArm: "contextual",
 });
