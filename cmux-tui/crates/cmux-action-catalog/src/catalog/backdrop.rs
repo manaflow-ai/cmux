@@ -20,4 +20,17 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "settings change-background",
         ..Action::DEFAULT
     },
+    Action {
+        id: "appearance.background.followDesktop",
+        group: GROUP,
+        title: t("ActionCatalog", "action.appearance.background.followDesktop", "Follow Desktop Wallpaper"),
+        description: Some("Sets appearance.background to desktop: the window shows the macOS desktop picture of its screen and follows every change (rotation, Spaces, aerials, time of day)."),
+        keywords: &["desktop", "wallpaper", "macos", "follow", "desktop picture", "background", "system wallpaper"],
+        category: "settings",
+        symbol: "menubar.dock.rectangle",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "identity", 1), Placement::at("windowBackground", "identity", 1)], ..SurfacePlan::DEFAULT },
+        cli_name: "action appearance-background-follow-desktop",
+        ..Action::DEFAULT
+    },
 ];

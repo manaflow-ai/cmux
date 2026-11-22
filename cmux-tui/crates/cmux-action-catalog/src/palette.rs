@@ -18,6 +18,7 @@ pub static SUGGESTIONS: &[&str] = &[
 ];
 #[rustfmt::skip]
 pub static ALIASES: &[(&str, &[&str])] = &[
+    ("appearance.background.followDesktop", &["desktop wallpaper", "follow wallpaper", "macos wallpaper", "desktop picture"]),
     ("appearance.changeBackground", &["background", "wallpaper"]),
     ("appearance.customize", &["font", "theme", "background"]),
     ("browserTheme", &["theme"]),
