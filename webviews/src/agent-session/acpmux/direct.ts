@@ -2431,12 +2431,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
   /// is keyed on the object (drawn heights, memoized rows, reused turns) survives the rebuild: paging
-  /// older history in rebuilds every row.
+  /// older history in rebuilds every row. A background turn's line is compared whole: how it ended
+  /// is in its `background`, and a line a prompt ended whose own result then arrived late has the
+  /// same version either way (started, ended), so the earlier object kept "ended by a prompt".
   keepSame(previous: ReadonlyMap<string, AcpmuxRow>): void {
     const plainSame = (a: AcpmuxRow, b: AcpmuxRow) => {
       const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof AcpmuxRow>;
       for (const key of keys) if (typeof a[key] !== "object" && a[key] !== b[key]) return false;
-      return true;
+      return a.background === b.background || JSON.stringify(a.background) === JSON.stringify(b.background);
     };
     let changed = false;
     // Only the rows `previous` holds can be kept (a rebuild past a cut passes the refolded ones).
@@ -3238,6 +3240,8 @@ export class AcpmuxDirectClient {
       busy: number;
       /// When it was first sent: the liveness probe is timed from the oldest waiting one.
       since: number;
+      /// What it asked: a reply to `_acpmux/status`, which the bridge answers, proves no daemon.
+      method: string;
     }
   >();
   /// A request crossed its progress threshold on an open socket. This is a UI state, never a
@@ -3252,6 +3256,10 @@ export class AcpmuxDirectClient {
   private daemonProbe?: { at: number; id: number };
   /// When the current socket's daemon last proved itself (its open, or its answer to the probe).
   private daemonProvedAt = Date.now();
+  /// The last frame on this socket only the daemon makes: a notification (a chat's events), or a
+  /// result to a request the bridge does not answer itself. A daemon that sends these is alive, if
+  /// slow, whatever its probe is waiting on; host-made error frames and `_acpmux/status` never count.
+  private daemonFrameAt = 0;
   /// The host refused the probe on the current socket (a remote wire): `DAEMON_LIVENESS_GRACE_MS`.
   private daemonProbeRefused = false;
   private daemonLivenessTimer?: ReturnType<typeof setTimeout>;
@@ -3784,6 +3792,13 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Calls still running when a prompt reset `toolRows`, by call id: the row each draws in. Their
+  /// updates still come (Claude Code's call ends after a notice it woke on landed as a prompt),
+  /// and one that finds no row leaves its row running for good: "Sending message to ... 2m 9s"
+  /// that never cleared, and the reply after it gone (Leo, 2026-11-21: "there's just way too many
+  /// commands that it just keeps on going through"). Read only by updates, never by a call's
+  /// start, so a call id an adapter reuses in a later prompt still opens its own row (cx-jzhka).
+  private openCalls = new Map<string, string>();
   /// Tool ids are scoped to a prompt by ACP adapters. Keep the scope beside the row so paging
   /// reconciliation never joins two different turns that reused one id.
   private toolRowScopes = new Map<string, string>();
@@ -4993,6 +5008,7 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.toolRows.clear();
+    this.openCalls.clear();
     this.toolRowScopes.clear();
     this.currentToolScope = undefined;
     this.reactions.clear();
@@ -5676,6 +5692,7 @@ export class AcpmuxDirectClient {
     this.wire.received(raw, parsed);
     const message = parsed as Reply | Notification | null;
     if (!message) return;
+    if (!stale && this.fromDaemon(message)) this.daemonFrameAt = Date.now();
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       if (!stale && this.daemonProbe?.id === message.id) {
         this.probeAnswered(message);
@@ -7368,6 +7385,7 @@ export class AcpmuxDirectClient {
         busy: send ? 0 : BUSY_TRIES,
         retryable: Boolean(send),
         since: Date.now(),
+        method,
       });
     });
   }
@@ -7427,6 +7445,16 @@ export class AcpmuxDirectClient {
     return Math.max(oldest, this.daemonProvedAt);
   }
 
+  /// Whether `message` is one only the daemon makes (`daemonFrameAt`).
+  private fromDaemon(message: Reply | Notification): boolean {
+    if (!("id" in message) || message.id === undefined || message.id === null) {
+      return "method" in message && !hostNotification(message as Notification);
+    }
+    if (!("result" in message) || message.error) return false;
+    const request = this.pending.get(message.id as number | string);
+    return request !== undefined && request.method !== "_acpmux/status";
+  }
+
   private checkDaemonLiveness(): void {
     const socket = this.socket;
     if (this.closed || this.daemonWaitingSince === undefined || !socket || socket.readyState !== WebSocket.OPEN) {
@@ -7440,6 +7468,13 @@ export class AcpmuxDirectClient {
       if (now - this.daemonLastFrameAt >= AcpmuxDirectClient.DAEMON_LIVENESS_GRACE_MS) {
         return this.daemonGone(socket, now);
       }
+    } else if (probe && this.daemonFrameAt > probe.at) {
+      // Starved is slow, never dead: the daemon sent its own frames after the probe went, so it is
+      // alive and only slow to answer. Its last frame is the proof, and the next probe is timed from
+      // it; the late answer, when it comes, is a stale reply (ask-0e0d5a479b: GUI coordinators cut
+      // while a loaded daemon streamed their chats).
+      this.daemonProvedAt = this.daemonFrameAt;
+      this.daemonProbe = undefined;
     } else if (probe) {
       // The socket stayed open but nothing behind it answered, not even the probe.
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
@@ -8438,7 +8473,10 @@ export class AcpmuxDirectClient {
     // attach is not shown past it (`keepPeerCopy`); the next attach reads on from its newest seq.
     const copy = this.peerCopy;
     if (copy?.offline && !copy.attaching && copy.sessionId === event.sessionId && event.seq > copy.lastSeq) return;
-    if (event.seq <= this.lastSeq) return;
+    if (event.seq <= this.lastSeq) {
+      this.mergeLate(event);
+      return;
+    }
     this.holdLive(event);
     this.sawPrompt(event);
     this.lastSeq = event.seq;
@@ -8464,6 +8502,24 @@ export class AcpmuxDirectClient {
       this.shedOlderHeld();
       if (this.events.length > HELD_RECORDS) this.shedRetryAt = this.events.length + HELD_RETRY;
     }
+  }
+
+  /// A live record at or below the newest seq folded. One the pane holds is a duplicate and is dropped. One it
+  /// does not hold came late (a later record overtook it, or acpmux sent it again after a loss): it takes its place
+  /// among the held records and the rows from its turn on are folded again, as a read-back record is
+  /// (`repairTurns`), so the transcript is what in-order delivery draws. Dropped as stale, it stayed missing until
+  /// its turn ended, and a prompt or a reply's chunk could be gone for the whole turn
+  /// (test/transcript-delivery-property.test.ts). A record older than every one held belongs to a page not
+  /// loaded: scrolling up reads it.
+  private mergeLate(event: EventRecord): void {
+    if (this.replayThrough !== undefined) return;
+    const oldest = this.events[0]?.seq;
+    if (oldest === undefined || event.seq < oldest) return;
+    if (this.events[firstHeldFrom(this.events, event.seq)]?.seq === event.seq) return;
+    mergeIntoHeld(this.events, [event]);
+    this.sawPrompt(event);
+    this.rebuildKeepingLiveState(event.seq - 1);
+    this.emit("connected");
   }
 
   /// The pane's transcript follows its latest row, or the reader scrolled away (VirtualTranscript `following`).
@@ -9088,6 +9144,7 @@ export class AcpmuxDirectClient {
       this.presetApprovalRemoved.clear();
       this.compactionHeardAt.clear();
       this.toolRows.clear();
+      this.openCalls.clear();
       this.toolRowScopes.clear();
     } else {
       // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
@@ -9640,6 +9697,14 @@ export class AcpmuxDirectClient {
     if (reaction.fresh) this.freshReactions.add(origin);
     else this.freshReactions.delete(origin);
     return true;
+  }
+
+  /// Keeps the calls of `toolRows` that still run (`openCalls`) before a prompt resets it.
+  private carryOpenCalls(): void {
+    for (const [callId, rowId] of this.toolRows) {
+      const tool = this.rows.get(rowId)?.items?.find((item) => item.tool?.id === callId)?.tool;
+      if (tool && (tool.status === "pending" || tool.status === "in_progress")) this.openCalls.set(callId, rowId);
+    }
   }
 
   /// The newest activity row that holds call `origin`.
@@ -10410,6 +10475,7 @@ export class AcpmuxDirectClient {
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
         if (msg.steer !== true) {
+          if (this.foldingBelow === undefined) this.carryOpenCalls();
           this.toolRows.clear();
           this.toolRowScopes.clear();
           this.planCalls.clear();
@@ -10921,7 +10987,11 @@ export class AcpmuxDirectClient {
       // An update to a call already shown stays in its fold; a new user-visible call ends the text
       // segment. Discovery plumbing gets an activity row for pending/failed states, but a
       // completed one is filtered from presentation and must not split one assistant message.
-      const known = this.toolRows.get(callId);
+      // A new call under a carried id is another call (cx-jzhka); an update finds its running call.
+      if (event.kind === "tool_call" && this.foldingBelow === undefined) this.openCalls.delete(callId);
+      const known =
+        this.toolRows.get(callId) ??
+        (event.kind === "tool_call_update" && this.foldingBelow === undefined ? this.openCalls.get(callId) : undefined);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
       // A terminal result can arrive on its own page before the opener. Keep that result in a
@@ -10968,6 +11038,8 @@ export class AcpmuxDirectClient {
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
+      if (this.foldingBelow === undefined && (!row.streaming || item.tool?.status === "stopped"))
+        this.openCalls.delete(callId);
       // A call folded before any prompt or turn start of its page (an older page cut mid-turn) has
       // no known scope: paging reconciliation may join it to that call's row in any turn.
       if (!this.toolRowScopes.has(id) && this.currentToolScope !== undefined)
@@ -17218,6 +17290,15 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   if (notAllowlisted.has(method)) return;
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
+
+/// Whether `notification` is one the app's host made, not the daemon: its question key requests
+/// (`_cmux/*`, AgentPaneTransport+QuestionKeys.swift) and the lag notice it writes when its own queue
+/// to the page fills (AcpmuxPaneShedding.swift, `host_queue_full`). Neither proves a daemon alive.
+function hostNotification(notification: Notification): boolean {
+  const method = notification.method;
+  if (typeof method !== "string" || method.startsWith("_cmux/")) return true;
+  return method === "_acpmux/lagged" && notification.params?.reason === "host_queue_full";
 }
 
 /// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
