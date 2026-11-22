@@ -37,7 +37,7 @@ use cmux_terminal_projection::sync::{
     HistoryTracker, MODE_APP_CURSOR, MODE_BRACKETED_PASTE, MODE_CURSOR_BLINK, MODE_FOCUS_EVENTS,
     MODE_MOUSE_ANY, MODE_MOUSE_BUTTON, MODE_MOUSE_NORMAL, MODE_MOUSE_SGR, MODE_MOUSE_SGR_PIXELS,
     MODE_MOUSE_URXVT, MODE_MOUSE_UTF8, MODE_MOUSE_X10, MODE_REVERSE_VIDEO, ScreenState, SyncCell,
-    SyncReceiver, SyncSender, parse_diff_datagram,
+    SyncReceiver, SyncSender,
 };
 use cmux_terminal_projection::terminal::{NARROW, SPACER_HEAD, WIDE, WIDE_TAIL};
 use ghostty_vt::{

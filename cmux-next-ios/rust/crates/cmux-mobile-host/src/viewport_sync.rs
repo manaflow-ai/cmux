@@ -125,8 +125,9 @@ impl Pacer {
         if self.tokens > 0.0 {
             return now;
         }
-        // Just past paying the debt, so the bucket is above zero then.
-        now + Duration::from_secs_f64(-self.tokens / self.rate) + Duration::from_micros(100)
+        // Just past paying the debt, so the bucket is above zero then. The debt is counted from
+        // the bucket's own clock, which a later refill may have moved past `now`.
+        self.at + Duration::from_secs_f64(-self.tokens / self.rate) + Duration::from_micros(100)
     }
 
     pub fn spend(&mut self, bytes: usize, now: Instant) {
