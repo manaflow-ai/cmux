@@ -3767,6 +3767,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
   }
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [homeListsShown, setHomeListsShown] = useState(false);
+  const [homeDotsShown, setHomeDotsShown] = useState(false);
+  const [stageLoading, setStageLoading] = useState(false);
   // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
   // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
   // straight onto the pane's main element, never pane state: the button comes and goes as the reader
@@ -14114,6 +14117,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
           // into the transcript, and restyle the composer each time.
           data-asks={hasBottomAsk ? "" : undefined}
+          // Children report their rendered state in layout effects, before the frame paints.
+          data-home-lists={homeListsShown || homeDotsShown ? "" : undefined}
+          data-stage-loading={stageLoading ? "" : undefined}
           // data-jump-latest: Jump to latest is up (hidden under the inspector), set by setJumpLatestShown.
           ref={setPaneMain}
         >
@@ -14773,6 +14779,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
                     unavailable={cloudUnavailable}
+                    onStageLoading={setStageLoading}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
                     error={cloudRecovery.error}
@@ -14858,6 +14865,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <div className="acpmux-home-area">
                     {dotGridArm !== "off" && (
                       <AgentDotGrid
+                        onPresence={setHomeDotsShown}
                         sessions={snapshot.sessions}
                         currentId={snapshot.sessionId}
                         onSelect={selectSession}
@@ -14865,6 +14873,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       />
                     )}
                     <HomeLists
+                      onPresence={setHomeListsShown}
                       sessions={snapshot.sessions}
                       currentId={snapshot.sessionId}
                       asks={snapshot.asks}

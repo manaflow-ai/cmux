@@ -880,7 +880,7 @@
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
 .nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
 /* The optional template switch keeps room under the stage footer. */
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) {
+.acpmux-main > .nt-style ~ .nt-screen[data-layout="stage"]:has(.nt-foot) {
   --nt-stage-foot: 22px;
 }
 .nt-screen[data-layout="stage"] .nt-stage {

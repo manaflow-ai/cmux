@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { useT } from "../i18n";
 import { sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
 import { agentDots, DOT_LABELS, DOT_STATES, dotCounts } from "./dotGridModel";
@@ -12,6 +13,7 @@ export function AgentDotGrid({
   onSelect,
   size = "regular",
   legend = false,
+  onPresence,
 }: {
   sessions: readonly AcpmuxSessionEntry[];
   /// The chat this pane shows: its dot is ringed, not hidden, so the grid counts every chat.
@@ -20,10 +22,16 @@ export function AgentDotGrid({
   size?: "regular" | "compact";
   /// A key of the five states under the grid, each with its count.
   legend?: boolean;
+  onPresence?: (shown: boolean) => void;
 }) {
   const t = useT();
   const dots = agentDots(sessions, (session) => sessionTitle(session, t));
-  if (dots.length === 0) return null;
+  const shown = dots.length > 0;
+  useLayoutEffect(() => {
+    onPresence?.(shown);
+    return () => onPresence?.(false);
+  }, [shown, onPresence]);
+  if (!shown) return null;
   const counts = dotCounts(dots);
   return (
     <section className="acpmux-dot-grid" data-size={size} aria-label={t("dotGrid.label", { count: dots.length })}>

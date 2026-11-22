@@ -1,3 +1,4 @@
+import { useLayoutEffect } from "react";
 import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
@@ -38,6 +39,7 @@ export function ChatUnavailableState({
   noteDelayMs = RESUME_NOTE_DELAY_MS,
   offlineDelayMs,
   line = false,
+  onStageLoading,
 }: {
   unavailable: ChatUnavailable;
   /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
@@ -61,6 +63,7 @@ export function ChatUnavailableState({
   offlineDelayMs?: number;
   /// Over the chat's last-read rows: a line under the header, not the centered state.
   line?: boolean;
+  onStageLoading?: (loading: boolean) => void;
 }) {
   const t = useT();
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
@@ -80,11 +83,15 @@ export function ChatUnavailableState({
   );
   // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
   // layout, until the chat opens or the wait goes on (then offline or paused, below).
-  if (
+  const loading =
     unavailable.reason === "connecting" ||
     (unavailable.reason === "paused" && !pausedShown) ||
-    (unavailable.reason === "offline" && !offlineShown)
-  )
+    (unavailable.reason === "offline" && !offlineShown);
+  useLayoutEffect(() => {
+    onStageLoading?.(loading && !line);
+    return () => onStageLoading?.(false);
+  }, [loading, line, onStageLoading]);
+  if (loading)
     return line ? null : (
       <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
     );

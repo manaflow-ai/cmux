@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import React, { memo, useLayoutEffect } from "react";
 import { useStableCallback } from "./stableCallback";
 
 import { HomeAge, HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
@@ -22,6 +22,7 @@ export function HomeLists({
   onAnswer,
   look,
   shortcuts = true,
+  onPresence,
 }: {
   sessions: AcpmuxSessionEntry[];
   currentId?: string;
@@ -36,12 +37,18 @@ export function HomeLists({
   look?: HomeInboxLook;
   /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
   shortcuts?: boolean;
+  onPresence?: (shown: boolean) => void;
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
   // One select for every row, calling the latest `onSelect`: a parent's new closure draws no row.
   const select = useStableCallback((sessionId: string) => onSelect(sessionId));
-  if (waiting.length === 0 && review.length === 0) return null;
+  const shown = waiting.length > 0 || review.length > 0;
+  useLayoutEffect(() => {
+    onPresence?.(shown);
+    return () => onPresence?.(false);
+  }, [shown, onPresence]);
+  if (!shown) return null;
   return (
     <div className="acpmux-home">
       <HomeInbox
