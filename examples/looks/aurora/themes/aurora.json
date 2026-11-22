@@ -9,6 +9,8 @@
 
   // Light and dark: one terminal theme for each, with Aurora's own colors.
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  // cmux's own window, sidebar and pages follow the terminal theme, not the person's App Theme.
+  "appearance.appTheme": "followTerminal",
   "appearance.themeEdits": {
     // Polar night: a blue-black sky, starlight text, the aurora's green-teal as the accent and
     // its violet upper edge as the cursor.

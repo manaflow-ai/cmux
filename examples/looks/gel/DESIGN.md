@@ -43,8 +43,10 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
 1. **One seed, two appearances, one file.** The theme file names a light/dark pair
    (`light:Builtin Light,dark:Builtin Dark`) and gives each its own tones through
    `appearance.themeEdits`, so the app follows the system appearance with no second file. The chat
-   stylesheet writes each token as `light-dark(light, dark)`: the host sets `color-scheme` on the
-   chat's root from the theme, so the right tone wins without a class or a media query.
+   stylesheet holds no color of its own: each token mixes the theme's `--agent-text` and
+   `--agent-accent` (as `bun run check:look-addons` requires), so it takes the theme's tone in each
+   appearance and follows the person's theme edits. The mixes were fitted to the tones in the
+   table above; muted and dim text land within a few hundredths of the contrasts the table's tones give.
 2. **Hierarchy: position, tone, weight, then color.**
    - Primary: what the agent said, on the opaque surface at 16:1 (light) and 14:1 (dark).
    - Current object: the selected tab, drawn in the content card's own color and flowing into it
@@ -141,8 +143,8 @@ the look moves no box).
 
 1. Fixed: the prompt corner. At 20 and then 16 a one-line prompt read as a capsule, which the
    house rules reserve for circular marks; it is 14 now and reads as a soft rounded container.
-2. Pass: the prompt bubble takes its own tone in each appearance (light-dark() follows the host's
-   color-scheme), with no edge, on the tonal step the references show.
+2. Pass: the prompt bubble takes its own tone in each appearance (its tint mixes the theme's text and
+   accent, so it follows the appearance), with no edge, on the tonal step the references show.
 3. Pass: no hairline on the prompt or on cards; text, muted and dim text read at the contrasts above.
 4. Open, evidence: the gallery draws the chat on the gallery's own page color, not the theme file,
    so the page tone, the sidebar glass, the flush-goo tab and the hover card are not in these
