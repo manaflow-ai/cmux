@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1430,
-    "shortcuts": 193
+    "entries": 1472,
+    "shortcuts": 205
   },
   "sections": [
     {
@@ -496,6 +496,12 @@
           "command": null
         },
         {
+          "id": "customize.reset",
+          "title": "Reset Element to Defaults",
+          "shortcut": null,
+          "command": "cmux action customize-reset"
+        },
+        {
           "id": "home.saveFlightRecording",
           "title": "Save Last 10 Seconds",
           "shortcut": null,
@@ -554,6 +560,12 @@
           "title": "Send Message…",
           "shortcut": null,
           "command": "cmux home send"
+        },
+        {
+          "id": "home.showSetup",
+          "title": "Set Up cmux…",
+          "shortcut": null,
+          "command": "cmux home setup"
         },
         {
           "id": "home.setChiefReplies",
@@ -1034,6 +1046,12 @@
           "title": "Float Docked Workspace",
           "shortcut": null,
           "command": "cmux workspace toggle-dock-floating"
+        },
+        {
+          "id": "space.followSession",
+          "title": "Follow Session in Space…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "groupSelectedWorkspaces",
@@ -1684,6 +1702,12 @@
           "command": "cmux workspace set-tint"
         },
         {
+          "id": "terminal.project",
+          "title": "Show Terminal in New Tab…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "revealWorkspaceInFinder",
           "title": "Show Workspace in Finder",
           "shortcut": null,
@@ -2074,6 +2098,12 @@
           "command": "cmux column float"
         },
         {
+          "id": "toggleFloatingPane",
+          "title": "Float Pane",
+          "shortcut": "⌥⇧⌘\r",
+          "command": "cmux pane toggle-floating"
+        },
+        {
           "id": "column.focusLeft",
           "title": "Focus Column Left",
           "shortcut": null,
@@ -2306,6 +2336,12 @@
           "title": "New Column Right",
           "shortcut": "⌃⌘X",
           "command": "cmux pane new-column"
+        },
+        {
+          "id": "newFloatingPane",
+          "title": "New Floating Pane",
+          "shortcut": "⌃⇧⌘N",
+          "command": "cmux pane new-floating"
         },
         {
           "id": "newPaneAutoLayout",
@@ -2689,6 +2725,12 @@
           "id": "toggleSplitZoom",
           "title": "Toggle Pane Zoom",
           "shortcut": "⇧⌘\r",
+          "command": null
+        },
+        {
+          "id": "toggleQuickTerminal",
+          "title": "Toggle Quick Terminal",
+          "shortcut": null,
           "command": null
         },
         {
@@ -4108,6 +4150,18 @@
           "command": "cmux browser theme"
         },
         {
+          "id": "browser.download.cancel",
+          "title": "Cancel Download",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browser.cast",
+          "title": "Cast…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.profile.choose",
           "title": "Choose Browser Profile…",
           "shortcut": null,
@@ -4144,6 +4198,12 @@
           "command": null
         },
         {
+          "id": "browser.download.copyLink",
+          "title": "Copy Download Link",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.copyURL",
           "title": "Copy Page URL",
           "shortcut": "⇧⌘C",
@@ -4154,6 +4214,12 @@
           "title": "Copy Text to Phone…",
           "shortcut": null,
           "command": "cmux phone paste"
+        },
+        {
+          "id": "browser.createQRCode",
+          "title": "Create QR Code for This Page",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "bookmark.remove",
@@ -4230,6 +4296,12 @@
         {
           "id": "devtools.toggleJavaScript",
           "title": "Developer Tools: Disable JavaScript",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "devtools.openDockedLeft",
+          "title": "Developer Tools: Dock to Left",
           "shortcut": null,
           "command": null
         },
@@ -4360,6 +4432,12 @@
           "command": null
         },
         {
+          "id": "diffViewerZoomReset",
+          "title": "Diff: Actual Size",
+          "shortcut": "⌘0",
+          "command": null
+        },
+        {
           "id": "diffViewerGoToBottom",
           "title": "Diff: Go to Bottom",
           "shortcut": "⇧G",
@@ -4423,6 +4501,18 @@
           "id": "diffViewerSearch",
           "title": "Diff: Search",
           "shortcut": "/",
+          "command": null
+        },
+        {
+          "id": "diffViewerZoomIn",
+          "title": "Diff: Zoom In",
+          "shortcut": "⌘=",
+          "command": null
+        },
+        {
+          "id": "diffViewerZoomOut",
+          "title": "Diff: Zoom Out",
+          "shortcut": "⌘-",
           "command": null
         },
         {
@@ -4522,6 +4612,12 @@
           "command": null
         },
         {
+          "id": "browser.extension.siteAccess",
+          "title": "Extension Site Access…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extensions.menu",
           "title": "Extensions…",
           "shortcut": null,
@@ -4560,6 +4656,12 @@
         {
           "id": "browser.certificateWarning.goBack",
           "title": "Go Back from Certificate Warning",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browser.goToHistoryEntry",
+          "title": "Go Back or Forward to…",
           "shortcut": null,
           "command": null
         },
@@ -4846,8 +4948,20 @@
           "command": "cmux browser open-directory-diff-viewer"
         },
         {
+          "id": "browser.download.open",
+          "title": "Open Download",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.downloads.showFolder",
           "title": "Open Downloads Folder",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browser.extension.homePage",
+          "title": "Open Extension Home Page",
           "shortcut": null,
           "command": null
         },
@@ -4996,10 +5110,22 @@
           "command": null
         },
         {
+          "id": "browser.download.togglePause",
+          "title": "Pause or Resume Download",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.pin",
           "title": "Pin Extension to Toolbar",
           "shortcut": null,
           "command": "cmux extension pin"
+        },
+        {
+          "id": "browser.toolbar.togglePin",
+          "title": "Pin or Unpin Browser Toolbar Button…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "phone.button",
@@ -5134,6 +5260,12 @@
           "command": null
         },
         {
+          "id": "browser.download.retry",
+          "title": "Retry Download",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "filePreviewRevealInFiles",
           "title": "Reveal File in cmux Files",
           "shortcut": null,
@@ -5167,6 +5299,12 @@
           "id": "saveFilePreview",
           "title": "Save File",
           "shortcut": "⌘S",
+          "command": null
+        },
+        {
+          "id": "browser.savePageAs",
+          "title": "Save Page As…",
+          "shortcut": null,
           "command": null
         },
         {
@@ -5320,8 +5458,20 @@
           "command": null
         },
         {
+          "id": "browser.download.reveal",
+          "title": "Show Download in Finder",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.downloads.show",
           "title": "Show Downloads…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browser.extension.details",
+          "title": "Show Extension Details",
           "shortcut": null,
           "command": null
         },
@@ -5452,6 +5602,12 @@
           "command": null
         },
         {
+          "id": "browser.translate",
+          "title": "Translate Page…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.pageInfo.reenableCertificateWarnings",
           "title": "Turn On Certificate Warnings Again",
           "shortcut": null,
@@ -5468,6 +5624,12 @@
           "title": "Unpin Extension from Toolbar",
           "shortcut": null,
           "command": "cmux extension unpin"
+        },
+        {
+          "id": "browser.extension.webPermissions",
+          "title": "View Extension Web Permissions",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "browser.pageInfo",
@@ -6256,6 +6418,12 @@
           "command": "cmux agent zoom-out"
         },
         {
+          "id": "agentPane.composer.agentOptions",
+          "title": "Agent Options…",
+          "shortcut": "⌃⌥⌘G",
+          "command": null
+        },
+        {
           "id": "agentPane.permission.allowChat",
           "title": "Allow for This Chat",
           "shortcut": "⌥⌘2",
@@ -6322,12 +6490,6 @@
           "command": null
         },
         {
-          "id": "chief.screenShare.look",
-          "title": "Chief: Look at Screen Now",
-          "shortcut": null,
-          "command": "cmux chief look-at-screen"
-        },
-        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
@@ -6340,10 +6502,16 @@
           "command": null
         },
         {
-          "id": "chief.screenShare.toggle",
-          "title": "Chief: Toggle Screen Sharing",
-          "shortcut": null,
-          "command": "cmux chief toggle-screen-share"
+          "id": "agentPane.composer.chooseComputer",
+          "title": "Choose Computer…",
+          "shortcut": "⌃⌥⌘K",
+          "command": null
+        },
+        {
+          "id": "agentPane.composer.chooseFolder",
+          "title": "Choose Folder…",
+          "shortcut": "⌃⌥⌘O",
+          "command": null
         },
         {
           "id": "agentPane.git.commit",
@@ -6658,6 +6826,18 @@
           "command": null
         },
         {
+          "id": "agent.openSessionWorkspace",
+          "title": "Open Agent Session in New Workspace",
+          "shortcut": null,
+          "command": "cmux agent open"
+        },
+        {
+          "id": "agent.openSessionTab",
+          "title": "Open Agent Session in Tab",
+          "shortcut": null,
+          "command": "cmux agent open-tab"
+        },
+        {
           "id": "agentPane.openCwdInTerminal",
           "title": "Open Chat Folder in Terminal",
           "shortcut": null,
@@ -6808,10 +6988,10 @@
           "command": "cmux share chat"
         },
         {
-          "id": "chief.screenShare.start",
-          "title": "Share Screen with Chief",
-          "shortcut": null,
-          "command": "cmux chief share-screen"
+          "id": "agentPane.composer.addMenu",
+          "title": "Show Add Menu",
+          "shortcut": "⌃⌥⌘A",
+          "command": null
         },
         {
           "id": "agentBoard.show",
@@ -6830,6 +7010,12 @@
           "title": "Show Background Tasks in Session Info",
           "shortcut": null,
           "command": "cmux agent show-background-tasks"
+        },
+        {
+          "id": "agentPane.composer.showContextUsage",
+          "title": "Show Context Usage",
+          "shortcut": "⌃⌥⌘U",
+          "command": null
         },
         {
           "id": "agentPane.showInMini",
@@ -6880,12 +7066,6 @@
           "command": "cmux agent stop-reading-aloud"
         },
         {
-          "id": "chief.screenShare.stop",
-          "title": "Stop Sharing Screen with Chief",
-          "shortcut": null,
-          "command": "cmux chief stop-sharing-screen"
-        },
-        {
           "id": "home.stopChief",
           "title": "Stop the Chief",
           "shortcut": null,
@@ -6895,6 +7075,12 @@
           "id": "voiceRoom.stop",
           "title": "Stop Voice Room",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentPane.composer.switchMode",
+          "title": "Switch Mode…",
+          "shortcut": "⌃⌥⌘M",
           "command": null
         },
         {
@@ -6926,6 +7112,12 @@
           "title": "Toggle Files Beside Chat",
           "shortcut": null,
           "command": "cmux agent toggle-files"
+        },
+        {
+          "id": "agentPane.composer.togglePlan",
+          "title": "Toggle Plan Mode",
+          "shortcut": "⌃⌥⌘P",
+          "command": null
         },
         {
           "id": "agentPane.togglePreview",
@@ -7354,6 +7546,12 @@
           "command": "cmux cloud file-remove"
         },
         {
+          "id": "cloud.secret.remove",
+          "title": "Remove Cloud Secret…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "cloudRenameMachine",
           "title": "Rename Machine…",
           "shortcut": null,
@@ -7654,6 +7852,12 @@
           "command": null
         },
         {
+          "id": "remote.setQuality",
+          "title": "Set Screen Sharing Quality…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "workspace.setRemoteLocalhost",
           "title": "Set Workspace Localhost…",
           "shortcut": null,
@@ -7736,6 +7940,12 @@
           "title": "Base Keymap…",
           "shortcut": null,
           "command": "cmux settings base-keymap"
+        },
+        {
+          "id": "updates.cancelDownload",
+          "title": "Cancel Update Download",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.onOverflow",
@@ -8068,6 +8278,18 @@
           "command": "cmux settings toggle-menu-and-card-animations"
         },
         {
+          "id": "tips.muteDay",
+          "title": "Mute Tips for 1 Day",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "tips.muteWeek",
+          "title": "Mute Tips for 1 Week",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "nowPlaying.disableCard",
           "title": "Never Show Media Card",
           "shortcut": null,
@@ -8128,6 +8350,12 @@
           "command": null
         },
         {
+          "id": "updates.releaseNotes",
+          "title": "Open Update Release Notes",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "debug.viewWindow",
           "title": "Open View Window",
           "shortcut": null,
@@ -8160,6 +8388,12 @@
         {
           "id": "appearance.personalize",
           "title": "Personalization…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "tabs.toolbar.togglePin",
+          "title": "Pin or Unpin Tab Bar Button…",
           "shortcut": null,
           "command": null
         },
@@ -8198,6 +8432,12 @@
           "title": "Reset Appearance to Inherited",
           "shortcut": null,
           "command": "cmux appearance reset"
+        },
+        {
+          "id": "customize.library.reset",
+          "title": "Reset Customization Library",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "debug.blockingCalls.reset",
@@ -8350,6 +8590,12 @@
           "command": "cmux media show-card"
         },
         {
+          "id": "updates.showDetails",
+          "title": "Show Update Details",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.animations.sidebar.toggle",
           "title": "Sidebar Animations",
           "shortcut": null,
@@ -8384,6 +8630,12 @@
           "title": "Sign-In Pages: Open in cmux Browser",
           "shortcut": null,
           "command": "cmux settings open-sign-in-pages-in-cmux"
+        },
+        {
+          "id": "updates.snooze",
+          "title": "Snooze Update Card…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "appearance.animations.indicators.toggle",

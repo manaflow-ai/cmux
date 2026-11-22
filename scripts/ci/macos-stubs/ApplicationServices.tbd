@@ -1,0 +1,35 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos ]
+install-name:    '/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices'
+current-version: 66.0.0
+compatibility-version: 1.0.0
+exports:
+  - targets:         [ x86_64-macos, arm64-macos ]
+    symbols:         [
+                       '_AXIsProcessTrusted',
+                       '_AXIsProcessTrustedWithOptions',
+                       '_AXObserverAddNotification',
+                       '_AXObserverCreate',
+                       '_AXObserverGetRunLoopSource',
+                       '_AXObserverRemoveNotification',
+                       '_AXUIElementCopyActionNames',
+                       '_AXUIElementCopyAttributeValue',
+                       '_AXUIElementCopyElementAtPosition',
+                       '_AXUIElementCopyMultipleAttributeValues',
+                       '_AXUIElementCopyParameterizedAttributeValue',
+                       '_AXUIElementCreateApplication',
+                       '_AXUIElementCreateSystemWide',
+                       '_AXUIElementGetAttributeValueCount',
+                       '_AXUIElementGetPid',
+                       '_AXUIElementGetTypeID',
+                       '_AXUIElementIsAttributeSettable',
+                       '_AXUIElementPerformAction',
+                       '_AXUIElementSetAttributeValue',
+                       '_AXUIElementSetMessagingTimeout',
+                       '_AXValueCreate',
+                       '_AXValueGetType',
+                       '_AXValueGetTypeID',
+                       '_AXValueGetValue',
+                       '_kAXTrustedCheckOptionPrompt' ]
+...
