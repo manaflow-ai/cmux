@@ -18,6 +18,10 @@ export function setNativeHost(next: NativeHost | undefined): void {
 /// Requests posted to the native host by method, since the last `takeNativePosts` (the benches: what a
 /// keystroke asks of the app).
 const nativePosts = new Map<string, number>();
+/// The same counts without clearing them (idleProbe.ts: what an idle window asks of the app).
+export function peekNativePosts(): Record<string, number> {
+  return Object.fromEntries(nativePosts);
+}
 export function takeNativePosts(): Record<string, number> {
   const out = Object.fromEntries(nativePosts);
   nativePosts.clear();
