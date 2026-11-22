@@ -332,7 +332,7 @@ class GalleryHealthBrowserConsistency(unittest.TestCase):
                 "PATH": str(work / "bin") + os.pathsep + os.defpath,
                 "GITHUB_WORKSPACE": str(work), "GITHUB_ENV": str(env_file),
                 "RUNNER_TEMP": str(work), "TEST_BROWSER": browser, "TEST_LAUNCHES": str(launches),
-                "ALL": "true", "IDS": "", "SHARD": "0", "pass": "1",
+                "ALL": "true", "IDS": "", "SHARD": "0", "SHARDS": "1", "pass": "1",
             })
             render = next(entry for entry in steps if entry.get("id") == "render")
             for entry in steps:
