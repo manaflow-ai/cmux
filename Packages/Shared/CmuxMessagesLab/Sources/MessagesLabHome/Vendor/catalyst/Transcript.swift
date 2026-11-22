@@ -173,7 +173,7 @@ final class TranscriptModel {
         let keepEnd = rows.count - dropTail
         guard dropHead <= keepEnd else { return }
         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
-        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // clamped slice
+        rows = newHead.map(make) + Array(rows.slice(dropHead, keepEnd)) + newTail.map(make) // clamped slice; Array() so Xcode 27 does not pick the ArraySlice `+`
         rebuild()
     }
 
