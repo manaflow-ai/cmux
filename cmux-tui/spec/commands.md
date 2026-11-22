@@ -457,7 +457,7 @@ Until the response is sent the handoff can still fail, so the daemon keeps every
 
 The identity fence and trusted-local authority apply even when `force` is true. A stale process or generation is rejected, so reconnecting the same socket path cannot redirect a recovery command to another daemon.
 
-With `if_idle` (`daemon-stop-if-idle-v1`, `cmux daemon stop --if-idle`), the daemon stops only while no other client is connected and no terminal is launching, adopting or running. It checks after it reserved the handoff, which refuses every new client, so no client can connect and start work between the check and the stop. Otherwise it refuses with `error_code` `daemon_busy`, says what uses it in `error` and in `error_details` (`{clients:[{client,name,kind}],terminals}`), releases the reservation and keeps serving. A terminal registry it cannot read refuses too. An older daemon ignores `if_idle` and stops, so a client sends it only to a daemon that advertises the capability.
+With `if_idle` (`daemon-stop-if-idle-v1`, `cmux daemon stop --if-idle`), the daemon stops only while no other client is connected and no terminal is launching, adopting or running. It checks after it reserved the handoff, which refuses every new client, so no client can connect and start work between the check and the stop. Otherwise it refuses with `error_code` `daemon_busy`, says what uses it in `error` and in `error_details` (`{clients:[{client,name,kind}],terminals,closed_tabs}`), releases the reservation and keeps serving. `closed_tabs` counts the live terminals whose last tab closed and that the daemon's reaper will end: each ends after the reap grace unless a tab shows it again (Reopen Closed attaches to it until then), so a stop once they ended succeeds. It is 0 when the daemon runs no reaper (a `--headless` owner started without `--terminal-reap-grace-seconds`), and kept terminals never count. A terminal registry it cannot read refuses too. An older daemon ignores `if_idle` and stops, so a client sends it only to a daemon that advertises the capability.
 
 Errors include stale identity, non-local transport, another native-browser owner when unforced, an existing handoff, and `daemon_busy` with `if_idle`.
 
@@ -9366,6 +9366,8 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Servers advertising `terminal-resume-v1` keep a bounded (4 MiB) per-terminal output ring keyed by a monotonic byte offset, plus an opaque `generation` string that changes whenever the stream is not a pure byte continuation (terminal recreated, resize, color change). A client that sets `terminal-resume-v1` in `set-client-info`, or sends `resume_offset`, receives `offset` (the stream position after the frame) and `generation` on `vt-state`, `output`, `resized`, and `colors-changed` frames. To resume after a drop the client re-attaches with `resume_offset` and `resume_generation` (both or neither; otherwise an error). If the generation matches and the range is still held, the response carries `resume:"exact"` and `through`, no `vt-state` is sent and no reset is needed: the first event is an `output` frame with `resume:"exact"` holding exactly the bytes after `resume_offset` (possibly empty). Otherwise the reply is the normal attach (`vt-state` with full replay) plus `resume:"gap"`, and the client replaces its mirror as today. Servers without the capability ignore nothing: clients must not send the fields to them.
+
 Servers advertising `attach-identity-v1` accept paired `expected_generation`
 and `expected_terminal_id`. Both must match before any stream or lease is
 created. With this pair, clients may omit `surface`: the daemon resolves the
@@ -9577,6 +9579,8 @@ Params:
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
+| `resume_offset` | `uint64` | default null | `terminal-resume-v1`; paired with `resume_generation`; PTY bytes mode only |
+| `resume_generation` | `string` | default null | `terminal-resume-v1`; the `generation` the client last saw on an output frame |
 | `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 | `snapshot_images` | `bool` | default false | Ignored: the former `terminal-snapshot-images-v1`; GHOSTSNP carries the images |
 | `replay_history_rows` | `uint32` | default null (whole history) | `attach-replay-history-rows-v1`; bytes mode without `snapshot` |
