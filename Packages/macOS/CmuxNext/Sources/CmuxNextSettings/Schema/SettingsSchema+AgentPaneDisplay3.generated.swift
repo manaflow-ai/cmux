@@ -6,6 +6,39 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.statusVerbsCustomPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
+                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help", "Comma-separated -ing verbs for the live status line."),
+                kind: .text,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "custom", "comma", "thinking"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmer", "Thinking Shimmer"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmer.help", "How the light band moves across the live status line."),
+                kind: .choice([
+                    SettingChoice("cadenced", SettingsText.keyed("settings.choice.thinkingShimmerCadenced", "Every Few Seconds")),
+                    SettingChoice("continuous", SettingsText.keyed("settings.choice.thinkingShimmerContinuous", "Continuous")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.thinkingShimmerDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "status", "animation", "sweep", "claude"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod", "Shimmer Speed"),
+                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerPeriod.help", "How long one continuous pass of the shimmer takes."),
+                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
+                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
+                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
                 section: .appearance,
                 group: group,
@@ -54,6 +87,36 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railShowPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.show", "Prompt Rail Shows"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.show.help", "Right-click the rail to change it."),
+                kind: .choice([
+                    SettingChoice("prompts", SettingsText.keyed("settings.agentPane.display.rail.show.prompts", "All Messages")),
+                    SettingChoice("mine", SettingsText.keyed("settings.agentPane.display.rail.show.mine", "My Messages")),
+                    SettingChoice("received", SettingsText.keyed("settings.agentPane.display.rail.show.received", "Agent Messages")),
+                    SettingChoice("replies", SettingsText.keyed("settings.agentPane.display.rail.show.replies", "Agent Replies")),
+                    SettingChoice("everything", SettingsText.keyed("settings.agentPane.display.rail.show.everything", "Messages and Replies")),
+                    SettingChoice("errors", SettingsText.keyed("settings.agentPane.display.rail.show.errors", "Turns with Errors")),
+                    SettingChoice("edits", SettingsText.keyed("settings.agentPane.display.rail.show.edits", "Turns with Edits")),
+                    SettingChoice("tools", SettingsText.keyed("settings.agentPane.display.rail.show.tools", "Turns with Tool Calls")),
+                    SettingChoice("subagents", SettingsText.keyed("settings.agentPane.display.rail.show.subagents", "Turns with Subagents")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.railShowDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "filter", "replies", "errors", "edits", "tools", "subagents"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railControlPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.control", "Prompt Rail Button"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.control.help", "Shows what the rail lists above it while you point at it."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.railControlDefault),
+                keywords: ["agent", "chat", "acp", "display", "rail", "minimap", "filter", "button", "control", "replies"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.commandLabelsPath,
