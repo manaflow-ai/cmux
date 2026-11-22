@@ -287,12 +287,11 @@ def comment_only(path: str, before: str | None, after: str | None) -> bool:
 
 
 def doc_unread(selector: "wa.Selector", f: str) -> bool:
-    """Whether F is a doc that no webviews file names (by path, webviews-relative path or a long enough basename)."""
-    if not DOCS.search(f):
+    """Whether F is a doc that no webviews file imports or names (its basename anywhere counts: `./x.md?raw`)."""
+    if not DOCS.search(f) or selector.graph.importers.get(f):
         return False
     name = Path(f).name
-    keys = [f, f.removeprefix(wa.WEB)] + ([name] if len(name) >= wa.NAME_MIN else [])
-    return not any(k in text for text in selector.text.values() for k in keys)
+    return not any(name in text for text in selector.text.values())
 
 
 def fast_why(repo: Path, selector: "wa.Selector", base: str, head: str, f: str) -> str:
