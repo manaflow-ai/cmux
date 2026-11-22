@@ -248,4 +248,11 @@ fn shell_quoting_survives_a_quote() {
         fallback_unit("/b/optchat-chief")
             .contains("ExecStart=/bin/sh -c 'exec /b/optchat-chief host")
     );
+    // Its own acpmux home: the machine's not-dumpable daemon would be refused as its peer.
+    assert!(
+        fallback_unit("/b/x").contains("Environment=ACPMUX_HOME=/home/cmux/.cmux/chief/acpmux\n")
+    );
+    assert!(
+        fallback_unit("/b/x").contains("Environment=ACPMUX_BIN=/opt/cmux/current/bin/acpmux\n")
+    );
 }

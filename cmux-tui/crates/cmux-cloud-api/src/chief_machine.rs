@@ -49,6 +49,12 @@ pub const HOST_UNIT: &str = "cmux-chief.service";
 const STATE_DIR: &str = concat!("/home/cmux/", ".cm", "ux/", "chief/cloud");
 /// The work user's install file, where the unit looks for it.
 pub const INSTALL_FILE: &str = concat!("/home/cmux/", ".cm", "ux/", "chief/cloud", "/install.json");
+/// The acpmux the host trusts as its socket peer (acpmux_peer.rs): the image's multicall binary.
+const ACPMUX_BIN: &str = "/opt/cmux/current/bin/acpmux";
+/// The host's own acpmux home, so it starts that daemon as its child: the machine's ~/.acpmux
+/// daemon makes itself not dumpable, its /proc/PID/exe is hidden, and acpmux_peer.rs then admits
+/// only a daemon this host started (the same env as the image's unit, #50074).
+const ACPMUX_HOME: &str = concat!("/home/cmux/", ".cm", "ux/", "chief/acpmux");
 /// How long a machine may take to run with a host.
 const MACHINE_WAIT: Duration = Duration::from_secs(420);
 /// How long the pairing may take to print its code, and then to write the placed Chief.
@@ -253,6 +259,8 @@ pub fn fallback_unit(binary: &str) -> String {
          Group=cmux\n\
          Environment=HOME=/home/cmux\n\
          Environment=OPTCHAT_CLOUD_INSTALL={file}\n\
+         Environment=ACPMUX_BIN={ACPMUX_BIN}\n\
+         Environment=ACPMUX_HOME={ACPMUX_HOME}\n\
          EnvironmentFile=-/etc/cmux/chief.env\n\
          ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {file} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
          Restart=always\n\
@@ -335,7 +343,11 @@ async fn machine<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
                     .op(
                         "cloud.machine.start",
                         json!({ "machine": id }),
-                        &format!("chief-machine-{}-start-{}", start.key, row["revision"]),
+                        &format!(
+                            "chief-machine-{}-start-{}",
+                            start.key,
+                            row.get("revision").unwrap_or(&Value::Null)
+                        ),
                     )
                     .await?;
             }
@@ -414,15 +426,16 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
             )
             .await?;
     }
-    let mut answer = json!({ "machine": id, "machine_name": start.machine_name });
     if start.until_machine {
-        answer["stage"] = json!("machine");
-        return Ok(answer);
+        return Ok(
+            json!({ "machine": id, "machine_name": start.machine_name, "stage": "machine" }),
+        );
     }
 
     let mut probe = probe(cloud, &id).await?;
     if probe.binary.is_none() && !probe.unit {
-        return Err(host_command(&probe).unwrap_err());
+        // host_command refuses exactly this probe (chief.host_missing).
+        host_command(&probe)?;
     }
     let mut waited = Duration::ZERO;
     let mut approved = false;
@@ -447,10 +460,8 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         }
         // The pairing ended without the Chief (refused, expired, or its wait ran out): again.
         if !probe.pairing {
-            if let Some(error) = &probe.pair_error {
-                if probe.install.is_none() && approved {
-                    return Err(refused("chief.pair_failed", error.clone()));
-                }
+            if let (Some(error), None, true) = (&probe.pair_error, &probe.install, approved) {
+                return Err(refused("chief.pair_failed", error.clone()));
             }
             exec_ok(cloud, &id, &pair_command(&start.api, &start.machine_name)).await?;
             approved = false;
@@ -471,13 +482,16 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         how
     };
     let chief = probe.chief.clone().unwrap_or_default();
-    answer["host"] = json!(probe.host);
-    answer["install"] = json!(probe.install);
-    answer["chief"] = json!(chief);
-    answer["conversation"] = json!(probe.conversation);
-    answer["host_unit"] = json!(host_unit);
-    answer["stage"] = json!("done");
-    Ok(answer)
+    Ok(json!({
+        "machine": id,
+        "machine_name": start.machine_name,
+        "host": probe.host,
+        "install": probe.install,
+        "chief": chief,
+        "conversation": probe.conversation,
+        "host_unit": host_unit,
+        "stage": "done",
+    }))
 }
 
 /// The person's session: the request's API and credential.
