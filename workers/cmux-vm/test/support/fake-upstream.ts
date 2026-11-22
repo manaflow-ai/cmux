@@ -131,7 +131,12 @@ export function makeFakeUpstream(apiKey: string) {
   const identities = new Map<string, FakeIdentity>();
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
   /** Exec responses by command; the default echoes the command. */
-  const execReplies = new Map<string, () => Response>();
+  const execReplies = new Map<string, (request: Request) => Response>();
+  /**
+   * Background requests (x-freestyle-background-after-secs): the answers a GET of
+   * /v5/background-requests/{id} gives, in order; the last one repeats.
+   */
+  const backgroundRequests = new Map<string, Array<() => Response>>();
   const resizeReplies = new Map<string, () => Response>();
   const updateReplies = new Map<string, () => Response>();
 
@@ -358,7 +363,7 @@ export function makeFakeUpstream(apiKey: string) {
         const body: unknown = await request.clone().json();
         const command = typeof body === "object" && body !== null && "command" in body ? String(body.command) : "";
         const reply = execReplies.get(command);
-        if (reply !== undefined) return reply();
+        if (reply !== undefined) return reply(request);
         if (vm.state !== "running") return conflict("the VM is not running");
         if (command === "poweroff") {
           // As in the guest image: only root may power it off; the default user (ubuntu) is refused and the VM runs on.
@@ -477,6 +482,13 @@ export function makeFakeUpstream(apiKey: string) {
     if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
+    const background = /^\/v5\/background-requests\/([^/]+)$/.exec(url.pathname);
+    if (background !== null && request.method === "GET") {
+      const answers = backgroundRequests.get(decodeURIComponent(background[1] ?? ""));
+      if (answers === undefined) return Response.json({ code: "NOT_FOUND", message: "no such background request" }, { status: 404 });
+      const next = answers.length > 1 ? answers.shift() : answers[0];
+      return next === undefined ? Response.json({ code: "NOT_FOUND" }, { status: 404 }) : next();
+    }
     const route = operationOf(request.method, url);
     if (route === null) return Response.json({ code: "NOT_FOUND", message: "no route" }, { status: 404 });
     return handle(route.operation, request, url, route.vmId);
@@ -502,9 +514,31 @@ export function makeFakeUpstream(apiKey: string) {
       for (let index = 0; index < times; index += 1) queue.push(body === undefined ? { status } : { status, body });
       failures.set(operation, queue);
     },
-    /** Answers exec of exactly `command` with `reply()`. */
-    replyToExec(command: string, reply: () => Response) {
+    /** Answers exec of exactly `command` with `reply(request)`. */
+    replyToExec(command: string, reply: (request: Request) => Response) {
       execReplies.set(command, reply);
+    },
+    /**
+     * Exec of `command` as the provider runs one that outlives its edge: held open without a
+     * background header, the edge cuts it (524, as Freestyle's did at about 120 s); with
+     * x-freestyle-background-after-secs it answers 202 with a request id, whose GET answers
+     * `pending` 202s, then `result`.
+     */
+    longExec(command: string, result: () => Response, pending = 2) {
+      const id = `bg-${crypto.randomUUID()}`;
+      execReplies.set(command, (request) => {
+        if (request.headers.get("x-freestyle-background-after-secs") === null) {
+          return new Response("error code: 524", { status: 524 });
+        }
+        const accepted = () => Response.json({ requestId: id, status: "pending" }, { status: 202 });
+        backgroundRequests.set(id, [...Array.from({ length: pending }, () => accepted), result]);
+        return Response.json({ requestId: id }, { status: 202, headers: { "x-freestyle-background-request-id": id } });
+      });
+      return id;
+    },
+    /** Puts `answers` in front of background request `id`'s remaining answers. */
+    backgroundAnswers(id: string, ...answers: Array<() => Response>) {
+      backgroundRequests.set(id, [...answers, ...(backgroundRequests.get(id) ?? [])]);
     },
     addVm(state: string): FakeVm {
       const vm: FakeVm = {
