@@ -558,6 +558,34 @@ vite="$results/vite"
 : > "$results/warmed"
 : > "$results/warm-tries"
 : > "$results/dev-rest"
+# Each config with a config file of its own gets its dependency cache from webviews/scripts/warm-vite-dep-cache.mjs
+# first (about 1 s each): its server's first scan, committed, with no test file. Warming with a file ran that file
+# alone, and in 15 shard logs (2026-11-21/22) it was a red whole-gallery sweep: control-contrast-N (about 610 s)
+# and then accent-glass-invariants-N (about 460 s), one at a time on 16 vCPU, 32% of the shards' test time
+# (a sweep reads the built gallery, so it never filled the cache). A config whose warm fails, and the default
+# config, warm with a file as before. Off unless CMUX_WEB_TEST_PREWARM_DEPS=1 (repo variable): on 62 dev server
+# files (one shard's, one 16-core machine, one harness) it made the run 697 s -> 772 s, so it waits on CI numbers.
+if [ "${CMUX_WEB_TEST_PREWARM_DEPS:-0}" = 1 ] && [ -s "$results/serial" ] && [ -f scripts/warm-vite-dep-cache.mjs ]; then
+  for config in pane gallery settings; do
+    case "$config" in
+      pane) config_file=vite.config.acpmux-pane.mjs ;;
+      gallery) config_file=vite.config.gallery-dev.ts ;;
+      settings) config_file=vite.config.settings-page.mjs ;;
+    esac
+    xargs -0 grep -lF -- "$config_file" < "$results/serial" > /dev/null 2>&1 || continue
+    seed="$vite/seed-$config-0"
+    mkdir -p "$seed"
+    if CMUX_VITE_CACHE_DIR="$seed" run_with_timeout 300 bun scripts/warm-vite-dep-cache.mjs "$config_file" > "$results/warm-deps-$config.log" 2>&1 < /dev/null &&
+      [ -s "$seed/deps/_metadata.json" ]; then
+      grep '^warm-vite-dep-cache:' "$results/warm-deps-$config.log" || true
+      printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
+    else
+      echo "warm-vite-dep-cache failed for $config_file; a $config file warms its cache"
+      tail -n 20 "$results/warm-deps-$config.log" || true
+      rm -rf "$seed" || true
+    fi
+  done
+fi
 while IFS= read -r -d '' file; do
   config="$(vite_config "$file")"
   tried="$(grep -cxF "$config" "$results/warm-tries" || true)"
