@@ -80,11 +80,21 @@ const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 /// `commonmark`: fences read as CommonMark reads them (slashCommands.ts fenceOpening and closesFence:
 /// tildes too, at most three spaces of indent, no backtick in a backtick fence's info string), as a
 /// sent prompt's are, so its code is what send reads as code.
-export function parseMarkdown(src: string, options: { messageAt?: number; commonmark?: boolean } = {}): MdBlock[] {
-  const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  const blocks = parseLines(lines, 0, options.commonmark === true);
+export function parseMarkdown(
+  src: string,
+  options: { messageAt?: number; commonmark?: boolean; info?: ParseInfo } = {},
+): MdBlock[] {
+  const origin: number[] | undefined = options.info ? [] : undefined;
+  const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"), origin);
+  const blocks = parseLines(lines, 0, options.commonmark === true, options.info);
+  if (options.info && options.info.lastStart >= 0) options.info.lastStart = origin![options.info.lastStart]!;
   return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
 }
+
+/// What the streaming parser (incrementalMarkdown.ts) reads of a parse besides its blocks: the
+/// source line the last top-level block starts on (-1 when there is none), and whether a top-level
+/// `$$` display found no closing line, so text after the source could still turn it into math.
+export type ParseInfo = { lastStart: number; pendingDisplay: boolean };
 
 function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
   return blocks.map((block) => {
@@ -119,8 +129,8 @@ function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
   });
 }
 
-/// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
-function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
+/// `depth`: how many quotes and lists hold these lines (MAX_NESTING). `info`: the top level's.
+function parseLines(lines: string[], depth = 0, commonmark = false, info?: ParseInfo): MdBlock[] {
   const out: MdBlock[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -129,6 +139,8 @@ function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
       i++;
       continue;
     }
+    // Every other line starts exactly one block.
+    if (info) info.lastStart = i;
     const opening = commonmark ? fenceOpening(line) : undefined;
     if (opening) {
       const body: string[] = [];
@@ -162,7 +174,7 @@ function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
       });
       continue;
     }
-    const display = displayMath(lines, i);
+    const display = displayMath(lines, i, info);
     if (display) {
       out.push({ type: "math", tex: display.tex });
       i = display.next;
@@ -235,7 +247,7 @@ function parseLines(lines: string[], depth = 0, commonmark = false): MdBlock[] {
 /// whose last line ends with `$$` (`\[ … \]` was rewritten to these by normalizeMath). A line
 /// with more text after its closing `$$` is a paragraph (the equation draws inline), and an
 /// opener that never closes is too.
-function displayMath(lines: string[], start: number): { tex: string; next: number } | null {
+function displayMath(lines: string[], start: number, info?: ParseInfo): { tex: string; next: number } | null {
   const open = lines[start]!.match(/^\s*\$\$(.*)$/);
   if (!open) return null;
   const rest = open[1]!;
@@ -257,6 +269,7 @@ function displayMath(lines: string[], start: number): { tex: string; next: numbe
     const tex = body.join("\n").trim();
     return tex ? { tex, next: j + 1 } : null;
   }
+  if (info) info.pendingDisplay = true;
   return null;
 }
 
