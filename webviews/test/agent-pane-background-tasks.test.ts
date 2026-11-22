@@ -320,6 +320,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
         );
         await page.locator(".acpmux-shell[data-background-pane] > .acpmux-bg").waitFor({ timeout: 10_000 });
         // A loop that starts once the panel draws, or once its tasks' clocks tick, shows up in this time.
+        // fixed-wait: this asserts an absence (no update loop) across at least two 1 s task-clock ticks;
+        // no DOM state marks "no loop happened", so the window itself is the condition.
         await page.waitForTimeout(2_500);
         expect(errors.filter((error) => /Maximum update depth|Too many re-renders|#185|#301/.test(error))).toEqual([]);
         expect(await page.locator(".acpmux-pane-failed").count()).toBe(0);
