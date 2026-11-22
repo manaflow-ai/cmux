@@ -1,4 +1,5 @@
 import { currentLanguage, type Translate, translate } from "./i18n";
+import { intl } from "../../ui/intl";
 
 const WEEK_MINUTES = 7 * 24 * 60;
 
@@ -15,7 +16,7 @@ export function ageWithDate(
   const minutes = Math.floor(elapsedMs / 60_000);
   if (minutes >= WEEK_MINUTES) {
     const language = currentLanguage() || globalThis.navigator?.language || "en";
-    return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(updatedAt));
+    return intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(updatedAt));
   }
   return relative(minutes, t, elapsedMs);
 }
