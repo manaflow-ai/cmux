@@ -60,8 +60,10 @@ test("a change goes to the daemon and the row shows the value it answered", asyn
 });
 
 test("Reset to Default in the row's menu sends null and the row shows the manifest's default", async () => {
-  const page = await renderCard(<ExtensionsCard />, (provider) => {
-    provider.extensionApps[0]!.stored = { size: "large" };
+  const page = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionApps[0]!.stored = { size: "large" };
+    },
   });
   expect(row(page.container, "size").querySelector<HTMLSelectElement>("select")!.value).toBe("large");
   await fire(row(page.container, "size").querySelector(".row-title")!, "contextmenu");
@@ -75,8 +77,10 @@ test("Reset to Default in the row's menu sends null and the row shows the manife
 });
 
 test("a value the manifest refuses shows the daemon's reason and the row keeps the stored value", async () => {
-  const page = await renderCard(<ExtensionsCard />, (provider) => {
-    provider.extensionApps[0]!.schema.properties.limit!.maximum = 20;
+  const page = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionApps[0]!.schema.properties.limit!.maximum = 20;
+    },
   });
   const limit = row(page.container, "limit").querySelector<HTMLInputElement>("input")!;
   // The field clamps to the manifest's range, so the daemon's own check is reached with a stale
@@ -91,13 +95,17 @@ test("a value the manifest refuses shows the daemon's reason and the row keeps t
 });
 
 test("with no extension that declares settings, or a host without them, the card says so", async () => {
-  const empty = await renderCard(<ExtensionsCard />, (provider) => {
-    provider.extensionApps = [];
+  const empty = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionApps = [];
+    },
   });
   expect(empty.container.querySelector("[data-extensions-empty]")).not.toBeNull();
   empty.unmount();
-  const old = await renderCard(<ExtensionsCard />, (provider) => {
-    provider.extensionsUnsupported = true;
+  const old = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionsUnsupported = true;
+    },
   });
   expect(old.container.querySelector("[data-extensions-unavailable]")).not.toBeNull();
   old.unmount();
@@ -158,16 +166,20 @@ test("a DEV-only setting shows only in a DEV build", async () => {
       "x-cmux-devOnly": true,
     };
   };
-  const release = await renderCard(<ExtensionsCard />, (provider) => {
-    addVariant(provider);
-    provider.host = { ...provider.host, dev_build: false };
+  const release = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      addVariant(provider);
+      provider.host = { ...provider.host, dev_build: false };
+    },
   });
   expect(row(release.container, "variant")).toBeNull();
   expect(row(release.container, "compact")).not.toBeNull();
   release.unmount();
-  const dev = await renderCard(<ExtensionsCard />, (provider) => {
-    addVariant(provider);
-    provider.host = { ...provider.host, dev_build: true };
+  const dev = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      addVariant(provider);
+      provider.host = { ...provider.host, dev_build: true };
+    },
   });
   expect(row(dev.container, "variant")).not.toBeNull();
   dev.unmount();
