@@ -156,6 +156,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let forced = Arc::new(Mutex::new(Vec::new()));
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 2_000,
@@ -173,6 +174,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         frames_in_flight: 3,
         input_frame_now: false,
         max_width: None,
+        show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
     };
     let mut session = MediaSession::with_desktop(

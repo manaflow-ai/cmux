@@ -11,27 +11,35 @@ pull request), so a base never loses a suite.
 The selection is focused_tests.py's webviews import graph with no cap, plus rules that keep
 it from missing a test:
   - a changed test file runs itself; a deleted test selects nothing, and a deleted source
-    selects everything (the tests that imported it are gone from the graph);
+    selects the tests reaching any code file that still names it in an import specifier
+    (everything when a non-code file names it);
   - a file under webviews/ selects every test that imports it, directly or through other
     modules (a template-literal import counts by its static path, an asset import by its path
     without the query: `./fixture.md?raw`);
   - a file anywhere that a webviews source names (its repo path, its path under webviews/,
     or a basename of 10 characters or more) selects the tests that reach that source; a
-    name found in a non-code file (a fixture, a config) selects everything;
+    name found in a resolution config (tsconfig, bunfig, package.json outside "scripts")
+    selects everything, and one in any other non-code file (a fixture, a baseline) the tests
+    that import that file (a file read of it is always-run already);
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
-    is exempt only when all changed files are isolated tests that cannot feed its bundle;
-  - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
-    webviews/scripts/, the test support dir, the preload bunfig loads before every file and
-    what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
-    any other file under webviews/ no rule maps.
+    Vite or a browser, or spawns a process. Two reviewed loads that read nothing a test controls
+    (RUNTIME_LOADS) are exempt at their pinned content;
+  - an input every test loads (EVERY_TEST: webviews/package.json, bun.lock, bunfig, tsconfig,
+    the React Compiler config, the preload bunfig loads before every file and what it imports,
+    the runner scripts, this file, ci-web.yml) selects everything. A vite config, a webviews
+    script or a test helper outside the preload selects the tests that import it, and a file
+    under webviews/ nothing imports or names only the always-run set: only Vite, a browser, a
+    glob, a file read or a spawn can load those, and every test doing one is always-run.
+    CI_WEBVIEWS_NARROW_SELECTION=0 runs everything for them again.
 Docs (.md) no test imports and files no webviews source names select nothing.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import os
 import re
 import subprocess
 import sys
@@ -46,6 +54,26 @@ EVERYTHING = re.compile(
     r"reactCompiler\.mjs|scripts/|test/support/|test/setup|test/preload)"
     r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py"
     r"|focused_tests\.py)$|^\.github/workflows/ci-web\.yml$|^config/vite-plus/")
+# The inputs of EVERYTHING that reach every test file, so select() runs every file for them. The rest of EVERYTHING
+# (vite configs, webviews/scripts/, test/support/ outside the preload) reaches only the tests that import it or read
+# it, which select() finds like a source's; webviews_pr_shards.py still picks every shard for them (EVERYTHING).
+#   - package.json, bun.lock, bunfig.toml: the dependency and toolchain pins every file runs on;
+#   - tsconfig*.json: Bun reads its paths and JSX settings for every file it transpiles;
+#   - reactCompiler.mjs: the compiler transform the runner warms for the run (not proven narrower);
+#   - test/setup*, test/preload* and the preload's imports (Selector.preload): loaded before every file;
+#   - the runner, splitter, result parser and selection scripts, ci-web.yml (the jobs that run and pick the tests:
+#     on the 158-diff replay all 37 of its edits touched those jobs), config/vite-plus/.
+# A vite config feeds only what Vite builds or serves; every test that runs Vite, a browser, a build or reads a
+# built bundle is in the always-run set already (UNTRACKED: vite, playwright, a spawn, a file read).
+EVERY_TEST = re.compile(
+    r"^webviews/(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|reactCompiler\.mjs|test/setup|test/preload)"
+    r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py"
+    r"|focused_tests\.py)$|^\.github/workflows/ci-web\.yml$|^config/vite-plus/")
+# The non-code webviews files that steer module resolution or the runner for every file: a name in them may be an
+# import target (tsconfig paths, package.json imports/exports/workspaces, bunfig preload). A name in any other
+# non-code file (a fixture, a baseline, a changelog dump) is data: only a module that reads files, globs or imports
+# a computed path can turn it into a load, and every test reaching such a module is always-run.
+RESOLUTION = re.compile(r"^webviews/(package\.json|bunfig\.toml|tsconfig[^/]*\.json)$")
 # What a module does that the import graph cannot follow: read files, import a computed path or
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
@@ -75,14 +103,29 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
-# This reader loads only the generated bundle's site table. A standalone test
-# file cannot change that table. Pin the reviewed reader: any edit restores the
-# unresolved fallback until its inputs have been reviewed again. Production
-# changes still select every consumer, as do tests imported by production code.
-GENERATED_READERS = {
+# Undo: the repository variable CI_WEBVIEWS_NARROW_SELECTION=0 (ci-web.yml hands it to every job) turns off
+# what 2026-11-22 added: RUNTIME_LOADS, a deleted source's namers (deleted_namers) and a read script's readers
+# (webviews_pr_shards.read_beyond_imports). Each then runs what it ran before, or more.
+NARROW = os.environ.get("CI_WEBVIEWS_NARROW_SELECTION", "1") != "0"
+# Reviewed loads the import graph cannot follow that read nothing a test or its change controls. Pinned
+# to the reviewed content: any edit puts the file back among the untracked modules, so every test that
+# reaches it runs again until it is reviewed again. On 2026-11-22's tree these two made 835 of the 2,101
+# always-run tests, and with frameOwners' table consumers 18 of the 42 red files a shard 1 job (137100131913)
+# then retried alone.
+#   - frameOwners.ts imports the built pane's own chunks/frame-sites.js, beside document.baseURI. Only
+#     `bundle.mjs --frame-sites` writes one; a test with no such bundle beside its document gets null. The
+#     one test that writes a table (agent-pane-frame-sites.test.ts) reads files, and a browser test that
+#     loads a built page uses Playwright: both stay always-run on their own.
+#   - domTeardown.ts requires the npm package `scheduler` from react-dom's folder: bun.lock, a build input,
+#     decides what it loads. It is in the preload's imports too, so its own edit runs everything.
+RUNTIME_LOADS = {
     WEB + "src/agent-session/acpmux/frameOwners.ts":
         "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+    WEB + "test/support/domTeardown.ts":
+        "bc39e128441ba75445140da45a75078d5f2659612ca1be66c36cb6730e9b1ec5",
 }
+# An import specifier that ends in a module's name, with or without its extension or a query.
+SPECIFIER = r"""["'`][^"'`\n]*/{}(?:\.[\w.]+)?(?:\?[^"'`\n]*)?["'`]"""
 
 
 class Selector:
@@ -102,30 +145,10 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
-                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
-        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
-        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
+        reviewed = {f for f, digest in RUNTIME_LOADS.items() if NARROW and f in self.text
+                    and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - reviewed)}
         self.preload = self.closure(PRELOAD)
-
-    def isolated_test(self, path: str) -> bool:
-        """A test cannot feed a bundle if every reverse edge stays in test files.
-
-        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
-        Follow all reverse edges, including test -> helper -> production.
-        """
-        if path not in self.graph.tests:
-            return False
-        seen, frontier = set(), [path]
-        while frontier:
-            source = frontier.pop()
-            if source in seen:
-                continue
-            seen.add(source)
-            if source not in self.graph.tests:
-                return False
-            frontier.extend(self.graph.importers.get(source, ()))
-        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -145,16 +168,62 @@ class Selector:
         for source, text in self.text.items():
             if source == path or not any(k in text for k in keys):
                 continue
-            if not source.endswith(ft.EXTENSIONS):
+            if not source.endswith(ft.EXTENSIONS) and self.resolves(source, text, keys):
                 return None
             out |= self.reaching(source)
+        return out
+
+    @staticmethod
+    def resolves(source: str, text: str, keys: list[str]) -> bool:
+        """Whether a non-code file naming one of KEYS may resolve it as a module (RESOLUTION; package.json outside
+        its "scripts", which only shell commands run: a test running one spawns a process and is always-run)."""
+        if not NARROW:
+            return True
+        if not RESOLUTION.search(source):
+            return False
+        if source.endswith("package.json"):
+            try:
+                data = json.loads(text)
+            except ValueError:
+                return True
+            if isinstance(data, dict):
+                data.pop("scripts", None)
+            text = json.dumps(data)
+        return any(k in text for k in keys)
+
+    def deleted_reach(self, path: str) -> set[str] | None:
+        """The tests a deleted source can still affect, or None when only every file is safe."""
+        namers = self.deleted_namers(path)
+        return None if namers is None else set().union(set(), *(self.reaching(f) for f in namers))
+
+    def deleted_namers(self, path: str) -> set[str] | None:
+        """The code files that still name a deleted source in an import, or None when only every file is safe.
+
+        A module that imported it and still does is broken (the type check in shard 1 fails on it), and one
+        whose import the change edited is itself in the diff: either way some file still names it in an
+        import. So the tests reaching any code file whose text holds an import specifier ending in its name
+        (its folder's name for an index file), the same as a name found in source. A glob, a computed import
+        or a file read loads it unnamed: those tests are already always-run. A non-code file naming it, or a
+        name under 4 characters, runs everything.
+        """
+        p = Path(path)
+        name = p.parent.name if p.stem == "index" else p.stem
+        if not NARROW or len(name) < 4:
+            return None
+        pattern = re.compile(SPECIFIER.format(re.escape(name)))
+        out: set[str] = set()
+        for source, text in self.text.items():
+            if pattern.search(text):
+                if not source.endswith(ft.EXTENSIONS):
+                    return None
+                out.add(source)
         return out
 
     def select(self, files: list[str]) -> tuple[set[str] | None, str]:
         """(test files under the repo root, or None for every file; the reason for None)."""
         out: set[str] = set()
         for f in files:
-            if EVERYTHING.search(f) or f in self.preload:
+            if (EVERY_TEST if NARROW else EVERYTHING).search(f) or f in self.preload:
                 return None, f"{f} is a build or runner input"
             if f.startswith(WEB):
                 if f in self.graph.tests:
@@ -163,7 +232,11 @@ class Selector:
                 if not (self.root / f).exists() and ft.WEB_TEST.search(f):
                     continue
                 if not (self.root / f).exists() and f.endswith(ft.EXTENSIONS):
-                    return None, f"{f} was deleted"
+                    hit = self.deleted_reach(f)
+                    if hit is None:
+                        return None, f"{f} was deleted, and a non-code file or a short name may load it"
+                    out |= hit
+                    continue
                 hit = self.reaching(f)
                 if hit:
                     out |= hit
@@ -174,12 +247,13 @@ class Selector:
                 continue  # a doc no test imports; a name in prose (README.md, AGENTS.md) is no read
             named = self.named_by(f)
             if named is None:
-                return None, f"{f} is named by a webviews file outside the import graph"
-            if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
+                return None, f"{f} is named by a webviews resolution config ({RESOLUTION.pattern})"
+            if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS) and not NARROW:
+                # A webviews file nothing imports or names loads only through Vite or a page (a browser), a glob, a
+                # directory read or a spawn: every test doing those is always-run (UNTRACKED).
                 return None, f"no rule maps {f}"
             out |= named
-        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
-        return out | self.always | generated, ""
+        return out | self.always, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:
