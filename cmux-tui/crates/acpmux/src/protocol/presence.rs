@@ -20,6 +20,15 @@ pub struct Author {
     pub login: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
+    /// A link guest's prompts wait for the chat owner's approval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<AuthorApproval>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthorApproval {
+    Owner,
 }
 
 /// `_meta.acpmux` of a request that may name its person; other fields pass.

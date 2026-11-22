@@ -1,14 +1,17 @@
 public import Foundation
 
 /// Effective chat discovery preferences, with user and administrator roots kept distinct, and the
-/// effective `agents.defaultPermissionMode` and `sessions.allowFullAccess`: the daemon reads only the
-/// settings file, so a value MDM or the team policy forces reaches it only here
-/// (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
+/// effective `agents.defaultPermissionMode`, `sessions.allowFullAccess` and `agents.promptSuggestions`:
+/// the daemon reads only the settings file, so a value MDM or the team policy forces reaches it only
+/// here (`cmux-tui/crates/acpmux/src/hub/start_mode_state.rs`).
 public nonisolated struct ChatSettings: Sendable, Equatable {
     public let enabled: Bool
     public let discovery: Bool
     public let roots: [String]
     public let managedRoots: [String]
+    /// `agents.chats.sessionRecap`: a Claude chat the person comes back to after 5+ minutes away
+    /// shows a recap (`cmux-tui/crates/acpmux/src/hub/away_recap.rs`).
+    public let sessionRecap: Bool
     /// The effective permission mode for new chats, or nil when no layer sets one (`""` when a
     /// forced value is not a string).
     public let permissionMode: String?
@@ -18,9 +21,13 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     /// not `true`), nil when nothing forces it. acpmux takes a forced off as an upper bound the user
     /// cannot override; a forced on adds nothing; nil changes nothing (claude-sr2, 2026-10-25).
     public let fullAccessManaged: Bool?
+    /// The `agents.promptSuggestions` MDM or the team policy forces (`false` for a forced value that is
+    /// not a boolean), nil when nothing forces it. acpmux takes a forced value over the settings file at
+    /// each Claude or Codex start (`cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs`).
+    public let promptSuggestionsManaged: Bool?
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
-    public static let booleanKeys = [enabledPath, discoveryPath].map { $0.joined(separator: ".") }
+    public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath].map { $0.joined(separator: ".") }
     public static let keys = Set(booleanKeys + [rootsPath.joined(separator: ".")])
 
     /// Builds the daemon payload from the effective switches and each roots layer. Refused roots
@@ -29,6 +36,7 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
                 validator: ChatRootValidator = .init()) {
         enabled = effective.value(at: Self.enabledPath)?.boolValue ?? Self.enabledDefault
         discovery = effective.value(at: Self.discoveryPath)?.boolValue ?? Self.discoveryDefault
+        sessionRecap = effective.value(at: Self.sessionRecapPath)?.boolValue ?? Self.sessionRecapDefault
         roots = Self.strings(file.value(at: Self.rootsPath)).filter { validator.refusal($0) == nil }
         self.managedRoots = Self.unique(managedRoots).filter { validator.refusal($0) == nil }
         let modePath = AgentDefaultsSettingsSchema.permissionModePath
@@ -40,6 +48,9 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         let fullAccessPath = SessionSettings.allowFullAccessPath
         fullAccessManaged = managedKeys[fullAccessPath.joined(separator: ".")] == nil
             ? nil : effective.value(at: fullAccessPath)?.boolValue == true
+        let suggestionsPath = SessionSettings.claudePromptSuggestionsPath
+        promptSuggestionsManaged = managedKeys[suggestionsPath.joined(separator: ".")] == nil
+            ? nil : effective.value(at: suggestionsPath)?.boolValue ?? false
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.
@@ -47,7 +58,10 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         ["enabled": .bool(enabled), "discovery": .bool(discovery),
          "roots": .array(roots.map(JSONValue.string)), "managedRoots": .array(managedRoots.map(JSONValue.string)),
          "permissionMode": permissionMode.map(JSONValue.string) ?? .null, "permissionModeManaged": .bool(permissionModeManaged),
-         "allowFullAccess": fullAccessManaged.map(JSONValue.bool) ?? .null, "allowFullAccessManaged": .bool(fullAccessManaged != nil)]
+         "allowFullAccess": fullAccessManaged.map(JSONValue.bool) ?? .null, "allowFullAccessManaged": .bool(fullAccessManaged != nil),
+         "sessionRecap": .bool(sessionRecap),
+         "promptSuggestions": promptSuggestionsManaged.map(JSONValue.bool) ?? .null,
+         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil)]
     }
 
     /// Initialize followed by one request, each terminated by a newline.

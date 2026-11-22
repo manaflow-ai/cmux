@@ -1,42 +1,15 @@
 import Foundation
 
-/// Text of the Add Machine card and the Machines section (Resources/AddMachine.xcstrings).
+/// The Machines section's native menu and the step names Add Device shows (Resources/AddMachine.xcstrings).
+/// The Add Machine card reads the same table from the server-cards page (webviews gen-strings).
 nonisolated enum AddMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddMachine", bundle: .localizedModule)
     }
 
-    static var title: String { s("addMachine.title", "Add Machine") }
-    static var subtitle: String { s("addMachine.subtitle", "Type a host you reach with ssh, or pick a machine on your tailnet.") }
-    static var hostPlaceholder: String { s("addMachine.hostPlaceholder", "user@host or a Tailscale name") }
-    static var name: String { s("addMachine.name", "Name") }
-    static var tailnet: String { s("addMachine.tailnet", "On your tailnet") }
-    static var lookingForPeers: String { s("addMachine.lookingForPeers", "Looking for machines on your tailnet…") }
-    static var candidateAdded: String { s("addMachine.candidate.added", "Added") }
-    static var candidateAgentPeer: String { s("addMachine.candidate.agentPeer", "Agent peer") }
     static var peerConnectFailed: String { s("addMachine.peerConnectFailed", "The app could not connect to it over ssh.") }
-    static var candidateSSHOff: String { s("addMachine.candidate.sshOff", "ssh off") }
-    static var candidateOffline: String { s("addMachine.candidate.offline", "Offline") }
-    static func adding(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }
-    static func checking(_ name: String) -> String { String(format: s("addMachine.checkingTitle", "Checking %@"), name) }
-    static func ready(_ name: String) -> String { String(format: s("addMachine.ready", "%@ is ready"), name) }
-    static var readyDetail: String { s("addMachine.readyDetail", "Its agents and workspaces are a click away in the sidebar.") }
-    static func addFailed(_ name: String) -> String { String(format: s("addMachine.addFailed", "%@ could not be added"), name) }
-    static func checkFailed(_ name: String) -> String { String(format: s("addMachine.checkFailed", "%@ needs attention"), name) }
-    static var installingAppBuild: String { s("addMachine.installingAppBuild", "Installing this Mac's cmux-tui build…") }
-    static var stopped: String { s("addMachine.stopped", "cmux-tui stopped before this step finished.") }
 
-    static var add: String { s("addMachine.add", "Add") }
-    static var addingButton: String { s("addMachine.adding", "Adding…") }
-    static var checkingButton: String { s("addMachine.checking", "Checking…") }
-    static var cancel: String { s("addMachine.cancel", "Cancel") }
-    static var done: String { s("addMachine.done", "Done") }
-    static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
-    static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
-    static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
-    static var fix: String { s("addMachine.fix", "Fix") }
-
-    /// A step's line in the checklist; a step this build does not know shows by its raw name.
+    /// A step's name; a step this build does not know shows by its raw name.
     static func step(_ step: HostStep) -> String {
         switch step {
         case .reach: s("addMachine.step.reach", "Reach it with ssh")
@@ -47,42 +20,62 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
-        default: step.rawValue
+        case .approvals: s("addMachine.step.approvals", "Let this Mac allow its prompts")
+        default: joinStep(step) ?? step.rawValue
         }
     }
 
-    /// The row's state for VoiceOver (the glyph carries it on screen).
-    static func status(_ status: HostChecklist.Status) -> String {
-        switch status {
-        case .pending: s("addMachine.status.pending", "Waiting")
-        case .running: s("addMachine.status.running", "Running")
-        case .done(.ok): s("addMachine.status.ok", "Done")
-        case .done(.fixed): s("addMachine.status.fixed", "Fixed")
-        case .done(.warn): s("addMachine.status.warn", "Warning")
-        case .done(.fail): s("addMachine.status.fail", "Failed")
-        case .done(.skip): s("addMachine.status.skip", "Skipped")
+    /// The steps of a one-line join's doctor (`acpmux host doctor --here`, `cmux machine doctor ID`).
+    static func joinStep(_ step: HostStep) -> String? {
+        switch step.rawValue {
+        case "binary": s("addMachine.step.binary", "Install the agent daemon")
+        case "service": s("addMachine.step.service", "Start it with the machine")
+        case "credential": s("addMachine.step.credential", "Keep its machine credential")
+        case "revoked": s("addMachine.step.revoked", "Still allowed in")
+        case "hub": s("addMachine.step.hub", "Reach cmux")
+        case "heartbeat": s("addMachine.step.heartbeat", "Check in with cmux")
+        case "consent": s("addMachine.step.consent", "Screen sharing and control")
+        case "signed-in": s("addMachine.step.signedIn", "Signed in to cmux")
+        case "platform": s("addMachine.step.platform", "Reach the machines service")
+        case "listed": s("addMachine.step.listed", "Listed in your machines")
+        case "mesh": s("addMachine.step.mesh", "Reach it through the mesh")
+        case "check": s("addMachine.step.check", "Check it")
+        default: nil
         }
     }
 
-    static func title(_ action: AddMachineAction, phase: AddMachineModel.Phase) -> String {
-        switch action {
-        case .add: phase == .running ? addingButton : add
-        case .tryAgain: tryAgain
-        case .fix: phase == .running ? checkingButton : fix
-        case .openWorkspace: openWorkspace
-        case .copyDetails: copyDetails
-        case .done: done
-        case .cancel: cancel
-        }
-    }
+    // MARK: The Add Machine card
 
-    // MARK: Machines section
+    static var title: String { s("addMachine.title", "Add Machine") }
+    static var subtitle: String { s("addMachine.subtitle", "Type a host you reach with ssh, or pick a machine on your tailnet.") }
+    static var hostPlaceholder: String { s("addMachine.hostPlaceholder", "user@host or a Tailscale name") }
+    static var name: String { s("addMachine.name", "Name") }
+    static var tailnet: String { s("addMachine.tailnet", "On your tailnet") }
+    static var lookingForPeers: String { s("addMachine.lookingForPeers", "Looking for machines on your tailnet…") }
+    static func addingTitle(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }
+    static func checkingTitle(_ name: String) -> String { String(format: s("addMachine.checkingTitle", "Checking %@"), name) }
+    static func ready(_ name: String) -> String { String(format: s("addMachine.ready", "%@ is ready"), name) }
+    static var readyDetail: String { s("addMachine.readyDetail", "Its agents and workspaces are a click away in the sidebar.") }
+    static func addFailed(_ name: String) -> String { String(format: s("addMachine.addFailed", "%@ could not be added"), name) }
+    static func checkFailed(_ name: String) -> String { String(format: s("addMachine.checkFailed", "%@ needs attention"), name) }
+    static var installingAppBuild: String { s("addMachine.installingAppBuild", "Installing this Mac's cmux-tui build…") }
+    static var stopped: String { s("addMachine.stopped", "cmux-tui stopped before this step finished.") }
+    static var add: String { s("addMachine.add", "Add") }
+    static var adding: String { s("addMachine.adding", "Adding…") }
+    static var fix: String { s("addMachine.fix", "Fix") }
+    static var checking: String { s("addMachine.checking", "Checking…") }
+    static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
+    static var changeHost: String { s("addMachine.changeHost", "Change Host") }
+    static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
+    static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
+    static var done: String { s("addMachine.done", "Done") }
+    static var cancel: String { s("addMachine.cancel", "Cancel") }
+    static var added: String { s("addMachine.candidate.added", "Added") }
+    static var offline: String { s("addMachine.candidate.offline", "Offline") }
+    static var agentPeer: String { s("addMachine.candidate.agentPeer", "Agent peer") }
+    static var sshOff: String { s("addMachine.candidate.sshOff", "ssh off") }
 
-    static var connected: String { s("machines.connected", "Connected") }
-    static var offline: String { s("machines.offline", "Offline") }
+    // MARK: Machines section (the page reads the rest of the section's `machines.` keys)
+
     static var newWorkspace: String { s("machines.newWorkspace", "New Workspace on This Machine") }
-    static var addMachine: String { s("machines.addMachine", "Add Machine…") }
-    static var healthOK: String { s("machines.health.ok", "Last check passed") }
-    static func healthWarning(_ step: String) -> String { String(format: s("machines.health.warning", "Last check: %@ needs attention"), step) }
-    static func healthFailing(_ step: String) -> String { String(format: s("machines.health.failing", "Last check: %@ failed"), step) }
 }

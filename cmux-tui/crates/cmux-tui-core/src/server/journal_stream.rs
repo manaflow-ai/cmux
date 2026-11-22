@@ -8,6 +8,7 @@ use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
 use super::journal_filter::{JournalCompiledRegex, JournalStreamFilter};
+use super::message_writer::long_connection::stream_start_error;
 use super::register_resource_outbound;
 use super::resource_session_id;
 use super::resource_stream_end;
@@ -50,6 +51,15 @@ pub(super) struct SessionJournalStreamStart {
     pub(super) reader: Option<crate::workspace_registry::SessionJournalReader>,
     pub(super) shared_fanout: bool,
     pub(super) remote_redacted: bool,
+    /// Held for the stream's life when it follows the journal and its kind
+    /// filter can match the rows of a terminal's live facts: while it lives
+    /// they are rows (`mux/terminal_live.rs`).
+    pub(super) _terminal_progress_rows: Option<crate::mux::TerminalProgressFollower>,
+    /// Held for the stream's life when it follows the journal: while it
+    /// lives, a report that changes no durable state is still appended when
+    /// the stream's filter would let its row through
+    /// (`mux/agent_hooks_at_rest.rs`).
+    pub(super) _follower: Option<crate::mux::JournalRowFollower>,
 }
 
 fn journal_cursor(session_id: &SessionPublicId, sequence: u64) -> Value {
@@ -140,7 +150,9 @@ pub(super) fn handle_journal_extension_request(
                     Some((terminal, previous))
                 });
             // A finished turn's last message rides the same way, for its banner's preview: the
-            // commit's notification event takes it, and whatever it did not take goes.
+            // commit's notification event takes it, and whatever it did not take goes. It is
+            // the terminal's last reply only after a new commit: a failed or replayed append
+            // puts the one before it back.
             let reply = request
                 .fields
                 .get("live_reply")
@@ -154,7 +166,8 @@ pub(super) fn handle_journal_extension_request(
                         .and_then(|subject| {
                             crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
                         })?;
-                    mux.note_agent_reply(&terminal, reply).then_some(terminal)
+                    let noted = mux.note_agent_reply(&terminal, reply)?;
+                    Some((terminal, noted))
                 });
             // A question hook's question rides the same way, for the phone's answer card.
             let question = request
@@ -172,6 +185,22 @@ pub(super) fn handle_journal_extension_request(
                         })?;
                     mux.note_agent_question(&terminal, question).then_some(terminal)
                 });
+            // An approval hook's approval rides the same way, for the phone's Allow / Deny card.
+            let approval = request
+                .fields
+                .get("live_approval")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|approval| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    mux.note_agent_approval(&terminal, approval).then_some(terminal)
+                });
             let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
             if let Some((terminal, previous)) = noted
@@ -179,11 +208,19 @@ pub(super) fn handle_journal_extension_request(
             {
                 mux.restore_agent_prompt(&terminal, previous);
             }
-            if let Some(terminal) = reply {
+            if let Some((terminal, noted)) = reply {
                 mux.forget_agent_reply(&terminal);
+                // A replayed append is a hook's retry of an older turn: its reply is not the
+                // terminal's last one.
+                if !appended.as_ref().is_ok_and(|commit| !commit.replayed) {
+                    mux.restore_agent_reply(&terminal, noted);
+                }
             }
             if let Some(terminal) = question {
                 mux.forget_noted_agent_question(&terminal);
+            }
+            if let Some(terminal) = approval {
+                mux.forget_noted_agent_approval(&terminal);
             }
             appended
                 .map(|commit| {
@@ -503,7 +540,7 @@ pub(super) fn prepare_session_journal_stream(
     );
     let outbound = writer
         .start_stream(&overflow)
-        .map_err(|_| ResourceError::transport_closed("could not allocate an outbound stream"))?;
+        .map_err(|error| stream_start_error("session.journal.subscribe", &error))?;
     let (canceled, worker_permit) = register_resource_outbound(
         mux,
         client,
@@ -511,6 +548,31 @@ pub(super) fn prepare_session_journal_stream(
         &outbound,
         "session.journal.subscribe",
     )?;
+    // A stream that follows gets a row for each live fact of a terminal from
+    // here on. A bounded read ends at the head it found and follows nothing.
+    // Taken last, so a refused request leaves nothing behind.
+    let terminal_progress_rows = match through_sequence {
+        None => mux.follow_terminal_progress_rows(|kind| filter.may_match_kind(kind)),
+        Some(_) => None,
+    };
+    // A stream that follows is sent every row its filter lets through from
+    // here on: while it lives, a report that changes no durable state is
+    // still appended when the stream would be sent its row (its kind, at its
+    // sensitivity). A bounded read ends at the head it found and follows
+    // nothing. Taken last, so a refused request leaves nothing behind.
+    let follower = through_sequence.is_none().then(|| {
+        let gate = filter.row_gate();
+        mux.follow_journal(
+            crate::mux::JournalFollowerFilter {
+                client,
+                stream_id: stream_id.as_str().to_string(),
+                remote: remote_redacted,
+                kinds: gate.kinds(),
+                max_sensitivity: gate.max_sensitivity(),
+            },
+            move |kind, sensitivity| gate.may_send(kind, sensitivity),
+        )
+    });
     Ok((
         json!({"stream_id":stream_id,"cursor":opened_cursor}),
         SessionJournalStreamStart {
@@ -528,6 +590,8 @@ pub(super) fn prepare_session_journal_stream(
             reader,
             shared_fanout,
             remote_redacted,
+            _terminal_progress_rows: terminal_progress_rows,
+            _follower: follower,
         },
     ))
 }
@@ -659,8 +723,8 @@ pub(super) fn run_session_journal_stream(
                     break 'stream;
                 }
                 if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
+                    switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -731,8 +795,8 @@ pub(super) fn run_session_journal_stream(
             }
             if stream.last_sequence >= head_sequence {
                 if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
+                    switch_to_shared_journal(mux, &mut stream);
+                    continue;
                 }
                 break;
             }
@@ -753,6 +817,25 @@ pub(super) fn run_session_journal_stream(
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+/// A stream that caught up on its database reader reads the shared ring
+/// from here on. It takes the ring's epoch first and the caller reads the
+/// ring once more before it waits: a record the ring published after the
+/// last database page is then either in that read or past the epoch, so the
+/// stream never waits for a later commit to deliver it.
+fn switch_to_shared_journal(mux: &Mux, stream: &mut SessionJournalStreamStart) {
+    #[cfg(test)]
+    if let Some(hook) = mux
+        .journal_stream_before_ring_switch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+    {
+        hook();
+    }
+    stream.reader = None;
+    stream.epoch = mux.shared_journal_epoch();
 }
 
 fn complete_bounded_journal_replay(

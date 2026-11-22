@@ -52,11 +52,49 @@ nonisolated enum CEFDevToolsResult {
         (parse(json)?["executionContextId"] as? NSNumber)?.intValue
     }
 
-    /// JSON text for a parameters object.
+    /// JSON text for a parameters object, on the caller's actor: only for parameters ``isLarge(_:)`` refuses.
     static func params(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object),
-              let text = String(data: data, encoding: .utf8) else { return "{}" }
-        return text
+        // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value that is not JSON.
+        guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject: object) else { return "{}" }
+        // A native string: the shim call reads it in place (an `NSString`-backed one is transcoded at the call).
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// ``params(_:)`` off the caller's actor: an app page's script batch or an agent's script is megabytes of
+    /// text, and the caller is the main actor (CEF's UI thread).
+    @concurrent
+    static func encodedParams(_ object: [String: any Sendable]) async -> String {
+        params(object)
+    }
+
+    /// Text in parameters above which they are encoded off the main actor (``CEFDevToolsCallOrder``). Encoding
+    /// 64 KiB takes well under a millisecond; the scripts that stalled the main thread were megabytes.
+    static let largeParamsBytes = 64 << 10
+
+    /// Whether `object` holds more than `limit` bytes of strings (keys and values, at any depth). The count
+    /// stops at `limit`, and a native string knows its UTF-8 length, so this costs about one step per value.
+    static func isLarge(_ object: [String: any Sendable], limit: Int = largeParamsBytes) -> Bool {
+        var budget = limit
+        return exceeds(object, &budget)
+    }
+
+    private static func exceeds(_ value: Any, _ budget: inout Int) -> Bool {
+        switch value {
+        case let text as String:
+            budget -= text.utf8.count
+        case let object as [String: Any]:
+            for (key, member) in object {
+                budget -= key.utf8.count
+                if budget < 0 || exceeds(member, &budget) { return true }
+            }
+        case let items as [Any]:
+            for item in items {
+                if exceeds(item, &budget) { return true }
+            }
+        default:
+            budget -= 8
+        }
+        return budget < 0
     }
 
     private static func parse(_ json: String) -> [String: Any]? {

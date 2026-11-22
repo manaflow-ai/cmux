@@ -29,7 +29,7 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
 
     public init(socketPath: String) { self.socketPath = socketPath }
 
-    @concurrent public func closed(peer: String, cursor: String?, limit: Int, deadline: Duration = .seconds(2)) async throws -> Page {
+    @concurrent public func closed(peer: String, cursor: String?, limit: Int, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> Page {
         var params: [String: any Sendable] = ["peer": peer, "status": "closed", "limit": limit]
         if let cursor { params["cursor"] = cursor }
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/sessions", params: params, deadline: deadline)
@@ -38,19 +38,53 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
 
     /// One session by id, open or closed, on this Mac or a peer it mirrors (`peer` names that
     /// peer, nil for this Mac's): the `cmux://session/<id>` question names it. Nil when acpmux has
-    /// no such session. The whole list, so only for one person's link, never per row.
-    @concurrent public func session(_ id: String, deadline: Duration = .seconds(2)) async throws -> (chat: Chat, peer: String?)? {
-        let result = try await AcpmuxStatusClient.sessions(socketPath: socketPath, deadline: deadline).value
-        return Self.session(id, in: result)
+    /// no such session. `_acpmux/resolve` reads one local or mirrored row in
+    /// its exact-id mode.
+    @concurrent public func session(_ id: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> (chat: Chat, peer: String?)? {
+        guard let result = try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline) else { return nil }
+        return Self.chat(id, in: result)
     }
 
-    static func session(_ id: String, in result: [String: Any]) -> (chat: Chat, peer: String?)? {
-        guard let summary = (result["sessions"] as? [[String: Any]] ?? []).first(where: { $0["sessionId"] as? String == id }) else { return nil }
+    /// One session's whole summary by exact id (`_acpmux/resolve`), open or closed, on this Mac or a peer it
+    /// mirrors; nil when acpmux has no such session. Home reads its `movedTo` and `moveEpoch` to follow a
+    /// Chief's agent where it moved.
+    @concurrent public func summary(_ id: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> sending [String: Any]? {
+        try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline)
+    }
+
+    /// The acpmux session an agent link names (`cmux://agent/<harness>/<session>` or its cmux.com
+    /// form), on this Mac or a peer it mirrors: `_acpmux/resolve {query}`, which reads the link
+    /// itself (hub/locate.rs, agent_link.rs). Nil when acpmux lists no such session, which is
+    /// someone else's, or one that never ran under acpmux.
+    @concurrent public func linked(_ link: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> String? {
+        let result: [String: Any]
+        do {
+            result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/resolve",
+                                                       params: ["query": link], deadline: deadline, detailed: true)
+        } catch let error as AcpmuxRPCError where AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(error) {
+            return nil
+        }
+        return Self.linkedSession(in: result)
+    }
+
+    /// The session id `_acpmux/resolve`'s answer names first, or nil.
+    static func linkedSession(in result: [String: Any]) -> String? {
+        ((result["session"] as? [String: Any])?["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    static func chat(_ id: String, in summary: [String: Any]) -> (chat: Chat, peer: String?)? {
+        guard summary["sessionId"] as? String == id else { return nil }
         let name = summary["name"] as? String ?? id
         let title = (summary["title"] as? String).flatMap { $0.isEmpty || $0 == name ? nil : $0 }
             ?? String(name.split(separator: "/").last ?? Substring(name))
         let peer = (summary["peer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return (Chat(id: id, title: title, harness: (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }), peer)
+    }
+
+    /// Compatibility parser for a list result used by older callers and tests.
+    static func session(_ id: String, in result: [String: Any]) -> (chat: Chat, peer: String?)? {
+        guard let summary = (result["sessions"] as? [[String: Any]] ?? []).first(where: { $0["sessionId"] as? String == id }) else { return nil }
+        return chat(id, in: summary)
     }
 
     /// A `_acpmux/sessions` page (`{sessions: [summary], nextCursor}`), keeping only `peer`'s closed

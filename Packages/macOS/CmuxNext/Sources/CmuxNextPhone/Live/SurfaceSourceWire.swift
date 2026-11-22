@@ -13,6 +13,11 @@ public struct SurfaceSourceWire: Sendable, Equatable {
 
     /// The largest frame hostd sends a source (its lines are small).
     public static let maximumIncoming = 1 << 20
+    /// The largest frame a client may send before it has said hello (the hello line is about 100 bytes).
+    public static let maximumBeforeHello = 4096
+
+    /// The largest frame ``next()`` accepts; a source lowers it until its client is authorized.
+    public var maximumFrame = SurfaceSourceWire.maximumIncoming
 
     private var buffer = Data()
 
@@ -51,7 +56,7 @@ public struct SurfaceSourceWire: Sendable, Equatable {
         let start = buffer.startIndex
         let kind = buffer[start]
         let length = buffer[(start + 1)..<(start + 5)].reduce(0) { $0 << 8 | Int($1) }
-        guard length <= Self.maximumIncoming else { throw .tooLarge }
+        guard length <= maximumFrame else { throw .tooLarge }
         guard buffer.count >= 5 + length else { return nil }
         let payload = Data(buffer[(start + 5)..<(start + 5 + length)])
         buffer.removeSubrange(start..<(start + 5 + length))

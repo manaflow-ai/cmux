@@ -25,8 +25,14 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import guard_attribution as ga  # noqa: E402
 import run_ci_guards  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
-WORKFLOW = ROOT / ".github/workflows/ci-guard-attribution.yml"
 
 # Trimmed from run 36199352592, a PR's "CI fast guards" job log.
 CI_LOG = textwrap.dedent("""\
@@ -557,32 +563,14 @@ class StepSelection(unittest.TestCase):
         self.assertEqual([[s.name for s in u.steps] for u in selected], [["a", "b"], ["b"]])
         self.assertEqual(run_ci_guards.select_steps(units, {"zzz"}), [])
 
-
-class WorkflowTrust(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.text = WORKFLOW.read_text(encoding="utf-8")
-        cls.workflow = run_ci_guards.load_yaml(WORKFLOW)
-
-    def test_follows_both_guard_workflows(self) -> None:
-        on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(
-            sorted(on["workflow_run"]["workflows"]),
-            sorted(["CI", ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]),
-        )
-        self.assertEqual(on["workflow_run"]["types"], ["completed"])
-
-    def test_only_report_writes_and_nothing_checks_out_the_pr(self) -> None:
-        analyze, report = self.workflow["jobs"]["analyze"], self.workflow["jobs"]["report"]
-        self.assertNotIn("write", analyze["permissions"].values())
-        self.assertEqual(report["permissions"]["issues"], "write")
-        for step in analyze["steps"] + report["steps"]:
-            if "actions/checkout" in str(step.get("uses")):
-                self.assertNotIn("head_sha", json.dumps(step.get("with")))
-        self.assertNotIn("pull_request_target", self.text)
-
-    def test_the_report_job_is_named_by_the_headline(self) -> None:
-        self.assertIn("needs.analyze.outputs.headline", self.workflow["jobs"]["report"]["name"])
+    def test_a_stateful_group_drops_earlier_steps_that_hand_no_state(self) -> None:
+        # release-notary: one submodule step, then ~95 plain checks before its red one. Re-running all of them on
+        # the base outran the 25-minute job and left the guard group cancelled (run 43380647537).
+        steps = [run_ci_guards.Step("init", "git submodule update --init x", {}, None)]
+        steps += [run_ci_guards.Step(f"plain{i}", "true", {}, None) for i in range(95)]
+        steps += [run_ci_guards.Step("red", "false", {}, None), run_ci_guards.Step("after", "true", {}, None)]
+        selected = run_ci_guards.select_steps([run_ci_guards.Unit("j", "release-notary", steps)], {"red"})
+        self.assertEqual([s.name for s in selected[0].steps], ["init", "red"])
 
 
 if __name__ == "__main__":

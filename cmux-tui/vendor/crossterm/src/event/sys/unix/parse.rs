@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io;
 
 use crate::event::{
@@ -22,6 +23,66 @@ use super::super::super::InternalEvent;
 
 fn could_not_parse_event_error() -> io::Error {
     io::Error::new(io::ErrorKind::Other, "Could not parse an event.")
+}
+
+/// A 1-based terminal position as a 0-based one; 0 is malformed input.
+fn zero_based(position: u16) -> io::Result<u16> {
+    position.checked_sub(1).ok_or_else(could_not_parse_event_error)
+}
+
+/// Parses `input`, read after the bytes held in `pending`, byte by byte as
+/// the event sources do, and pushes each event to `events`. `more` says
+/// whether more input is already waiting after `input`. Bytes of a sequence
+/// that has not ended stay in `pending` (cmux patch: one place for the
+/// tty and mio sources, and for tests through `parse_events_from_bytes`).
+pub(crate) fn advance(
+    pending: &mut Vec<u8>,
+    input: &[u8],
+    more: bool,
+    events: &mut VecDeque<InternalEvent>,
+) {
+    // Bytes an event did not use (the keys after Alt+]) are parsed again
+    // before the rest of `input`.
+    let mut again: VecDeque<u8> = VecDeque::new();
+    let mut input = input.iter().copied();
+    while let Some(byte) = again.pop_front().or_else(|| input.next()) {
+        let more = !again.is_empty() || input.len() > 0 || more;
+
+        pending.push(byte);
+
+        match parse_event_len(pending, more) {
+            Ok(Some((ie, used))) => {
+                events.push_back(ie);
+                for byte in pending.drain(..).skip(used).rev() {
+                    again.push_front(byte);
+                }
+            }
+            Ok(None) => {
+                // Event can't be parsed, because we don't have enough bytes for
+                // the current sequence. Keep the buffer and process next bytes.
+            }
+            Err(_) => {
+                // Event can't be parsed (not enough parameters, parameter is not a number, ...).
+                // Clear the buffer and continue with another sequence.
+                pending.clear();
+            }
+        }
+    }
+}
+
+/// The event at the start of `buffer` and how many of its bytes it used
+/// (cmux patch). Every event uses the whole buffer except Alt+] from an
+/// `ESC ]` that is no host color reply: it uses 2 bytes, and the bytes
+/// after it are input of their own.
+pub(crate) fn parse_event_len(
+    buffer: &[u8],
+    input_available: bool,
+) -> io::Result<Option<(InternalEvent, usize)>> {
+    let used = match crate::event::scan_host_reply(buffer) {
+        crate::event::HostReply::NotAReply if buffer.starts_with(b"\x1b]") => 2,
+        _ => buffer.len(),
+    };
+    Ok(parse_event(buffer, input_available)?.map(|event| (event, used)))
 }
 
 pub(crate) fn parse_event(
@@ -76,17 +137,23 @@ pub(crate) fn parse_event(
                     }
                     b'[' => parse_csi(buffer),
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
-                    _ => parse_event(&buffer[1..], input_available).map(|event_option| {
-                        event_option.map(|event| {
-                            if let InternalEvent::Event(Event::Key(key_event)) = event {
-                                let mut alt_key_event = key_event;
-                                alt_key_event.modifiers |= KeyModifiers::ALT;
-                                InternalEvent::Event(Event::Key(alt_key_event))
-                            } else {
-                                event
-                            }
-                        })
-                    }),
+                    // cmux patch: a host's OSC 10/11 reply (a color query
+                    // answered late) is no input. The whole reply is dropped,
+                    // and its start waits for its end. `ESC ]` alone with
+                    // nothing after it, or followed by anything else, is
+                    // Alt+]; `parse_event_len` says it used 2 bytes, so the
+                    // bytes after it are parsed again as input.
+                    b']' => match crate::event::scan_host_reply(buffer) {
+                        crate::event::HostReply::Complete(_) => Err(could_not_parse_event_error()),
+                        crate::event::HostReply::Partial if buffer.len() > 2 || input_available => {
+                            Ok(None)
+                        }
+                        _ => Ok(Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                            KeyCode::Char(']'),
+                            KeyModifiers::ALT,
+                        ))))),
+                    },
+                    _ => parse_alt_event(buffer, input_available),
                 }
             }
         }
@@ -120,6 +187,21 @@ pub(crate) fn parse_event(
                 .map(InternalEvent::Event)
         }),
     }
+}
+
+/// `ESC` and the event of the bytes after it, with Alt added to a key.
+fn parse_alt_event(buffer: &[u8], input_available: bool) -> io::Result<Option<InternalEvent>> {
+    parse_event(buffer.get(1..).unwrap_or_default(), input_available).map(|event_option| {
+        event_option.map(|event| {
+            if let InternalEvent::Event(Event::Key(key_event)) = event {
+                let mut alt_key_event = key_event;
+                alt_key_event.modifiers |= KeyModifiers::ALT;
+                InternalEvent::Event(Event::Key(alt_key_event))
+            } else {
+                event
+            }
+        })
+    })
 }
 
 // converts KeyCode to KeyEvent (adds shift modifier in case of uppercase characters)
@@ -257,8 +339,8 @@ pub(crate) fn parse_csi_cursor_position(buffer: &[u8]) -> io::Result<Option<Inte
 
     let mut split = s.split(';');
 
-    let y = next_parsed::<u16>(&mut split)? - 1;
-    let x = next_parsed::<u16>(&mut split)? - 1;
+    let y = zero_based(next_parsed::<u16>(&mut split)?)?;
+    let x = zero_based(next_parsed::<u16>(&mut split)?)?;
 
     Ok(Some(InternalEvent::CursorPosition(x, y)))
 }
@@ -693,8 +775,8 @@ pub(crate) fn parse_csi_rxvt_mouse(buffer: &[u8]) -> io::Result<Option<InternalE
         next_parsed::<u8>(&mut split)?.checked_sub(32).ok_or_else(could_not_parse_event_error)?;
     let (kind, modifiers) = parse_cb(cb)?;
 
-    let cx = next_parsed::<u16>(&mut split)? - 1;
-    let cy = next_parsed::<u16>(&mut split)? - 1;
+    let cx = zero_based(next_parsed::<u16>(&mut split)?)?;
+    let cy = zero_based(next_parsed::<u16>(&mut split)?)?;
 
     Ok(Some(InternalEvent::Event(Event::Mouse(MouseEvent {
         kind,
@@ -719,8 +801,8 @@ pub(crate) fn parse_csi_normal_mouse(buffer: &[u8]) -> io::Result<Option<Interna
     // See http://www.xfree86.org/current/ctlseqs.html#Mouse%20Tracking
     // The upper left character position on the terminal is denoted as 1,1.
     // Subtract 1 to keep it synced with cursor
-    let cx = u16::from(buffer[4].saturating_sub(32)) - 1;
-    let cy = u16::from(buffer[5].saturating_sub(32)) - 1;
+    let cx = zero_based(u16::from(buffer[4].saturating_sub(32)))?;
+    let cy = zero_based(u16::from(buffer[5].saturating_sub(32)))?;
 
     Ok(Some(InternalEvent::Event(Event::Mouse(MouseEvent {
         kind,
@@ -749,8 +831,8 @@ pub(crate) fn parse_csi_sgr_mouse(buffer: &[u8]) -> io::Result<Option<InternalEv
     // See http://www.xfree86.org/current/ctlseqs.html#Mouse%20Tracking
     // The upper left character position on the terminal is denoted as 1,1.
     // Subtract 1 to keep it synced with cursor
-    let cx = next_parsed::<u16>(&mut split)? - 1;
-    let cy = next_parsed::<u16>(&mut split)? - 1;
+    let cx = zero_based(next_parsed::<u16>(&mut split)?)?;
+    let cy = zero_based(next_parsed::<u16>(&mut split)?)?;
 
     // When button 3 in Cb is used to represent mouse release, you can't tell which button was
     // released. SGR mode solves this by having the sequence end with a lowercase m if it's a
@@ -1208,6 +1290,25 @@ mod tests {
                 modifiers: KeyModifiers::empty(),
             })))
         );
+    }
+
+    /// Positions are 1-based; a 0 from the host terminal is malformed input,
+    /// refused like any other, never an arithmetic underflow (found by the
+    /// cmux-tui/fuzz `tui_keys` target).
+    #[test]
+    fn zero_coordinates_are_refused_not_underflowed() {
+        for buffer in [
+            &b"\x1B[<0;10;0m"[..],
+            b"\x1B[<0;0;10M",
+            b"\x1B[32;0;5M",
+            b"\x1B[32;10;0M",
+            b"\x1B[0;5R",
+            b"\x1B[5;0R",
+        ] {
+            assert!(parse_event(buffer, false).is_err(), "{buffer:?} was not refused");
+        }
+        assert!(parse_csi_normal_mouse(b"\x1B[M  !").is_err());
+        assert!(parse_csi_normal_mouse(b"\x1B[M !\x1f").is_err());
     }
 
     #[test]

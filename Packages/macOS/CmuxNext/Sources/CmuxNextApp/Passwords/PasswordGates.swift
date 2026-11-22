@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import LocalAuthentication
 
 /// Device owner authentication (Touch ID, Apple Watch or the login password) right before a
@@ -9,19 +10,59 @@ protocol DeviceOwnerAuthenticating: AnyObject {
     func authenticate(reason: String) async -> Bool
 }
 
+@MainActor
+private final class AuthContextBox {
+    let context: LAContext
+    init(_ context: LAContext) { self.context = context }
+}
+
+// app-type-allow: private LAContext callback state must stay beside the app-owned authenticator.
+private final class AuthReply: Sendable {
+    private let state = Mutex<(continuation: CheckedContinuation<Bool, Never>?, finished: Bool)>((nil, false))
+
+    nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
+        let resume = state.withLock { state -> Bool in
+            if state.finished { return true }
+            state.continuation = continuation
+            return false
+        }
+        if resume { continuation.resume(returning: false) }
+    }
+
+    nonisolated func finish(_ answer: Bool) {
+        let continuation = state.withLock { state -> CheckedContinuation<Bool, Never>? in
+            guard !state.finished else { return nil }
+            state.finished = true
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume(returning: answer)
+    }
+}
+
 /// LocalAuthentication `deviceOwnerAuthentication`; false when the Mac cannot evaluate it.
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
+        let contextBox = AuthContextBox(context)
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // The reply runs on a LocalAuthentication queue, never the main actor.
-            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
-                continuation.resume(returning: success)
+        let reply = AuthReply()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                reply.install(continuation)
+                // The reply runs on a LocalAuthentication queue, never the main actor.
+                contextBox.context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
+                    reply.finish(success)
+                }
             }
-        }
+        }, onCancel: {
+            Task { @MainActor in
+                contextBox.context.invalidate()
+            }
+            reply.finish(false)
+        })
     }
 }
 

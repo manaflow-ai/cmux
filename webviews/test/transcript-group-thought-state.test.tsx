@@ -1,13 +1,15 @@
 // l10n-allow-file: test fixture thoughts, not shipped UI.
-// A thought between two calls draws inside their group (toolGroups.ts). The reader's open or closed
-// choice stays with that thought when a later call joins the group and moves its "+K more" tail,
-// and when "+K more" shows the earlier calls: the thought is named by its place in the whole group,
-// never by its place among the rows on screen (Codex review of #24075).
+// A thought between two calls draws inside their group (toolGroups.ts), one step among the calls
+// (ToolGroupRow.tsx). The reader's open or closed choice stays with that thought when a later call
+// joins the group: the thought is named by its place in the whole group, never by its place among
+// the rows on screen (Codex review of #24075). A thought that leads into a run opens the group, in
+// full.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -28,12 +30,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const read = (n: number): AcpmuxActivity => ({
@@ -46,6 +45,12 @@ const read = (n: number): AcpmuxActivity => ({
     status: "completed",
     locations: [{ path: `file${n}.ts` }],
   },
+});
+/// A call that groups: since the 2026-11-14 change reads stay flat, so group tests use searches.
+const search = (n: number): AcpmuxActivity => ({
+  kind: "tool",
+  text: `Search pattern${n}`,
+  tool: { id: `search-${n}`, title: `Search pattern${n}`, kind: "search", status: "completed" },
 });
 const thought = (n: number): AcpmuxActivity => ({
   kind: "thought",
@@ -85,45 +90,65 @@ const opened = () =>
     .map((node) => node.nextElementSibling?.textContent ?? "");
 const click = (node: Element) => act(async () => node.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
 
-test("an opened thought inside a group stays open as calls join and as +K more opens", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+test("an opened thought inside a group stays open as calls join", async () => {
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   await draw(items(6));
-  // Six reads: the first is behind "+1 more"; thoughts 1 to 4 show, each closed.
-  expect(toggles().length).toBe(4);
-  const second = toggles()[1]!;
+  // Six reads, every one listed: the five thoughts between them show, each closed.
+  expect(toggles().length).toBe(5);
+  const second = toggles()[2]!;
   await act(async () => second.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 2:");
-  // A seventh read joins: the tail moves on, the same thought stays the open one.
+  // A seventh read joins: the same thought stays the open one.
   await draw(items(7));
-  expect(opened()).toHaveLength(1);
-  expect(opened()[0]).toContain("Thought number 2:");
-  // "+K more" shows the earlier calls: still the same thought.
-  const more = host.querySelector<HTMLButtonElement>(".cv-tool-group__more")!;
-  await act(async () => more.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
   expect(toggles().length).toBe(6);
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 2:");
+  expect(host.querySelector(".cv-tool-group__more")).toBeNull();
+});
+
+test("a thought that led into a run starts closed, as every thought in a run does, and keeps the reader's choice", async () => {
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
+  resetTranscriptDisclosure();
+  // The thought before any call draws on its own; once two searches follow it, it leads their group.
+  await draw([thought(0), search(0)], "leads");
+  expect(host.querySelector(".cv-steps")).toBeNull();
+  await draw([thought(0), search(0), search(1)], "leads");
+  const lead = host.querySelector(".cv-steps > .cv-step.is-lead");
+  expect(lead).not.toBeNull();
+  // Nothing opens a thought but the reader (Lucas, 2026-11-11: "make sure that thoughts are not
+  // auto opened").
+  expect(opened()).toHaveLength(0);
+  // Opened by the reader, it stays open as another search joins.
+  await click(toggles()[0]!);
+  expect(opened()).toEqual([expect.stringContaining("Thought number 0:")]);
+  await draw([thought(0), search(0), search(1), search(2)], "leads");
+  expect(opened()).toHaveLength(1);
+  expect(host.querySelectorAll(".cv-steps > .cv-step")).toHaveLength(4);
 });
 
 test("an opened thought stays open when the call after it finishes and joins it to a group", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
-  // A live run leaves out the read still running (turns.ts codexRuns): the thought draws on its own.
-  await draw([command, read(0), read(1), thought(0)], "joins");
+  // A live run leaves out the search still running (turns.ts codexRuns): the thought draws on its own.
+  await draw([command, search(0), search(1), thought(0)], "joins");
   expect(toggles().length).toBe(1);
   await click(toggles()[0]!);
   expect(opened()).toHaveLength(1);
-  // The read finishes: the thought now sits inside "Read 3 files", still open.
-  await draw([command, read(0), read(1), thought(0), read(2)], "joins");
+  // The search finishes: the thought now sits inside their group, still open.
+  await draw([command, search(0), search(1), thought(0), search(2)], "joins");
   expect(host.querySelector(".cv-tool-group")).not.toBeNull();
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 0:");
 });
 
 test("one activity shown twice in a group keeps two thoughts' states apart", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const same = thought(9);
   const list = [read(0), same, read(1), same, read(2)];
@@ -139,7 +164,8 @@ test("one activity shown twice in a group keeps two thoughts' states apart", asy
 });
 
 test("a thought that takes another's place on its own row starts closed", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   // The live run leaves out each read still running: thought 0 draws on its own after the group.
   await draw([command, read(0), read(1), thought(0)], "replaced");

@@ -3,7 +3,9 @@
 // a shared browser or Vite server behind for another browser lane.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser } from "playwright";
+import strings from "../src/pages/apps/generated/strings.json";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -47,11 +49,15 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(engine: "chromium" | "webkit", variant: string): Promise<import("playwright").Page> {
+  async function open(
+    engine: "chromium" | "webkit",
+    variant: string,
+    locale = "en",
+  ): Promise<import("playwright").Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const url =
       `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.apps&entryPath=src/pages/apps/apps.gallery.ts` +
-      `&variant=${variant}&reducedMotion=1`;
+      `&variant=${variant}&locale=${locale}&reducedMotion=1`;
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const page = await browsers[engine]!.newPage({ viewport: { width: 1100, height: 760 } });
@@ -71,11 +77,48 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
   }
 
   for (const engine of ["webkit", "chromium"] as const) {
+    for (const locale of ["en", "de", "ja"] as const) {
+      test(`${engine}: App Store action widths stay fixed in ${locale}`, async () => {
+        const page = await open(engine, "list", locale);
+        const labels = strings[locale] as Record<string, string>;
+        try {
+          for (const [name, beforeKey, afterKey] of [
+            ["Caffeinate", "store.action.install", "store.action.remove"],
+            ["GitHub PRs", "store.action.hide", "store.action.show"],
+          ] as const) {
+            const card = page.locator(".apps-card").filter({ has: page.getByRole("button", { name, exact: true }) });
+            const before = card.getByRole("button", { name: labels[beforeKey], exact: true });
+            await before.waitFor();
+            const initial = await before.boundingBox();
+            expect(initial).not.toBeNull();
+            const out = process.env.CMUX_APPS_WIDTH_CAPTURE_DIR;
+            if (out) {
+              await mkdir(out, { recursive: true });
+              await card.screenshot({ path: path.join(out, `${engine}-${locale}-${beforeKey}.png`) });
+            }
+            await before.click();
+            const after = card.getByRole("button", { name: labels[afterKey], exact: true });
+            await after.waitFor();
+            const changed = await after.boundingBox();
+            expect(changed).not.toBeNull();
+            if (out) await card.screenshot({ path: path.join(out, `${engine}-${locale}-${afterKey}.png`) });
+            expect(Math.abs(changed!.width - initial!.width)).toBeLessThan(0.1);
+            expect(changed!.height).toBe(initial!.height);
+            await after.click();
+            await before.waitFor();
+            expect((await before.boundingBox())!.width).toBe(initial!.width);
+          }
+        } finally {
+          await page.close();
+        }
+      });
+    }
     describe(`${engine}: Apps discover and lifecycle`, () => {
       test("search, category, detail, keyboard reset, and install use the page host", async () => {
         const page = await open(engine, "list");
         try {
-          const cards = page.locator(".apps-card");
+          // Discover's home leads with its first-party app as a hero; every other app is a card.
+          const cards = page.locator(".apps-card, .apps-hero");
           expect(await cards.count()).toBe(4);
 
           const search = page.getByRole("searchbox", { name: "Search apps" });
@@ -93,7 +136,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
           expect(await cards.count()).toBe(4);
 
           await cards.filter({ hasText: "Caffeinate" }).getByRole("button", { name: "Caffeinate" }).click();
-          const detailName = page.locator(".apps-detail-name");
+          const detailName = page.locator(".apps-listing-name");
           await detailName.waitFor();
           expect(await detailName.innerText()).toBe("Caffeinate");
           expect(await page.locator(".apps-detail").innerText()).toContain("Permissions");
@@ -102,13 +145,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
 
           const caffeinate = cards.filter({ hasText: "Caffeinate" });
           await caffeinate.getByRole("button", { name: "Install" }).click();
-          await page.waitForFunction(() =>
-            [...document.querySelectorAll<HTMLElement>(".apps-card")].some(
-              (card) =>
-                card.textContent?.includes("Caffeinate") &&
-                [...card.querySelectorAll("button")].some((button) => button.textContent?.includes("Remove")),
-            ),
-          );
+          await caffeinate.getByRole("button", { name: "Remove", exact: true }).waitFor();
           expect(await caffeinate.innerText()).toContain("Installed");
           expect(await caffeinate.getByRole("button", { name: "Remove" }).isVisible()).toBe(true);
         } finally {
@@ -168,10 +205,13 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         }
       });
 
-      test("shows the owner error and preserves the toolbar", async () => {
+      test("shows the owner error as a plain sentence and preserves the toolbar", async () => {
         const page = await open(engine, "error");
         try {
-          expect(await page.locator(".apps-error").innerText()).toContain("catalog is unavailable");
+          // The owner's failure shows as a plain sentence; its own text stays in the log.
+          const said = await page.locator(".apps-error").innerText();
+          expect(said).toContain("Something went wrong. Try again.");
+          expect(said).not.toContain("catalog is unavailable");
           expect(await page.getByRole("button", { name: "Reload", exact: true }).count()).toBeGreaterThan(0);
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
         } finally {
@@ -184,7 +224,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         try {
           await page.getByRole("button", { name: "Reload", exact: true }).first().click();
           await page.locator(".apps-card").first().waitFor();
-          expect(await page.locator(".apps-card").count()).toBe(4);
+          expect(await page.locator(".apps-card, .apps-hero").count()).toBe(4);
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
           expect(await page.locator('[role="alert"]').count()).toBe(0);
         } finally {
@@ -192,13 +232,14 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         }
       });
 
-      test("shows a not-found detail with Back and Retry", async () => {
+      test("a deep link to an app the store does not list shows Discover with a quiet note", async () => {
         const page = await open(engine, "not-found");
         try {
-          const state = page.locator('[data-detail-state="not-found"]');
-          await state.waitFor();
-          expect(await state.getByRole("button", { name: "Reload", exact: true }).isVisible()).toBe(true);
-          expect(await state.getByRole("button", { name: /Discover/ }).isVisible()).toBe(true);
+          const note = page.locator("output.apps-notice");
+          await note.waitFor();
+          expect(await note.innerText()).toBe(strings.en["store.notice.notInStore"]);
+          expect(await page.locator('[data-detail-state="not-found"]').count()).toBe(0);
+          expect(await page.locator('[role="alert"]').count()).toBe(0);
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
         } finally {
           await page.close();
@@ -210,10 +251,11 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
         try {
           const state = page.locator('[data-detail-state="error"]');
           await state.waitFor();
-          expect(await state.innerText()).toContain("temporarily unavailable");
+          expect(await state.innerText()).toContain("Something went wrong. Try again.");
+          expect(await state.innerText()).not.toContain("temporarily unavailable");
           await state.getByRole("button", { name: "Reload", exact: true }).click();
-          await page.locator(".apps-detail-name").waitFor();
-          expect(await page.locator(".apps-detail-name").innerText()).toBe("CodeRouter");
+          await page.locator(".apps-listing-name").waitFor();
+          expect(await page.locator(".apps-listing-name").innerText()).toBe("CodeRouter");
           expect(await page.getByRole("searchbox", { name: "Search apps" }).isVisible()).toBe(true);
         } finally {
           await page.close();

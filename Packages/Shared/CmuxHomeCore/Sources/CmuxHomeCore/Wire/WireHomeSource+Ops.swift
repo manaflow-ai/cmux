@@ -61,13 +61,19 @@ extension WireHomeSource {
         case .removeParticipant(let conversation, let participant):
             return try await conversationOp("participants.remove", ["participant": .string(participant.rawValue)],
                                             in: conversation, key: key)
-        case .createGroup(let title, let ids):
+        case .createGroup(let title, let ids, let invites):
             var params: [String: HomeWireJSON] = [
                 "participants": .array([participantRecord(me.id)] + ids.filter { $0 != me.id }.map(participantRecord)),
             ]
             if !title.isEmpty { params["title"] = .string(title) }
             let (value, replayed) = try await client.op("conversation.create", .object(params), key: key)
-            return HomeOpResult(rev: 0, replayed: replayed, conversation: try opened(value))
+            let conversation = try opened(value)
+            // People and addresses in one New Message: each address joins the group as invited.
+            for (index, contact) in invites.enumerated() {
+                _ = try await conversationOp("invite.create", ["address": address(contact), "display_name": .string(Self.masked(contact))],
+                                             in: conversation, key: IdempotencyKey("\(key.rawValue):invite:\(index)"))
+            }
+            return HomeOpResult(rev: 0, replayed: replayed, conversation: conversation)
         case .openDirect(let peer):
             let (value, replayed) = try await client.op("dm.open", ["peer": .string(peer.rawValue)], key: key)
             return HomeOpResult(rev: 0, replayed: replayed, conversation: try opened(value))

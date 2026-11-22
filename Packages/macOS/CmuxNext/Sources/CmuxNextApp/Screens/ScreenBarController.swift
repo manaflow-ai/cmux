@@ -18,6 +18,7 @@ final class ScreenBarController {
     let view: TabStripView
     private unowned let content: WorkspaceContentController
     private let preview: ScreenPreviewSource
+    private let emojiIcons = ScreenEmojiIcon()
     private var observation: Task<Void, Never>?
     /// Called when the bar should appear (two or more screens) or hide.
     var onVisibilityChange: ((Bool) -> Void)?
@@ -34,22 +35,22 @@ final class ScreenBarController {
 
     init(content: WorkspaceContentController) {
         self.content = content
-        view = TabStripView(model: model)
+        view = TabStripView(model: model, isPaneTabRow: false) // the flush corner's tab row is the panes'
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
-        // The one + with a caret (Lawrence 2026-10-27: "caret should maybe just be in this one"): a press
-        // opens the screen menu. Set before the tooltip, which the menu switch also writes.
-        view.opensNewTabMenuOnPress = true
+        // The screen bar's + is a plain one-click new-screen action. Holding or right-clicking
+        // still exposes the existing screen type menu through the strip's context path.
+        view.opensNewTabMenuOnPress = false
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        apply(snapshot())
+        apply(Self.snapshot(content, emojiIcons: emojiIcons))
         observation = Task { [weak self] in
-            guard let content = self?.content else { return }
-            for await snapshot in ObservationStream({ Self.snapshot(content) }) { self?.apply(snapshot) }
+            guard let content = self?.content, let emojiIcons = self?.emojiIcons else { return }
+            for await snapshot in ObservationStream({ Self.snapshot(content, emojiIcons: emojiIcons) }) { self?.apply(snapshot) }
         }
     }
 
@@ -58,10 +59,8 @@ final class ScreenBarController {
         view.cancelInlineRename()
     }
 
-    private func snapshot() -> Snapshot { Self.snapshot(content) }
-
-    private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
-        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon,
+    private static func snapshot(_ content: WorkspaceContentController, emojiIcons: ScreenEmojiIcon) -> Snapshot {
+        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: emojiIcons.icon,
                                                        assetIcon: IconAssetImages.shared.tabIcon(owner: content.daemon)),
                  active: content.layoutModel.activeScreenID?.rawValue)
     }

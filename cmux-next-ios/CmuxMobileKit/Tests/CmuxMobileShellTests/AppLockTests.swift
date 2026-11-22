@@ -6,8 +6,9 @@ import Testing
 /// Settings → Require Face ID (review m5): Face ID's own sheet makes the
 /// scene inactive and active again; returning from it must not ask again,
 /// or a Cancel loops into another prompt. Only a return from the background
-/// (and the launch) asks by itself.
-@MainActor @Suite struct AppLockTests {
+/// (and the launch) asks by itself. Serialized: the lock publishes to the
+/// shared `NotificationRouter`.
+@MainActor @Suite(.serialized) struct AppLockTests {
     @MainActor final class Checks {
         var count = 0
         var passes = false
@@ -83,6 +84,43 @@ import Testing
         let on = controller(checks)
         on.setEnabled(false)
         #expect(!on.locked && !on.covered)
+    }
+
+    /// Issue 25687: `AppLock` builds a controller on every RootView body pass
+    /// and SwiftUI keeps only the first. A discarded copy must not lock the
+    /// notification router again after the user unlocked, or foreground
+    /// replies wait in `PushReplies.drain()` until the next lock change.
+    @Test func aReRenderAfterUnlockLeavesTheRouterUnlocked() async {
+        let checks = Checks()
+        checks.passes = true
+        let lock = controller(checks)
+        // `.onChange(of:initial:)` hands the kept controller the setting on appear.
+        lock.setEnabled(true)
+        #expect(NotificationRouter.shared.appLocked)
+        lock.sceneActivated()
+        await settle(lock)
+        #expect(!lock.locked)
+        #expect(!NotificationRouter.shared.appLocked)
+        // The next body pass: a fresh `AppLock(enabled: true)` that SwiftUI discards.
+        _ = AppLockController(enabled: true)
+        #expect(!NotificationRouter.shared.appLocked)
+        // The kept controller hears the unchanged setting again: still unlocked.
+        lock.setEnabled(true)
+        #expect(!lock.locked)
+        #expect(!NotificationRouter.shared.appLocked)
+    }
+
+    @Test func theFirstSettingPublishesTheLockOnce() {
+        let checks = Checks()
+        let off = controller(checks, enabled: false)
+        off.setEnabled(false)
+        #expect(!NotificationRouter.shared.appLocked)
+        let on = controller(checks)
+        #expect(!NotificationRouter.shared.appLocked)
+        on.setEnabled(true)
+        #expect(NotificationRouter.shared.appLocked)
+        on.setEnabled(false)
+        #expect(!NotificationRouter.shared.appLocked)
     }
 }
 #endif

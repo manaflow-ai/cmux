@@ -42,6 +42,11 @@ pub const LINK_SLACK: std::time::Duration = std::time::Duration::from_secs(30);
 /// How long the machine waits for the Mac's answer: an action the Mac starts runs at most
 /// `GH_TIMEOUT` from a start at most `LINK_SLACK` after it was sent by the Mac's clock, which is
 /// at most `LINK_SLACK` behind, so it ends before this, with a few seconds for the answer.
+/// How long one lent action may run and still be waited for: its `gh` deadline and the link's
+/// slack for the answer. A peer link does not move to a faster path while one runs, for at
+/// most this long (`Peer::switch_due`).
+pub const ACTION_BUDGET: std::time::Duration =
+    std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + LINK_SLACK.as_secs());
 pub const LANE_WAIT: std::time::Duration =
     std::time::Duration::from_secs(GH_TIMEOUT.as_secs() + 2 * LINK_SLACK.as_secs() + 5);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
@@ -298,16 +303,16 @@ pub(crate) fn redact_github_tokens(text: &str) -> String {
     while let Some(c) = rest.chars().next() {
         let prefix = TOKEN_PREFIXES.iter().find(|p| !after_word && rest.starts_with(**p));
         if let Some(prefix) = prefix {
-            let tail = &rest[prefix.len()..];
+            let tail = rest.get(prefix.len()..).unwrap_or("");
             let end = tail.find(|c: char| !word(c)).unwrap_or(tail.len());
             out.push_str("[redacted]");
-            rest = &tail[end..];
+            rest = tail.get(end..).unwrap_or("");
             after_word = true;
             continue;
         }
         out.push(c);
         after_word = word(c);
-        rest = &rest[c.len_utf8()..];
+        rest = rest.get(c.len_utf8()..).unwrap_or("");
     }
     out
 }
@@ -479,7 +484,7 @@ pub async fn handle(
     conn: &Arc<crate::server::Conn>,
     params: Value,
 ) -> Result<Value, RpcError> {
-    if conn.origin != crate::server::Origin::Local {
+    if conn.origin != crate::conn_origin::Origin::Local {
         return Err(denied("GitHub actions are asked over this machine's unix socket only"));
     }
     let mut request: GithubActionParams = serde_json::from_value(params)

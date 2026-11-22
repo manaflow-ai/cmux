@@ -1,0 +1,8 @@
+{
+  "title": "Add Device: the ssh key hint, and Other Computer… with nothing on the network",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "On your network: the ssh key hint before Add", "rpc": {"method": "debug.add_device", "params": {"way": "network"}}, "wait": 2, "optional": "debug.add_device is DEBUG only"},
+    {"title": "Nothing on the network: Set up a new device keeps Other Computer…", "rpc": {"method": "debug.add_device", "params": {"way": "newDevice", "computers": []}}, "wait": 2, "optional": "debug.add_device is DEBUG only"}
+  ]
+}

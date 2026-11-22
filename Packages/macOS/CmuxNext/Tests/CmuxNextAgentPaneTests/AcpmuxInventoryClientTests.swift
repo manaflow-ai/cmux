@@ -22,6 +22,33 @@ struct AcpmuxInventoryClientTests {
         #expect(sent.last?["params"] as? [String: String] == ["view": "inventory"])
     }
 
+    @Test func censusFilterWaitsForTheSameConnectionsCapability() async throws {
+        let capability = "session-list-filters-v1"
+        let hello = Self.line(["id": 1, "result": ["_meta": ["acpmux": ["capabilities": [capability]]]]])
+        let reply = Self.line(["id": 2, "result": ["sessions": [], "nextCursor": NSNull()]])
+        let stream = Stream(chunks: [(1, hello), (2, reply)])
+        _ = try await AcpmuxStatusClient.exchange("_acpmux/sessions",
+            params: ["localOnly": true, "excludeStatus": ["closed"], "limit": 64],
+            transport: stream, requiredCapability: capability)
+        let requests = try Self.requests(await stream.writes())
+        #expect(requests.map { $0["method"] as? String } == ["initialize", "_acpmux/sessions"])
+        let params = try #require(requests.last?["params"] as? [String: Any])
+        #expect(params["localOnly"] as? Bool == true)
+        #expect(params["excludeStatus"] as? [String] == ["closed"])
+    }
+
+    @Test func unsupportedCensusFiltersNeverSendAnUnscopedList() async throws {
+        let stream = Stream(chunks: [(1, Self.line(["id": 1, "result": [:]]))])
+        do {
+            _ = try await AcpmuxStatusClient.exchange("_acpmux/sessions", params: ["localOnly": true],
+                transport: stream, requiredCapability: "session-list-filters-v1")
+            Issue.record("an unfiltered legacy list was accepted")
+        } catch AcpmuxStatusClient.Failure.unsupportedFeature(let feature) {
+            #expect(feature == "session-list-filters-v1")
+        }
+        #expect(try Self.requests(await stream.writes()).map { $0["method"] as? String } == ["initialize"])
+    }
+
     @Test func anOldOrMalformedHandshakeNeverSendsAHealthRequest() async throws {
         for meta: [String: Any] in [[:], ["features": []], ["features": "harnessInventory"], ["features": ["harnessInventoryExtra"]]] {
             // Even a premature operation reply must not bypass negotiation.

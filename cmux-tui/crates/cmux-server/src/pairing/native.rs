@@ -2,6 +2,7 @@
 //! confirmation precedes link export; current policy and serving roles stay separate.
 use super::{Transport, identity};
 use crate::error::{Error, Result};
+use cmux_json::JsonSet as _;
 use cmux_server_core::install_key::SystemRandom;
 use cmux_server_core::pairing::native::{Grant, Registration};
 use serde_json::{Value, json};
@@ -14,10 +15,10 @@ pub(super) fn status(record: &identity::Identity) -> Result<Option<Value>> {
         Some(identity::NativeState::Registered { registration, confirmed_at }) => {
             let mut status = registration.public_status();
             if let Some(at) = confirmed_at {
-                status["state"] = json!("confirmed");
-                status["confirmed_at"] = json!(at);
+                status.set("state", json!("confirmed"));
+                status.set("confirmed_at", json!(at));
             } else {
-                status["state"] = json!("confirmation_pending");
+                status.set("state", json!("confirmation_pending"));
             }
             Ok(Some(status))
         }
@@ -121,9 +122,9 @@ pub(super) fn public_result(record: &identity::Identity) -> Result<Value> {
     .map_err(|_| invalid())?;
     if let Some(network) = status(record)? {
         if network["state"] == "pending" || network["state"] == "confirmation_pending" {
-            value["state"] = json!("network_pending");
+            value.set("state", json!("network_pending"));
         }
-        value["network"] = network;
+        value.set("network", network);
     }
     Ok(value)
 }

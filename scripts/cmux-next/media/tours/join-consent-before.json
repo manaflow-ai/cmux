@@ -1,0 +1,26 @@
+{
+  "title": "Join consent, before: Settings > Devices on a Mac that is not joined (the page as it draws without this change)",
+  "settings": {
+    "labs": {
+      "machineJoin": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Settings > Devices, not joined: no consent group",
+      "rpc": {
+        "method": "debug.join_consent",
+        "params": {
+          "joined": false
+        }
+      },
+      "wait": 3,
+      "optional": "debug.join_consent is DEBUG only"
+    }
+  ]
+}

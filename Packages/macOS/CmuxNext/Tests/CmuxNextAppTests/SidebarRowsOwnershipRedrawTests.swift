@@ -11,7 +11,7 @@ import Testing
 
     @Test func theSameRowsShowAgainWhenOnlyTheGroupsListedElsewhereChange() {
         let model = SidebarModel(sections: [])
-        let rows = SidebarRows(model: model)
+        let rows = SidebarRows(model: model, document: { nil })
         rows.show(Self.live, creating: ([], nil), unlessShown: true, elsewhere: [])
         #expect(model.sections.flatMap(\.workspaces).map(\.id.rawValue) == ["ws-1"])
         model.setSections([]) // a marker: a skipped pass leaves it

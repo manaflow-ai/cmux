@@ -79,11 +79,11 @@ impl TicketRecord {
             "role": self.role.as_str(),
             "label": self.label,
             "state": self.state(now_ms).as_str(),
-            "created_at": crate::server::iso(self.created_ms),
-            "expires_at": crate::server::iso(self.expires_ms),
-            "used_at": self.used_ms.map(crate::server::iso),
+            "created_at": crate::clock_text::iso(self.created_ms),
+            "expires_at": crate::clock_text::iso(self.expires_ms),
+            "used_at": self.used_ms.map(crate::clock_text::iso),
             "used_by": self.used_by,
-            "revoked_at": self.revoked_ms.map(crate::server::iso),
+            "revoked_at": self.revoked_ms.map(crate::clock_text::iso),
         })
     }
 }
@@ -103,10 +103,14 @@ pub struct Device {
     pub ticket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_ms: Option<u64>,
-    /// The person let this machine run chats in Full access (`super::full_access`).
-    /// Off unless set: a record saved before the setting existed reads as off.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub full_access: bool,
+    /// The person's own Full-access choice for this machine (`super::full_access`),
+    /// None until the person sets it. Unset, a `phone` is on and every other role off
+    /// ([`Device::full_access_on`]). Only the person issues a phone's credential
+    /// (`server/pairing.rs` `issue`), so an agent on this machine never gets an
+    /// on-by-default record. A phone record saved before the default changed has no
+    /// field, so it reads as on too; an explicit off is now saved as `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_access: Option<bool>,
 }
 
 impl Device {
@@ -115,18 +119,24 @@ impl Device {
             "id": self.id,
             "name": self.name,
             "role": self.role.as_str(),
-            "created_at": crate::server::iso(self.created_ms),
+            "created_at": crate::clock_text::iso(self.created_ms),
             "ticket_id": self.ticket,
-            "revoked_at": self.revoked_ms.map(crate::server::iso),
-            "full_access": self.full_access,
+            "revoked_at": self.revoked_ms.map(crate::clock_text::iso),
+            "full_access": self.full_access_on(),
         })
+    }
+
+    /// The setting as it stands: the person's choice, else on for a phone and off
+    /// for every other role.
+    pub fn full_access_on(&self) -> bool {
+        self.full_access.unwrap_or(self.role == Role::Phone)
     }
 
     /// Whether the setting covers this record now: a live `client` machine
     /// or `phone` with it on. A read-only or daemon-role record never drives
     /// chats here.
     pub fn grants_full_access(&self) -> bool {
-        self.full_access && self.revoked_ms.is_none() && self.role.drives_chats()
+        self.full_access_on() && self.revoked_ms.is_none() && self.role.drives_chats()
     }
 }
 
@@ -297,7 +307,7 @@ impl Store {
             created_ms: now_ms,
             ticket,
             revoked_ms: None,
-            full_access: false,
+            full_access: None,
         };
         self.devices.push(device.clone());
         Ok(device)
@@ -335,14 +345,18 @@ impl Store {
             .iter()
             .position(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone);
         // Names are unique among live records: set the old one aside for the issue's check.
-        if let Some(at) = old {
-            self.devices[at].revoked_ms = Some(now_ms);
+        if let Some(at) = old
+            && let Some(device) = self.devices.get_mut(at)
+        {
+            device.revoked_ms = Some(now_ms);
         }
         let mut device = match self.issue(name, Role::Phone, token, id, None, now_ms) {
             Ok(device) => device,
             Err(e) => {
-                if let Some(at) = old {
-                    self.devices[at].revoked_ms = None;
+                if let Some(at) = old
+                    && let Some(device) = self.devices.get_mut(at)
+                {
+                    device.revoked_ms = None;
                 }
                 return Err(e);
             }
@@ -369,7 +383,9 @@ impl Store {
                 RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
                     .with_data(json!({"reason": "not_found"}))
             })?;
-        let d = &mut self.devices[at];
+        let Some(d) = self.devices.get_mut(at) else {
+            return Err(RpcError::internal("a paired machine moved while it was changed"));
+        };
         if on && !d.role.drives_chats() {
             return Err(RpcError::invalid_params(format!(
                 "{} is paired {}: only a client machine or a phone drives chats here, so only one can run them in Full access",
@@ -378,7 +394,7 @@ impl Store {
             ))
             .with_data(json!({"reason": "full_access_role"})));
         }
-        d.full_access = on;
+        d.full_access = Some(on);
         Ok(d.clone())
     }
 
@@ -401,7 +417,9 @@ impl Store {
                 ))
                 .with_data(json!({"reason": "not_found"}))
             })?;
-        let d = &mut self.devices[at];
+        let Some(d) = self.devices.get_mut(at) else {
+            return Err(RpcError::internal("a paired machine moved while it was changed"));
+        };
         let already = d.revoked_ms.is_some();
         d.revoked_ms.get_or_insert(now_ms);
         Ok(Revoked::Device(d.clone(), already))

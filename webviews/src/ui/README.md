@@ -186,3 +186,27 @@ Rules:
 - The app's Swift has the same ratchet: `scripts/cmux-next/check-swift-type-scale.py` (cmux-next checks)
   fails on a new literal font size or a weight other than `TypeScale.regular` and `TypeScale.emphasis`.
   `scripts/cmux-next/type-inventory.py` prints each surface's sizes and weights, native and web.
+
+## Design scale and Tailwind
+
+One token source: `schemas/design-scale/design-scale.json` (spacing, control heights, icon sizes,
+radii, glass levels, elevation, colour roles) with `schemas/type-scale` and `schemas/motion-scale`.
+`webviews/scripts/pages/gen-design-scale.mjs` writes the `--ds-*` and `--elevation-*` variables into
+`pages/shared/desktop.css`, the Tailwind theme `ui/theme.generated.css` that every Tailwind entry
+imports, and `ui/designTokens.generated.ts` for the token sheet (gallery `ui.token-sheet`). The last
+two are build output (gitignored): `bun install`, every build and the test preload write them through
+`gen-strings.mjs`. Run it after editing the schema; `--check` (in `bun run check`) fails when
+desktop.css's block drifted. Tailwind then resolves to
+our tokens: `p-3` is 3 grid units, `rounded-md` is `--ds-radius-md`, `text-body` is the type step,
+`bg-hover` / `text-muted` are the colour roles the host derives from the terminal theme, and
+`shadow-elevation-2`, `duration-quick` and `ease-standard` are the shadow and motion steps. Glass
+levels are variables only (`--ds-glass-<level>-tint` and `-blur`). Settings keeps rem spacing and
+radii off its own root until it migrates (`pages/settings/tailwind.css`).
+
+## Controls
+
+`Button` (ghost, subtle (default), solid; sm 24, md 28, lg 32; `icon`, `danger`), `Switch` (sm, md
+(default), lg), `Input` (filled (default), outline, plain) and `Tabs` / `TabsList` / `TabsTrigger` /
+`TabsContent` (pill (default), underline, segmented) wrap Base UI in shadcn's shape and draw only
+with the design scale (`controls.css`). A button that opens a popup stays lit while it is open
+(`data-popup-open`), fills cover the control only, and Reduce Motion makes every change instant.

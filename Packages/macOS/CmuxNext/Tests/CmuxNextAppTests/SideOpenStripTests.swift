@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -31,13 +32,22 @@ import Testing
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
     }
 
-    /// The left pane, with one terminal and nothing on its right.
+    /// Home's pinned dock (taking tabs, as Home's does) alone on its screen, its pane holding `surfaces`.
+    private static func homeDock(_ surfaces: [SurfaceID]) -> DaemonTree {
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true, allowsTabs: true)
+        let pane = PaneSnapshot(id: left, tabs: surfaces.map { TabSnapshot(surface: $0, title: "~") })
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(left),
+                                    columns: [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(left), dock: dock)], panes: [pane])
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "Home", screens: [screen])])
+    }
+
+    /// The left pane, with one terminal and nothing on its right (or the pane of `tree`).
     /// A pane holds its window state weakly (its window owns it): the caller keeps the returned state
     /// alive for the test, or the pane selects nothing.
-    private static func pane() throws -> (AppServices, PaneController, WindowState) {
+    private static func pane(_ tree: DaemonTree = tree(left: [home])) throws -> (AppServices, PaneController, WindowState) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.daemon.store.apply(snapshot: tree(left: [home]))
+        services.daemon.store.apply(snapshot: tree)
         let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
         let state = WindowState(record: record)
@@ -50,6 +60,16 @@ import Testing
     private static func listed(_ pane: PaneController) -> [SurfaceID] {
         pane.syncStripFromStore()
         return pane.stripModel.tabs.compactMap { item in pane.pane.tabs.first { $0.id == item.id.rawValue }?.surface }
+    }
+
+    /// A pane not in a window yet has its placeholder frame, not a width: it sets no chat floor, so its link
+    /// still splits to the right (fleet runs of #28044 at 8e520360 and caf8e69e: it opened in place).
+    @Test func aPaneNotInAWindowIsUnmeasured() throws {
+        let (_, pane, state) = try Self.pane()
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        #expect(pane.view.window == nil)
+        #expect(pane.view.bounds.width > 0, "fixture: the placeholder frame has a width")
+        #expect(LinkOpener.width(of: pane) == nil, "a windowless pane's placeholder width was taken for a measure")
     }
 
     @Test func aLinkOpenedToTheRightNeverShowsInTheLeftPanesStrip() throws {
@@ -72,6 +92,33 @@ import Testing
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home], right: [Self.link]))
         #expect(Self.listed(pane) == [Self.home])
         #expect(services.daemon.store.workspaces.first?.screens.first?.panes.first { $0.handle == Self.right }?.tabs.map(\.surface) == [Self.link])
+    }
+
+    /// Leo 2026-10-29: "I open a link, or whatever the fuck, and it opens up on the right by default. Then just
+    /// open it up on the fucking right. Stop playing the animation that it's opening up a new tab on the main pane."
+    /// What Home's pinned dock opens is made in the dock and moved to a column on its right (``HomeDockOpens``):
+    /// the dock's strip never lists it on the way, so Home shows no tab bar and no tab growing in, and the tab
+    /// first opens on the right.
+    @Test func aLinkFromHomesDockNeverShowsInTheDocksStrip() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        #expect(Self.listed(pane) == [Self.home])
+        #expect(pane.isOpenPinnedDockPane)
+        guard case .besideDock(_) = services.linkOpener.target(from: pane) else {
+            Issue.record("a link from Home's dock alone goes \(services.linkOpener.target(from: pane)), not beside it")
+            return
+        }
+        var placed: (@MainActor (SurfaceID) -> Void)?
+        let opened = services.linkOpener.open(from: pane) { _, then in
+            placed = then
+            return true
+        }
+        #expect(opened)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        #expect(Self.listed(pane) == [Self.home], "the new tab opened in Home's strip before its answer")
+        let then = try #require(placed)
+        then(Self.link)
+        #expect(Self.listed(pane) == [Self.home], "the new tab opened in Home's strip on its way right")
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
@@ -168,6 +215,25 @@ import Testing
         services.daemon.store.apply(snapshot: Self.tree(left: [Self.home], right: [Self.link]))
         #expect(Self.listed(pane) == [Self.home])
         #expect(OutboundTab.count(in: pane) == 0, "the hold outlived the tab's departure")
+    }
+
+    /// Review of #27789 at 28ad8d1c: an unfocused subagent's tab (a third or later, a tab in the right
+    /// column, AgentTabs.selectInPane) used selectWhenReported, which a script run that may not change
+    /// the view refuses, so the tab stayed hidden behind the one shown. The keep-focus path shows it in
+    /// every run and moves no keyboard focus: the chat keeps it.
+    @Test func anUnfocusedSubagentsTabIsShownWithoutTheRunsViewPermission() throws {
+        let (services, pane, state) = try Self.pane()
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        services.daemon.store.apply(snapshot: Self.tree(left: [Self.home, Self.link]))
+        let home = try #require(pane.pane.tabs.first { $0.surface == Self.home })
+        let link = try #require(pane.pane.tabs.first { $0.surface == Self.link })
+        pane.selectWhenReportedKeepingFocus(surface: Self.home)
+        #expect(pane.stripModel.selectedID?.rawValue == home.id)
+        let script = ActionRunScope(origin: .script, allowsViewChange: false)
+        ActionRunScope.$current.withValue(script) { pane.selectWhenReported(surface: Self.link) }
+        #expect(pane.stripModel.selectedID?.rawValue == home.id, "fixture: the old path selects nothing in such a run")
+        ActionRunScope.$current.withValue(script) { pane.selectWhenReportedKeepingFocus(surface: Self.link) }
+        #expect(pane.stripModel.selectedID?.rawValue == link.id, "the unfocused subagent's tab stayed hidden")
     }
 
     /// An open refused at once, or a move cancelled before it named its tab, holds nothing.

@@ -49,9 +49,12 @@ final class AndroidScreenStream {
         process.standardError = FileHandle.nullDevice
         let decoder = AndroidFrameAssembler()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            let data: Data
+            switch handle.readReady() {
+            case .bytes(let ready): data = ready
+            case .retry: return
+            case .end: handle.readabilityHandler = nil; return
+            }
             for sample in decoder.samples(from: data) {
                 // task-owner: one main-actor hop per frame; it ends when the frame is enqueued.
                 Task { @MainActor [weak self] in self?.onSample?(sample.buffer) }

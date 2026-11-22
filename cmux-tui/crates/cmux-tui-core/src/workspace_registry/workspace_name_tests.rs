@@ -194,6 +194,40 @@ fn workspace_name_source_store_refuses_a_rename_older_than_storage() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Daemons before #26680 stored the `workspace-N` Cmd-N sends with its create as the user's
+/// (source user, revision 0). That row is still unnamed: the automatic namer's rename commits,
+/// on both write paths. A person's rename of it (revision 1) stays pinned.
+#[test]
+fn workspace_name_source_store_lets_auto_name_a_created_default_name() {
+    let root = temp_root("workspace-name-created-default");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    commit(&mut registry, "create", renamed("workspace-151", NameSource::User, 0));
+    commit(&mut registry, "auto", renamed("Fix Login", NameSource::Auto, 1));
+    assert_eq!(
+        registry.snapshot().unwrap().workspaces[0],
+        renamed("Fix Login", NameSource::Auto, 1)
+    );
+    drop(registry);
+    fs::remove_dir_all(&root).unwrap();
+
+    let root = temp_root("workspace-name-created-default-resource");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    commit(&mut registry, "create", renamed("workspace-151", NameSource::User, 0));
+    resource_upsert(&mut registry, "auto", renamed("Fix Login", NameSource::Auto, 1)).unwrap();
+    assert_eq!(
+        registry.snapshot().unwrap().workspaces[0],
+        renamed("Fix Login", NameSource::Auto, 1)
+    );
+    commit(&mut registry, "pin", renamed("workspace-151", NameSource::User, 2));
+    let pinned = try_commit(&mut registry, "over-user", renamed("Topic", NameSource::Auto, 3));
+    assert_eq!(
+        refusal(&pinned.unwrap_err()),
+        ("operation.failed".to_string(), json!("name_pinned"))
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn workspace_name_source_default_named_user_rows_heal_to_auto() {
     let root = temp_root("workspace-name-default-heal");

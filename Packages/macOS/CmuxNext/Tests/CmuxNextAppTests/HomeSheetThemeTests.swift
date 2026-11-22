@@ -3,6 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Testing
 
@@ -48,7 +49,7 @@ import Testing
             HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineEngine()),
         ]
         let ink = scope.perform { Palette.textPrimary }
-        let hint = scope.perform { Palette.textTertiary }
+        let hint = scope.perform { Palette.textSecondary }
         var fields: [NSTextField] = []
         for root in roots {
             scope.root(root)

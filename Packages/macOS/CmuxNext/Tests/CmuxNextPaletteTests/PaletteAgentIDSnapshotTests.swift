@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// fleet step returns it with `cmux-ci run --artifact Packages/macOS/CmuxNext/.build/palette-agent-id.png`.
 /// The ranking itself is checked by `PaletteAgentIDSearchTests`.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteAgentIDSnapshotTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = []
@@ -40,6 +41,7 @@ struct PaletteAgentIDSnapshotTests {
     private static func render(withIDs: Bool, query: String, windows: inout [NSWindow]) async throws -> NSImage {
         let palette = PaletteController(registry: ActionRegistry.standard(),
                                         sources: PaletteSources(workspaces: workspaces(withIDs: withIDs)), frecencyPersistence: nil)
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         palette.model.send(.setQuery(query))
         await palette.model.settle()
@@ -56,7 +58,6 @@ struct PaletteAgentIDSnapshotTests {
         view.cacheDisplay(in: view.bounds, to: rep)
         let image = NSImage(size: view.bounds.size)
         image.addRepresentation(rep)
-        palette.hide()
         return image
     }
 

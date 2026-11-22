@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The row midpoint rule (`SidebarDragGeometry.edgeY`, Lawrence 2026-10-20)
 /// through the drag path the app uses: the sidebar document's drag. A real
 /// list of loose `w1`, `w2`, `w3` and group `g` (`m1`, `m2`); a row pressed
 /// and dragged with `updateDrag`, then the drop's one document move.
-@MainActor @Suite(.serialized) struct SidebarRowEdgeReorderDocDragTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowEdgeReorderDocDragTests {
     static let section = "sec"
 
     final class Drops {

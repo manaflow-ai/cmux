@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -407,7 +406,7 @@ Sim, o cmux é gratuito para usar. O código-fonte está disponível no [GitHub]
 
 ### Como posso apoiar o cmux?
 
-O cmux é gratuito e open source, e sempre será. Se você quiser apoiar o desenvolvimento e ter acesso antecipado ao que vem a seguir, incluindo o cmux AI, o app iOS e as Cloud VMs, confira a [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+O cmux é gratuito e open source, e sempre será.
 
 ### Tenho uma solicitação de recurso ou encontrei um bug?
 
@@ -427,7 +426,7 @@ Queremos saber. Abra uma [issue](https://github.com/manaflow-ai/cmux/issues) ou 
 
 Formas de participar:
 
-- Siga-nos no X para atualizações [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), e [@austinywang](https://x.com/austinywang)
+- Siga-nos no X para atualizações [@lawrencecchen](https://x.com/lawrencecchen) e [@austinywang](https://x.com/austinywang)
 - Participe da conversa no [Discord](https://discord.gg/xsgFEVrWCZ)
 - Crie e participe de [issues no GitHub](https://github.com/manaflow-ai/cmux/issues) e [discussões](https://github.com/manaflow-ai/cmux/discussions)
 - Nos conte o que você está construindo com o cmux
@@ -437,7 +436,6 @@ Formas de participar:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -446,19 +444,6 @@ Formas de participar:
   <strong>WeChat:</strong> Escaneie o código QR para entrar na comunidade.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Código QR do WeChat para entrar na comunidade cmux" width="240" />
 </p>
-
-## Edição do Fundador
-
-O cmux é gratuito, open source, e sempre será. Se você gostaria de apoiar o desenvolvimento e ter acesso antecipado ao que está por vir:
-
-**[Obter Edição do Fundador](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Solicitações de recursos/correções de bugs priorizadas**
-- **Acesso antecipado: cmux AI que te dá contexto sobre cada workspace, aba e painel**
-- **Acesso antecipado: app iOS com terminais sincronizados entre desktop e celular**
-- **Acesso antecipado: VMs na nuvem**
-- **Acesso antecipado: Modo de voz**
-- **Meu iMessage/WhatsApp pessoal**
 
 ## Licença
 

@@ -84,6 +84,58 @@ pub(super) fn refused(reply: &Value, reason: &str) {
 const TURN: &str = "turn:optchat:msg_1:1791968737566";
 
 #[test]
+fn conversation_run_pages_keep_timestamp_ties_across_agents() {
+    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
+    let server = HeadlessServer::start_with_config("conversation-run-ties", Some(&config));
+    let mut page = Ws::open(&ws_addr(&server));
+    let channel = page.create_channel("run-ties-channel", "release");
+    let mut home = Unix::open(&server.socket);
+    let mut chief = bound(&server, &mut home, "agent_mux");
+    let mut builder = bound(&server, &mut home, "agent_builder");
+    for (index, started_at) in [40, 30, 30, 30, 30, 30, 20, 20, 20].into_iter().enumerate() {
+        let writer = if index % 2 == 0 { &mut chief } else { &mut builder };
+        writer.request(
+            "conversation-run-append",
+            append(
+                &channel,
+                json!({"id": format!("turn:ties:{index}"), "status": "done", "started_at": started_at}),
+                json!([]),
+            ),
+        );
+    }
+
+    let first = page.request("conversation-runs", json!({"conversation": channel, "limit": 2}));
+    let ids = |page: &Value| -> Vec<String> {
+        page["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|run| run["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        ids(&first),
+        ["turn:ties:0", "turn:ties:5", "turn:ties:4", "turn:ties:3", "turn:ties:2", "turn:ties:1"],
+        "{first}"
+    );
+    assert_eq!(first["has_more"], true, "{first}");
+    let boundary = first["runs"].as_array().unwrap().last().unwrap()["started_at"].clone();
+    let second = page.request(
+        "conversation-runs",
+        json!({"conversation": channel, "before_started_at": boundary, "limit": 2}),
+    );
+    assert_eq!(ids(&second), ["turn:ties:8", "turn:ties:7", "turn:ties:6"], "{second}");
+    // A final page can exceed the requested limit without having older rows.
+    assert_eq!(second["has_more"], false, "{second}");
+    let empty = page.request(
+        "conversation-runs",
+        json!({"conversation": channel, "before_started_at": 20, "limit": 2}),
+    );
+    assert!(ids(&empty).is_empty(), "{empty}");
+    assert_eq!(empty["has_more"], false, "{empty}");
+}
+
+#[test]
 fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
     let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
     let server = HeadlessServer::start_with_config("conversation-runs", Some(&config));

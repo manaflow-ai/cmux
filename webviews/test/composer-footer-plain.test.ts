@@ -4,13 +4,13 @@
 // the rest of the difference away:
 //   - the model's name is muted like its effort and the permission mode (the model button names
 //     both, "Opus 5.5  Medium": Leo 2026-10-20, one button, no effort chip of its own);
-//   - the model's brand mark is hidden (it comes back when the row's fit steps take the model's
-//     name away, so no chip is a bare chevron); the mode keeps its symbol beside its label, as
-//     Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label").
+//   - the model keeps its provider's logo left of its name (cmux#38053), in its brand colors, and
+//     the logo alone when the row's fit steps take the name away, so no chip is a bare chevron; the
+//     mode keeps its symbol beside its label, as Codex's "(!) Full access" (Leo 2026-10-21: "symbol
+//     plus its label").
 //     The mode's chevron stays; the model button, as Claude Code's, draws none.
 // No chip draws a fill, ring or border at rest; hover, keyboard focus and an open menu draw the
-// row's wash. Labels and keyboard behavior are the same; widths may shrink with the icons hidden,
-// but the row's controls never overlap.
+// row's wash. Labels and keyboard behavior are the same, and the row's controls never overlap.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, `claude-auto`: Claude
 // Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look off and on
@@ -21,6 +21,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Chip = {
   name: string;
@@ -40,6 +41,9 @@ type Chip = {
   nameColor?: string;
   /** The model's effort detail color (its own --agent-muted ink). */
   detailColor?: string;
+  /** The leading icon's paint (an SVG's computed fill), and which provider's logo it is. */
+  iconFill?: string;
+  iconAgent?: string;
 };
 type Row = {
   /** Whether the model's name (any form) and the mode's label draw: the row's fit steps
@@ -55,8 +59,11 @@ type Row = {
 };
 
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
+  /** The composer's pickers, passed into the page function that measures the row. */
+  type Pickers = { MODEL_PICKER: string; PLUS_PICKER: string };
+  const PICKERS: Pickers = { MODEL_PICKER, PLUS_PICKER };
   /** Runs in the page: the footer's chips and every control's box. */
-  function measure(): Row {
+  function measure({ MODEL_PICKER, PLUS_PICKER }: Pickers): Row {
     // The chips stay in the quiet row under the box in either look (ComposerFoot.tsx).
     const bar =
       document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
@@ -97,6 +104,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           chevron: !!chevron && shown(chevron),
           ...(modelName ? { nameColor: getComputedStyle(modelName).color } : {}),
           ...(detail ? { detailColor: getComputedStyle(detail).color } : {}),
+          ...(leading ? { iconFill: getComputedStyle(leading).fill, iconAgent: leading.dataset.agent ?? "" } : {}),
         },
       ];
     };
@@ -105,12 +113,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     const boxRect = bar.closest(".acpmux-composer")?.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
     const access = bar.querySelector<HTMLElement>(".acpmux-access");
     const modeStart = parseFloat(access ? getComputedStyle(access).marginInlineStart : "0") || 0;
-    const chips = [
-      ...read("model", ".acpmux-model .acpmux-picker-button", false),
-      ...read("mode", ".acpmux-access-trigger"),
-    ];
+    const chips = [...read("model", MODEL_PICKER, false), ...read("mode", ".acpmux-access-trigger")];
     const boxes = [
-      ...read("plus", ".acpmux-composer-plus .acpmux-picker-button"),
+      ...read("plus", PLUS_PICKER),
       ...chips,
       ...read("mic", ".acpmux-mic"),
       ...read("send", ".acpmux-send"),
@@ -216,10 +221,10 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     const page = await open(300, "light");
     await plain(page, false);
     await settle(page);
-    const before = await page.evaluate(measure);
+    const before = await page.evaluate(measure, PICKERS);
     await plain(page, true);
     await settle(page);
-    const after = await page.evaluate(measure);
+    const after = await page.evaluate(measure, PICKERS);
     const problems = overlaps(after);
     await page.close();
     expect(before.look).toBe("");
@@ -256,9 +261,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         const page = await open(width, scheme);
         // The plain look is the default (#22050, DEFAULT_COMPOSER.plainFooter); the host's
         // `composer` event turns it off.
-        const initial = await page.evaluate(measure);
+        const initial = await page.evaluate(measure, PICKERS);
         await plain(page, false);
-        const row = await page.evaluate(measure);
+        const row = await page.evaluate(measure, PICKERS);
         await page.close();
         console.log(
           JSON.stringify({
@@ -293,11 +298,11 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       test(`at ${width} px (${scheme}): on, plain text at rest, same labels, no overlap`, async () => {
         const page = await open(width, scheme);
         await plain(page, false);
-        const before = await page.evaluate(measure);
+        const before = await page.evaluate(measure, PICKERS);
         await plain(page, true);
-        const row = await page.evaluate(measure);
+        const row = await page.evaluate(measure, PICKERS);
         await plain(page, false);
-        const back = await page.evaluate(measure);
+        const back = await page.evaluate(measure, PICKERS);
         await page.close();
         console.log(
           JSON.stringify({
@@ -327,8 +332,13 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         if (model?.nameColor !== muted) problems.push(`the model name ${model?.nameColor} is not muted (${muted})`);
         if (model?.detailColor !== undefined && model.detailColor === model.nameColor)
           problems.push(`the effort ${model.detailColor} is not one step back of the model name`);
-        if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
-        if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");
+        // The provider's logo left of the model's name (cmux#38053): the fixture is Claude Opus 5.5, so
+        // Claude's logo, in its brand color (not the chip's grey ink), before the name, at every width.
+        if (!model?.leadingIcon) problems.push("the model chip draws no provider logo");
+        if (model?.iconAgent !== "claude")
+          problems.push(`the model chip's logo is "${model?.iconAgent}", not Claude's`);
+        if (model?.iconFill === model?.color)
+          problems.push(`the model's logo is drawn in the chip's ink ${model?.color}, not its brand color`);
         const mode = chip(row, "mode");
         if (!mode?.leadingIcon) problems.push("the mode chip lost its symbol");
         problems.push(...overlaps(row));
@@ -340,10 +350,11 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       test(`at ${width} px (${scheme}): on, hover, keyboard focus and an open menu draw the wash`, async () => {
         const page = await open(width, scheme);
         await plain(page, true);
-        const wash = async (name: string) => (await page.evaluate(measure)).chips.find((each) => each.name === name)!;
+        const wash = async (name: string) =>
+          (await page.evaluate(measure, PICKERS)).chips.find((each) => each.name === name)!;
         const problems: string[] = [];
         for (const [name, selector] of [
-          ["model", ".acpmux-model .acpmux-picker-button"],
+          ["model", MODEL_PICKER],
           ["mode", ".acpmux-access-trigger"],
         ] as const) {
           await page.hover(selector);

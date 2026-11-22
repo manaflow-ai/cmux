@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// (OWNERSHIP-PRINCIPLES), but `renameWorkspace {name: ""}` from the socket moved the window's first
 /// responder from the terminal into the sidebar's rename field, and brought its window forward
 /// when it was not the active one (QA spree 2026-10-23, F25). The person's Rename still opens it.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct HeadlessRenameTakesNoKeyboardTests {
     static func responder(_ controller: WindowController) -> FocusEvent.Responder {
         FocusResponderClassifier.classify(controller.window?.firstResponder, in: controller)

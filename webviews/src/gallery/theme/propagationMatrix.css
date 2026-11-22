@@ -1,0 +1,52 @@
+/* The theme propagation matrix (gallery `theme.propagation`). */
+.theme-matrix-page {
+  display: grid;
+  gap: var(--space-4, 16px);
+  padding: var(--space-4, 16px);
+}
+
+.theme-matrix-summary {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--cmux-text);
+}
+
+.theme-matrix {
+  border-collapse: collapse;
+  font-size: var(--text-caption);
+  color: var(--cmux-text);
+}
+
+.theme-matrix th,
+.theme-matrix td {
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+  border-bottom: 1px solid var(--cmux-separator);
+  text-align: left;
+  vertical-align: top;
+}
+
+.theme-matrix thead th {
+  color: var(--cmux-text-secondary);
+  font-weight: var(--weight-medium, 500);
+}
+
+.theme-matrix-note {
+  display: block;
+  color: var(--cmux-text-secondary);
+}
+
+.theme-matrix-live,
+.theme-matrix-pass {
+  color: var(--cmux-app-success, var(--cmux-text));
+}
+
+.theme-matrix-still {
+  color: var(--cmux-text-tertiary);
+}
+
+.theme-matrix-missed,
+.theme-matrix-stray,
+.theme-matrix-fail {
+  color: var(--cmux-app-danger, var(--cmux-text));
+  font-weight: var(--weight-semibold, 600);
+}

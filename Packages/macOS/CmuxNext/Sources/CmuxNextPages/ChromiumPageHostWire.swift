@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextSettings
 import Foundation
 
 /// The JSON shapes ``ChromiumPageHostBridge`` reads and writes. Pure, so tests check each shape.
@@ -27,6 +29,9 @@ nonisolated struct ChromiumPageHostWire {
         /// Set for the replying handler.
         var seq: Int?
         var body: Any
+        /// The replying handler's envelope as the router reads it, made here with the parse (off the main
+        /// actor, ``ChromiumPageHostBridge``): the main actor converts nothing of a page call's payload.
+        var json: JSONValue?
 
         init?(payload: String) {
             guard let object = ChromiumPageHostWire.object(payload), let name = object["name"] as? String,
@@ -36,6 +41,7 @@ nonisolated struct ChromiumPageHostWire {
             self.name = name
             self.seq = seq
             self.body = body
+            json = seq == nil ? nil : JSONValue(foundation: body)
         }
     }
 
@@ -63,7 +69,8 @@ nonisolated struct ChromiumPageHostWire {
     /// The document event a raw DevTools event means: a main-frame `Page.frameNavigated` is a
     /// committed document, `Page.loadEventFired` a finished one; nil for any other message.
     static func documentEvent(_ json: String) -> PageChromiumEvent? {
-        guard json.contains("\"Page.frameNavigated\"") || json.contains("\"Page.loadEventFired\""),
+        let method = DevToolsMessageHead(json: json).method
+        guard method == "Page.frameNavigated" || method == "Page.loadEventFired",
               let object = object(json), object["id"] == nil, let method = object["method"] as? String else { return nil }
         switch method {
         case "Page.loadEventFired":

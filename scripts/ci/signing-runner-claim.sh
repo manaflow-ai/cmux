@@ -8,8 +8,9 @@
 # glaeda's job-started hook gives the signing jobs the exclusive class (every
 # capacity unit and both fast tokens) and writes GLAEDA_JOB_CLAIM=exclusive to
 # $GITHUB_ENV. This step fails the job, before any secret is read, on an owned
-# Mac without that claim (a hook from before the exclusive class), and removes
-# a signing keychain a killed job on that Mac left behind.
+# Mac without that claim, and removes a signing keychain a killed job on that
+# Mac left behind. Which glaeda hook version admitted the job is not checked:
+# a new hook release never fails a signing job.
 #
 # Usage: signing-runner-claim.sh   (no arguments; reads RUNNER_NAME,
 # GLAEDA_JOB_CLAIM and CMUX_FLEET_DIR, default /Users/Shared/cmux-build-fleet)
@@ -35,10 +36,9 @@ if [ -z "$owned" ]; then
 fi
 
 if [ "${GLAEDA_JOB_CLAIM:-}" != "exclusive" ]; then
-  echo "::error title=Signing runner::This owned Mac ($owned) did not give the job the whole mini (GLAEDA_JOB_CLAIM='${GLAEDA_JOB_CLAIM:-}'). A signing job never runs beside another job; its re-run takes Blacksmith."
+  echo "::error title=Signing runner::This owned Mac ($owned) did not give the job the whole mini (GLAEDA_JOB_CLAIM='${GLAEDA_JOB_CLAIM:-}'). A signing job never runs beside another job; this run's Blacksmith job signs instead."
   exit 1
 fi
-
 for name in "${STALE_KEYCHAINS[@]}"; do
   if [ -e "$KEYCHAIN_DIR/$name-db" ] || [ -e "$KEYCHAIN_DIR/$name" ]; then
     "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || rm -f "$KEYCHAIN_DIR/$name-db" "$KEYCHAIN_DIR/$name"

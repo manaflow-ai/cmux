@@ -12,6 +12,9 @@ enum TextBoxHandlers {
             guard let entry = ctx.terminal(invocation) else { return }
             textBox(of: entry, ctx).toggle(focus: invocation.allowsViewChange)
         })
+        ActionTargetTitles.setPaletteState("palette.terminalToggleTextBoxInput", in: registry) {
+            if case .terminal(let entry)? = ctx.services.windows.active?.focusedPane?.currentContent { entry.textBox?.model.isVisible == true } else { false }
+        }
         registry.bind("focusTextBoxInput", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
             let box = textBox(of: entry, ctx)
@@ -43,9 +46,8 @@ enum TextBoxHandlers {
         let services = ctx.services
         let box = TextBoxController(session: entry.session, perform: { [weak entry] command in
             guard let entry, let pane = pane(showing: entry, services) else { return }
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey))
-            invocation.keyContext = services.registry.context.subtracting(ActionContext.focusBits)
-                .union([.terminalFocused, .textBoxFocused])
+            let context = services.registry.context.subtracting(ActionContext.focusBits).union([.terminalFocused, .textBoxFocused])
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), keyContext: context).onMachine(pane.daemon.machineID)
             _ = services.registry.perform(ActionID(rawValue: command.rawValue), invocation: invocation)
         })
         entry.textBox = box

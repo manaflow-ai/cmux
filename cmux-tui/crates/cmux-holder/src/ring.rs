@@ -152,10 +152,10 @@ impl Ring {
         // SAFETY: the header mapping is HEADER bytes; reads are in bounds.
         let (magic, layout, capacity, base, end, published_oldest) = unsafe {
             let bytes = std::slice::from_raw_parts(header, HEADER);
-            let magic: [u8; 4] = bytes[..4].try_into().unwrap_or_default();
-            let layout = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or_default());
-            let capacity = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_default());
-            let base = u64::from_le_bytes(bytes[16..24].try_into().unwrap_or_default());
+            let magic: [u8; 4] = chunk_at(bytes, 0).unwrap_or_default();
+            let layout = chunk_at(bytes, 4).map_or(0, u32::from_le_bytes);
+            let capacity = chunk_at(bytes, 8).map_or(0, u64::from_le_bytes);
+            let base = chunk_at(bytes, 16).map_or(0, u64::from_le_bytes);
             let end = (*header.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
             let oldest = (*header.add(OFF_OLDEST).cast::<AtomicU64>()).load(Ordering::Acquire);
             libc::munmap(header.cast(), HEADER);
@@ -232,14 +232,17 @@ impl Ring {
             let start = self.end + skip as u64;
             self.publish_oldest(start);
             self.end = start;
-            data = &data[skip..];
+            data = data.get(skip..).unwrap_or_default();
         }
         while !data.is_empty() {
             let n = self.writable().len().min(data.len());
             self.forfeit(n);
-            self.writable()[..n].copy_from_slice(&data[..n]);
+            let (now, rest) = data.split_at_checked(n).unwrap_or((data, &[]));
+            if let Some(room) = self.writable().get_mut(..now.len()) {
+                room.copy_from_slice(now);
+            }
             self.publish(self.end + n as u64);
-            data = &data[n..];
+            data = rest;
         }
     }
 
@@ -255,7 +258,7 @@ impl Ring {
         let before = self.oldest;
         self.forfeit(len);
         self.publish_reading(Some(self.end));
-        let n = read(&mut self.writable()[..len]);
+        let n = read(self.writable().get_mut(..len).unwrap_or_default());
         if n > 0 {
             self.publish(self.end + n as u64);
         }
@@ -296,7 +299,11 @@ impl Ring {
         let start = (from % self.capacity as u64) as usize;
         let first = take.min(self.capacity - start);
         let data = self.data();
-        (from, &data[start..start + first], &data[..take - first])
+        (
+            from,
+            data.get(start..start + first).unwrap_or_default(),
+            data.get(..take - first).unwrap_or_default(),
+        )
     }
 
     /// The data area.
@@ -359,11 +366,10 @@ impl Ring {
         // SAFETY: the header is HEADER bytes at the start of the mapping.
         unsafe {
             let header = std::slice::from_raw_parts_mut(self.map, HEADER);
-            header[..4].copy_from_slice(&MAGIC);
-            header[4..8].copy_from_slice(&self.layout.to_le_bytes());
-            header[OFF_CAPACITY..OFF_CAPACITY + 8]
-                .copy_from_slice(&(self.capacity as u64).to_le_bytes());
-            header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
+            put_at(header, 0, &MAGIC);
+            put_at(header, 4, &self.layout.to_le_bytes());
+            put_at(header, OFF_CAPACITY, &(self.capacity as u64).to_le_bytes());
+            put_at(header, OFF_BASE, &self.base.to_le_bytes());
         }
         self.publish_oldest(self.oldest);
         self.publish(self.end);
@@ -374,6 +380,19 @@ impl Drop for Ring {
     fn drop(&mut self) {
         // SAFETY: unmaps the mapping this value made.
         unsafe { libc::munmap(self.map.cast(), self.map_len) };
+    }
+}
+
+/// The `N` bytes of `bytes` at offset `at`, if it holds them.
+fn chunk_at<const N: usize>(bytes: &[u8], at: usize) -> Option<[u8; N]> {
+    bytes.get(at..)?.first_chunk::<N>().copied()
+}
+
+/// Copy `value` into `header` at offset `at` (a header field; the header
+/// always holds every field, so nothing is skipped).
+fn put_at(header: &mut [u8], at: usize, value: &[u8]) {
+    if let Some(field) = header.get_mut(at..).and_then(|rest| rest.get_mut(..value.len())) {
+        field.copy_from_slice(value);
     }
 }
 
@@ -396,10 +415,10 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
     // SAFETY: the header mapping is HEADER bytes.
     unsafe {
         let header = std::slice::from_raw_parts_mut(map, HEADER);
-        header[..4].copy_from_slice(&MAGIC);
-        header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
-        header[OFF_CAPACITY..OFF_CAPACITY + 8].copy_from_slice(&(capacity as u64).to_le_bytes());
-        header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&base.to_le_bytes());
+        put_at(header, 0, &MAGIC);
+        put_at(header, 4, &LAYOUT.to_le_bytes());
+        put_at(header, OFF_CAPACITY, &(capacity as u64).to_le_bytes());
+        put_at(header, OFF_BASE, &base.to_le_bytes());
         (*map.add(OFF_OLDEST).cast::<AtomicU64>()).store(base, Ordering::Release);
         (*map.add(OFF_END).cast::<AtomicU64>()).store(base, Ordering::Release);
         libc::munmap(map.cast(), HEADER);

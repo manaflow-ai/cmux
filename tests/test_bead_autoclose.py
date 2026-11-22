@@ -65,6 +65,9 @@ if args[0] == "show":
     print(json.dumps([dict(bead, id=args[1])]))
 elif args[0] == "children":
     print("[]")
+elif args[0] == "list":
+    print(json.dumps([{"id": bead_id, "external_ref": bead.get("external_ref", "")}
+                      for bead_id, bead in beads.items()]))
 elif "create" in args:
     print(json.dumps({"id": "cx-created"}))
 """
@@ -150,7 +153,7 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([call[3] for call in self.bd_calls("close")], ["cx-body2", "cx-commit2"])
 
-    def test_open_beadless_pr_is_created_and_linked(self):
+    def test_open_beadless_pr_gets_a_bead_and_nothing_on_the_pr(self):
         root = Path(self.temporary.name)
         (root / "open.json").write_text(json.dumps([{
             "id": "pr-node", "number": 10, "title": "feat: automatic bead",
@@ -164,29 +167,25 @@ class BeadAutocloseTests(unittest.TestCase):
         self.assertEqual(creates[0][:3], ["--actor", "leo", "create"])
         self.assertIn("--external-ref", creates[0])
         self.assertIn("https://github.com/manaflow-ai/cmux/pull/10", creates[0])
-        # The link goes to the PR's status comment through pr-status.yml (posted as
-        # github-actions), never as a comment under the token's own account.
-        calls = [json.loads(line) for line in self.gh_log.read_text().splitlines()]
-        self.assertEqual(calls, [["workflow", "run", "pr-status.yml", "-R", "manaflow-ai/cmux",
-                                  "--ref", "main", "-f", "pr=10", "-f", "bead=cx-created"]])
+        # The bead's external reference is the link: no comment, status line or dispatch on the PR
+        # (Leo, 2026-10-29: "we want to use beads, but we don't want to fucking waste usage").
+        self.assertFalse(self.gh_log.exists() and self.gh_log.read_text().strip(), "wrote to GitHub")
 
-    def test_a_failed_link_keeps_the_bead_and_never_creates_a_second(self):
+    def test_a_pr_a_bead_already_references_gets_no_second_bead(self):
         root = Path(self.temporary.name)
+        beads = json.loads((root / "beads.json").read_text())
+        beads["cx-old1"] = {"status": "open", "issue_type": "task", "assignee": "",
+                            "external_ref": "https://github.com/manaflow-ai/cmux/pull/10"}
+        (root / "beads.json").write_text(json.dumps(beads))
         (root / "open.json").write_text(json.dumps([{
             "id": "pr-node", "number": 10, "title": "feat: automatic bead",
             "url": "https://github.com/manaflow-ai/cmux/pull/10", "baseRefName": "feat-cmux-next",
         }]))
-        failing = self.gh_log.parent / "failing-bin"
-        failing.mkdir()
-        self.write(failing / "gh", "#!/bin/sh\ncase \"$1\" in workflow) echo 'HTTP 403' >&2; exit 1;; esac\n"
-                   f"exec {self.bin / 'gh'} \"$@\"\n")
-        env = {"PATH": f"{failing}{os.pathsep}{self.env['PATH']}", "BEADS_BD_COMMAND": str(self.fake_bd)}
-        first = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
-        self.assertEqual(first.returncode, 1, first.stdout)
-        self.assertIn("linking it on the PR failed", first.stdout)
-        second = self.run_script("--since", "2026-10-10T00:00:00Z", **env)
-        self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertEqual(len(self.bd_calls("create")), 1)
+        # A fresh state file (another host, or a lost one) must not duplicate the bead.
+        result = self.run_script("--since", "2026-10-10T00:00:00Z", BEADS_BD_COMMAND=str(self.fake_bd),
+                                 BEAD_AUTOCLOSE_STATE=str(root / "fresh-state"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.bd_calls("create"), [])
 
     def test_a_second_run_does_not_repeat_comments_or_closes(self):
         # The search starts at (or before) the last merge handled, so it sees that merge again.

@@ -3,6 +3,12 @@
 //! Fixture and shell loops stop after their fixed path lists.
 #![cfg(target_os = "linux")]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// Starts no agent: the keeper runs a fixed `/bin/sh` script. CI sets
+// `ACPMUX_REQUIRE_BWRAP` so a missing bwrap fails instead of skipping.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&["ACPMUX_REQUIRE_BWRAP"]);
+
 use acpmux::hub::Hub;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -36,7 +42,7 @@ impl Fixture {
         Self(root)
     }
     fn command(&self, script: &str) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut command = Command::new(daemon_env::bin());
         command.arg("__remote-sandbox-keeper");
         for (flag, dir) in [
             ("--cwd", "cwd"),

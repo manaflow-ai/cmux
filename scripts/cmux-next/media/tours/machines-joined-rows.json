@@ -1,0 +1,10 @@
+{
+  "title": "Machines: joined rows (Labs labs.machineJoin), on fixture machines",
+  "settings": {"labs": {"machineJoin": true}},
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Joined rows: online with who added it, offline, revoked", "rpc": {"method": "debug.joined_machines", "params": {}}, "wait": 2.5, "optional": "debug.joined_machines is DEBUG only"},
+    {"title": "The first row's menu open: its … button stays shown and lit (the fill covers the button alone)", "rpc": {"method": "debug.joined_machines", "params": {"menu": true}}, "wait": 2, "optional": "debug.joined_machines is DEBUG only"},
+    {"title": "Check: machine doctor in the Check Machine checklist", "rpc": {"method": "debug.joined_machines", "params": {"check": true}}, "wait": 3, "optional": "debug.joined_machines is DEBUG only"}
+  ]
+}

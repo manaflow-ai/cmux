@@ -4,9 +4,12 @@
 // order they were picked, so the person sees the choice while searching.
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
 import type { HomeParticipant } from "./types";
+import "./peoplePickerLoading.css";
+import "../../ui/popupSurface.css";
 
 export interface PeoplePickerProps {
   people: readonly HomeParticipant[];
@@ -19,8 +22,10 @@ export interface PeoplePickerProps {
 
 export function PeoplePicker({ people, picked, onPicked, strings, loading }: PeoplePickerProps) {
   const { t, format } = strings;
+  const initialLoading = loading === true && people.length === 0;
   const [query, setQuery] = useState("");
   const list = useRef<HTMLDivElement | null>(null);
+  const rowsEdges = useScrollEdges();
   const shown = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     const byId = new Map(people.map((person) => [person.id, person]));
@@ -63,7 +68,20 @@ export function PeoplePicker({ people, picked, onPicked, strings, loading }: Peo
               ? t("sheet.selected.one")
               : format("sheet.selected.many", String(picked.length))}
         </p>
-        <fieldset className="lg-picker-rows" aria-label={t("sheet.search")}>
+        <fieldset
+          ref={rowsEdges}
+          className="lg-picker-rows ui-scroll-edge-fade"
+          aria-label={t("sheet.search")}
+          aria-busy={loading === true || undefined}
+        >
+          {initialLoading &&
+            Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="lg-picker-row lg-picker-loading-row" aria-hidden="true">
+                <span className="lg-picker-placeholder lg-picker-placeholder-check" />
+                <span className="lg-picker-placeholder lg-picker-placeholder-avatar" />
+                <span className="lg-picker-placeholder lg-picker-placeholder-name" />
+              </div>
+            ))}
           {shown.map((person) => (
             <label key={person.id} className="lg-picker-row">
               <input

@@ -5,26 +5,39 @@ import Foundation
 import Testing
 
 @MainActor struct ComputerUsePermissionRequestTests {
+    /// Continue on the agent card shows the Computer Use window; the grant is requested only when the
+    /// person clicks Allow there (`ComputerUseSetup.open`), for that grant alone.
     @Test(arguments: [PermissionKind.accessibility, .screenRecording, .computerUse])
-    func agentContinueRequestsOnlyTheCurrentGrant(_ kind: PermissionKind) {
+    func agentContinueShowsTheWindowAndAllowRequestsOnlyThatGrant(_ kind: PermissionKind) {
         var requested: [ComputerUsePermissionPane] = []
         var opened: [URL] = []
         var enabled = 0
+        var shown = 0
         let setup = ComputerUseSetup(
             inputs: { .init(disabledByPolicy: false, enabled: false, helper: .off) },
-            configuration: { nil },
             openURL: { opened.append($0) },
             requestPermission: { requested.append($0) },
             enableSetting: { enabled += 1 }
         )
-        let opener = SystemPermissionOpener(setup: setup)
-        #expect(requested.isEmpty)
+        let opener = SystemPermissionOpener(setup: setup, showComputerUse: { shown += 1 }, openURL: { opened.append($0) })
         opener.open(kind, target: nil)
-        let pane: ComputerUsePermissionPane = kind == .screenRecording ? .screenRecording : .accessibility
         #expect(enabled == 1)
+        #expect(shown == 1)
+        #expect(requested.isEmpty)
+        #expect(opened.isEmpty)
+
+        let pane: ComputerUsePermissionPane = kind == .screenRecording ? .screenRecording : .accessibility
+        setup.open(pane)
         #expect(requested == [pane])
-        #expect(opened.count == 1)
-        #expect(opened.first == ComputerUseSetup.settingsURL(pane))
+        #expect(opened == [ComputerUseSetup.settingsURL(pane)].compactMap { $0 })
+    }
+
+    /// The card hides after Continue because the Computer Use window takes over cmux Remote's grants.
+    @Test func theCardStepsAsideForComputerUseKinds() {
+        for kind in [PermissionKind.accessibility, .screenRecording, .computerUse] {
+            #expect(SystemPermissionOpener.guidesInWindow(kind))
+        }
+        #expect(!SystemPermissionOpener.guidesInWindow(.fullDiskAccess))
     }
 
     @Test func launchAndStatusNeverRequestGrantsButSetupRequestsOnlyTheClickedGrant() {
@@ -32,7 +45,6 @@ import Testing
         var opened: [URL] = []
         let setup = ComputerUseSetup(
             inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off) },
-            configuration: { nil },
             openURL: { opened.append($0) },
             requestPermission: { requested.append($0) }
         )

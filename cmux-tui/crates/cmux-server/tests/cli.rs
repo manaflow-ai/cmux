@@ -7,7 +7,7 @@ mod common;
 use cmux_server::cli::{Context, dispatch, parse};
 use cmux_server::exec::RecordingExec;
 use cmux_server::host;
-use cmux_server::process::RecordingRunner;
+use cmux_server::process::{Output, RecordingRunner};
 use common::*;
 
 fn words(s: &str) -> Vec<String> {
@@ -25,9 +25,34 @@ struct Env {
 
 impl Env {
     fn new() -> Env {
+        let runner = RecordingRunner::new();
+        // systemd knows no cmux-server.service here (tests answer otherwise).
+        runner.answer_always(
+            "--property=LoadState",
+            Output {
+                code: Some(0),
+                stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
+        // launchd has no com.cmux.server loaded here.
+        runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
+        // Every unit systemd is asked about is stopped.
+        runner.answer_always(
+            "--property=ActiveState",
+            Output { code: Some(0), stdout: b"inactive\n".to_vec(), ..Output::default() },
+        );
+        runner.answer_always(
+            "--property=ControlGroup,TasksCurrent",
+            Output {
+                code: Some(0),
+                stdout: b"ControlGroup=\nTasksCurrent=[not set]\n".to_vec(),
+                ..Output::default()
+            },
+        );
         Env {
             tmp: tempfile::tempdir().unwrap(),
-            runner: RecordingRunner::new(),
+            runner,
             fetcher: MapFetcher::default(),
             exec: RecordingExec::default(),
             signer: Signer::new(3),
@@ -45,6 +70,8 @@ impl Env {
             reexec_guard: self.guard.clone(),
             env: env_for(self.tmp.path()),
             now_ms: NOW_MS,
+            self_exe: None,
+            terminal_socket: None,
         }
     }
 
@@ -133,16 +160,16 @@ fn the_reexec_really_execs_the_server_binary() {
     assert_eq!(lines.len(), 5, "{out}");
 }
 
-/// The app's reader fixture: `LocalServerStatusTests.status` in
-/// Packages/macOS/CmuxNext/Tests/CmuxNextServerTests/LocalServerStatusTests.swift
-/// (without its `future_field`). Change both together.
+/// The app's reader fixture: the keys `LocalServerStatus.snapshot` in
+/// Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/LocalServerStatus.swift reads.
+/// Change both together.
 const APP_READER_STATUS_FIXTURE: &str = r#"
 {"enabled": true, "mode": "user",
  "store": {"generation": 3, "version": "0.9.1", "channel": "stable", "pinned": "0.9.1",
            "generations": [2, 3], "last_applied_sequence": 7, "packages": [{"name": "cmux", "version": "0.9.1"}]},
  "service": {"installed": true, "active": true, "enabled": true},
  "postgres": {"port": 55432, "state": "running"},
- "roles": [], "apps": [], "alerts": []}
+ "roles": [], "apps": [], "alerts": [], "pairing": {"state": "unpaired"}}
 "#;
 
 /// Every key of `fixture` is in `actual` with the same JSON type (null
@@ -198,4 +225,61 @@ fn status_json_matches_the_app_reader_fixture() {
         fixture_fits(&fixture, status, "status");
     }
     assert_eq!(after["store"]["packages"][0]["name"], "cmux");
+}
+
+/// `server up` / `server down` (the Server panel's switch): refused before install; after
+/// install `down` stops and disables the service, `up` enables and starts it, and the
+/// install stays.
+#[test]
+fn up_and_down_switch_the_installed_service_and_keep_the_install() {
+    if cmux_server::sys::is_root() {
+        eprintln!("skipped: user-mode install refuses root");
+        return;
+    }
+    let env = Env::new();
+    let refused = env.run("up").unwrap_err();
+    assert!(refused.message.contains("server install"), "{}", refused.message);
+    env.publish(1, "1.0.0");
+    env.run(&format!("install {CHAN}")).unwrap();
+    let before = env.runner.lines().len();
+    let down = env.run("down").unwrap();
+    assert_eq!(down["enabled"], false);
+    assert_eq!(down["service"]["installed"], true);
+    let lines = env.runner.lines()[before..].join("\n");
+    assert!(lines.contains("disable"), "{lines}");
+    let before = env.runner.lines().len();
+    let up = env.run("up").unwrap();
+    assert_eq!(up["enabled"], true);
+    let lines = env.runner.lines()[before..].join("\n");
+    assert!(lines.contains("enable") && !lines.contains("disable"), "{lines}");
+    assert_eq!(env.run("status").unwrap()["service"]["installed"], true);
+}
+
+/// `cmux server logs` takes the short flags the Rex docs use, `-n N` for
+/// `--lines N` and `-f` for `--follow`. Other verbs keep such words as
+/// positionals (a file may be named `-n`).
+#[test]
+fn logs_takes_n_and_f_as_short_flags() {
+    let args = parse(&words("server logs -n 50 -f")).unwrap();
+    assert_eq!(args.verb, vec!["logs".to_owned()]);
+    assert_eq!(args.value("lines"), Some("50"));
+    assert!(args.has("follow"));
+    assert!(args.positionals.is_empty());
+    let args = parse(&words("--json logs -f -n=7")).unwrap();
+    assert_eq!((args.value("lines"), args.has("follow"), args.json), (Some("7"), true, true));
+    assert!(parse(&words("logs -n")).is_err(), "-n needs a value");
+    assert!(parse(&words("status -n 5")).is_err(), "status has no -n");
+    // Before the verb, as the long forms may be.
+    let args = parse(&words("server -f -n 3 logs")).unwrap();
+    assert_eq!((args.value("lines"), args.has("follow")), (Some("3"), true));
+    // Read in order with the long forms: the last one wins, and a last
+    // one with no value is an error.
+    assert_eq!(parse(&words("logs -n 5 --lines 10")).unwrap().value("lines"), Some("10"));
+    assert_eq!(parse(&words("logs --lines 10 -n 5")).unwrap().value("lines"), Some("5"));
+    assert!(parse(&words("logs -n 5 --lines")).is_err());
+    // -n takes only the next word, as --lines does.
+    assert!(parse(&words("logs -n --json 5")).is_err());
+    // After `--` they are words, and logs takes none.
+    assert!(parse(&words("logs -- -f")).is_err());
+    assert!(parse(&words("logs -- -n 5")).is_err());
 }

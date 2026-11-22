@@ -33,14 +33,14 @@ Sources compared:
 | | Classic | cmux NEXT (before) |
 | --- | --- | --- |
 | Container | No bar: each key is its own glass capsule, 28 pt tall, on a clear strip | One 44 pt glass capsule holding 34 pt keys |
-| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, compose toggle (square.and.pencil) | esc, ctrl, ^C |
+| Pinned (left) | Keyboard toggle (keyboard / keyboard.chevron.compact.down, cross-dissolve), arrow nub, text field toggle (character.textbox, 13 pt like its neighbors) | esc, ctrl, ^C |
 | Pinned (right) | None (the row scrolls to the screen edge) | Joystick, hide keyboard |
 | Scrolling keys | ⌃ ⌥ ⌘ ⇧ paste, Tab, Esc, ⏎, ^C, ^D, Claude, Codex, Ollama, ↑ ↓ ← →, Clear, ~ $ / @ \|, ^Z, Home, End, PgUp, PgDn, zoom out, zoom in, then Hide Toolbar and Customize | tab, ⇧tab, ↑ ↓ ← →, ^D ^Z ^L, alt, \| ~ / -, paste, ` { } [ ], ^R, ^B |
 | Key size | Hugs its label, min 32 pt wide (glyph keys exactly 32), 4 pt gaps, 14 pt medium text | Fixed 44 pt wide, 6 pt gaps, snaps to whole keys, 15 pt monospaced |
 | Modifiers | ⌃ ⌥ ⌘ ⇧: tap arms for one key, double tap locks; armed and locked use the accent fill, locked adds a border | ctrl and alt only: same tap/double-tap rule; accent fill, locked adds an underline |
 | ⌘ | ⌘← / ⌘→ send ^A / ^E (line start/end); ⌘↑ ⌘↓ send the plain arrow | Not offered |
 | ⇧ | ⇧Tab is back-tab; other keys unshifted | ⇧tab is its own key |
-| Arrow input | A 28 pt glass nub with a 12 pt dot; drag past 8 pt sends that arrow, repeating; the dot springs back in 0.15 s | A 32 pt joystick whose thumb follows the finger past the circle; 400 ms delay then 10-18/s |
+| Arrow input | A 28 pt glass nub with a 12 pt dot; drag past 8 pt sends that arrow, repeating; the dot springs back in 0.15 s | A 28 pt joystick whose dot's center can reach the circle's edge (14 pt travel; classic stops at 6 pt; since 2026-11-11); 400 ms delay then 10-18/s |
 | Zoom | Two keys step the terminal font size | Settings only |
 | Launchers | Claude, Codex (each with Return), Ollama (`ollama run `, no Return) | None |
 | Fades | Keys dissolve at the leading edge against the compose toggle | 12 pt fades both ends; keys cut at rest are not drawn |
@@ -51,7 +51,7 @@ Sources compared:
 | --- | --- | --- |
 | Structure | Paperclip button (40 pt glass circle), mic button (40 pt glass circle), then the field in a rounded glass container (radius 20, min 40 pt) with a 28 pt send circle inside it, riding the last line | One glass card (radius 24) holding a 36 pt `+` circle, the field, and a 36 pt send circle |
 | Attach menu | Photo Library, Choose Files, Paste | Paste (only for an image or file, first), Camera, Photos, Files |
-| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | None (the keyboard's own mic) |
+| Dictation | Mic toggles on-device dictation into the field (pulsing red mic while listening; the field locks while it listens) | Replaced by voice mode (waveform): a GPT Realtime line to the agent, its replies read aloud without code or diffs, speech sent as prompts; the keyboard's own mic still dictates |
 | Placeholder | "Message" | "Send to <program>", or "Typing into terminal" with a keyboard glyph while keys go to the terminal |
 | Return key | Inserts a new line; only Send sends | Sends (Shift-Return or the edit menu's New Line inserts one) |
 | Lines | Grows 1 to 14 lines, then scrolls | 1 to 6 lines |
@@ -101,8 +101,10 @@ Kept from cmux NEXT on purpose:
 
 - Theming: dark style over the terminal background, glass on 85 % terminal
   background, accent fill, the `KeyCapStyle` fills, monospaced key labels.
-- The joystick's engine (thumb follows past the circle; 400 ms then 10-18/s
-  repeat): both were user requests for cmux NEXT (2026-10-14, Codex QA F5). The
+- The joystick's engine (400 ms then 10-18/s repeat; the dot followed past
+  the circle until the user asked for a classic-like clamp on 2026-11-11, to the circle's
+  edge for a little more reach than classic's 6 pt):
+  both were user requests for cmux NEXT (2026-10-14, Codex QA F5). The
   joystick takes classic's place and 28 pt size.
 - Camera stays in the attach menu (after classic's three items), and Send without
   Return stays on a long press of Send.

@@ -1,6 +1,7 @@
 //! Resource topology lookups and change values: screen, pane and tab lookups, active screen, registry workspace, upsert and delete deltas, and workspace placement.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Registry position for a workspace created into `group` (`None` =
 /// ungrouped) at final index `index` among that section's members. Groups
@@ -114,6 +115,9 @@ pub(super) fn set_active_screen(
     }
 }
 
+/// The stored row of the live workspace at `index`. `session` is the session's name
+/// (`Mux::session`): the group key that the projection and each create state. A plan that passed
+/// the session's public id wrote the row in another form, which the next projection wrote again.
 pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> RegistryWorkspace {
     let workspace = &state.workspaces[index];
     RegistryWorkspace {
@@ -193,7 +197,7 @@ pub(super) fn pane_value_with_zoom(
     zoomed: bool,
 ) -> anyhow::Result<Value> {
     let mut value = pane_value(state, pane, topology)?;
-    value["zoomed"] = json!(zoomed);
+    value.set("zoomed", json!(zoomed));
     Ok(value)
 }
 

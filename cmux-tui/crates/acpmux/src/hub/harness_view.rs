@@ -3,6 +3,7 @@
 use super::*;
 
 use crate::config::folder_profiles::{self, FolderProfile};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness: its profile, family, defaults, launcher and
@@ -53,6 +54,11 @@ impl Hub {
                 if let Some(start) = self.start_view(&cfg, name, p) {
                     o.insert("start".into(), start);
                 }
+                // The modes and options its chats report (`start_mode.rs` `reported_options`):
+                // a new chat's Mode and option pickers before any chat of it is open.
+                if let Some(reported) = self.reported_options(name, p) {
+                    o.insert("reported".into(), reported);
+                }
                 // A profile file's display, capability, auth and sessions data.
                 if let Some(Value::Object(meta)) =
                     cfg.profile_meta.get(name).and_then(|m| serde_json::to_value(m).ok())
@@ -69,7 +75,7 @@ impl Hub {
         // (`_acpmux/new_chat_picks_set`): a remote device's New Agent Chat
         // starts there, as the app's does.
         if let Some(picks) = self.person.new_chat_picks() {
-            view["lastPicks"] = picks;
+            view.set("lastPicks", picks);
         }
         view
     }
@@ -105,7 +111,7 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
-        view["folderProfiles"] = Value::Array(rows);
+        view.set("folderProfiles", Value::Array(rows));
         Ok(view)
     }
 }
@@ -123,15 +129,15 @@ fn folder_profile_row(fp: &FolderProfile) -> Value {
     });
     if let Some(meta) = &fp.meta {
         if let Some(name) = &meta.display_name {
-            row["displayName"] = json!(name);
+            row.set("displayName", json!(name));
         }
         if let Some(icon) = &meta.icon {
-            row["icon"] = json!(icon);
+            row.set("icon", json!(icon));
         }
     }
     if let Some(profile) = &fp.profile {
-        row["kind"] = json!(profile.kind);
-        row["family"] = json!(crate::config::derive_family(&fp.id, profile));
+        row.set("kind", json!(profile.kind));
+        row.set("family", json!(crate::config::derive_family(&fp.id, profile)));
     }
     row
 }

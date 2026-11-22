@@ -98,3 +98,54 @@ test("a node restored from the cached snapshot's JSON (its agents map turned `{}
   expect(summary!.agents).toEqual([]);
   expect(summary!.phases[0]!.agentIds).toEqual([]);
 });
+
+test("workflow summaries retain the latest agent message with a legacy result fallback", () => {
+  const agents = createWorkflowAdapter()(
+    [
+      node("messages", {
+        workflowAgents: new Map([
+          [
+            0,
+            {
+              index: 0,
+              model: "claude-opus",
+              effort: "high",
+              lastMessage: "Still reviewing.",
+              result: "Earlier result",
+            },
+          ],
+          [1, { index: 1, result: "Legacy result" }],
+        ]),
+      }),
+    ],
+    "s",
+  )[0]!.agents;
+  expect(agents[0]).toMatchObject({ model: "claude-opus", effort: "high", lastMessage: "Still reviewing." });
+  expect(agents[1]!.lastMessage).toBe("Legacy result");
+});
+
+test("workflow summaries retain a failed agent's provider error", () => {
+  const [workflow] = createWorkflowAdapter()(
+    [
+      node("failed", {
+        workflowAgents: new Map([
+          [
+            0,
+            {
+              index: 0,
+              state: "failed",
+              error: "503: No provider capacity available",
+              action: "Reading source",
+            },
+          ],
+        ]),
+      }),
+    ],
+    "s",
+  );
+  expect(workflow!.agents[0]).toMatchObject({
+    state: "failed",
+    error: "503: No provider capacity available",
+    doing: "Reading source",
+  });
+});

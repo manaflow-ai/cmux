@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextCloudUI
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ struct CloudHintCommandsTests {
             (CloudStrings.signInFirst, nil), (CloudStrings.noMachine, nil), (CloudStrings.notConnected, nil),
             (CloudStrings.alreadySignedIn, "palette.auth.signIn"), (CloudStrings.noAddress, "cloudCopyPort"),
             (CloudStrings.commandRequired, "cloudExec"), (CloudStrings.fileContentsRequired, "cloudFileWrite"),
-            (CloudStrings.publicKeyRequired, "cloudPrepareSCP"), (CloudStrings.tunnelKeyRequired, "cloudTunnelRotateKey"), (CloudStrings.snapshotRequired, "palette.cloud.restore"),
+            (CloudStrings.publicKeyRequired, "cloudPrepareSCP"), (CloudStrings.snapshotRequired, "palette.cloud.restore"),
             (CloudStrings.snapshotRequired, "palette.cloud.deleteSnapshot"),
             (CloudMoveStrings.moveFailed("x"), nil), (CloudBringBackStrings.failed("x"), nil),
             (CloudStrings.gitHubMissing, nil), (CloudStrings.gitHubFailed, nil),
@@ -48,7 +49,6 @@ struct CloudHintCommandsTests {
             }
         }
         #expect(Self.verbs(in: CloudStrings.notConnected) == ["resume-machine"])
-        #expect(!CloudStrings.tunnelKeyRequired.contains("ssh"), "a tunnel key is a WireGuard key")
     }
 
     @Test func everyNamedFlagIsAnArgumentOfItsAction() throws {
@@ -78,12 +78,5 @@ struct CloudHintCommandsTests {
         #expect(CloudMoveStrings.moveFailed("REASON.").hasSuffix("REASON."))
         #expect(CloudBringBackStrings.failed("REASON.").hasSuffix("REASON."))
         #expect(CloudStrings.progressFailed("REASON.").hasSuffix("REASON."))
-    }
-
-    /// An upload refusal names the limits the app enforces, from the same constants.
-    @Test func anUploadRefusalNamesTheLimits() {
-        let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary) }
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumFileBytes)), "\(CloudUploadStrings.refused)")
-        #expect(CloudUploadStrings.refused.contains(size(CloudUploads.maximumTotalBytes)), "\(CloudUploadStrings.refused)")
     }
 }

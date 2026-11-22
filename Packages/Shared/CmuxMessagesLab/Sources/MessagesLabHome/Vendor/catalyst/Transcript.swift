@@ -67,6 +67,32 @@ final class TranscriptModel {
         rebuild(from: m0, previous: previous)
     }
 
+    /// cmux: the rows from `start` on take `specs`, the same rows measured again (a width pass over the rows near the
+    /// viewport, MessagesWindowView.widthPassNearViewport): same keys in the same order, so the index, the connectors
+    /// and every other row stay, and only the offsets from `start` on follow the new heights (one add per row after
+    /// the changed ones when their total changed; no row before or after is read). False, with nothing changed, when
+    /// a row there is not the spec's row or a ghost is in the model: the caller then sets every row (`set`).
+    func remeasure(from start: Int, _ specs: [RowSpec]) -> Bool {
+        let end = start + specs.count
+        guard start >= 0, !specs.isEmpty, end <= rows.count, !hasGhosts else { return false }
+        for (row, spec) in zip(rows.slice(start, end), specs) where row.spec.key != spec.key { return false }
+        guard var y = offsets[checked: start], let oldEnd = offsets[checked: end] else { return false }
+        var changed: [CGFloat] = []
+        changed.reserveCapacity(specs.count)
+        for (i, spec) in zip(start..., specs) {
+            rows.update(at: i) { $0.spec = spec }
+            y += spec.total
+            changed.append(y)
+        }
+        let delta = y - oldEnd
+        if delta == 0 {
+            offsets.replaceSubrange((start + 1)..<(end + 1), with: changed) // crash-allow: 0 <= start, end <= rows.count == offsets.count - 1 (guards above)
+        } else {
+            offsets.replaceSubrange((start + 1)..., with: changed + offsets.slice(from: end + 1).map { $0 + delta }) // crash-allow: start + 1 <= offsets.count (guards above)
+        }
+        return true
+    }
+
     /// Merge `specs` into the rows from `m0` on (rows before stay). Returns the rows it replaced.
     @discardableResult
     private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
@@ -539,10 +565,14 @@ final class RowCell: UICollectionViewCell {
     /// (a highlight over the rows landed at the row's end place at once while the row sprang there: Lawrence
     /// 2026-10-19, "a layout shift for the highlight thing ... janky and disjoint"). Joins the tree on first use.
     let selectionHighlight = CAShapeLayer()
+    /// cmux: the style `selectionHighlight` draws in now (nil: none set yet).
+    private(set) var selectionHighlightStyle: SelectionHighlightStyle?
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
     var markdownOverlay: MarkdownOverlay?
+    /// cmux: the Chief's status line's shimmer (HomeNoticeShimmer.swift), made on its first notice row.
+    var noticeShimmer: HomeNoticeShimmer?
     /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
@@ -627,8 +657,12 @@ final class RowCell: UICollectionViewCell {
     private var appliedInactive = false
     /// The scale this cell's layers were set for (configure sets them again when `renderScale` differs).
     private var appliedScale: CGFloat = 0
-    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it).
-    private func scoped<T>(_ body: () -> T) -> T { Fixture.withRenderScale(renderScale, body) }
+    /// cmux: the palette of the window view that shows this cell (its chat's theme and Chat Colors, PaletteScope), set
+    /// with `renderScale`; nil draws with the process palette.
+    var paletteBox: PaletteBox?
+    /// Runs `body` with `Fixture.renderScale` = this cell's scale (the static drawing it calls reads it), and
+    /// (cmux) its view's palette.
+    private func scoped<T>(_ body: () -> T) -> T { PaletteScope.with(paletteBox) { Fixture.withRenderScale(renderScale, body) } }
 
     /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
     private var contentGroupOpacity = true
@@ -648,8 +682,7 @@ final class RowCell: UICollectionViewCell {
             l.actions = noActions
             l.contentsScale = renderScale
         }
-        selectionHighlight.fillColor = TranscriptSelection.highlightFill
-        selectionHighlight.compositingFilter = "screenBlendMode"
+        // cmux: the fill and blend follow the surface under the row (setSelectionHighlight, SelectionHighlightStyle).
         // Over the bitmap, the long-text tiles, the markdown blocks and the receipt (added after it or not).
         selectionHighlight.zPosition = 100
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
@@ -727,10 +760,16 @@ final class RowCell: UICollectionViewCell {
     }
 
     /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
-    /// coordinates.
-    func setSelectionHighlight(_ path: CGPath?) {
+    /// coordinates; `style` is its fill and blend for the surface under it (SelectionHighlightStyle: a screen
+    /// blend shows nothing on a light bubble or page, issue 38145).
+    func setSelectionHighlight(_ path: CGPath?, style: SelectionHighlightStyle = .screen) {
         if path == nil, selectionHighlight.path == nil { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        if path != nil, selectionHighlightStyle != style {
+            selectionHighlightStyle = style
+            selectionHighlight.fillColor = style.cgFill
+            selectionHighlight.compositingFilter = style.blend.rawValue
+        }
         if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
         selectionHighlight.path = path
         CATransaction.commit()
@@ -854,6 +893,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
@@ -966,12 +1007,13 @@ final class RowCell: UICollectionViewCell {
             if !queued {
             RowBitmaps.shared.want(want)
             pendingWant = want
-            RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
+            RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale, palette = Fixture.paletteGeneration] img in
                 if self?.pendingWant == want { self?.dropWant() }
                 // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
+                // cmux: and of its palette: one asked before a theme change can land after the new one's.
                 // cmux: a streaming bubble's earlier text that lands after a newer one was asked for still shows
                 // (top at the row's top, its own size): under a fast stream every text is followed by a newer one.
-                guard let self, self.renderScale == scale,
+                guard let self, self.renderScale == scale, self.palette == palette,
                       self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
                                             && self.drawn.map { $0.spec != want } ?? true) else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -1046,6 +1088,8 @@ final class RowCell: UICollectionViewCell {
         let t0 = CACurrentMediaTime()
         // Each row at its cell's scale (two window views at two scales can share a pass).
         let specs = q.map(\.1), scales = q.map(\.3)
+        // cmux: each row in its own view's palette (two views with different Chat Colors can share a pass).
+        let palettes = q.map(\.0.paletteBox)
         var images = [CGImage?](repeating: nil, count: specs.count)
         // Per row: its drawing time on its worker (ms), for the display change's evidence.
         var rowMs = [Double](repeating: 0, count: specs.count)
@@ -1054,13 +1098,18 @@ final class RowCell: UICollectionViewCell {
             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                 // checked reads and writes (crash ratchet)
                 let r0 = CACurrentMediaTime()
-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+                if let spec = specs[checked: i], let sc = scales[checked: i] {
+                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
+                    if let slot = out.checkedIndex(i) { out[slot] = image }
+                }
                 if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
             }
             }
         }
         let t1 = CACurrentMediaTime()
-        for ((s, sc), img) in zip(zip(specs, scales), images) { if let img { RowBitmaps.shared.insert([(s, img)], scale: sc) } }
+        for (k, ((s, sc), img)) in zip(zip(specs, scales), images).enumerated() {
+            if let img { RowBitmaps.shared.insert([(s, img)], scale: sc, generation: Fixture.generation(of: palettes[checked: k] ?? nil)) }
+        }
         let t2 = CACurrentMediaTime()
         if displayPass || DisplayTiming.flushOpen {
             DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
@@ -1121,6 +1170,13 @@ final class RowCell: UICollectionViewCell {
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
         typingContainer.isHidden = !on
         typingDiscs.forEach { $0.isHidden = !on }
+        // cmux: a group's typing bubble (body, dots and discs) sits at the bubbles' column, right of the avatar column.
+        let shift = on ? spec.cmuxIndent : 0
+        if contentView.layer.sublayerTransform.m41 != shift {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            contentView.layer.sublayerTransform = shift == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(shift, 0, 0)
+            CATransaction.commit()
+        }
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
@@ -1277,11 +1333,14 @@ final class RowCell: UICollectionViewCell {
 
     /// Messages' pop of my new tapback (macOS 27, lossless tapback-menu-heart-take1, times from
     /// our react commit, which Messages' rows follow 90 ms later): the badge grows from a dot at
-    /// +86 ms (spring 0.247 s, bounce 0.087; rms 0.025 of full size), with the glyph inside it;
-    /// at +136 ms the glyph starts again from nothing and grows with an overshoot to 1.24 and
-    /// back (spring 0.63 s, bounce 0.596; rms 0.016). Keyframes sampled at 240 Hz.
-    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2466, bounce: 0.087))
-    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
+    /// +86 ms, with the glyph inside it; at +136 ms the glyph starts again from nothing and grows
+    /// to its size. Keyframes sampled at 240 Hz.
+    /// cmux: no bounce (2026-11-10). Both springs are critically damped (bounce 0) and never pass
+    /// full size; each keeps its time to 95 % of full size (disc 161 ms, glyph 206 ms): duration =
+    /// that time / 0.75501. Messages' fits were 0.2466 s with bounce 0.087 (0.09 % past full size)
+    /// and 0.6298 s with bounce 0.596 (the glyph grew to 1.25 and came back).
+    static let popDisc = (delay: 0.0865, spring: Spring(duration: 0.2134, bounce: 0))
+    static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.2731, bounce: 0))
     private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
         func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
             let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range

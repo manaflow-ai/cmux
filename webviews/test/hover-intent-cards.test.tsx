@@ -8,6 +8,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -56,12 +57,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
@@ -73,9 +70,9 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-// The minimap's turn preview waits Codex's 250 ms rather than the app's 450 (Leo, 2026-10-19: the
-// rail should feel like Codex's); under 200 ms is still a pass-over.
-test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
+// The minimap's turn preview opens on the frame the pointer reaches a row, with no dwell (Leo,
+// 2026-10-29: "giving it faster scrttoll/hover over"); it was Codex's 250 ms, the app's other cards 450.
+test("the minimap's turn preview opens at once and follows the pointer from row to row", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   jest.useFakeTimers();
   try {
@@ -108,25 +105,21 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
-    // Still hidden 199 ms after the pointer came (one at 110 ms, the old delay, shows by then), and
-    // shown by 250 ms.
-    const waitsItsDelay = async (index: number) => {
+    // Shown as soon as the pointer comes, with no timer to run.
+    const opensAtOnce = async (index: number) => {
       await move(index);
-      await wait(199);
-      expect(visible()).toBe(false);
-      await wait(51);
       expect(visible()).toBe(true);
     };
 
-    await waitsItsDelay(2);
-    // Warm: the next tick's preview at once.
+    await opensAtOnce(2);
+    // The next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
-    // Off the rail past the warm time: the next waits again.
+    // Off the rail, and back after the warm time: at once again.
     await leave();
     expect(visible()).toBe(false);
     await wait(600);
-    await waitsItsDelay(4);
+    await opensAtOnce(4);
   } finally {
     jest.useRealTimers();
     await act(async () => root.unmount());

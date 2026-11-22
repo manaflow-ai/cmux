@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { memberUpsert } from "../src/domains/team-members.ts"
 import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
+import { backgroundPoll } from "../src/providers/freestyle/background.ts"
 import { createHash } from "node:crypto"
 import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.ts"
 import { CC_NOTICES, CC_PARTIAL, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
@@ -51,7 +52,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
   it("runs each turn in its own VM on the tailnet, posts the streamed reply with no Cloud credits, deletes the VM, and gives the next turn the earlier reply", async () => {
     const cloud = fakeCloud((prompt, n) => (n === 1 ? "The launch code word is TANGERINE." : prompt.includes("TANGERINE") ? "You told me before: TANGERINE." : "I do not remember."))
     // No credits granted: this route is not charged to them.
-    const { token, chief } = await enabledChief("chief-cc-owner", "cc")
+    const { token, user, chief } = await enabledChief("chief-cc-owner", "cc")
     expect((await send(token, chief.main_conversation, "c1", "pick a code word for the launch")).ok).toBe(true)
     const [first] = await replies(token, chief.main_conversation, chief.id, 1)
     expect(first.parts[0].text).toBe("The launch code word is TANGERINE.")
@@ -61,8 +62,10 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
 
     // One VM per turn, from the snapshot, with Freestyle's own timers as the backstop; each deleted by its exact id.
     expect(cloud.made).toHaveLength(2)
-    for (const m of cloud.made) expect(m.body).toMatchObject({ snapshotId: "sh-test-chief-cc", idleTimeoutSeconds: 300, automaticRestart: false, firewall: { rules: [{ action: "allow", destination: { public: true } }] } })
+    for (const m of cloud.made) expect(m.body).toMatchObject({ snapshotId: "sh-test-chief-cc", idleTimeoutSeconds: -1, automaticRestart: false, firewall: { rules: [{ action: "allow", destination: { public: true } }] } })
     for (const m of cloud.made) expect(m.body.slug).toMatch(/^cmuxnp-test-ccb-[0-9a-f]{12}$/)
+    // Each turn VM is tagged with the Chief's owner as its Freestyle customer.
+    for (const m of cloud.made) expect(m.body.customer).toEqual({ customerId: user })
     expect(cloud.deleted.sort()).toEqual(["vm-test1", "vm-test2"])
     // Each VM joins with its own one-use key, given on stdin only (never in the command line).
     expect(cloud.boots.map((x) => x.stdin)).toEqual(cloud.keys)
@@ -334,7 +337,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         }
       }
     )
-    const { token, chief } = await enabledChief("chief-cc-sandbox", "cc")
+    const { token, user, chief } = await enabledChief("chief-cc-sandbox", "cc")
     expect((await send(token, chief.main_conversation, "v1", "make two sandboxes")).ok).toBe(true)
     await replies(token, chief.main_conversation, chief.id, 1)
     expect(seen.a.status).toBe(200)
@@ -342,6 +345,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.c.status).toBe(429)
     const sandbox = cloud.made.find((m) => m.id === seen.a.body.vm.id)!
     expect(sandbox.body.metadata).toMatchObject({ cmux_chief_sandbox: chief.id })
+    expect(sandbox.body.customer).toEqual({ customerId: user })
     expect(sandbox.body.ttlSeconds).toBeLessThanOrEqual(12 * 3600)
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hello\n" } })
     expect(cloud.execs.map(({ vm, command }) => ({ vm, command }))).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })
@@ -411,6 +415,9 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Small disks by default: the 16 GB Ubuntu base, grown to 4 vCPU / 8 GiB; below the base is refused; image chief is the Chief's own.
     expect(cloud.made.find((m) => m.id === id)!.body.snapshotId).toBe("freestyle/ubuntu-sm")
     expect(seen.a.body.resources).toEqual({ cpu: 4, memory_mb: 8192, disk_gb: 16 })
+    // No idle pause by default (CLOUD_IDLE_PAUSE unset; auto-pause.ts, Leo 2026-10-30): Freestyle never pauses it for idleness.
+    expect(cloud.made.find((m) => m.id === id)!.body.idleTimeoutSeconds).toBe(-1)
+    expect(seen.a.body.idle_pause_seconds).toBe(-1)
     expect(seen.tiny.status).toBe(400)
     expect(seen.tiny.body.error).toMatch(/16 GB/)
     expect(seen.chiefImage.status, JSON.stringify(seen.chiefImage.body)).toBe(429)
@@ -506,6 +513,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
         seen.get = await call(s, { action: "get", id })
         seen.update = await call(s, { action: "update", id, name: "builder-2", idle_seconds: 900 })
         seen.exec = await call(s, { action: "exec", id, command: "printenv GREETING; cat", env: { GREETING: "hi" }, stdin: btoa("from stdin") })
+        // A command longer than the provider's edge holds a request (about 125 s) runs as a background request.
+        seen.long = await call(s, { action: "exec", id, command: "sleep past the edge", timeout_ms: 290_000 })
         seen.badEnv = await call(s, { action: "exec", id, command: "true", env: { "1BAD": "x" } })
         seen.bigStdin = await call(s, { action: "exec", id, command: "cat", stdin: "A".repeat(190_000) })
         // The identity is deleted at Freestyle behind the Worker's back: the next exec makes a new one and works.
@@ -524,6 +533,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     )
     const before = testEnv.CHIEF_CC_SANDBOX_CAPS
     const beforeCap = testEnv.CHIEF_CC_SANDBOX_CAP
+    const beforePoll = backgroundPoll.ms
+    backgroundPoll.ms = 1
     const { token, chief } = await enabledChief("chief-cc-sandbox-life", "cc")
     // An empty per-Chief entry and an empty global value fall back to the default cap of 2 (never 0).
     testEnv.CHIEF_CC_SANDBOX_CAPS = `agent_unrelated=9,${chief.id}=`
@@ -534,6 +545,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     } finally {
       before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAPS : (testEnv.CHIEF_CC_SANDBOX_CAPS = before)
       beforeCap === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = beforeCap)
+      backgroundPoll.ms = beforePoll
     }
     const id = seen.made.body.vm.id
     const made = cloud.made.find((m) => m.id === id)!
@@ -546,6 +558,9 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.update.status).toBe(200)
     expect(cloud.patches).toContainEqual({ vm: id, body: { displayName: "builder-2", idleTimeoutSeconds: 900 } })
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hi\nfrom stdin" } })
+    expect(seen.long).toMatchObject({ status: 200, body: { exit: 0, stdout: "done\n" } })
+    expect(cloud.background.length).toBeGreaterThanOrEqual(2)
+    expect(cloud.execs.filter((e) => e.command === "sleep past the edge")).toHaveLength(1)
     expect(seen.badEnv.status).toBe(400)
     expect(seen.bigStdin.status).toBe(400)
     expect(seen.bigStdin.body.error).toMatch(/fs put/)

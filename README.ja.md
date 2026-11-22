@@ -14,7 +14,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -384,7 +383,7 @@ tmuxは任意のターミナル内で動くターミナルマルチプレクサ�
 
 ### cmuxをどうやって支援できますか？
 
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)をご覧ください。
+cmuxは無料でオープンソースであり、今後もそうあり続けます。
 
 ### 機能リクエストがある、またはバグを見つけました？
 
@@ -404,7 +403,7 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 
 参加方法：
 
-- Xでフォロー：[@manaflowai](https://x.com/manaflowai)、[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
+- Xでフォロー：[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
 - [Discord](https://discord.gg/xsgFEVrWCZ)で会話に参加
 - [GitHubのIssues](https://github.com/manaflow-ai/cmux/issues)や[ディスカッション](https://github.com/manaflow-ai/cmux/discussions)に参加
 - cmuxで何を構築しているか教えてください
@@ -414,7 +413,6 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -423,19 +421,6 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
   <strong>WeChat:</strong> QRコードをスキャンしてコミュニティに参加してください。<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
 </p>
-
-## Founder's Edition
-
-cmuxは無料でオープンソースであり、今後もそうあり続けます。開発をサポートし、次に来る機能への早期アクセスを得たい方へ：
-
-**[Founder's Editionを入手](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **機能リクエスト/バグ修正の優先対応**
-- **早期アクセス：すべてのワークスペース、タブ、パネルのコンテキストを提供するcmux AI**
-- **早期アクセス：デスクトップと携帯電話間でターミナルを同期するiOSアプリ**
-- **早期アクセス：クラウドVM**
-- **早期アクセス：ボイスモード**
-- **私の個人的なiMessage/WhatsApp**
 
 ## ライセンス
 

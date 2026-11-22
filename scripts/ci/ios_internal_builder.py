@@ -33,6 +33,12 @@ FALLBACK_AFTER = dt.timedelta(hours=12)
 PACKAGE_SWIFT = "cmux-next-ios/CmuxMobileKit/Package.swift"
 PROJECT_YML = "cmux-next-ios/project.yml"
 BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
+# A failing builder backs off instead of building every new head: after the second failure in a row it waits
+# FAILURE_BACKOFF_START, doubling per failure up to FAILURE_BACKOFF_MAX, and the same iOS input as the newest
+# failure waits FAILURE_BACKOFF_MAX (one retry for an infra failure). A success resets it, and so does a new
+# commit on BUILDER_REF: failures on an older builder do not hold the first build on the new one.
+FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
+FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 
 # Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
@@ -102,12 +108,36 @@ class Decision:
     base: str | None  # last uploaded SHA: the "What to Test" range starts here
 
 
+def failure_streak(runs: list[dict]) -> tuple[int, dict | None]:
+    """Completed runs that failed since the newest success (newest first), and the newest of them."""
+    done = [r for r in runs if r.get("status") == "completed" and r.get("conclusion") not in ("cancelled", "skipped")]
+    streak = 0
+    for r in done:
+        if r.get("conclusion") == "success":
+            break
+        streak += 1
+    return streak, (done[0] if streak else None)
+
+
+def failure_backoff(streak: int) -> dt.timedelta:
+    """How long after the newest failure the next head may build: none after one failure, then 30 min doubling to 6 h."""
+    if streak < 2:
+        return dt.timedelta(0)
+    return min(FAILURE_BACKOFF_MAX, FAILURE_BACKOFF_START * 2 ** min(streak - 2, 16))
+
+
 def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
-         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True) -> Decision:
+         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True,
+         since_failure: list[str] | None = None, force: bool = False,
+         builder_sha: str | None = None) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
     changed: files changed from the last uploaded SHA to head; None when unknown.
+    since_failure: files changed from the newest failed run's SHA to head; None when unknown or not failing.
+    force: a person dispatched the trigger; the failure backoff does not apply.
+    builder_sha: BUILDER_REF's tip, None when unknown. A failure whose run's "builder" (the BUILDER_REF commit it
+    ran) differs holds nothing: the builder moved since, so the next build runs (one try per builder change).
     """
     runs = sorted((r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")),
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
@@ -124,9 +154,31 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_i
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
         return Decision(False, f"a build of {head[:12]} is already queued or running", base)
     stale = last_ok is None or now - _parse(last_ok["created_at"]) >= FALLBACK_AFTER
+    def on_older_builder(r: dict) -> bool:
+        return bool(builder_sha and r.get("builder") and r["builder"] != builder_sha)
+
     failed = next((r for r in runs if r["sha"] == head and r.get("conclusion") == "failure"), None)
+    if failed and on_older_builder(failed):
+        failed = None
     if failed and now - _parse(failed["created_at"]) < FALLBACK_AFTER:
         return Decision(False, f"{head[:12]} already failed in run {failed.get('id')}; waiting for a new head", base)
+    streak, newest_failure = failure_streak(runs)
+    if newest_failure and not force:
+        failed_at, run_id = _parse(newest_failure["created_at"]), newest_failure.get("id")
+        if any(r.get("status") != "completed" for r in runs):
+            # A dispatch now would start the moment the running build ends, before the plan sees how it ended.
+            return Decision(False, f"BLOCKED: the builder is failing (run {run_id}) and a build is still running; "
+                                   "the next push after it ends plans again", base)
+        moved = on_older_builder(newest_failure)
+        if not moved and since_failure is not None and not touches_ios(since_failure, prefixes) \
+                and now - failed_at < FAILURE_BACKOFF_MAX:
+            return Decision(False, f"BLOCKED: run {run_id} failed on {newest_failure['sha'][:12]} and nothing the app "
+                                   f"builds from changed since; it retries after {FAILURE_BACKOFF_MAX} (an infra "
+                                   "failure) or on an iOS change", base)
+        wait = failure_backoff(streak)
+        if not moved and now - failed_at < wait:
+            return Decision(False, f"BLOCKED: {streak} builds failed in a row (newest run {run_id}); backing off "
+                                   f"{wait} after it, until {(failed_at + wait).isoformat()}", base)
     if last_ok is None:
         return Decision(True, "no upload yet from this builder", base)
     if changed is None:
@@ -205,7 +257,8 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
         m = re.search(r"\b([0-9a-f]{40})\b", r.get("display_title") or "")
         if m:
             runs.append({"id": r["id"], "sha": m.group(1), "status": r["status"],
-                         "conclusion": r.get("conclusion"), "created_at": r["created_at"]})
+                         "conclusion": r.get("conclusion"), "created_at": r["created_at"],
+                         "builder": r.get("head_sha")})
     return runs
 
 
@@ -232,11 +285,47 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
         return None
 
 
-def builder_has_script() -> bool:
-    """Whether the signing branch carries this layout's testflight-build.sh (fails open on API errors)."""
+def _git_has_builder_script(repo: str) -> bool | None:
+    """The signing branch's answer from git: a depth-1 blobless fetch of its tip, then a tree lookup. No REST call
+    (the public repo's git fetch does not spend the shared Actions token's budget). None when git cannot tell."""
     branch = BUILDER_REF.removeprefix("refs/heads/")
-    repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
-    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
+    ref = f"refs/ios-internal-upstream/{branch}"
+    try:
+        depth = ["--depth=1"] if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true" else []
+        fetched = subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *depth, "--filter=blob:none",
+                                  "origin", f"+{BUILDER_REF}:{ref}"], capture_output=True, timeout=300)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None
+    if fetched.returncode != 0:
+        return None
+    try:
+        found = subprocess.run(["git", "-C", repo, "ls-tree", "--name-only", ref, "--", BUILDER_SCRIPT],
+                               capture_output=True, text=True, timeout=60)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if found.returncode != 0:
+        return None
+    return found.stdout.strip() == BUILDER_SCRIPT
+
+
+def builder_tip(repo: str = ".") -> str | None:
+    """BUILDER_REF's tip as _git_has_builder_script fetched it; None when git has not fetched it."""
+    ref = f"refs/ios-internal-upstream/{BUILDER_REF.removeprefix('refs/heads/')}"
+    try:
+        return _git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def builder_has_script(repo: str = ".") -> bool:
+    """Whether the signing branch carries this layout's testflight-build.sh. Read with git first; the contents API
+    is the fallback, which fails open on API errors."""
+    answer = _git_has_builder_script(repo)
+    if answer is not None:
+        return answer
+    branch = BUILDER_REF.removeprefix("refs/heads/")
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
+    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{gh_repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
                         "--jq", ".path"], capture_output=True, text=True)
     if r.returncode == 0:
         return True
@@ -253,7 +342,7 @@ def _write_outputs(decision: Decision) -> None:
             fh.write(f"reason={decision.reason}\n")
 
 
-def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep) -> int:
+def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
         runs = builder_runs(runner=runner, sleep=sleep)
@@ -263,12 +352,20 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep) -> i
         print(f"::warning::GitHub API unavailable after retries: {error}")
         _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
         return 0
-    ready = builder_has_script()
+    ready = builder_has_script(repo)
+    tip = builder_tip(repo)
     first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
+    _, newest_failure = failure_streak(sorted(runs, key=lambda r: (_parse(r["created_at"]), r.get("id", 0)),
+                                              reverse=True))
+    since_failure = changed_files(repo, newest_failure["sha"], head) if newest_failure else None
     decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
-                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
+                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready,
+                    since_failure=since_failure, force=force, builder_sha=tip)
     _write_outputs(decision)
+    if decision.reason.startswith("BLOCKED"):
+        # An annotation on the decide run; for a failure backoff the builder's own newest run stays red.
+        print(f"::error title=cmux INTERNAL builder held::{decision.reason}")
     return 0
 
 
@@ -473,6 +570,7 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("plan")
     p.add_argument("--head", required=True)
     p.add_argument("--repo", default=".")
+    p.add_argument("--force", action="store_true", help="a person asked: skip the failure backoff")
     s = sub.add_parser("stamp")
     s.add_argument("--project-yml", type=Path, default=Path(PROJECT_YML))
     s.add_argument("--last", default=None)
@@ -484,7 +582,7 @@ def main(argv: list[str]) -> int:
     st.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "plan":
-        return cmd_plan(args.head, args.repo)
+        return cmd_plan(args.head, args.repo, force=args.force)
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":

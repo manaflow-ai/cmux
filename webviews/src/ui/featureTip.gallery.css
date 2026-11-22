@@ -1,0 +1,23 @@
+/* The gallery's stand-in chat around a feature tip (FeatureTip.gallery.tsx): a header strip, an
+   empty transcript and a composer card, so each placement shows where it would in a chat. */
+.feature-tip-gallery {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
+  box-sizing: border-box;
+}
+.feature-tip-gallery-header {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 28px;
+}
+.feature-tip-gallery-body {
+  flex: 1;
+}
+.feature-tip-gallery-composer {
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-card, 14px);
+  color: var(--agent-muted, GrayText);
+  font-size: var(--text-body);
+}

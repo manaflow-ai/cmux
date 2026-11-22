@@ -196,6 +196,43 @@ pub fn error_class(message: &str) -> Option<ErrorClass> {
     })
 }
 
+/// Whether `message` is the API refusing a request as too large for the
+/// model (a 413, or a 400 that says the prompt is too long): the same call
+/// fails so on every try, so the compactor keeps the node's input, cut to
+/// its room, as the line (`build_node`) instead of leaving it unsummarized
+/// (https://github.com/manaflow-ai/cmux/issues/36026). Any other 400 (a bad
+/// marker or parameter) may be fixed by a new build and stays an error.
+///
+/// Claude Code also says it with no status: "Prompt is too long" (its own check of the request
+/// against the model's window, "· the request is ~1300979 tokens (limit 1000000) ..."). Read as
+/// a transient error, such a node took its 8 tries, then 8 more every `STUCK_RETRY`, for ever:
+/// 110 nodes on Leo's laptop made about 55 compactor sessions a minute for a week, each a
+/// `claude` process, and kept acpmux above 100 % CPU (2026-11-15).
+pub fn oversized_request(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains(CLAUDE_CODE_TOO_LONG) {
+        return true;
+    }
+    let Some(class) = error_class(message) else {
+        return false;
+    };
+    class.status == 413
+        || (class.status == 400
+            && [
+                "prompt is too long",
+                "input is too long",
+                "too many tokens",
+                "maximum context length",
+                "context window",
+                "request_too_large",
+            ]
+            .iter()
+            .any(|p| lower.contains(p)))
+}
+
+/// Claude Code's own words for a request too large for the model, lowercased.
+const CLAUDE_CODE_TOO_LONG: &str = "prompt is too long";
+
 /// How long an exhausted route asks to wait (a 429, 503 or 529, e.g. the
 /// subrouter's "no non-exhausted claude accounts available ... (retry after
 /// 3596s)"): None when `message` is not a capacity error.

@@ -11,13 +11,17 @@
   background: transparent;
   overflow: hidden;
   --agent-page-bg: transparent;
+  /* The content surface levels (desktop.css --ds-surface-*, design/chat-surfaces.md) are this ink over clear. */
+  --ds-surface-ink: var(--agent-text);
   --agent-surface: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 34%, transparent);
   --agent-surface-elevated: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 48%, transparent);
   --agent-input-bg: color-mix(in srgb, var(--cmux-app-window, #080808) 36%, transparent);
   --agent-border: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --agent-border-strong: color-mix(in srgb, var(--agent-text) 22%, transparent);
   --agent-text: var(--cmux-text, #ececec);
-  --agent-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
+  /* The theme's secondary ink (WebTheme, 4.5:1 on every fill), about the old 58% step where the theme
+     has room; the fixed 58% wash fell under 4.5:1 on low-contrast themes and over pictures. */
+  --agent-muted: var(--cmux-text-secondary, color-mix(in srgb, var(--agent-text) 58%, transparent));
   --agent-soft: color-mix(in srgb, var(--agent-text) 78%, transparent);
   --agent-accent: var(--agent-text);
   /* Links are blue in every theme (Leo 2026-10-19: "links are blue, period", as Claude desktop
@@ -33,7 +37,10 @@
   --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
   --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
   --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
-  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  /* A merged pull request is GitHub's purple in every theme, as links are blue: a theme's ANSI
+     magenta can be pink or red, which drew a merged pull request in the closed one's red (Leo
+     2026-11-02: "the merged colour should not be red"). */
+  --agent-status-merged: light-dark(#8250df, #a371f7); /* theme-fixed: GitHub's merged purple in every theme (Leo 2026-11-02) */
   --agent-diff-add: var(--agent-status-success);
   --agent-diff-del: var(--agent-status-failure);
   --agent-shadow: rgba(0, 0, 0, 0.2);
@@ -111,7 +118,6 @@ textarea {
       .acpmux-ask-action.is-primary,
       .acpmux-harness-action.is-primary,
       .acpmux-replay-continue,
-      .acpmux-recap__yes,
       .acpmux-pr-merge-confirm,
       .acpmux-permission-feedback-send,
       .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny)

@@ -52,7 +52,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
     }
 
     override func updateLayer() {
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
         performWithTheme {
             layer?.backgroundColor = Palette.accentFill.cgColor
             contentTintColor = Palette.onAccent
@@ -178,7 +178,7 @@ final class SidebarNowPlayingLevels: NSView {
         let moves = moves
         for (index, bar) in bars.enumerated() {
             bar.removeAnimation(forKey: Self.levelsKey)
-            bar.cornerRadius = width / 2
+            bar.cornerRadius = width / 2 // radius-allow: an equalizer bar, not a button
             bar.bounds = CGRect(x: 0, y: 0, width: width, height: Self.rest[index] * height)
             bar.position = CGPoint(x: CGFloat(index) * (width + gap) + width / 2, y: 0)
             guard moves, height > 0 else { continue }

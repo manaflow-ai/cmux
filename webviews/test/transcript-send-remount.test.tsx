@@ -4,6 +4,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -46,12 +47,8 @@ const { act, useEffect } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: AcpmuxRow["kind"], text: string): AcpmuxRow => ({
@@ -79,7 +76,14 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
   const registry = { user: TrackingRow, assistant: TrackingRow } as never;
   const root = createRoot(dom.window.document.getElementById("root")!);
   const onToggleActivity = () => {};
-  const existing = [row("prompt-1", "user", "Earlier prompt"), row("reply-1", "assistant", "Earlier reply")];
+  // A finished turn ends with its footer, which holds the reply's actions. Without one, the reply
+  // is the chat's open end, and a prompt sent under it rightly gives it its own action row
+  // (model.ts hasReplyActions, #27313): a redraw this test does not forbid.
+  const existing = [
+    row("prompt-1", "user", "Earlier prompt"),
+    row("reply-1", "assistant", "Earlier reply"),
+    { ...row("summary-1", "turnSummary", ""), text: undefined, status: "completed", durationMs: 4_000 } as AcpmuxRow,
+  ];
   const render = (rows: AcpmuxRow[], sends: number) =>
     act(async () => {
       root.render(
@@ -112,6 +116,58 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
     expect([...unmounts.entries()].filter(([, count]) => count > 0)).toEqual([]);
     expect(renders.get("prompt-1")).toBe(before.get("prompt-1"));
     expect(renders.get("reply-1")).toBe(before.get("reply-1"));
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("an optimistic prompt keeps its DOM node and position through echo and turn start", async () => {
+  const TrackingRow = ({ row: item }: { row: AcpmuxRow }) => <div>{item.text}</div>;
+  const registry = { user: TrackingRow, typing: TrackingRow } as never;
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const prompt = row("local-prompt-1", "user", "ship it");
+  const render = (rows: AcpmuxRow[]) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          registry={registry}
+          sessionId="session-1"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  try {
+    await render([{ ...prompt, pending: true, promptId: "prompt-1" }]);
+    const before = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]')!;
+    const beforePosition = before.getAttribute("aria-posinset");
+    await render([
+      {
+        ...prompt,
+        pending: false,
+        promptId: "prompt-1",
+        delivery: { state: "read", promptId: "prompt-1", sessionId: "session-1", sentAt: 1 },
+      },
+    ]);
+    const echoed = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
+    expect(echoed).toBe(before);
+    expect(echoed?.getAttribute("aria-posinset")).toBe(beforePosition);
+
+    await render([
+      {
+        ...prompt,
+        pending: false,
+        promptId: "prompt-1",
+        delivery: { state: "read", promptId: "prompt-1", sessionId: "session-1", sentAt: 1 },
+      },
+      { id: "typing", kind: "typing", version: 1, at: 2 },
+    ]);
+    const started = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
+    expect(started).toBe(before);
+    expect(started?.getAttribute("aria-posinset")).toBe(beforePosition);
   } finally {
     await act(async () => root.unmount());
   }

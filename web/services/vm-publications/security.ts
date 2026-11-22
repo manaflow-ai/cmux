@@ -7,6 +7,17 @@ import {
 export const PUBLICATION_SESSION_COOKIE = "__Host-cmux-preview";
 export const PUBLICATION_TRANSACTION_COOKIE = "__Host-cmux-preview-tx";
 export const PUBLICATION_CALLBACK_PATH = "/_cmux/auth/callback";
+/**
+ * API clients present a publication API key in this cookie. Freestyle passes
+ * only the caller's `Authorization` and `Cookie` headers to forward auth, and
+ * `Authorization` already carries the service credential, so the key rides in
+ * a cookie the edge keeps in `protectedCookies`: the VM never receives it.
+ * The `__Host-` prefix keeps a sibling publication under the same zone from
+ * planting one with `Domain=`: browsers refuse that for a `__Host-` name.
+ */
+export const PUBLICATION_API_KEY_COOKIE = "__Host-cmux-api-key";
+const PUBLICATION_API_KEY_PREFIX = "cmux_api_";
+const PUBLICATION_API_KEY_PATTERN = /^cmux_api_[A-Za-z0-9_-]{43}$/u;
 
 const MAX_RETURN_PATH_LENGTH = 2_048;
 const PUBLICATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,256}$/u;
@@ -19,6 +30,16 @@ export function randomPublicationToken(bytes = 32): string {
 /** Only hashes of bearer capabilities are persisted. */
 export function hashPublicationToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/** A new API key: a recognizable prefix (for secret scanners) and 256 random bits. */
+export function randomPublicationApiKey(): string {
+  return `${PUBLICATION_API_KEY_PREFIX}${randomPublicationToken(32)}`;
+}
+
+/** Only the exact minted API key shape is looked up; anything else is no key. */
+export function isPublicationApiKey(value: string | null): value is string {
+  return value !== null && PUBLICATION_API_KEY_PATTERN.test(value);
 }
 
 /** RFC 7636 S256 challenge for the verifier held by the publication origin. */

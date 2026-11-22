@@ -152,7 +152,7 @@
       "maxItems": 64,
       "items": {
         "type": "string",
-        "pattern": "^(onStartup|onSidebarSection:[a-z][a-zA-Z0-9-]{0,63}|onStatusItem:[a-z][a-zA-Z0-9-]{0,63}|onCommand:[a-z][a-zA-Z0-9-]{0,63}|onPane:[a-z][a-zA-Z0-9-]{0,63}|onPaletteScope:[a-z][a-zA-Z0-9-]{0,63}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+        "pattern": "^(onStartup|onSidebarSection:[a-z][a-zA-Z0-9-]{0,63}|onSessionInfoSection:[a-z][a-zA-Z0-9-]{0,63}|onStatusItem:[a-z][a-zA-Z0-9-]{0,63}|onCommand:[a-z][a-zA-Z0-9-]{0,63}|onPane:[a-z][a-zA-Z0-9-]{0,63}|onPaletteScope:[a-z][a-zA-Z0-9-]{0,63}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
       }
     },
     "files": {
@@ -286,6 +286,28 @@
             "builtIn",
             "list"
           ]
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    },
+    "sessionInfoSection": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "render"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
         },
         "maxRows": {
           "type": "integer",
@@ -580,6 +602,13 @@
           "maxItems": 16,
           "items": {
             "$ref": "#/$defs/sidebarSection"
+          }
+        },
+        "sessionInfoSections": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/sessionInfoSection"
           }
         },
         "commands": {

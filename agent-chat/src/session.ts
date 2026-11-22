@@ -39,7 +39,36 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; description?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
+  | { kind: "question"; questionId: string; items: AgentQuestionItem[] }
+  | { kind: "question-resolved"; questionId: string; outcome: string }
   | { kind: "error"; message: string; prompt?: string };
+
+export interface AgentQuestionItem {
+  id: string;
+  header?: string;
+  question: string;
+  options: { label: string; description?: string }[];
+  allowsOther: boolean;
+  secret: boolean;
+}
+
+/** A question the agent is waiting on (a `question` event not yet resolved). */
+export interface PendingQuestion {
+  questionId: string;
+  items: AgentQuestionItem[];
+}
+
+export function applyQuestionEvent(pending: PendingQuestion[], evt: AgentEvent): PendingQuestion[] {
+  if (evt.kind === "question") {
+    return [...pending.filter((q) => q.questionId !== evt.questionId), { questionId: evt.questionId, items: evt.items }];
+  }
+  if (evt.kind === "question-resolved") return pending.filter((q) => q.questionId !== evt.questionId);
+  return pending;
+}
+
+export function pendingQuestions(events: AgentEvent[]): PendingQuestion[] {
+  return events.reduce(applyQuestionEvent, [] as PendingQuestion[]);
+}
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
@@ -335,6 +364,14 @@ export interface SessionState {
   stop(): void;
   /** Focuses the terminal pane behind a terminal chat view. */
   focusTerminal(): void;
+  /** Questions the agent waits on, oldest first. */
+  questions: PendingQuestion[];
+  /** Changes when a sent answer may not have landed (a reconnect, or the
+   * server refused it), so a waiting question's card takes input again. */
+  questionAttempt: number;
+  /** Answers a question by id (one answer per item id); `null` declines it.
+   * Returns false when the WebSocket is not ready. */
+  answerQuestion(questionId: string, answers: Record<string, string> | null): boolean;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
   handoff(): void;
@@ -438,6 +475,8 @@ export function useSession(): SessionState {
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [routing, setRouting] = useState<RouteStatus | null>(null);
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const [questionAttempt, setQuestionAttempt] = useState(0);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -560,6 +599,7 @@ export function useSession(): SessionState {
     optimisticUsersRef.current = [];
     setSession(null);
     setRouting(null);
+    setQuestions([]);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -629,6 +669,7 @@ export function useSession(): SessionState {
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
             setReady(true);
             setConnectionEpoch((n) => n + 1);
+            setQuestionAttempt((n) => n + 1);
             break;
           }
           case "session-created": {
@@ -659,6 +700,7 @@ export function useSession(): SessionState {
             pendingStartRef.current = null;
             setSession({ ...msg.session, status: "running" });
             setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
+            setQuestions([]);
             for (const queued of queuedReplies) {
               sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
             }
@@ -687,6 +729,7 @@ export function useSession(): SessionState {
             setSession(msg.session);
             setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
+            setQuestions(pendingQuestions(msg.events as AgentEvent[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
@@ -705,6 +748,7 @@ export function useSession(): SessionState {
             sessionIdRef.current = null;
             setSession(null);
             setRouting(null);
+            setQuestions([]);
             setOptions([]);
             setActions({});
             setCommands([]);
@@ -725,6 +769,9 @@ export function useSession(): SessionState {
               setSession((s) => (s ? { ...s, queuedMessages: Array.isArray(msg.messages) ? msg.messages : [] } : s));
             }
             break;
+          case "answer-refused":
+            if (msg.sessionId === sessionIdRef.current) setQuestionAttempt((n) => n + 1);
+            break;
           case "session-attention":
             if (msg.sessionId === sessionIdRef.current) {
               setSession((s) => (s ? { ...s, attention: typeof msg.attention === "string" ? msg.attention : null } : s));
@@ -744,6 +791,7 @@ export function useSession(): SessionState {
                 break;
               }
               setBlocks((bs) => foldEvent(bs, evt));
+              if (evt.kind === "question" || evt.kind === "question-resolved") setQuestions((qs) => applyQuestionEvent(qs, evt));
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
@@ -924,6 +972,7 @@ export function useSession(): SessionState {
     sessionIdRef.current = null;
     setRouting(null);
     setSession(null);
+    setQuestions([]);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -960,6 +1009,10 @@ export function useSession(): SessionState {
   }, [sendRaw, start]);
   const focusTerminal = useCallback(() => {
     if (sessionIdRef.current) sendRaw({ op: "focus-terminal", sessionId: sessionIdRef.current });
+  }, [sendRaw]);
+  const answerQuestion = useCallback((questionId: string, answers: Record<string, string> | null) => {
+    if (!sessionIdRef.current) return false;
+    return sendRaw({ op: "answer-question", sessionId: sessionIdRef.current, questionId, answers });
   }, [sendRaw]);
   const stop = useCallback(() => {
     const pending = pendingStartRef.current;
@@ -1084,6 +1137,9 @@ export function useSession(): SessionState {
     reply,
     stop,
     focusTerminal,
+    questions,
+    questionAttempt,
+    answerQuestion,
     setOption,
     fork,
     handoff,

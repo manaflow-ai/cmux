@@ -13,13 +13,21 @@ discount change, would bill them; the rule holds here so it holds everywhere. A 
 - its artifact is a known-large kind (an app, a dSYM, an xcresult, a capture, a zip, a DMG, an
   IPA or an xcframework, by name or path), whatever its retention,
 
-unless tests/upload_artifact_retention_allowlist.json lists the step with a reason. An entry is
+unless tests/upload_artifact_retention_allowlist.json lists the step with a reason. The allowlist
+excuses a longer retention or a large kind, never a missing one: every step, listed or not, sets
+retention-days itself, so no artifact falls back to the 90-day default by omission (HQ#5230). An
+entry is
 "<workflow file>::<job id>::<artifact name as written>", with "#2", "#3" ... appended for a later
 step of the same job that writes the same name, so each step is listed on its own. An entry that
 no longer matches a
 failing step fails too, so the list only shrinks. Same-run handoffs use retention-days: 1;
 anything a later run or a person reads goes to R2 (scripts/ci/upload-r2-object.py), PR and
 capture objects under ci-tmp/.
+
+An allowlisted step is bounded too: its retention-days is a number from 1 to 7 (MAX_ALLOWED_DAYS), never a
+longer period and never an expression, except `${{ inputs.retention_days }}` of a reusable workflow, whose
+default is 1 to 3 days and whose every caller passes a number from 1 to 7. The 2026-11-14 quota fill came from
+long-retention steps that an allowlist reason excused (14, 21, 30 and 90 days), not only from missing ones.
 """
 from __future__ import annotations
 
@@ -34,6 +42,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = ROOT / "tests/upload_artifact_retention_allowlist.json"
 MAX_DAYS = 3
+MAX_ALLOWED_DAYS = 7
 LARGE_TOKENS = {"app", "dsym", "dsyms", "xcresult", "capture", "captures", "zip", "dmg",
                 "ipa", "xcframework"}
 # Path words that name an archive or a bundle: a shell step may build `<name>.app.zip` and upload it
@@ -52,9 +61,50 @@ LARGE_SUFFIXES = (".app", ".zip", ".dmg", ".ipa", ".xcresult", ".dsym", ".xcfram
 def workflow_files(root: Path = ROOT) -> list[Path]:
     files = sorted((root / ".github/workflows").glob("*.yml"))
     files += sorted((root / ".github/workflows").glob("*.yaml"))
-    files += sorted((root / ".github/actions").glob("*/action.yml"))
-    files += sorted((root / ".github/actions").glob("*/action.yaml"))
+    # A composite action may sit at any depth (.github/actions/a/b/action.yml).
+    files += sorted((root / ".github/actions").rglob("action.yml"))
+    files += sorted((root / ".github/actions").rglob("action.yaml"))
     return files
+
+
+UPLOAD_USES = re.compile(r"actions/upload(-pages)?-artifact(/merge)?@")
+INPUT_DAYS = re.compile(r"^\$\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}$")
+
+
+def reusable_workflow_findings(root: Path = ROOT) -> list[str]:
+    """Problems with `retention-days: ${{ inputs.X }}` in a reusable workflow, whose value a caller sets.
+
+    The input's default must be a number from 1 to MAX_DAYS and every caller (a job `uses:` this file)
+    that passes it passes a number from 1 to MAX_ALLOWED_DAYS. Any other expression is a finding.
+    """
+    findings: list[str] = []
+    callers: dict[str, list[tuple[str, dict]]] = {}
+    docs: dict[Path, dict] = {}
+    for path in workflow_files(root):
+        docs[path] = doc = yaml.safe_load(path.read_text()) or {}
+        for job_id, job in (doc.get("jobs") or {}).items():
+            uses = str((job or {}).get("uses", ""))
+            if uses.startswith("./.github/workflows/"):
+                callers.setdefault(uses[2:], []).append(
+                    (f"{path.relative_to(root).as_posix()}::{job_id}", (job or {}).get("with") or {}))
+    for path, doc in docs.items():
+        rel = path.relative_to(root).as_posix()
+        for key, options in upload_steps(path, root):
+            days = options.get("retention-days")
+            match = INPUT_DAYS.match(days) if isinstance(days, str) else None
+            if not match:
+                continue
+            name = match.group(1)
+            inputs = ((doc.get("on") or doc.get(True) or {}).get("workflow_call") or {}).get("inputs") or {}
+            default = (inputs.get(name) or {}).get("default")
+            if not isinstance(default, int) or isinstance(default, bool) or not 1 <= default <= MAX_DAYS:
+                findings.append(f"{key}: input {name} defaults to {default!r}, not 1..{MAX_DAYS}")
+            for caller, passed in callers.get(rel, []):
+                if name in passed:
+                    value = passed[name]
+                    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= MAX_ALLOWED_DAYS:
+                        findings.append(f"{caller} passes {name}: {value!r}, not 1..{MAX_ALLOWED_DAYS}")
+    return sorted(set(findings))
 
 
 def upload_steps(path: Path, root: Path = ROOT):
@@ -70,7 +120,7 @@ def upload_steps(path: Path, root: Path = ROOT):
         for step in (job or {}).get("steps") or []:
             uses = str(step.get("uses", "")).strip()
             # actions/upload-artifact@REF and actions/upload-artifact/merge@REF both store an artifact.
-            if not re.match(r"actions/upload-artifact(/merge)?@", uses):
+            if not UPLOAD_USES.match(uses):
                 continue
             options = step.get("with") or {}
             key = f"{rel}::{job_id}::{options.get('name', '')}"
@@ -180,6 +230,63 @@ class WorkflowTests(unittest.TestCase):
             + ["Use retention-days: 1 for a same-run handoff and R2 (scripts/ci/upload-r2-object.py) "
                "for anything bigger or longer-lived, or add the step to "
                "tests/upload_artifact_retention_allowlist.json with a reason."]))
+
+    def test_every_upload_sets_retention_days_even_when_allowlisted(self):
+        # The class is deliberate per step: 1 day for a same-run handoff, 3 for a report a person
+        # reads, longer only for a listed handoff (e.g. one that waits on an environment approval).
+        missing = sorted(key for path in workflow_files() for key, options in upload_steps(path)
+                         if options.get("retention-days") in (None, ""))
+        self.assertEqual(missing, [], "these upload steps set no retention-days, so they keep the "
+                         "90-day default; set it explicitly (an allowlist entry does not excuse it)")
+
+    def test_an_allowlisted_step_is_bounded_to_seven_days(self):
+        # The allowlist excuses a retention above MAX_DAYS (a handoff that waits on an approval) but
+        # not an unbounded one: a number from 1 to MAX_ALLOWED_DAYS, or a reusable workflow's input
+        # that the next test bounds at its default and at every caller.
+        too_long = {}
+        for path in workflow_files():
+            for key, options in upload_steps(path):
+                days = options.get("retention-days")
+                if isinstance(days, str) and INPUT_DAYS.match(days):
+                    continue
+                if isinstance(days, str) and days.lstrip().startswith("${{"):
+                    # A conditional such as fromJSON(cond && '7' || '3'): every quoted number is bounded.
+                    numbers = [int(n) for n in re.findall(r"'(\d+)'", days)]
+                    if numbers and all(1 <= n <= MAX_ALLOWED_DAYS for n in numbers):
+                        continue
+                if not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= MAX_ALLOWED_DAYS:
+                    too_long[key] = days
+        self.assertEqual(too_long, {}, f"retention-days must be 1..{MAX_ALLOWED_DAYS} on every upload step")
+
+    def test_a_reusable_workflow_retention_input_is_bounded_at_default_and_callers(self):
+        self.assertEqual(reusable_workflow_findings(), [])
+
+    def test_reusable_workflow_findings_catch_a_long_caller_and_default(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wf = root / ".github/workflows"
+            wf.mkdir(parents=True)
+            (wf / "lib.yml").write_text(
+                "on:\n  workflow_call:\n    inputs:\n      keep:\n        default: 30\n        type: number\n"
+                "jobs:\n  j:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n"
+                "          name: x\n          retention-days: ${{ inputs.keep }}\n")
+            (wf / "caller.yml").write_text(
+                "jobs:\n  c:\n    uses: ./.github/workflows/lib.yml\n    with:\n      keep: 30\n")
+            found = reusable_workflow_findings(root)
+            self.assertEqual(len(found), 2, found)
+
+    def test_nested_composite_actions_and_pages_uploads_are_scanned(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".github/workflows").mkdir(parents=True)
+            nested = root / ".github/actions/a/b"
+            nested.mkdir(parents=True)
+            (nested / "action.yml").write_text(
+                "runs:\n  using: composite\n  steps:\n    - uses: actions/upload-pages-artifact@v3\n"
+                "      with:\n        name: site\n")
+            self.assertEqual(list(violations(root)), [".github/actions/a/b/action.yml::(composite)::site"])
 
     def test_the_allowlist_has_reasons_and_no_stale_entries(self):
         allow = load_allowlist()

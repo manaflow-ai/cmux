@@ -20,15 +20,22 @@ public nonisolated struct DiffPageCommand {
     public static let collapseFile = "collapseFile"
     /// Expands the file under the viewport.
     public static let expandFile = "expandFile"
+    /// Makes the diff's text one step bigger (Cmd-=, Cmd-Shift-=; user 2026-11-19).
+    public static let zoomIn = "zoomIn"
+    /// Makes the diff's text one step smaller (Cmd--).
+    public static let zoomOut = "zoomOut"
+    /// Puts the diff's text back at its default size (Cmd-0).
+    public static let zoomReset = "zoomReset"
 
     /// Every diff command; the diff page also takes the shared ``PageNativeOp/commands``.
     public static let all: Set<String> = [
         nextLine, previousLine, halfPageDown, halfPageUp, nextHunk, previousHunk, goToTop, goToBottom,
-        nextFile, previousFile, toggleViewed, collapseFile, expandFile,
+        nextFile, previousFile, toggleViewed, collapseFile, expandFile, zoomIn, zoomOut, zoomReset,
     ]
 
-    /// The page command each of the 11 `diffViewer*` registry actions sends (CmuxNextActions,
-    /// BrowserActionCatalog). `diffViewerSearch` (`/`) is the shared `find` command.
+    /// The page command each of the 14 `diffViewer*` registry actions sends (CmuxNextActions,
+    /// BrowserActionCatalog). `diffViewerSearch` (`/`) is the shared `find` command; the three
+    /// zoom actions are Cmd-=, Cmd-- and Cmd-0, as in the Markdown viewer and the code editor.
     public static let forAction: [String: String] = [
         "diffViewerNextLine": nextLine, "diffViewerPreviousLine": previousLine,
         "diffViewerHalfPageDown": halfPageDown, "diffViewerHalfPageUp": halfPageUp,
@@ -36,6 +43,7 @@ public nonisolated struct DiffPageCommand {
         "diffViewerGoToTop": goToTop, "diffViewerGoToBottom": goToBottom,
         "diffViewerSearch": "find",
         "diffViewerNextFile": nextFile, "diffViewerPreviousFile": previousFile,
+        "diffViewerZoomIn": zoomIn, "diffViewerZoomOut": zoomOut, "diffViewerZoomReset": zoomReset,
     ]
 }
 
@@ -65,9 +73,15 @@ public nonisolated struct MarkdownPageCommand {
     public static let comments = "comments"
     /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
     public static let goToTop = "goToTop"
-    public static let all: Set<String> = [
-        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    /// The shared find actions (Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E, Hide Find Bar), under the code
+    /// editor's command names (``EditorPageCommand``): the page's find pill (markdownFind.ts).
+    public static let find: Set<String> = [
+        EditorPageCommand.find, EditorPageCommand.findNext, EditorPageCommand.findPrevious,
+        EditorPageCommand.useSelectionForFind, EditorPageCommand.hideFind,
     ]
+    public static let all: Set<String> = find.union([
+        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    ])
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [

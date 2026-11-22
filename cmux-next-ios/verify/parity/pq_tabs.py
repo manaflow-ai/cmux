@@ -34,7 +34,9 @@ PROJ = f"{pq.RBASE}/proj"
 TAG = os.environ.get("PQ_TAG", "cmux-mobile-p2-1585ab34")
 _DAEMON = r"""
 import glob, json, os, socket, sys
-paths = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-tui-501", "cmux-app-%s.sock" % sys.argv[1]))
+# The app's daemon socket: under the per-user temp folder, or /tmp/cmux-tui-<uid> (newer builds).
+paths = [p for d in (os.environ.get("TMPDIR", "/tmp"), "/tmp")
+         for p in glob.glob(os.path.join(d, "cmux-tui-%d" % os.getuid(), "cmux-app-%s.sock" % sys.argv[1]))]
 s = socket.socket(socket.AF_UNIX); s.connect(paths[0]); f = s.makefile("rw")
 # Chat tabs read as `conversation` (with their agent session) only for a client that says it knows them.
 f.write(json.dumps({"id": 0, "cmd": "set-client-info", "name": "pq_tabs", "kind": "cli",

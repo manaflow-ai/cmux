@@ -51,6 +51,24 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// One short `cmux-tui <arguments>` run that reads `secret` as one line on its stdin (a cmux
+    /// access token for `--cloud-token-stdin`), so no argv, environment or log carries it. Its status
+    /// and output, or nil when it did not start or passed `deadline`.
+    public func run(_ arguments: [String], secret: String, deadline: Duration = .seconds(20), label: String) async -> SSHProcessResult? {
+        let line = Data((secret + "\n").utf8)
+        return try? await SSHProcessRunner.run([binary.path] + arguments, input: .writer { fd in
+            line.withUnsafeBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                var offset = 0
+                while offset < bytes.count {
+                    let wrote = write(fd, base + offset, bytes.count - offset)
+                    if wrote <= 0 { return }
+                    offset += wrote
+                }
+            }
+        }, environment: await Self.grouped(environment()), deadline: deadline, label: label, stop: Self.stop)
+    }
+
     /// The stdout lines of `cmux-tui <arguments>` (an `acp host enroll|doctor --json` run). A run that
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.
@@ -116,12 +134,23 @@ public struct HostCLI: Sendable {
             case .end: handle.readabilityHandler = nil
             }
         }
+        // Both readers stop and both read ends close once the run is over. End of file alone does
+        // not do it: an ssh the run left behind with the pipes open (a ControlPersist master) never
+        // ends them, and each run would keep two pipes and two readers for as long as it lives.
+        let readers = [stdout.fileHandleForReading, stderr.fileHandleForReading]
+        let closeOutput: @Sendable () -> Void = {
+            for reader in readers {
+                reader.readabilityHandler = nil
+                try? reader.close()
+            }
+        }
         process.terminationHandler = { finished in
             let status = finished.terminationStatus
             // task-owner: one wait for stdout's last bytes after the exit, bounded
             Task {
                 // Output can trail the exit; never wait for it unbounded.
                 _ = try? await withDeadline(.milliseconds(500), label: "host output") { await stdoutEnded.awaitValue() }
+                closeOutput()
                 if status == 0 {
                     continuation.finish()
                 } else {
@@ -135,8 +164,11 @@ public struct HostCLI: Sendable {
         do {
             try gate.start { try process.run() }
         } catch is CancellationError {
+            // No process, so no exit to close the pipes at.
+            closeOutput()
             continuation.finish(throwing: CancellationError())
         } catch {
+            closeOutput()
             continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
         }
     }

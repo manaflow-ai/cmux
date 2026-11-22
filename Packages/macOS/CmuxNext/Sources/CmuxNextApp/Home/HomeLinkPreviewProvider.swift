@@ -43,18 +43,18 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             guard let pane = services.pane(id: id), let tab = pane.tabs.first else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
         case .tab(let id):
-            guard let (tab, pane) = services.locateTab(id) else { return closed(kind, id) }
+            guard let (tab, pane) = services.locateTabOnAnyMachine(id) else { return closed(kind, id) }
             return tabPreview(tab, pane: pane, services: services)
         case .session(let id, _):
-            guard let key = services.agentTabs.tab(showing: id), let (tab, pane) = services.locateTab(key) else { return closed(.session, id) }
+            guard let key = services.agentTabs.tab(showing: id), let (tab, pane) = services.locateTabOnAnyMachine(key) else { return closed(.session, id) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .chiefSession(let home, let session):
             guard let key = services.agentTabs.tab(showing: session, host: "chief:" + home),
-                  let (tab, pane) = services.locateTab(key) else { return closed(.subagent, session) }
+                  let (tab, pane) = services.locateTabOnAnyMachine(key) else { return closed(.subagent, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .subagent)
         case .agent(let harness, let session): // the tab an agent link reveals (DeepLinkNavigator), never a new one
             let shown = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-            guard let (tab, pane) = shown.lazy.compactMap({ services.locateTab($0) }).first else { return closed(.session, session) }
+            guard let (tab, pane) = shown.lazy.compactMap({ services.locateTabOnAnyMachine($0) }).first else { return closed(.session, session) }
             return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .group(let id, let workspace):
             // A cloud group's record is in cmux Cloud; the card names the workspace when this Mac shows it.
@@ -66,6 +66,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return HomeLinkPreview(kind: .workspace, title: open.displayName, place: HomeLinkPreviewStrings.tabCount(tabs.count),
                                    status: HomeLinkPreviewStrings.open, statusTone: .success,
                                    lines: tabs.prefix(Self.maxLines).map { titles.title($0) })
+        case .cloudSession(_, _, let session, _):
+            // A team Cloud session's record is in cmux Cloud; opening the link reads it (CloudSessionLink).
+            return closed(kind, session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
@@ -85,7 +88,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
         case .pane(let id): services.pane(id: id)?.tabs.first?.id
         default: nil
         }
-        guard let tabID, let (tab, _) = services.locateTab(tabID) else { return out }
+        guard let tabID, let (tab, _) = services.locateTabOnAnyMachine(tabID) else { return out }
         switch tab.kind {
         case .pty, .remoteTerminal:
             guard let connection = services.machines.daemon(forTab: tab).connection,
@@ -172,9 +175,9 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
 /// The card's own words. Keys live in Resources/Localizable.xcstrings.
 enum HomeLinkPreviewStrings {
-    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module) }
-    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module) }
+    static var open: String { String(localized: "home.linkPreview.open", defaultValue: "Open", bundle: .module.inAppLanguage) }
+    static var closed: String { String(localized: "home.linkPreview.closed", defaultValue: "Closed", bundle: .module.inAppLanguage) }
     static func tabCount(_ count: Int) -> String {
-        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module), count)
+        String(format: String(localized: "home.linkPreview.tabCount", defaultValue: "Tabs: %lld", bundle: .module.inAppLanguage), count)
     }
 }

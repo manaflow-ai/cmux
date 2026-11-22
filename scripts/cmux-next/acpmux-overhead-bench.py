@@ -40,9 +40,18 @@ left and their RSS (`abandoned_ready`, `abandoned_rss_mb`).
                    person typing does
   warm_first       the same for a prompt right after, the agent awake
 
+--mode build-turn: an agent turn that runs a build (cpu_class.rs: the CPU class a session's harness
+starts at). Claude Code only, through acpmux, each run a fresh session: the stand-in answers the
+prompt with one Bash call running --build-cmd, then "ok". Per run:
+  end     ms from the prompt's send to the turn's end (the build is most of it)
+  pri     the base priority (`ps -o pri=`) of the shell Claude Code ran the build in: 4 is
+          background (darwinbg), 31 the default class
+  build_s the build's own seconds, as the shell measured them
+
 Usage:
   acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
-                           [--mode overhead|prewarm|hibernate] [--json OUT] [--md OUT]
+                           [--mode overhead|prewarm|hibernate|build-turn] [--build-cmd CMD]
+                           [--json OUT] [--md OUT]
 """
 
 from __future__ import annotations
@@ -74,6 +83,10 @@ class StandIn(http.server.ThreadingHTTPServer):
         # Model requests and their body bytes, for each run's share (`Counter`).
         self.requests = 0
         self.bytes = 0
+        # --mode build-turn: the Bash command a prompt naming BUILD_TURN gets, and every tool
+        # result the harness sent back, in order.
+        self.build_cmd: str | None = None
+        self.tool_results: list[str] = []
 
     def hit(self, tag: str, size: int = 0):
         with self.lock:
@@ -145,6 +158,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def anthropic(self, body):
         model = body.get("model", "claude-bench")
         usage = {"input_tokens": 10, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        call = build_call(self.server, body)
+        if call is not None and body.get("stream"):
+            return self.reply(200, sse(tool_use_events(model, usage, call)), "text/event-stream")
         if not body.get("stream"):
             msg = {"id": "msg_bench", "type": "message", "role": "assistant", "model": model,
                    "content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn",
@@ -200,6 +216,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (None, "[DONE]"),
         ]
         self.reply(200, sse(events), "text/event-stream")
+
+
+# The prompt of a --mode build-turn run: the stand-in answers it with one Bash call.
+BUILD_TURN = "BUILD_TURN: run the build."
+
+
+def build_call(server, body):
+    """The Bash input a main-loop request of a build turn gets, or None (answer "ok").
+
+    Only a request that offers the Bash tool (a side request, such as a title, offers none) and
+    whose last user message is the build prompt itself, not the tool result that follows it.
+    Claude Code may end its messages with a system one (its environment), so the last user
+    message is looked for, never the last message."""
+    if not server.build_cmd or not any(t.get("name") == "Bash" for t in body.get("tools") or []):
+        return None
+    users = [m for m in body.get("messages") or [] if m.get("role") == "user"]
+    content = users[-1].get("content") if users else None
+    blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+    results = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
+    if results:
+        for r in results:
+            inner = r.get("content")
+            text = inner if isinstance(inner, str) else "".join(
+                c.get("text", "") for c in inner or [] if isinstance(c, dict))
+            with server.lock:
+                server.tool_results.append(text)
+        return None
+    if not any(BUILD_TURN in (b.get("text") or "") for b in blocks if isinstance(b, dict)):
+        return None
+    return {"command": server.build_cmd, "description": "Run the build", "timeout": 600000}
+
+
+def tool_use_events(model, usage, call):
+    tid = "toolu_bench_" + uuid.uuid4().hex[:12]
+    return [
+        ("message_start", {"type": "message_start", "message": {"id": "msg_bench", "type": "message", "role": "assistant",
+                                                                 "model": model, "content": [], "stop_reason": None,
+                                                                 "stop_sequence": None, "usage": usage}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0,
+                                 "content_block": {"type": "tool_use", "id": tid, "name": "Bash", "input": {}}}),
+        ("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                 "delta": {"type": "input_json_delta", "partial_json": json.dumps(call)}}),
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                           "usage": {"output_tokens": 1}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
 
 
 # ---------------------------------------------------------------- line pipes
@@ -683,7 +746,8 @@ def main():
     ap.add_argument("--harness", default="claude,codex,opencode")
     ap.add_argument("-n", type=int, default=20)
     ap.add_argument("--warmup", type=int, default=2)
-    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate"], default="overhead")
+    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate", "build-turn"], default="overhead")
+    ap.add_argument("--build-cmd", help="--mode build-turn: the shell command the turn's Bash call runs")
     ap.add_argument("--idle-wait", type=int, default=135, help="--mode hibernate: seconds the chats sit idle")
     ap.add_argument("--json")
     ap.add_argument("--md")
@@ -708,6 +772,12 @@ def main():
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
     daemon = Daemon(os.path.abspath(args.acpmux), env, home, extra)
+    if args.mode == "build-turn":
+        try:
+            return build_turn_main(args, daemon, stand, scratch)
+        finally:
+            daemon.close()
+            shutil.rmtree(scratch, ignore_errors=True)
     if args.mode in ("prewarm", "hibernate"):
         try:
             return (prewarm_main if args.mode == "prewarm" else hibernate_main)(args, daemon, scratch)
@@ -776,6 +846,68 @@ def main():
     shutil.rmtree(scratch, ignore_errors=True)
 
 
+def build_turn_main(args, daemon: Daemon, stand: StandIn, scratch):
+    """--mode build-turn: n turns, each in a fresh session, whose one tool call runs the build."""
+    stand.build_cmd = args.build_cmd
+    rows, errors = [], []
+    for k in range(args.warmup + args.n):
+        cwd = os.path.join(scratch, f"build-{k}")
+        os.makedirs(cwd)
+        sid = None
+        try:
+            _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                                   "_meta": {"acpmux": {"harness": "claude", "policy": "approve-all",
+                                                                        "model": MODELS["claude"]}}})
+            sid = r["sessionId"]
+            io = daemon.io
+            daemon.next += 1
+            rid, start, seen = daemon.next, io.mark(), len(stand.tool_results)
+            ts = time.perf_counter()
+            io.send({"jsonrpc": "2.0", "id": rid, "method": "session/prompt",
+                     "params": {"sessionId": sid, "prompt": [{"type": "text", "text": BUILD_TURN}]}})
+            te, m, _ = io.wait(lambda m: m.get("id") == rid, timeout=1200, start=start)
+            if "error" in m:
+                raise RuntimeError(f"session/prompt: {m['error']}")
+            out = "\n".join(stand.tool_results[seen:])
+            row = {"end": ms(ts, te)}
+            for key, name in (("pri", "BUILD-PRI"), ("build_s", "BUILD-SECONDS"), ("exit", "BUILD-EXIT")):
+                hit = [line.split()[1] for line in out.splitlines() if line.startswith(name + " ") and len(line.split()) > 1]
+                row[key] = float(hit[-1]) if hit else None
+            if row["exit"] != 0:
+                raise RuntimeError(f"the build did not pass: {out[-400:]!r}")
+            print(f"build-turn run {k + 1}/{args.warmup + args.n}: {row}", file=sys.stderr, flush=True)
+            if k >= args.warmup:
+                rows.append(row)
+        except Exception as e:  # noqa: BLE001: a bench reports and goes on
+            errors.append(f"run {k}: {e}")
+            print(f"build-turn run {k}: {e}", file=sys.stderr)
+        finally:
+            if sid:
+                try:
+                    daemon.request("session/close", {"sessionId": sid}, timeout=20)
+                except Exception:
+                    pass
+    summary = {m: {"p50": pct([r[m] for r in rows if r[m] is not None], 0.5),
+                   "min": min((r[m] for r in rows if r[m] is not None), default=None),
+                   "max": max((r[m] for r in rows if r[m] is not None), default=None)} for m in ("end", "build_s", "pri")}
+    results = {"claude": {"summary": summary, "runs": rows, "errors": errors},
+               "_meta": {"label": args.label, "acpmux": args.acpmux, "n": args.n, "build_cmd": args.build_cmd,
+                         "host": socket.gethostname(), "load": os.getloadavg()}}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    lines = [f"### build-turn {args.label or 'run'} ({socket.gethostname()}, n={len(rows)}, load {os.getloadavg()[0]:.1f})", "",
+             "| metric | p50 | min | max |", "|---|---|---|---|"]
+    for m, v in summary.items():
+        lines.append(f"| {m} | {v['p50']} | {v['min']} | {v['max']} |")
+    text = "\n".join(lines) + "\n"
+    print(text)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
+    return 1 if errors else 0
+
+
 def prewarm_main(args, daemon: Daemon, scratch):
     results = {}
     for h in args.harness.split(","):
@@ -832,4 +964,4 @@ def prewarm_main(args, daemon: Daemon, scratch):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -21,6 +21,7 @@
 //! in ACP and forgotten, so a late answer sends it nothing.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde_json::Map;
 
 /// The most fields one form may ask; a longer one is declined as unsupported.
@@ -336,7 +337,7 @@ fn form(req: &Value) -> Option<(Form, Vec<Value>)> {
         // A number is typed, so a client sends its digits to the text, not
         // to option shortcuts (`tui/answering.rs`).
         if matches!(kind, Kind::Number { .. }) {
-            item["input"] = json!("number");
+            item.set("input", json!("number"));
         }
         items.push(item);
         fields.push(Field { key: key.clone(), prompt, kind, required: is_required });

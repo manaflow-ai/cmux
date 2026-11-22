@@ -26,15 +26,17 @@ final class AgentActivityPageService {
     /// Selects the active window's Agent activity tab, else opens one beside
     /// the focused tab.
     func open() {
-        guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
+        guard let window = services.windows.active else {
+            services.registry.refuse(RefusalStrings.noWindowOpen)
+            return
+        }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { AgentActivityPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
                 pane.select(StripTabID(tab.id))
                 return
             }
         }
-        guard let pane = window.focusedPane else { return }
-        pane.newBrowserTab(url: AgentActivityPageAddress.url)
+        window.focusedPane?.newBrowserTab(url: AgentActivityPageAddress.url)
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
@@ -117,10 +119,8 @@ final class AgentActivityPageService {
         if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
             return AgentActivityMockSource()
         }
-        return AgentActivitySocketSource(configuration: {
-            guard var configuration = ComputerUseHelperDaemon.shared.configuration else { return nil }
-            configuration.machineName = AgentActivityPaneStrings.thisMac
-            return configuration
-        })
+        // The activity feed was the cmux Computer Use helper's socket; the cmux Computer Use engine in
+        // cmux Remote does not serve one to the app yet, so the page shows Computer Use as not started.
+        return AgentActivitySocketSource(configuration: { nil })
     }
 }

@@ -5,6 +5,10 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+#[cfg(test)]
+#[path = "tab_attention_request_tests.rs"]
+mod attention_request_tests;
+
 use crate::workspace_registry::presentation_store::{
     SavedTabGroupRecord, SavedTabMember, TabGroupState, delete_saved_tab_group_in,
     put_saved_tab_group_in, read_saved_tab_groups, write_tab_group_state,
@@ -105,7 +109,44 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
     if !has_column {
         transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN attention_json TEXT;")?;
     }
+    // Upgrade pre-token marks once. The identity lives in the same JSON as
+    // the mark, so a restart preserves it; legacy writers may replace the
+    // JSON, in which case the next upgrade issues a new identity.
+    let legacy = transaction
+        .prepare("SELECT tab_id, attention_json FROM tab_state WHERE attention_json IS NOT NULL")?
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (tab, stored) in legacy {
+        let Ok(mut value) = serde_json::from_str::<Value>(&stored) else { continue };
+        let Some(object) = value.as_object_mut() else { continue };
+        if object.get("reason").and_then(Value::as_str).is_none()
+            || object.get("at_ms").and_then(Value::as_u64).is_none()
+            || object
+                .get("request_id")
+                .and_then(Value::as_str)
+                .is_some_and(valid_attention_request_id)
+        {
+            continue;
+        }
+        object.insert("request_id".into(), Value::String(new_attention_request_id()?));
+        transaction.execute(
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+            params![tab, value.to_string()],
+        )?;
+    }
     Ok(())
+}
+
+fn valid_attention_request_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Owner-issued 128-bit identity, independent of the clock and row lifetime.
+/// Entropy failure aborts the transaction; there is no time-based fallback.
+fn new_attention_request_id() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("random attention id: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// UTF-8 bytes an attention reason holds at most (the catalog's max_length unit).
@@ -117,14 +158,17 @@ pub(crate) const MAX_ATTENTION_REASON_BYTES: usize = 200;
 /// clears once the tab is on another page, decided in the clearing
 /// transaction ([`clear_attention_off_page`]), so a mark set on the new page
 /// survives a navigation event that arrives after it.
-pub(crate) fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> Value {
-    match page {
-        Some(page) => json!({"reason": reason, "at_ms": at_ms, "page": page}),
-        None => json!({"reason": reason, "at_ms": at_ms}),
-    }
+fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> anyhow::Result<Value> {
+    let request_id = new_attention_request_id()?;
+    Ok(match page {
+        Some(page) => {
+            json!({"reason": reason, "at_ms": at_ms, "request_id": request_id, "page": page})
+        }
+        None => json!({"reason": reason, "at_ms": at_ms, "request_id": request_id}),
+    })
 }
 
-/// The mark as `extra.attention` shows it: `{reason, at_ms}`, without the
+/// The mark as `extra.attention` shows it: `{reason, at_ms, request_id}`, without the
 /// page it was set on.
 pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
     let mut value: Value = serde_json::from_str(stored)?;
@@ -132,6 +176,63 @@ pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
         object.remove("page");
     }
     Ok(value)
+}
+
+/// A live tab's attention mark as frontends draw it (`tab-attention-v1`):
+/// the reason the person reads and when the agent asked (Unix ms). Loaded
+/// into the presentation snapshot so the raw tree carries it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabAttentionRecord {
+    pub reason: String,
+    pub at_ms: u64,
+}
+
+/// The attention mark of every live tab, by public tab id. A row whose JSON
+/// does not hold a reason is skipped, as `extra.attention` would show none.
+pub(crate) fn read_tab_attention(
+    connection: &Connection,
+) -> anyhow::Result<std::collections::HashMap<String, TabAttentionRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT s.tab_id, s.attention_json FROM tab_state AS s
+         JOIN resource_tabs AS t ON t.public_id = s.tab_id
+         WHERE s.attention_json IS NOT NULL AND t.deleted_revision IS NULL",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(tab, stored)| Some((tab, attention_record(&stored)?)))
+        .collect())
+}
+
+/// A stored attention mark as frontends draw it, or `None` when its JSON
+/// holds no reason.
+fn attention_record(stored: &str) -> Option<TabAttentionRecord> {
+    let value: Value = serde_json::from_str(stored).ok()?;
+    let reason = value.get("reason")?.as_str()?.to_string();
+    let at_ms = value.get("at_ms").and_then(Value::as_u64).unwrap_or(0);
+    Some(TabAttentionRecord { reason, at_ms })
+}
+
+/// The attention mark of one live tab, as [`read_tab_attention`] lists it:
+/// what the presentation cache holds for the tab after a commit that wrote
+/// its mark.
+pub(crate) fn tab_attention_record(
+    connection: &Connection,
+    tab_id: &str,
+) -> anyhow::Result<Option<TabAttentionRecord>> {
+    let stored = connection
+        .query_row(
+            "SELECT s.attention_json FROM tab_state AS s
+             JOIN resource_tabs AS t ON t.public_id = s.tab_id
+             WHERE s.tab_id = ?1 AND s.attention_json IS NOT NULL
+               AND t.deleted_revision IS NULL",
+            [tab_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(stored.as_deref().and_then(attention_record))
 }
 
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears
@@ -160,6 +261,9 @@ pub(crate) struct TabStateUpdate {
     /// the tab keeps it; the agent's clear, a browser tab's navigation to
     /// another page, or the tab's close clears it.
     pub(crate) attention: Option<Option<String>>,
+    /// With attention:null, clear only the request with this identity.
+    /// Omission preserves the legacy unconditional clear API.
+    pub(crate) attention_request_id: Option<String>,
     /// The page a browser tab shows when a new attention mark is set, stored
     /// with it. Filled by `state_update_tab` from the tab's surface, never
     /// from the request.
@@ -196,6 +300,12 @@ impl TabStateUpdate {
                 "bad request: an attention reason is one line of text"
             );
         }
+        if let Some(id) = &self.attention_request_id {
+            anyhow::ensure!(
+                matches!(self.attention, Some(None)) && valid_attention_request_id(id),
+                "bad request: attention_request_id requires attention:null and 32 lowercase hex bytes"
+            );
+        }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
@@ -216,6 +326,15 @@ pub(crate) fn update_tab_state(
     transaction: &Transaction<'_>,
     tab_id: &str,
     update: &TabStateUpdate,
+) -> anyhow::Result<()> {
+    update_tab_state_at_time(transaction, tab_id, update, crate::mux::now_ms())
+}
+
+fn update_tab_state_at_time(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    update: &TabStateUpdate,
+    at_ms: u64,
 ) -> anyhow::Result<()> {
     transaction.execute("INSERT OR IGNORE INTO tab_state(tab_id) VALUES(?1)", [tab_id])?;
     if let Some(zoom) = update.zoom {
@@ -246,13 +365,19 @@ pub(crate) fn update_tab_state(
         )?;
     }
     if let Some(attention) = &update.attention {
-        let stored = attention.as_deref().map(|reason| {
-            attention_value(reason.trim(), crate::mux::now_ms(), update.attention_page.as_deref())
-                .to_string()
-        });
+        let stored = attention
+            .as_deref()
+            .map(|reason| {
+                attention_value(reason.trim(), at_ms, update.attention_page.as_deref())
+                    .map(|value| value.to_string())
+            })
+            .transpose()?;
+        // Compare in the writing transaction, never against an earlier snapshot.
+        // A stale identity is a no-op; other requested fields still update.
         transaction.execute(
-            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
-            params![tab_id, stored],
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1
+             AND (?3 IS NULL OR json_extract(attention_json, '$.request_id') = ?3)",
+            params![tab_id, stored, update.attention_request_id],
         )?;
     }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
@@ -532,173 +657,9 @@ pub(crate) fn delete_saved_tab_group(
 }
 
 #[cfg(test)]
-mod marked_unread_tests {
-    use super::*;
-
-    /// A tab_state table without the marked_unread column gains it; a mark
-    /// alone keeps the row, and clearing it deletes the emptied row. The later
-    /// attention column (tab-attention-v1) is added too, as the migration
-    /// does: an update writes every column.
-    #[test]
-    fn tab_marked_unread_column_is_added_and_an_empty_row_is_dropped() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT);",
-            )
-            .unwrap();
-        for _ in 0..2 {
-            let transaction = connection.transaction().unwrap();
-            add_tab_marked_unread_column(&transaction).unwrap();
-            add_tab_attention_column(&transaction).unwrap();
-            transaction.commit().unwrap();
-        }
-        let count = |connection: &Connection| -> i64 {
-            connection
-                .query_row("SELECT COUNT(*) FROM tab_state WHERE marked_unread = 1", [], |row| {
-                    row.get(0)
-                })
-                .unwrap()
-        };
-        let transaction = connection.transaction().unwrap();
-        let mark = TabStateUpdate { marked_unread: Some(true), ..Default::default() };
-        update_tab_state(&transaction, "tab_a", &mark).unwrap();
-        transaction.commit().unwrap();
-        assert_eq!(count(&connection), 1);
-        let transaction = connection.transaction().unwrap();
-        let clear = TabStateUpdate { marked_unread: Some(false), ..Default::default() };
-        update_tab_state(&transaction, "tab_a", &clear).unwrap();
-        transaction.commit().unwrap();
-        let rows: i64 =
-            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
-        assert_eq!(rows, 0);
-    }
-}
+#[path = "tab_state_store_marked_unread_tests.rs"]
+mod marked_unread_tests;
 
 #[cfg(test)]
-mod attention_tests {
-    use super::*;
-
-    /// A tab_state table without the attention column gains it; a mark alone
-    /// keeps the row with its reason, clearing it deletes the emptied row, and
-    /// a closing tab drops its mark.
-    #[test]
-    fn tab_attention_column_is_added_and_cleared_by_clear_or_close() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
-                   marked_unread INTEGER);",
-            )
-            .unwrap();
-        for _ in 0..2 {
-            let transaction = connection.transaction().unwrap();
-            add_tab_attention_column(&transaction).unwrap();
-            transaction.commit().unwrap();
-        }
-        let rows = |connection: &Connection| -> i64 {
-            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap()
-        };
-        let mark = TabStateUpdate {
-            attention: Some(Some("Confirm GitHub access".into())),
-            ..Default::default()
-        };
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &mark).unwrap();
-        update_tab_state(&transaction, "tab_b", &mark).unwrap();
-        transaction.commit().unwrap();
-        assert!(tab_has_attention(&connection, "tab_a").unwrap());
-        let stored: String = connection
-            .query_row("SELECT attention_json FROM tab_state WHERE tab_id = 'tab_a'", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        let stored: Value = serde_json::from_str(&stored).unwrap();
-        assert_eq!(stored["reason"], "Confirm GitHub access");
-        assert!(stored["at_ms"].as_u64().is_some());
-        let transaction = connection.transaction().unwrap();
-        let clear = TabStateUpdate { attention: Some(None), ..Default::default() };
-        update_tab_state(&transaction, "tab_a", &clear).unwrap();
-        clear_closed_tab_attention(&transaction, "tab_b").unwrap();
-        clear_closed_tab_attention(&transaction, "tab_never_marked").unwrap();
-        transaction.commit().unwrap();
-        assert!(!tab_has_attention(&connection, "tab_a").unwrap());
-        assert!(!tab_has_attention(&connection, "tab_b").unwrap());
-        assert_eq!(rows(&connection), 0);
-    }
-
-    #[test]
-    fn an_attention_reason_is_one_short_readable_line() {
-        let with = |reason: &str| TabStateUpdate {
-            attention: Some(Some(reason.to_string())),
-            ..Default::default()
-        };
-        assert!(with("Confirm GitHub access").validate().is_ok());
-        assert!(with("   ").validate().is_err());
-        assert!(with("two\nlines").validate().is_err());
-        assert!(with("two\u{2028}lines").validate().is_err(), "a line separator is two lines");
-        assert!(with("two\u{2029}lines").validate().is_err(), "a paragraph separator is two lines");
-        assert!(with(&"x".repeat(MAX_ATTENTION_REASON_BYTES + 1)).validate().is_err());
-        assert!(TabStateUpdate { attention: Some(None), ..Default::default() }.validate().is_ok());
-    }
-
-    /// A navigation clears a mark set on another page, and only that: a mark
-    /// an agent sets on the new page before the navigation's commit stays,
-    /// which a read outside the clearing transaction could not promise.
-    #[test]
-    fn a_navigation_clears_only_a_mark_set_on_another_page() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
-                   marked_unread INTEGER, attention_json TEXT);",
-            )
-            .unwrap();
-        let mark = |reason: &str, page: Option<&str>| TabStateUpdate {
-            attention: Some(Some(reason.into())),
-            attention_page: page.map(str::to_string),
-            ..Default::default()
-        };
-        let (a, b) = ("https://github.com/login", "https://github.com/settings");
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &mark("Log in to GitHub", Some(a))).unwrap();
-        update_tab_state(&transaction, "tab_t", &mark("Approve the prompt", None)).unwrap();
-        transaction.commit().unwrap();
-        let stored: String = connection
-            .query_row("SELECT attention_json FROM tab_state WHERE tab_id = 'tab_a'", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        let shown = shown_attention(&stored).unwrap();
-        assert_eq!(shown["reason"], "Log in to GitHub");
-        assert!(shown.get("page").is_none(), "extra.attention shows no page: {shown}");
-
-        assert!(!tab_has_attention_off_page(&connection, "tab_a", a).unwrap());
-        assert!(tab_has_attention_off_page(&connection, "tab_a", b).unwrap());
-        let transaction = connection.transaction().unwrap();
-        assert!(!clear_attention_off_page(&transaction, "tab_a", a).unwrap(), "same page");
-        transaction.commit().unwrap();
-        assert!(tab_has_attention(&connection, "tab_a").unwrap());
-
-        // The agent marks the new page before the navigation's clear commits.
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &mark("Approve the scopes", Some(b))).unwrap();
-        assert!(!clear_attention_off_page(&transaction, "tab_a", b).unwrap(), "a stale clear");
-        transaction.commit().unwrap();
-        assert!(tab_has_attention(&connection, "tab_a").unwrap(), "the new page's mark stays");
-
-        let transaction = connection.transaction().unwrap();
-        assert!(clear_attention_off_page(&transaction, "tab_a", a).unwrap(), "went back to a");
-        assert!(clear_attention_off_page(&transaction, "tab_t", a).unwrap(), "a mark with no page");
-        assert!(!clear_attention_off_page(&transaction, "tab_never_marked", a).unwrap());
-        transaction.commit().unwrap();
-        assert!(!tab_has_attention(&connection, "tab_a").unwrap());
-        assert!(!tab_has_attention(&connection, "tab_t").unwrap());
-        let rows: i64 =
-            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
-        assert_eq!(rows, 0, "a row left with no field is deleted");
-    }
-}
+#[path = "tab_state_store_attention_tests.rs"]
+mod attention_tests;

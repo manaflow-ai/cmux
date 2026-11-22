@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use cmux_git::run::{GitFailure, Override, run_git_scratch_objects_within, run_git_within};
+use cmux_git::run::{GitFailure, Override, run_git_scratch_objects_within_limited, run_git_within};
 use cmux_git::write_run::{Bound, WriteGit};
 
 /// The longest one read takes (`cmux-git`'s own ceiling).
@@ -42,6 +42,7 @@ pub(crate) fn read_scratch_objects(
     overrides: &[Override],
     objects: &Path,
     args: &[&str],
+    memory_limit: u64,
 ) -> Result<Option<Vec<u8>>, String> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -50,8 +51,16 @@ pub(crate) fn read_scratch_objects(
     // A crashed run's folder under a reused pid starts empty again.
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
-    let output =
-        run_git_scratch_objects_within(dir, overrides, args, MAX_OUTPUT, READ, objects, &scratch);
+    let output = run_git_scratch_objects_within_limited(
+        dir,
+        overrides,
+        args,
+        MAX_OUTPUT,
+        READ,
+        objects,
+        &scratch,
+        Some(memory_limit),
+    );
     let _ = std::fs::remove_dir_all(&scratch);
     let output = match output {
         Ok(output) => output,

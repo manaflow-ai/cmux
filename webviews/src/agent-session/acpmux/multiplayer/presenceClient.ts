@@ -50,6 +50,11 @@ export class PresenceClient {
     this.self = me();
   }
 
+  /// The author id this pane sends as in the open chat: `owner` for the chat owner's own pane.
+  get selfId(): string {
+    return this.self;
+  }
+
   /// The open chat's presence, or undefined when nobody else is here.
   get presence(): ChatPresence | undefined {
     return this.current.viewing.length > 0 || this.current.typing.length > 0 ? this.current : undefined;

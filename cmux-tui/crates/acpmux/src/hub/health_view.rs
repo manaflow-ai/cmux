@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -30,12 +31,12 @@ impl Hub {
         let flag = |key: &str| params.get(key).and_then(Value::as_bool).unwrap_or(false);
         let check_latest = flag("checkLatest");
         // `rescan`: look for harnesses again (profiles and PATH) first, after an
-        // install from the Harnesses page. A daemon without a config file
-        // refuses the reload; the check still runs.
-        if flag("rescan")
-            && let Err(e) = self.reload_catalog().await
-        {
-            tracing::debug!("harness health rescan: {}", e.message);
+        // install from the Harnesses page, and tell the watchers
+        // (`_acpmux/harnesses_changed`): the page reads its list again only then, so a
+        // reload alone left a fresh install's row on "can't find" until a restart. A
+        // daemon without a config file refuses the reload; the check still runs.
+        if flag("rescan") {
+            self.reload_and_announce().await;
         }
         let mut update = flag("refresh") || check_latest;
         if let Some(choice) = params.get("autoUpdate") {
@@ -49,14 +50,16 @@ impl Hub {
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
             update |= on;
         }
-        let mut rows = self.health.rows();
+        let rows;
         if flag("refresh") || check_latest {
             // Before the login environment is read, PATH may miss harnesses
             // and a sign-in the login shell exports is not seen: a check
             // waits for startup, as the daemon's own does (`run_health`).
             self.wait_startup().await;
             rows = self.health.check(self.health_subjects().await, check_latest).await;
-        } else if rows.is_empty() {
+        } else {
+            // Even a persisted health snapshot needs the current profile's login command:
+            // account-home changes are not reflected in the cached row.
             self.wait_startup().await;
             rows = self.health.first_check(self.health_subjects().await).await;
         }
@@ -124,10 +127,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })

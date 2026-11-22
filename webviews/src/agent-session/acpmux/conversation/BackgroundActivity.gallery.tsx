@@ -6,8 +6,11 @@
 // data-only and never starts a process or sends a session request.
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
+import { GALLERY_NOW } from "../../../gallery/clock";
+import { SubagentTray } from "../subagents/SubagentTray";
+import type { TrayItem } from "../subagents/runningTray";
 
-type Surface = "pinned-live-tail" | "after-latest-message" | "compact-pill" | "side-panel";
+type Surface = "pinned-live-tail" | "after-latest-message" | "compact-pill" | "side-panel" | "duration-columns";
 type Mode = "light" | "dark";
 
 type Props = {
@@ -324,8 +327,70 @@ function SidePanelSurface() {
   );
 }
 
+// The production tray, with both Stop implementations and an untimed, non-opening row.
+// Synthetic names only; no process or session request leaves this fixture.
+const DURATION_ITEMS: TrayItem[] = [
+  ...[9, 59].map((seconds, index): TrayItem => ({
+    kind: "agent",
+    id: `duration-agent-${index}`,
+    depth: index === 1 ? 1 : 0,
+    agent: {
+      id: `duration-agent-${index}`,
+      parent: null,
+      name: ["Quick check", "Nested check", "Integration review"][index]!,
+      state: "running",
+      startedAt: GALLERY_NOW - seconds * 1000,
+    },
+  })),
+  {
+    kind: "session",
+    id: "untimed-session",
+    session: { sessionId: "untimed-session", title: "Waiting review", state: "waiting" },
+  },
+  ...[1879, 46799].map((seconds, index): TrayItem => ({
+    kind: "command",
+    id: `duration-command-${index}`,
+    command: {
+      id: `duration-command-${index}`,
+      processId: `duration-process-${index}`,
+      command: index === 0 ? "bun run check" : "bun run overnight",
+      state: "running",
+      startedAt: GALLERY_NOW - seconds * 1000,
+    },
+  })),
+  {
+    kind: "agent",
+    id: "duration-agent-long",
+    depth: 0,
+    agent: {
+      id: "duration-agent-long",
+      parent: null,
+      name: "Integration review",
+      state: "running",
+      startedAt: GALLERY_NOW - 8399 * 1000,
+    },
+  },
+];
+
+function DurationTray() {
+  return (
+    <div className="acpmux-shell" data-bg-gallery style={{ padding: "8px", flexDirection: "column" }}>
+      <SubagentTray
+        items={DURATION_ITEMS}
+        working
+        waiting={new Set()}
+        onOpen={() => {}}
+        onOpenCommand={() => {}}
+        stop={async () => undefined}
+        stopProcess={async () => undefined}
+      />
+    </div>
+  );
+}
+
 function BackgroundActivityGallery({ surface, mode }: Props) {
   const [stopped, setStopped] = useState<Set<string>>(() => new Set());
+  if (surface === "duration-columns") return <DurationTray />;
   const activity: ActivityState = { stopped, stop: (id) => setStopped((current) => new Set(current).add(id)) };
   return (
     <ActivityStateContext.Provider value={activity}>
@@ -360,9 +425,21 @@ export default componentEntry<Props>({
   widths: { narrow: 420, normal: 760, wide: 1040 },
   anchors: [{ selector: "[data-bg-gallery]" }],
   covers: ["agent-session/acpmux/conversation/BackgroundTaskNote.tsx#BackgroundTaskNote"],
-  styles: () => import("./BackgroundActivity.gallery.css"),
+  styles: () =>
+    Promise.all([
+      import("./BackgroundActivity.gallery.css"),
+      import("../styles.css"),
+      import("./conversation.css"),
+      import("../summary/summary.css"),
+      import("../session-info/sessionInfo.css"),
+      import("../subagents/subagents.css"),
+    ]),
   load: async () => BackgroundActivityGallery,
   variants: {
+    "duration-columns": {
+      note: "Production tray with 9s through 12h 59m 59s, nested agents, commands and an empty stop/time slot. The header shows only the longest-running active item's time.",
+      props: { surface: "duration-columns", mode: "dark" },
+    },
     ...paired(
       "pinned-live-tail",
       "A pinned panel keeps two running commands, one failed command and 101 completed subagents visible; each command row expands its own ten-line live tail and offers Follow tail, Stop and Open in terminal.",

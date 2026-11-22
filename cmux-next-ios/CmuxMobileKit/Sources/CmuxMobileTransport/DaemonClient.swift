@@ -5,23 +5,45 @@ import Foundation
 public actor DaemonClient {
     private let channel: any LinkChannel
     private var nextID = 1
-    private var pending: [String: CheckedContinuation<Data, any Error>] = [:]
+    private var pending: [String: CheckedContinuation<ReceivedLine, any Error>] = [:]
     /// Ids of a batch sent but not yet awaited, and replies that came first.
     private var expected: Set<String> = []
-    private var early: [String: Data] = [:]
+    private var early: [String: Result<ReceivedLine, any Error>] = [:]
+    private var deadlines: [String: Task<Void, Never>] = [:]
     /// Set once the channel ended; later waits fail with it.
     private var ended: (any Error)?
     private var buffer = Data()
     private var readTask: Task<Void, Never>?
-    public nonisolated let events: AsyncStream<Data>
-    private let eventContinuation: AsyncStream<Data>.Continuation
+    /// Unsolicited daemon events (terminal output, tree notifications, etc.).
+    /// Terminal clients pass a finite capacity so a slow renderer applies link
+    /// backpressure. Other clients keep this queue effectively unbounded: their
+    /// event consumer may issue replies on the same channel, so blocking the
+    /// reader behind event bytes would deadlock that request.
+    public nonisolated let events: DaemonEventStream
+    private let eventBuffer: BoundedDaemonEventBuffer
 
     /// The `LinkError` code of a request whose deadline passed.
     public static let replyTimeout = "reply_timeout"
+    public static let defaultDeadline: Duration = .seconds(15)
 
-    public init(channel: any LinkChannel) {
+    public struct ReceivedLine: Sendable {
+        public let data: Data
+        public let sequence: UInt64
+    }
+    public nonisolated let orderedEvents: AsyncStream<ReceivedLine>
+    private let orderedContinuation: AsyncStream<ReceivedLine>.Continuation
+    private let usesOrderedEvents: Bool
+    private var sequence: UInt64 = 0
+    public var receivedPosition: UInt64 { sequence }
+
+    public init(channel: any LinkChannel, orderedEvents: Bool = false, eventCapacity: Int = Int.max) {
         self.channel = channel
-        (events, eventContinuation) = AsyncStream.makeStream()
+        let eventBuffer = BoundedDaemonEventBuffer(capacity: eventCapacity, initiallyClosed: orderedEvents)
+        self.eventBuffer = eventBuffer
+        self.events = DaemonEventStream(buffer: eventBuffer)
+        (self.orderedEvents, orderedContinuation) = AsyncStream.makeStream()
+        usesOrderedEvents = orderedEvents
+        if !orderedEvents { orderedContinuation.finish() }
     }
 
     public func start() {
@@ -44,25 +66,19 @@ public actor DaemonClient {
     }
 
     /// Sends `{"id", "cmd", ...params}` and returns the raw JSON reply line.
-    /// With `deadline`, a reply that has not come by then fails with
+    /// The default deadline is 15 seconds. A reply that has not come by then fails with
     /// `LinkError` `reply_timeout` (a late reply is dropped).
     public func request(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
                         clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
+        try await requestOrdered(cmd, params: params, deadline: deadline, clock: clock).data
+    }
+
+    public func requestOrdered(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
+                               clock: any Clock<Duration> = ContinuousClock()) async throws -> ReceivedLine {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
-        if let deadline {
-            Task { [weak self] in
-                try? await clock.sleep(for: deadline)
-                await self?.fail(id: id, error: LinkError(code: Self.replyTimeout, message: "no reply to \(cmd) in time"))
-            }
-        }
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            Task {
-                do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
-            }
-        }
+        return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock)
     }
 
     /// Closes the channel (the Mac drops its daemon connection) and fails
@@ -70,27 +86,21 @@ public actor DaemonClient {
     public func close() async {
         readTask?.cancel()
         await channel.close(code: "eof", reason: "")
-        finish(LinkError(code: "closed", message: "daemon channel closed"))
+        await finish(LinkError(code: "closed", message: "daemon channel closed"))
     }
 
     /// Sends a `cmux.protocol/2` request (`machine` and `session` default to
     /// `current`, as the Mac app's `ResourceRequestEnvelope`) and returns the
     /// raw response line (`ok`, `result` or `error`).
     ///
-    /// With `deadline`, a reply that has not come by then fails with
-    /// `LinkError` `reply_timeout` (a late reply is dropped as an event), so
+    /// The default deadline is 15 seconds. A reply that has not come by then fails with
+    /// `LinkError` `reply_timeout` (a late reply is dropped), so
     /// a request on a link that went quiet never waits forever.
     public func resourceRequest(_ operation: String, params: sending [String: Any] = [:], idempotencyKey: String? = nil,
                                 deadline: Duration? = nil, clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
         start()
         let id = "r\(nextID)"
         nextID += 1
-        if let deadline {
-            Task { [weak self] in
-                try? await clock.sleep(for: deadline)
-                await self?.fail(id: id, error: LinkError(code: Self.replyTimeout, message: "no reply to \(operation) in time"))
-            }
-        }
         var fields = params
         fields["machine"] = fields["machine"] ?? "current"
         fields["session"] = fields["session"] ?? "current"
@@ -98,19 +108,40 @@ public actor DaemonClient {
         if let idempotencyKey { object["idempotency_key"] = idempotencyKey }
         var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
         line.append(0x0A)
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            Task {
-                do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
-            }
-        }
+        return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock).data
+    }
+
+    private func perform(id: String, line: Data, deadline: Duration, clock: any Clock<Duration>) async throws -> ReceivedLine {
+        try Task.checkCancellation()
+        if let ended { throw ended }
+        expected.insert(id)
+        arm(id: id, deadline: deadline, clock: clock)
+        let write = Task { await self.send(line, ids: [id]) }
+        defer { write.cancel() }
+        return try await reply(id)
+    }
+
+    private func arm(id: String, deadline: Duration, clock: any Clock<Duration> = ContinuousClock()) {
+        deadlines[id] = Task { await self.expire(id, after: deadline, clock: clock) }
+    }
+
+    private func expire(_ id: String, after deadline: Duration, clock: any Clock<Duration>) async {
+        do { try await clock.sleep(for: deadline) } catch { return }
+        guard !Task.isCancelled else { return }
+        fail(id: id, error: LinkError(code: Self.replyTimeout, message: "reply timed out"))
     }
 
     /// Sends every request in one write, in order, and returns their replies
     /// in the same order: one round trip instead of one per request (the
     /// daemon handles a connection's lines in order). A failed request is a
     /// `.failure` in its slot; a failed write fails them all.
-    public func requests(_ batch: [(cmd: String, params: [String: Any])]) async -> [Result<Data, any Error>] {
+    public func requests(_ batch: [(cmd: String, params: [String: Any])],
+                         deadline: Duration = DaemonClient.defaultDeadline) async -> [Result<Data, any Error>] {
+        await requestsOrdered(batch, deadline: deadline).map { $0.map(\.data) }
+    }
+
+    public func requestsOrdered(_ batch: [(cmd: String, params: [String: Any])],
+                                deadline: Duration = DaemonClient.defaultDeadline) async -> [Result<ReceivedLine, any Error>] {
         start()
         var ids: [String] = []
         var bytes = Data()
@@ -121,15 +152,13 @@ public actor DaemonClient {
             }
             ids.append(id)
         }
+        guard !Task.isCancelled else { return ids.map { _ in .failure(CancellationError()) } }
+        if let ended { return ids.map { _ in .failure(ended) } }
         expected.formUnion(ids)
-        do { try await channel.send(bytes) } catch {
-            for id in ids {
-                expected.remove(id)
-                early[id] = nil
-            }
-            return ids.map { _ in .failure(error) }
-        }
-        var results: [Result<Data, any Error>] = []
+        for id in ids { arm(id: id, deadline: deadline) }
+        let write = Task { await self.send(bytes, ids: ids) }
+        defer { write.cancel() }
+        var results: [Result<ReceivedLine, any Error>] = []
         for id in ids {
             do { results.append(.success(try await reply(id))) } catch { results.append(.failure(error)) }
         }
@@ -140,15 +169,31 @@ public actor DaemonClient {
     /// waiting for the reply (``reply(to:)``). A caller that awaits each
     /// submit before the next keeps its requests in order on the channel
     /// while several are unanswered (the daemon handles a connection's lines
-    /// in order).
-    public func submit(_ cmd: String, params: [String: Any] = [:]) async throws -> String {
+    /// in order). `closeChannelOnCancel` is false only for best-effort probes:
+    /// cancelling a probe must not tear down a channel that made ordinary
+    /// progress while the probe's write was still pending.
+    public func submit(_ cmd: String, params: [String: Any] = [:],
+                       deadline: Duration = DaemonClient.defaultDeadline,
+                       closeChannelOnCancel: Bool = true) async throws -> String {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
+        try Task.checkCancellation()
+        if let ended { throw ended }
         expected.insert(id)
-        do { try await channel.send(line) } catch {
-            expected.remove(id)
-            early[id] = nil
+        arm(id: id, deadline: deadline)
+        do {
+            let channel = self.channel
+            try await LinkDeadline.run(timeout: deadline,
+                                       timeoutError: LinkError(code: "write_timeout", message: "write timed out"),
+                                       operation: { try await channel.send(line) },
+                                       onCancel: {
+                                           if closeChannelOnCancel {
+                                               await channel.close(code: "timeout", reason: "write interrupted")
+                                           }
+                                       })
+        } catch {
+            discard(id)
             throw error
         }
         return id
@@ -156,62 +201,120 @@ public actor DaemonClient {
 
     /// The reply to a ``submit(_:params:)``ed request, which may already have come.
     public func reply(to id: String) async throws -> Data {
-        try await reply(id)
+        try await reply(id).data
     }
 
     /// The reply to batch request `id`, which may already have come.
-    private func reply(_ id: String) async throws -> Data {
-        if let line = early.removeValue(forKey: id) { return line }
-        if let ended {
-            expected.remove(id)
-            throw ended
-        }
-        return try await withCheckedThrowingContinuation { continuation in
-            expected.remove(id)
-            pending[id] = continuation
+    private func reply(_ id: String) async throws -> ReceivedLine {
+        try await withTaskCancellationHandler {
+            try await self.waitForReply(id)
+        } onCancel: {
+            self.cancelReply(id)
         }
     }
 
+    private nonisolated func cancelReply(_ id: String) {
+        Task { await self.fail(id: id, error: CancellationError()) }
+    }
+
+    private func waitForReply(_ id: String) async throws -> ReceivedLine {
+        if Task.isCancelled {
+            discard(id)
+            throw CancellationError()
+        }
+        if let result = early.removeValue(forKey: id) { return try result.get() }
+        if let ended {
+            discard(id)
+            throw ended
+        }
+        guard expected.contains(id) else {
+            throw LinkError(code: "unknown_request", message: "Request is no longer waiting")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            registerReply(id, continuation)
+        }
+    }
+
+    private func registerReply(_ id: String, _ continuation: CheckedContinuation<ReceivedLine, any Error>) {
+        expected.remove(id)
+        pending[id] = continuation
+    }
+
+    private func send(_ data: Data, ids: [String]) async {
+        do {
+            try Task.checkCancellation()
+            try await channel.send(data)
+        } catch {
+            for id in ids { fail(id: id, error: error) }
+        }
+    }
+
+    private func discard(_ id: String) {
+        deadlines.removeValue(forKey: id)?.cancel()
+        expected.remove(id)
+        early[id] = nil
+    }
+
     private func fail(id: String, error: any Error) {
-        pending.removeValue(forKey: id)?.resume(throwing: error)
+        deadlines.removeValue(forKey: id)?.cancel()
+        if let waiter = pending.removeValue(forKey: id) {
+            waiter.resume(throwing: error)
+        } else if expected.remove(id) != nil {
+            early[id] = .failure(error)
+        }
     }
 
     private func readLoop() async {
         do {
             while let chunk = try await channel.receive() {
+                #if DEBUG
+                ReceivedByteCount.shared.add(chunk.count)
+                #endif
                 buffer.append(chunk)
                 while let newline = buffer.firstIndex(of: 0x0A) {
                     let line = buffer[buffer.startIndex..<newline]
                     buffer.removeSubrange(buffer.startIndex...newline)
-                    route(Data(line))
+                    await route(Data(line))
                 }
             }
-            finish(LinkError(code: "closed", message: "daemon channel closed"))
+            await finish(LinkError(code: "closed", message: "daemon channel closed"))
         } catch {
-            finish(error)
+            await finish(error)
         }
     }
 
-    private func route(_ line: Data) {
+    private func route(_ line: Data) async {
         guard !line.isEmpty else { return }
+        sequence += 1
+        let received = ReceivedLine(data: line, sequence: sequence)
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let id = object["id"] as? String else {
-            eventContinuation.yield(line)
+            await yieldEvent(received)
             return
         }
+        deadlines.removeValue(forKey: id)?.cancel()
         if let continuation = pending.removeValue(forKey: id) {
-            continuation.resume(returning: line)
+            continuation.resume(returning: received)
         } else if expected.remove(id) != nil {
-            early[id] = line
-        } else {
-            eventContinuation.yield(line)
+            early[id] = .success(received)
+        } else if !(id.hasPrefix("m") || id.hasPrefix("r")) || Int(id.dropFirst()) == nil {
+            await yieldEvent(received)
         }
     }
 
-    private func finish(_ error: any Error) {
+    private func yieldEvent(_ received: ReceivedLine) async {
+        if usesOrderedEvents { orderedContinuation.yield(received) }
+        else { _ = await eventBuffer.push(received.data) }
+    }
+
+    private func finish(_ error: any Error) async {
         ended = error
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
-        eventContinuation.finish()
+        for task in deadlines.values { task.cancel() }
+        deadlines.removeAll()
+        expected.removeAll()
+        orderedContinuation.finish()
+        await eventBuffer.finish()
     }
 }

@@ -29,10 +29,16 @@ extension HomeStore {
     /// goes after every earlier send of its conversation. Always throws
     /// `pendingResend`.
     func queueUploadWhileOffline(_ key: IdempotencyKey) throws -> Never {
+        waitForReconnect(key)
+        throw HomeSendState.pendingResend
+    }
+
+    /// Marks a logged send with attachments as made while offline: the
+    /// reconnect resumes its uploads, or it fails at the offline deadline.
+    func waitForReconnect(_ key: IdempotencyKey) {
         uploads[key]?.waitingForReconnect = true
         offlineQueued.insert(key)
         scheduleOfflineDeadline(key)
-        throw HomeSendState.pendingResend
     }
 
     /// A send its owner never got (`HomeOwnerOffline`: the owner is down

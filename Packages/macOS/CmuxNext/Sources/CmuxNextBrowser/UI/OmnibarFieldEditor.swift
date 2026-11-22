@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// What the omnibar's field editor reports. Every user change becomes one
 /// `OmnibarInput`; the state machine decides what it means.
@@ -12,6 +13,8 @@ import AppKit
     /// The press moved past the drag threshold before its release.
     func fieldEditorMouseDragged()
     func fieldEditorMouseUp()
+    /// A drop on the editing field: the bar takes it as a whole (`AddressBarView.acceptDrop`).
+    func fieldEditorDrop(_ pasteboard: NSPasteboard) -> Bool
     /// Copy and Cut text for the selection, with the omnibox copy adjustments.
     var copyContent: OmnibarCopy? { get }
     var canUndo: Bool { get }
@@ -37,6 +40,33 @@ final class OmnibarFieldEditor: NSTextView {
         isFieldEditor = true
         isRichText = false
         importsGraphics = false
+        // A field editor pads its line by 2 pt a side, as AppKit's shared one does once it edits; a new
+        // text view starts at TextKit's 5. The resting address is laid out with this editor's padding
+        // (`EditorAlignedTextFieldCell`) before the field first takes the keyboard, so it must already be 2:
+        // since 15972f3ebef put the resting line at the title rect, a 5 pt padding drew the address 3 pt right
+        // of where focus puts it (OmnibarFocusLayoutShiftTests).
+        textContainer?.lineFragmentPadding = 2
+    }
+
+    // MARK: Drops
+
+    /// A drop replaces the whole text (Chromium `OmniboxViewViews::PerformDrop`), never inserts at
+    /// the pointer: the bar takes it. A drag of the field's own selection stays a text move.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isOwnDrag(sender) ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isOwnDrag(sender) ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if isOwnDrag(sender) { return super.performDragOperation(sender) }
+        return sink?.fieldEditorDrop(sender.draggingPasteboard) ?? false
+    }
+
+    private func isOwnDrag(_ sender: any NSDraggingInfo) -> Bool {
+        (sender.draggingSource as AnyObject?) === self
     }
 
     /// AppKit turns undo on for every field editor it sets up; the state
@@ -75,6 +105,8 @@ final class OmnibarFieldEditor: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         isChangingText = false
+        // A composition hides the placeholder the field's cell draws under this editor.
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
@@ -86,6 +118,7 @@ final class OmnibarFieldEditor: NSTextView {
         super.unmarkText()
         guard composing else { return }
         isChangingText = false
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
@@ -101,8 +134,38 @@ final class OmnibarFieldEditor: NSTextView {
         super.pasteAsPlainText(sender)
     }
 
+    /// The text container's origin, never left of the inset. For a line wider than its clip view AppKit moves the
+    /// container one line padding (2 pt) left, so a long address drew 2 pt left of a short one and of the resting
+    /// line (`EditorAlignedTextFieldCell`); everything (layout, caret, hit tests) reads this one origin.
+    override var textContainerOrigin: NSPoint {
+        let origin = super.textContainerOrigin
+        return NSPoint(x: max(origin.x, textContainerInset.width), y: origin.y)
+    }
+
+    /// A selection or caret at the line's start (focus selects the whole address; Cmd-A; Cmd-Left) shows the line
+    /// from its start, on the resting field's pixels, as Chrome's omnibox does; any other range scrolls as AppKit does.
+    /// For a line wider than the field AppKit clamps the clip view to its document and moves the text container 2 pt
+    /// left, which put a long address 5 pt left of its resting place on focus and back on blur (Lawrence 2026-11-20).
+    override func scrollRangeToVisible(_ range: NSRange) {
+        guard range.location == 0 else { return super.scrollRangeToVisible(range) }
+        scrollToLineStart()
+    }
+
+    /// Moves the clip view so the text container's origin lands on the field's title rect, where
+    /// `EditorAlignedTextFieldCell` draws the resting line. That origin can lie left of the clip view's document rect,
+    /// where `NSClipView.scroll(to:)` would clamp it, so the bounds are set directly.
+    private func scrollToLineStart() {
+        guard let clip = superview as? NSClipView, let field = delegate as? NSTextField, let cell = field.cell else { return }
+        let start = convert(textContainerOrigin, to: field).x
+        let shift = start - cell.titleRect(forBounds: field.bounds).minX
+        guard abs(shift) > 0.01 else { return }
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x + shift, y: clip.bounds.origin.y))
+        field.needsDisplay = true
+    }
+
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if !stillSelecting, ranges.count == 1, ranges[0].rangeValue.location == 0 { scrollToLineStart() }
         // Drags report once, when they end; edits report through didChangeText.
         guard !stillSelecting, !isChangingText else { return }
         sink?.fieldEditorDidChange(kind: nil)
@@ -205,55 +268,22 @@ final class OmnibarFieldEditor: NSTextView {
     }
 }
 
-/// Hands the omnibar its own field editor, and draws the resting text where
-/// that editor draws it, so focus moves no pixel of the address.
-///
-/// `NSTextFieldCell` draws its resting string with string drawing, which
-/// places the baseline from the font's ascender; the field editor lays the
-/// line out with TextKit (`NSLayoutManager`), whose baseline comes from the
-/// typesetter's line height. With the bundled Inter at 14 pt the editor's
-/// baseline sits 1 pt lower, so the address dropped 1 pt on every focus and
-/// rose on blur (the gap changes with the size: -1 to +3 pt from 12 to 18 pt).
-/// The cell now lays its resting line out with the same TextKit path, in the
-/// editor's text container geometry.
-final class AddressFieldCell: NSTextFieldCell {
+/// Hands the omnibar its own field editor. The resting address is drawn where that editor draws
+/// it (`EditorAlignedTextFieldCell`), so focus moves no pixel of the address: with the bundled
+/// Inter at 14 pt the editor's baseline sits 1 pt below the cell's string drawing (-1 to +3 pt
+/// from 12 to 18 pt).
+final class AddressFieldCell: EditorAlignedTextFieldCell {
     let editor = OmnibarFieldEditor()
 
-    /// AppKit puts the field editor's clip view this far left of the title
-    /// rect (its text container then adds the editor's line fragment padding).
-    static let editorLeadingOutset: CGFloat = 3
+    /// A long address fades out before the star and the toolbar buttons, as a tab's title fades before its edge
+    /// (`MarqueeLabel.fadeWidth`).
+    override var overflowFadeWidth: CGFloat { Metrics.space6 }
 
-    private let restStorage = NSTextStorage()
-    private let restLayout = NSLayoutManager()
-    private let restContainer = NSTextContainer()
-
-    override init(textCell string: String) {
-        super.init(textCell: string)
-        restLayout.addTextContainer(restContainer)
-        restStorage.addLayoutManager(restLayout)
-        restContainer.maximumNumberOfLines = 1
-        restContainer.lineBreakMode = .byTruncatingTail
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    /// No expansion tool tip: AppKit's hover window redrew a truncated address's whole text on top of the star and
+    /// the toolbar buttons, off the field's own line, until a click (Lawrence 2026-11-20). The address fades instead.
+    override func expansionFrame(withFrame cellFrame: NSRect, in view: NSView) -> NSRect { .zero }
 
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }
-
-    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        let text = attributedStringValue
-        // While editing the field editor draws; an empty field draws its placeholder.
-        guard (controlView as? NSTextField)?.currentEditor() == nil, text.length > 0 else {
-            return super.drawInterior(withFrame: cellFrame, in: controlView)
-        }
-        var origin = titleRect(forBounds: cellFrame).origin
-        origin.x -= Self.editorLeadingOutset
-        restContainer.lineFragmentPadding = editor.textContainer?.lineFragmentPadding ?? 2
-        restContainer.size = NSSize(width: max(0, cellFrame.maxX - origin.x), height: .greatestFiniteMagnitude)
-        restStorage.setAttributedString(text)
-        let glyphs = restLayout.glyphRange(for: restContainer)
-        restLayout.drawGlyphs(forGlyphRange: glyphs, at: origin)
-    }
 }
 
 extension OmnibarInput.Disposition {

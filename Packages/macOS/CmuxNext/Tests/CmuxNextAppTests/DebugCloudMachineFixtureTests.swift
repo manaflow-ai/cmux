@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextSidebar
 @testable import CmuxNextApp
 import Foundation
 import Testing
@@ -12,6 +13,26 @@ import Testing
 struct DebugCloudMachineFixtureTests {
     #if DEBUG
     static let toolsRows: Set<ActionID> = ["cloudApplyMachineConfig", "cloudDeliverSecrets"]
+
+    @Test(arguments: [
+        ("connected", SidebarMachine.Status.connected),
+        ("pausing", SidebarMachine.Status.pausing),
+        ("starting", SidebarMachine.Status.resuming),
+        ("resuming", SidebarMachine.Status.resuming),
+        ("deleting", SidebarMachine.Status.deleting),
+        ("failed", SidebarMachine.Status.failed),
+    ])
+    func statusParameterMapsToSidebarStatus(raw: String, expected: SidebarMachine.Status) {
+        #expect(DebugCloudMachineFixture.parseStatus(raw) == expected)
+    }
+
+    @Test func missingStatusDefaultsToConnected() {
+        #expect(DebugCloudMachineFixture.parseStatus(nil) == .connected)
+    }
+
+    @Test func invalidStatusIsRejected() {
+        #expect(DebugCloudMachineFixture.parseStatus("bogus") == nil)
+    }
 
     /// The rows the fixture machine's header menu runs, by folder title ("" for the top level).
     static func rows(_ services: AppServices) -> [String: Set<ActionID>] {

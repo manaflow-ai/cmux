@@ -42,9 +42,11 @@ final class SidebarDragAutoscroll {
               let scrollView = list.enclosingScrollView else { return false }
         let velocity = velocity(windowPoint: windowPoint)
         guard velocity != 0 else { return false }
+        // A frame that shows no later than the last one (after a hang) moves nothing: keep ticking.
+        let dt = tick.frameElapsed
+        guard dt > 0 else { return true }
         let clip = scrollView.contentView
         let b = clip.bounds
-        let dt = tick.elapsed
         let maxY = max(0, list.frame.height - b.height)
         let y = min(max(b.minY + velocity * dt, 0), maxY)
         // At the content edge there is nothing to scroll: stop until the
@@ -56,7 +58,7 @@ final class SidebarDragAutoscroll {
             list.updateDrag(windowPoint: windowPoint)
         } else if let external = list.external {
             _ = list.externalDragMoved(windowPoint: windowPoint, sourceMachine: external.sourceMachine,
-                                      reordersTabRows: external.reordersTabRows, slotDwell: external.slotDwell)
+                                      slotDwell: external.slotDwell)
         }
         return true
     }

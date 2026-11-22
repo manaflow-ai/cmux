@@ -15,6 +15,7 @@ use super::record::SkipCode;
 use crate::git_ops::Repository;
 use crate::git_ops::run::GitFailure;
 use crate::resource::ResourceError;
+use cmux_json::JsonSet as _;
 
 /// Listings larger than this cannot be trusted to be complete.
 const MAX_LISTING_BYTES: usize = 64 * 1024 * 1024;
@@ -35,12 +36,11 @@ impl Layout {
         let output = repository
             .run(&arguments, MAX_SMALL_BYTES)
             .map_err(|failure| crate::git_ops::git_failed(operation, &failure))?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let (Some(common), Some(own)) = (lines.next(), lines.next()) else {
+        // A folder's name can have a line break: the answer is read as bytes.
+        let Some((common, own)) = cmux_git::two_folders(&output.stdout) else {
             return Err(failed(operation, "git_failed", "git did not name its directories"));
         };
-        let canonical = |path: &str| {
+        let canonical = |path: PathBuf| {
             fs::canonicalize(path)
                 .map_err(|error| failed(operation, "git_failed", error.to_string()))
         };
@@ -403,7 +403,7 @@ pub(super) fn normalized(error: ResourceError) -> ResourceError {
 fn unsupported(operation: &'static str, mode: &str, path: Option<&[u8]>) -> ResourceError {
     let mut extra = json!({"mode":mode});
     if let Some(path) = path {
-        extra["path"] = json!(String::from_utf8_lossy(path));
+        extra.set("path", json!(String::from_utf8_lossy(path)));
     }
     let message = format!("the index uses {mode}, which a checkpoint cannot round-trip yet");
     refused(operation, "unsupported_index", message, extra)

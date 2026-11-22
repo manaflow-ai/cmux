@@ -104,7 +104,8 @@ struct OverviewLayout: Equatable, Sendable {
     /// top controls and the bottom bar.
     func isFullyVisible(_ index: Int, offset: CGFloat) -> Bool {
         let r = screenFrame(index, offset: offset)
-        return r.minY >= safeTop + 40 && r.maxY + Self.titleRow <= barRect.minY
+        // Below the top controls: 4 pt under the safe area, one bar control tall.
+        return r.minY >= safeTop + 4 + Self.control && r.maxY + Self.titleRow <= barRect.minY
     }
 
     /// Scroll offset before zooming a page into card `index` (page -> grid,
@@ -121,3 +122,49 @@ struct OverviewLayout: Equatable, Sendable {
     }
 }
 
+
+/// Which grid cards are built (in the view tree), as a collection view keeps
+/// only the cells near the screen: a card costs a full page of content laid
+/// out and scaled, so a grid of 80 tabs never builds 80.
+///
+/// Bands are in screens around the visible rect: cards on screen are needed
+/// at once, cards within `keep` screens are built ahead one per frame (the
+/// nearest first), and a built card is released only past `release`
+/// screens, so scrolling back and forth does not build a card again.
+struct CardResidencyPlan: Equatable, Sendable {
+    var keep: CGFloat = 3
+    var release: CGFloat = 4
+
+    /// What to change for the grid at scroll `offset` with `built` cards.
+    struct Step: Equatable, Sendable {
+        /// Unbuilt cards on screen (build now when the grid must show them).
+        var visible: [Int] = []
+        /// The nearest unbuilt card within the keep band (build next).
+        var next: Int?
+        /// Built cards past the release band.
+        var release: [Int] = []
+    }
+
+    func step(layout: OverviewLayout, offset: CGFloat, isBuilt: (Int) -> Bool) -> Step {
+        let h = layout.size.height
+        let top = max(0, offset)
+        let screen = (min: top, max: top + h)
+        var step = Step()
+        var best: (index: Int, distance: CGFloat)?
+        for i in 0..<layout.count {
+            let r = layout.card(i)
+            let minY = r.minY, maxY = r.maxY + OverviewLayout.titleRow
+            let distance = maxY < screen.min ? screen.min - maxY : minY > screen.max ? minY - screen.max : 0
+            let built = isBuilt(i)
+            if built {
+                if distance > release * h { step.release.append(i) }
+            } else if distance == 0 {
+                step.visible.append(i)
+            } else if distance <= keep * h, distance < (best?.distance ?? .infinity) {
+                best = (i, distance)
+            }
+        }
+        step.next = step.visible.first ?? best?.index
+        return step
+    }
+}

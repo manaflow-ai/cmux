@@ -35,10 +35,12 @@ extension SidebarListViewComponents {
     }
 
     /// The model changed under a held group drag (a batch, an adopt, a close): the base is laid out again and the
-    /// card keeps its cut; the slot is the new base's under the card.
-    func rebaseGroupDrag(_ drag: Drag) {
+    /// card keeps its cut; the slot is the new base's under the card. `shift`: how far the group's own place moved in
+    /// the new base (an empty section's zone opened or closed above it, `SidebarEmptyZones`), so its origin stays its own.
+    func rebaseGroupDrag(_ drag: Drag, shift: CGFloat = 0) {
         guard let plan = drag.group?.plan else { return }
-        let group = groupDrag(drag, groupTop: plan.groupTop, card: plan.card, lead: plan.lead, trail: plan.trail, carried: plan.carried)
+        drag.restFrame.origin.y += shift
+        let group = groupDrag(drag, groupTop: plan.groupTop + shift, card: plan.card, lead: plan.lead, trail: plan.trail, carried: plan.carried)
         drag.group = group
         setGroupSlot(drag, group.plan.slot(cardCentre: groupCardCentre(drag, group)))
     }

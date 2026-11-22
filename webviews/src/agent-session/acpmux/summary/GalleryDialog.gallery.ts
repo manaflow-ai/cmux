@@ -6,7 +6,7 @@
 // a pane wide enough shows the column on its own.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { activity, assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { latencyChart, pricingCard, renderTool } from "../../../gallery/fixtures/renders";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
@@ -40,6 +40,24 @@ const media = () =>
     { title: "Make sample images for the docs" },
   );
 
+const toolOutputs = () =>
+  chat(
+    [
+      user("Capture the chart and show the request flow", 3),
+      activity(
+        [
+          tool("Capture chart", "read", "completed", {
+            images: [`data:image/svg+xml;base64,${btoa(sampleChart())}`],
+          }),
+        ],
+        2,
+      ),
+      assistant(`Captured the chart. Here is the request flow.\n\n${image("Request flow", sampleDiagram())}`, 1),
+      summary(1, { status: "completed", toolCount: 1 }),
+    ],
+    { title: "Capture the chart and show the request flow" },
+  );
+
 /** Shows the summary from the header's Summary button unless it shows already (a pane wide enough
  * for its inline column shows it on its own), and waits for Outputs' gallery row. */
 const showOutputs = async (ctx: PlayContext) => {
@@ -51,6 +69,26 @@ const showOutputs = async (ctx: PlayContext) => {
 const openGallery = async (ctx: PlayContext) => {
   await showOutputs(ctx);
   await ctx.click({ selector: ".acpmux-summary-gallery" });
+};
+
+// A one-tab pane whose native tab row floats over the page's top (header/tabRow.ts): the gallery opens below the row,
+// its title inside its own bar, as the image viewer does (Leo, 2026-11-05: "the file nameis also way at the top").
+const ROW = 38;
+const underTabRow = async (ctx: PlayContext) => {
+  const { setTabRow } = await import("../header/tabRow");
+  setTabRow({ height: ROW, trailingInset: 0, soloTab: true });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-stage[data-solo-tab] > .acpmux-scroll .acpmux-row"));
+  await openGallery(ctx);
+  await ctx.waitFor(() => ctx.find({ role: "dialog", name: "Gallery" }));
+  const doc = ctx.document;
+  const frame = doc.querySelector<HTMLElement>(".acpmux-chat-gallery")!.getBoundingClientRect();
+  const bar = doc.querySelector<HTMLElement>(".acpmux-chat-gallery .acpmux-image-viewer-bar")!.getBoundingClientRect();
+  const title = doc
+    .querySelector<HTMLElement>(".acpmux-chat-gallery .acpmux-image-viewer-title")!
+    .getBoundingClientRect();
+  if (frame.top < ROW) throw new Error(`The gallery starts at ${frame.top}px, under the ${ROW}px tab row`);
+  if (title.top < ROW || title.top < frame.top || title.bottom > bar.bottom)
+    throw new Error(`The gallery's title (${title.top}-${title.bottom}px) is not inside its bar below the tab row`);
 };
 
 export default agentPaneEntry({
@@ -70,6 +108,21 @@ export default agentPaneEntry({
     },
   },
   variants: {
+    "tool-outputs": {
+      note: "A completed tool screenshot and a reply image both appear in Gallery.",
+      snapshot: toolOutputs(),
+      play: openGallery,
+    },
+    "tool-image": {
+      note: "A tool screenshot opens the existing image viewer and closes Gallery.",
+      snapshot: toolOutputs(),
+      play: async (ctx) => {
+        await openGallery(ctx);
+        await ctx.click({ selector: '[data-gallery-kind="tool"] [data-open-image]' });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-chat-gallery"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer"));
+      },
+    },
     outputs: {
       note: "Play: show the summary; Outputs offers the gallery with its five items.",
       snapshot: media(),
@@ -90,6 +143,12 @@ export default agentPaneEntry({
         await openGallery(ctx);
         await ctx.click({ role: "button", name: "Renders 2" });
       },
+    },
+    "under-tab-row": {
+      note: "Play: a one-tab pane's row floats over the page; the gallery opens below it, its title in its own bar.",
+      // Images only: render cards run as the gallery opens, and their frames are not what this measures.
+      snapshot: toolOutputs(),
+      play: underTabRow,
     },
     image: {
       note: "Play: open the gallery and click the first image; the image viewer takes its place.",

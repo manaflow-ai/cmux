@@ -21,6 +21,7 @@ public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureCh
             throw .signature("requirement for \(teamID)")
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        // concurrency-allow: the ChromiumRuntimeInstaller actor calls it during an install, never main
         guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
             throw .signature(item.lastPathComponent)
         }

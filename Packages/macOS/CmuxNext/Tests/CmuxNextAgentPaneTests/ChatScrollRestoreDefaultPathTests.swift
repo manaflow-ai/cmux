@@ -32,17 +32,18 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func aChatReopensWhereItRestedWithThePageHostOff() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-bridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": "user-42", "offset": 120.5]))
 
         // A fresh store — the next run after a crash, or another tab in this one — reads it back,
         // for that chat only.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         let place = Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) as? [String: Any]
         #expect(place?["rowId"] as? String == "user-42")
         #expect(place?["offset"] as? Double == 120.5)
@@ -50,8 +51,37 @@ struct ChatScrollRestoreDefaultPathTests {
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": NSNull(), "offset": 0]))
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
+    }
+
+    /// A sidebar open adopts the spare page, which awaited `chat.scrollAnchor.get` (a host round trip
+    /// raced against 250 ms) before its switch could draw. The adopt event carries the tab's place
+    /// instead, as it carries the chat's tail: the place the tab left, null when none is kept (the
+    /// chat opens at its latest message), and nothing at all with no store, so the page asks as before.
+    @Test func theAdoptEventCarriesWhereTheTabLeftTheChat() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-adopt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        func detail(_ session: String, tab: String?) throws -> JSONValue {
+            let text = AgentPaneView.adoptEventDetail(session: session, revealTurn: nil, tail: nil,
+                                                      place: AgentPaneView.adoptedPlace(session: session, tab: tab))
+            return try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(text.utf8))))
+        }
+        AgentPaneScrollAnchors.shared = nil
+        #expect(try detail("s-1", tab: "tab-a") == .object(["sessionId": .string("s-1")]))
+
+        let anchors = AgentPaneScrollAnchors(directory: directory, files: AgentPaneStateFiles())
+        AgentPaneScrollAnchors.shared = anchors
+        anchors.remember(AgentPaneScrollAnchor(rowId: "user-42", offset: 120.5), for: "s-1", tab: "tab-a")
+        anchors.remember(AgentPaneScrollAnchor(rowId: "user-7", offset: 3), for: "s-1", tab: "tab-b")
+        #expect(try detail("s-1", tab: "tab-a")["scrollAnchor"] == .object(["rowId": .string("user-42"), "offset": .number(120.5)]))
+        #expect(try detail("s-1", tab: "tab-b")["scrollAnchor"] == .object(["rowId": .string("user-7"), "offset": .number(3)]))
+        // A chat with no place kept says so: the page opens it at its latest message without asking.
+        #expect(try detail("s-2", tab: "tab-a") == .object(["sessionId": .string("s-2"), "scrollAnchor": .null]))
     }
 
     /// Both hosts read and write the one store, so a chat opened on either reopens where the other
@@ -60,11 +90,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func thePageHostAndThePanesOwnHostShareTheOneStore() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-shared-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
 
         // Written on the pane's own host, read on the page host.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-3", "rowId": "user-7", "offset": 8]))
@@ -87,11 +118,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func aRequestWithoutAChatIsRefusedAndNothingIsKept() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-refuse-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
         #expect(Self.call("chat.scrollAnchor.get", [:])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor", ["sessionId": ""])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor.forget", ["sessionId": "s-5"])["ok"] as? Bool == false)
@@ -111,11 +143,12 @@ struct ChatScrollRestoreDefaultPathTests {
     @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let files = AgentPaneStateFiles()
         defer {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, files: files)
 
         // What the host does with a page message, body and all: it writes, and it reads back.
         let wrote = try #require(AgentPaneBridge.chatPlaceReply(

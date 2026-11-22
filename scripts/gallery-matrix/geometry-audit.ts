@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import { parseManifest, runLocal } from "./runner";
 import { parseConfig } from "./geometry";
 import { main as lint } from "./geometry-lint";
+import { parseSelectorMap } from "./geometry-collector";
 
 export function captureEnvironment(env = process.env): boolean {
   return env.CMUX_GALLERY_IN_VM === "1" || env.CI === "1" || env.CI === "true";
@@ -31,7 +32,7 @@ export async function audit(args = process.argv.slice(2)): Promise<number> {
   const manifest = join(output, "manifest.json");
   const selectors = join(output, "selectors.json");
   await writeFile(manifest, JSON.stringify(cases));
-  await writeFile(selectors, JSON.stringify(effective.selectors));
+  await writeFile(selectors, JSON.stringify(parseSelectorMap(effective.selectors, `${values.config}: selectors`)));
   const effectiveConfig = join(output, "geometry-config.json");
   await writeFile(effectiveConfig, `${JSON.stringify(effective, null, 2)}\n`);
   process.env.CMUX_GEOMETRY_SELECTORS = selectors;

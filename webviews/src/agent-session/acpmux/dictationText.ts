@@ -1,7 +1,10 @@
 /// The host's dictation update (`cmuxAcpmuxBridge.dictation`, Swift `AgentPaneDictation.payload`).
+import { intl } from "../../ui/intl";
 export type DictationState = "idle" | "starting" | "listening" | "finalizing" | "failed" | "denied";
 export type DictationUpdate = {
   state: DictationState;
+  /// The chat at start, including omitted audio; empty means no chat yet.
+  session?: string;
   /// The session's whole text so far: committed segments, then the live hypothesis.
   text: string;
   /// Input level, 0...1.
@@ -11,12 +14,22 @@ export type DictationUpdate = {
   permission?: "microphone" | "speechRecognition";
   message?: string;
   settingsLabel?: string;
-  /// The session's recording (a WAV file, base64), on the update that ends a session the host
-  /// recorded because the chat's harness takes voice input (`dictation.audio`).
-  audio?: { mimeType: string; data: string };
-  /// Why such a session's recording was left out (it ran past two minutes, or the mic was
-  /// narrowband): its prompt goes as text alone.
-  audioOmitted?: "tooLong" | "narrowband";
+  /// The session's recording, on the update that ends a session the host recorded because the
+  /// chat's harness takes voice input (`dictation.audio`).
+  audio?: DictationRecording;
+  /// Why such a session's recording was left out (the mic was narrowband; `tooLong` from a host
+  /// that stopped keeping audio at two minutes; `writeFailed`, the host could not save it): its
+  /// prompt goes as text alone, with a notice.
+  audioOmitted?: "tooLong" | "narrowband" | "writeFailed";
+};
+
+/// A finished session's recording, a WAV of any length: its bytes (base64) when it fits in a
+/// prompt, else the file the host wrote on this Mac (`path`), and its size.
+export type DictationRecording = {
+  mimeType: string;
+  data?: string;
+  path?: string;
+  byteCount?: number;
 };
 
 /// Where one session's text sits in the prompt. The session owns `value[start, start + length)`;
@@ -203,7 +216,7 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
 }
 
 const graphemes = (text: string) =>
-  Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+  Array.from(intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
 
 /// Where `handed` ends in `next`, or -1 when that is unclear (a revision then adds nothing): where
 /// its last item follows its second-to-last one, when the revision has that pair as often as the

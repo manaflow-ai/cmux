@@ -98,6 +98,45 @@ async fn a_context_refusal_leaves_no_breakdown() {
     assert!(t.inbound(&empty).await.is_empty());
 }
 
+#[test]
+fn context_breakdown_preserves_every_reported_row_and_inventory_total() {
+    const ROWS: usize = 73;
+    let categories: Vec<Value> = (0..ROWS)
+        .map(|i| json!({"id":format!("category-{i}"),"name":format!("Category {i}"),"tokens":i,"kind":"used"}))
+        .collect();
+    let memory: Vec<Value> = (0..ROWS)
+        .map(|i| json!({"path":format!("/repo/memory-{i}.md"),"type":"Project","tokens":i}))
+        .collect();
+    let tools: Vec<Value> = (0..ROWS)
+        .map(|i| json!({"name":format!("mcp__server__tool_{i}"),"serverName":"server","tokens":i}))
+        .collect();
+    let skills: Vec<Value> =
+        (0..ROWS).map(|i| json!({"name":format!("skill-{i}"),"tokens":i})).collect();
+    let reported = context_breakdown(&json!({
+        "categories":categories,"memoryFiles":memory,"mcpTools":tools,
+        "skills":{"skillFrontmatter":skills},"totalTokens":12345,"maxTokens":200000
+    }))
+    .unwrap();
+    for key in ["categories", "memoryFiles", "mcpTools", "skills"] {
+        assert_eq!(reported[key].as_array().unwrap().len(), ROWS, "{key}");
+    }
+    assert_eq!(reported["categories"][0]["id"], "category-0");
+    assert_eq!(reported["memoryFiles"][0]["tokens"], ROWS - 1);
+    assert_eq!(reported["mcpTools"][0]["tokens"], ROWS - 1);
+    assert_eq!(reported["skills"][0]["tokens"], ROWS - 1);
+    let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude",
+        "cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0
+    }))
+    .unwrap();
+    meta.context_breakdown = Some(reported);
+    let inventory = crate::context_inventory::inventory(&meta, &crate::config::Config::default());
+    assert_eq!(inventory.parts.len(), ROWS * 4);
+    assert_eq!(inventory.total_tokens, 12345, "detail rows overlap category rows");
+    assert_eq!(inventory.provider_total_tokens, Some(12345));
+    assert_eq!(inventory.cmux_tokens, 0);
+}
+
 #[tokio::test]
 async fn an_mcp_reconnect_names_its_server_and_answers_as_claude_code_does() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");

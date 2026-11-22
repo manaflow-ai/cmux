@@ -16,10 +16,15 @@ public actor WindowStateStore {
         self.subject = subject
     }
 
-    /// Fetches the stored document (empty when none or schema unknown).
+    /// Fetches the stored document (empty when none or schema unknown). `timeout` replaces the
+    /// control-plane deadline (the launch read waits out a daemon still starting, #26681).
     @discardableResult
-    public func load() async throws -> WindowStateDocument {
-        let projection = try await connection.frontendProjection(subject: subject)
+    public func load(timeout: Duration? = nil) async throws -> WindowStateDocument {
+        let projection = if let timeout {
+            try await connection.frontendProjection(subject: subject, timeout: timeout)
+        } else {
+            try await connection.frontendProjection(subject: subject)
+        }
         revision = projection.projectionRevision
         if projection.schemaVersion == WindowStateDocument.schemaVersion, projection.projection != .null {
             document = (try? WindowStateDocument(jsonValue: projection.projection)) ?? WindowStateDocument()

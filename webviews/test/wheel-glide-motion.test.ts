@@ -1,6 +1,11 @@
 // l10n-allow-file: deterministic wheel and scroll-clock fixtures.
 import { expect, test } from "bun:test";
-import { installWheelGlide, isWheelNotch } from "../src/agent-session/acpmux/wheelGlide";
+import {
+  installWheelGlide,
+  isWheelNotch,
+  WHEEL_GLIDE_END_EVENT,
+  WHEEL_GLIDE_START_EVENT,
+} from "../src/agent-session/acpmux/wheelGlide";
 import { animateScroll, stopScroll } from "../src/agent-session/acpmux/threadMinimap/scrollMotion";
 import { JUMP_CURVE } from "../src/agent-session/acpmux/threadMinimap/model";
 
@@ -23,6 +28,25 @@ function fixture() {
   const doc = Object.assign(new EventTarget(), { defaultView: page, hidden: false, documentElement: { dataset: {} } });
   let round = Math.round;
   class Scroller extends EventTarget {
+    /// The wheel listeners that may cancel the scroll: WebKit sends each wheel to the page first
+    /// while there is one.
+    cancelling = new Set<unknown>();
+    override addEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject | null,
+      options?: AddEventListenerOptions | boolean,
+    ) {
+      if (type === "wheel" && !(typeof options === "object" && options.passive)) this.cancelling.add(listener);
+      super.addEventListener(type, listener, options);
+    }
+    override removeEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject | null,
+      options?: EventListenerOptions | boolean,
+    ) {
+      if (type === "wheel") this.cancelling.delete(listener);
+      super.removeEventListener(type, listener, options);
+    }
     ownerDocument = doc;
     clientHeight = 500;
     scrollHeight = 2500;
@@ -48,6 +72,7 @@ function fixture() {
   };
   return {
     node,
+    cancelling: () => box.cancelling.size,
     floorOffsets() {
       round = Math.floor;
     },
@@ -140,11 +165,43 @@ test("a deliberate wheel to the bottom lands at the streamed end, including shri
   }
 });
 
+/// The glide's start and end announcements, in order (streaming-parked-still.test.ts reads them).
+function announced(node: HTMLElement) {
+  const seen: string[] = [];
+  node.addEventListener(WHEEL_GLIDE_START_EVENT, () => seen.push("start"));
+  node.addEventListener(WHEEL_GLIDE_END_EVENT, () => seen.push("end"));
+  return seen;
+}
+
+test("a notch announces one start and, on its last step, one end; a notch mid-glide continues it", () => {
+  const f = fixture();
+  try {
+    const seen = announced(f.node);
+    f.wheel(5);
+    expect(seen).toEqual(["start"]);
+    f.tick();
+    f.wheel(5);
+    expect(seen).toEqual(["start"]);
+    f.tick();
+    expect(seen).toEqual(["start"]);
+    f.finish();
+    expect(seen).toEqual(["start", "end"]);
+    expect(f.node.scrollTop).toBe(1160);
+    // Equal reverse notches cancel the glide: it ends there.
+    f.wheel(5);
+    f.wheel(-5);
+    expect(seen).toEqual(["start", "end", "start", "end"]);
+  } finally {
+    f.restore();
+  }
+});
+
 test.each(["keydown", "pointerdown", "touchstart", "precise", "nested", "hidden", "pane", "switch", "remove"])(
   "%s cancels pending motion and leaves no later write",
   (reason) => {
     const f = fixture();
     try {
+      const seen = announced(f.node);
       f.wheel(-5);
       f.tick();
       const stopped = f.node.scrollTop;
@@ -167,6 +224,8 @@ test.each(["keydown", "pointerdown", "touchstart", "precise", "nested", "hidden"
       f.finish();
       expect(f.node.scrollTop).toBe(stopped);
       expect(f.pending.size).toBe(0);
+      // A cancelled glide ends too, once: the reader's scroll is not left reading as under way.
+      expect(seen).toEqual(["start", "end"]);
     } finally {
       f.restore();
     }
@@ -226,6 +285,32 @@ test.each(
     expect(offsets.slice(1).every((top, index) => top <= offsets[index]!)).toBe(true);
     expect(f.node.scrollTop).toBe(900);
     expect(f.pending.size).toBe(0);
+  } finally {
+    f.restore();
+  }
+});
+
+// A wheel listener that may cancel makes WebKit hold every wheel event for the page before it
+// scrolls, so a trackpad's scroll stopped while the page was busy, as when an older page of history
+// lands (Leo 2026-10-29: "why is it sometimes blocking me from scrolling up further?").
+test("precise input scrolls with no cancelling wheel listener; the next notch arms the glide again", () => {
+  const f = fixture();
+  try {
+    // A fresh pane's first notch glides.
+    expect(f.wheel(-5)).toBe(true);
+    f.finish();
+    // A trackpad: no wheel listener may cancel once it is seen, so WebKit scrolls on its own.
+    expect(f.wheel(-40, { deltaMode: 0, wheelDeltaY: 120 })).toBe(false);
+    expect(f.cancelling()).toBe(0);
+    expect(f.wheel(-12, { deltaMode: 0, wheelDeltaY: 36 })).toBe(false);
+    expect(f.cancelling()).toBe(0);
+    // A mouse again: its first notch scrolls natively and arms the glide; the next one glides.
+    expect(f.wheel(-5)).toBe(false);
+    expect(f.cancelling()).toBe(1);
+    expect(f.wheel(-5)).toBe(true);
+    f.finish();
+    f.glide.remove();
+    expect(f.cancelling()).toBe(0);
   } finally {
     f.restore();
   }

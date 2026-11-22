@@ -222,7 +222,7 @@ impl Page {
 }
 
 /// A loopback stand-in for the cmux Cloud API: `inbox.list` lists one
-/// conversation, every op answers as committed; every request is recorded
+/// conversation (paged by `limit` and `cursor`, as UserDO pages it), every op answers as committed; every request is recorded
 /// with its path and bearer.
 struct FakeCloud {
     base: String,
@@ -283,8 +283,18 @@ impl FakeCloud {
                         "status":"done","turn":"turn:cloud:1","started_at":1,"ended_at":2,"step_count":1}],
                         "has_more":false}})
                 } else if body["op"] == "inbox.list" {
-                    let entries = entries.lock().unwrap().clone();
-                    json!({"ok":true,"value":{"entries":entries},"revision":"7"})
+                    // Pages as UserDO does: `limit` entries (at most 200) from `cursor`, and the
+                    // next page's cursor (here the index of its first entry), null on the last.
+                    let entries = entries.lock().unwrap().as_array().cloned().unwrap_or_default();
+                    let limit =
+                        body["params"]["limit"].as_u64().unwrap_or(200).clamp(1, 200) as usize;
+                    let from = body["params"]["cursor"]
+                        .as_str()
+                        .and_then(|c| c.parse().ok())
+                        .unwrap_or(0usize);
+                    let to = (from + limit).min(entries.len());
+                    let next = (to < entries.len()).then(|| to.to_string());
+                    json!({"ok":true,"value":{"entries":entries[from.min(to)..to],"next_cursor":next},"revision":"7"})
                 } else {
                     json!({"ok":true,"op":body["op"],"value":{"rev":5,"seq":4,
                         "message_id":"msg_0000000000000000000000000Z"},
@@ -742,6 +752,58 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
         other["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
         "{other}"
     );
+}
+
+/// Home lists the whole Cloud inbox, not its newest page: the owner pages
+/// `inbox.list` by 200, and `home-inbox` read only the first page, so a Chief
+/// or conversation past the newest 200 never showed. `cloud-inbox-list` stays
+/// one page per call and hands back the owner's cursor.
+#[test]
+fn home_inbox_lists_every_page_of_the_cloud_inbox() {
+    let fixture = Fixture::start("pages");
+    let cloud = FakeCloud::start();
+    let template = cloud.inbox.lock().unwrap()[0].clone();
+    let ids: Vec<String> = (0..450).map(|i| format!("conv_PAGE{i:04}0123456789ABCDEFGH")).collect();
+    *cloud.inbox.lock().unwrap() = Value::Array(
+        ids.iter()
+            .map(|id| {
+                let mut entry = template.clone();
+                entry["conversation"] = json!(id);
+                entry
+            })
+            .collect(),
+    );
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let inbox = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let rows: Vec<&str> = inbox["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["id"].as_str())
+        .collect();
+    assert_eq!(rows.len(), ids.len(), "rows {}", rows.len());
+    for id in &ids {
+        assert_eq!(rows.iter().filter(|row| **row == id.as_str()).count(), 1, "{id}");
+    }
+    let cursors: Vec<Value> = cloud
+        .requests()
+        .iter()
+        .filter(|(_, _, body)| body["op"] == "inbox.list")
+        .map(|(_, _, body)| body["params"]["cursor"].clone())
+        .collect();
+    assert_eq!(cursors, [Value::Null, json!("200"), json!("400")]);
+
+    // One page per cloud-inbox-list call, with the owner's cursor for the next.
+    let first = app.rpc(json!({"cmd":"cloud-inbox-list"}));
+    assert_eq!(first["data"]["entries"].as_array().unwrap().len(), 200, "{first}");
+    assert_eq!(first["data"]["next_cursor"], "200", "{first}");
+    let last = app.rpc(json!({"cmd":"cloud-inbox-list","cursor":"400"}));
+    assert_eq!(last["data"]["entries"].as_array().unwrap().len(), 50, "{last}");
+    assert_eq!(last["data"]["next_cursor"], Value::Null, "{last}");
 }
 
 /// The shared Cloud row corpus (tests/fixtures/home-inbox-cloud-cases.json):

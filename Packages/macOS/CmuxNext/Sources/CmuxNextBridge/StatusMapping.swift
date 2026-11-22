@@ -17,10 +17,29 @@ public struct StatusMapping {
     let turns: AgentTurnStateStore
     /// This client's seen OSC 7501 `done` and `error` records.
     let seen: ProgramStatusSeenStore
+    /// Shared workspace-row seen state for every mapped status source.
+    let statusSeen: SidebarStatusSeenStore
 
-    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared,
+                statusSeen: SidebarStatusSeenStore = .init()) {
         self.turns = turns
         self.seen = seen
+        self.statusSeen = statusSeen
+    }
+
+    /// Marks every source that contributes a workspace row as seen.
+    @discardableResult
+    public func markSeen(tabs: [TabModel], status: WorkspaceStatus?, workspaceID: String) -> Bool {
+        statusSeen.markSeen(tabs.flatMap(reports) + reports(status), workspaceID: workspaceID)
+    }
+
+    /// A look at `tab` (focus, a click, opening it; typing and the timeout do not call this) sees its
+    /// workspace row's symbols, as it reads the row's blue dot. O(1) lookup by the
+    /// store's indexes; client view state, the daemon keeps the reports.
+    @discardableResult
+    public func markSeen(workspaceOf tab: TabModel, in store: DaemonStore) -> Bool {
+        guard let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return false }
+        return markSeen(tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs), status: workspace.status, workspaceID: workspace.id)
     }
 
     /// The reports one tab contributes.
@@ -30,7 +49,7 @@ public struct StatusMapping {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
-        if let record = ProgramStatusRecord.strongest(seen.visible(tab)), let state = state(record) {
+        if let record = ProgramStatusRecord.strongest(current(seen.visible(tab), agent: tab.agent)), let state = state(record) {
             // The title only: `app` is a machine name, never the only label.
             reports.append(StatusReport(id: "program:\(tab.id)", source: .program, state: state, label: record.title))
         }
@@ -65,13 +84,32 @@ public struct StatusMapping {
     /// sends itself.
     static let detectorSources: Set<String> = ["plugin", "detected"]
 
-    /// A detector's roster report gives way to an OSC 7501 record of the
-    /// same terminal reported at the same time or later: an explicit report
-    /// is never hidden by a guess. A record without a report time (an older
-    /// host) counts as fresher.
+    /// The roster report and the terminal's OSC 7501 records are two reports of one agent, and the
+    /// newer one is its state, so a stale `working` in either source shows no spinner.
+    ///
+    /// A roster report gives way to a record reported later: a hook roster that never saw its
+    /// turn end (a missed Stop, a restart) yields to the program's own later `done` or `idle`. A
+    /// detector's report also yields to a record of the same time: an explicit report is never
+    /// hidden by a guess. A record without a report time (an older host) counts as fresher.
     func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
-        guard let source = agent.source, Self.detectorSources.contains(source) else { return false }
-        return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
+        let detector = agent.source.map(Self.detectorSources.contains) ?? false
+        return records.contains { record in
+            let at = record.updatedAtMs ?? .max
+            return detector ? at >= agent.updatedAtMs : at > agent.updatedAtMs
+        }
+    }
+
+    /// The OSC 7501 records still current against the terminal's hook roster: a `working` or
+    /// `blocked` record reported before the agent's latest hook is stale. Codex keeps reporting
+    /// `working` after its turn ends while a background terminal runs, and its Stop hook (idle)
+    /// is the newer fact (user, Oct 30). A `done` or `error` record stays: it is an unseen outcome
+    /// for the tab's badge, not a state. A detector's guess outranks no record.
+    func current(_ records: [ProgramStatusRecord], agent: AgentStatus?) -> [ProgramStatusRecord] {
+        guard let agent, !records.isEmpty, !(agent.source.map(Self.detectorSources.contains) ?? false) else { return records }
+        return records.filter { record in
+            guard record.state == .working || record.state == .blocked, let at = record.updatedAtMs else { return true }
+            return at >= agent.updatedAtMs
+        }
     }
 
     /// The turn state still to show. acpmux owns what the person has seen of
@@ -88,14 +126,14 @@ public struct StatusMapping {
     /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
-        turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
+        turn(tab) == .needsInput || ProgramStatusRecord.strongest(current(tab.programStatus, agent: tab.agent))?.state == .blocked
     }
 
     /// What the tab's strongest blocked OSC 7501 record waits for
     /// (permission, question, auth), for the tab's needs-input badge; nil
     /// when nothing blocks or the program named no kind.
     public func blockedKind(_ tab: TabModel) -> StatusBlockedKind? {
-        guard let record = ProgramStatusRecord.strongest(tab.programStatus), record.state == .blocked else { return nil }
+        guard let record = ProgramStatusRecord.strongest(current(tab.programStatus, agent: tab.agent)), record.state == .blocked else { return nil }
         return record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) }
     }
 
@@ -152,31 +190,64 @@ public struct StatusMapping {
     }
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
-    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil) -> StatusSummary {
+        let superseded = supersededFailures(tabs)
+        let reports = tabs.flatMap(reports).filter { !superseded.contains($0.id) } + reports(status)
+        return StatusStack.resolve(statusSeen.visible(reports, workspaceID: workspaceID ?? status?.workspaceID.rawValue), honoring: honored)
     }
 
-    /// A workspace's merged status, each tab's own (a listed tab row's mark) and whether any tab has
+    /// The report ids (`acp:<session>`) of each failed or lost agent chat that another chat of the same
+    /// workspace went on past (cmux#48434: "just because one of them is red and open but something else is
+    /// running means that this shouldnt be red again"): one that works or waits on the person now, or one
+    /// that came to rest after the failure (acpmux's `lane.since`), the chat continued or forked and
+    /// finished. The workspace's merged mark leaves them out; the failed chat's own tab keeps its mark. A
+    /// failure with nothing after it, or beside only other failures, stays.
+    func supersededFailures(_ tabs: [TabModel]) -> Set<String> {
+        struct Chat { let id: String; let state: AgentTurnState?; let since: UInt64? }
+        var chats: [String: Chat] = [:]
+        for tab in tabs {
+            guard let ref = tab.agentSession else { continue }
+            let id = ref.session ?? tab.id
+            let detail = turns.detail(for: ref)
+            chats[id] = Chat(id: id, state: turn(tab), since: detail?.laneSinceMs)
+        }
+        let failed = chats.values.filter { $0.state == .failed || $0.state == .lost }
+        guard !failed.isEmpty, failed.count < chats.count else { return [] }
+        let others = chats.values.filter { $0.state != .failed && $0.state != .lost }
+        let active = others.contains { $0.state == .working || $0.state == .needsInput }
+        let lastRest = others.filter { $0.state == .done || $0.state == nil }.compactMap(\.since).max()
+        return Set(failed.filter { chat in
+            if active { return true }
+            guard let lastRest, let since = chat.since else { return false }
+            return lastRest > since
+        }.map { "acp:\($0.id)" })
+    }
+
+    /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
-    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
         let honored = honored
+        let superseded = supersededFailures(tabs)
         var all: [StatusReport] = []
         var states: [StatusIndicatorState] = []
         states.reserveCapacity(tabs.count)
         var working = false
+        let seenWorkspace = workspaceID ?? status?.workspaceID.rawValue
         for tab in tabs {
             let own = reports(tab)
-            if own.isEmpty {
+            let visible = statusSeen.visible(own, workspaceID: seenWorkspace)
+            if visible.isEmpty {
                 states.append(.idle)
                 continue
             }
-            states.append(StatusStack.resolve(own, honoring: honored).state)
-            working = working || own.contains { $0.state.isWorking }
-            all += own
+            states.append(StatusStack.resolve(visible, honoring: honored).state)
+            working = working || visible.contains { $0.state.isWorking }
+            all += visible.filter { !superseded.contains($0.id) }
         }
-        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: seenWorkspace)
+        return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,

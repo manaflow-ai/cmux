@@ -36,13 +36,11 @@ public struct CredentialResolver: Sendable {
             return .codex(try codexCredential())
         case .apiKey(let serverProvider):
             let key = try pasted ?? storedKey(provider)
-            guard Self.looksLikeKey(key) else { throw CredentialResolutionError.invalidFormat }
+            guard Self.isWellFormedKey(key, for: provider) else { throw CredentialResolutionError.invalidFormat }
             return .apiKey(serverProvider: serverProvider, key: key, label: label)
         case .anthropicAPIKey:
             let key = try pasted ?? storedKey(provider)
-            guard key.hasPrefix("sk-ant-"), !key.hasPrefix("sk-ant-oat"), Self.looksLikeKey(key) else {
-                throw CredentialResolutionError.invalidFormat
-            }
+            guard Self.isWellFormedKey(key, for: provider) else { throw CredentialResolutionError.invalidFormat }
             return .anthropicAPIKey(key, label: label)
         case .claudeOAuthToken:
             guard let token = pasted ?? environment.value("CLAUDE_CODE_OAUTH_TOKEN") else {
@@ -64,7 +62,7 @@ public struct CredentialResolver: Sendable {
 
     /// The environment's key, else the cmux Keychain's.
     private func storedKey(_ provider: AIProvider) throws -> String {
-        if let key = provider.apiKeyEnvironmentKeys.lazy.compactMap(environment.value).first { return key }
+        if let key = Self.environmentKey(provider, in: environment)?.value { return key }
         if let key = (try? keys.key(for: provider))??.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty { return key }
         throw CredentialResolutionError.needsPastedSecret
     }
@@ -72,8 +70,17 @@ public struct CredentialResolver: Sendable {
     /// The Codex CLI's ChatGPT sign-in from `auth.json`, shaped as
     /// `parseCredential` (web/services/coderouter/accounts.ts) requires.
     func codexCredential() throws -> CodexCredential {
-        let file = ProviderDetector(environment: environment).codexHome.appendingPathComponent("auth.json")
-        guard let tokens = environment.jsonObject(at: file)?["tokens"] as? [String: Any] else {
+        let detector = ProviderDetector(environment: environment)
+        let file = detector.codexHome.appendingPathComponent("auth.json")
+        // In keyring mode the Keychain item is the current sign-in; an `auth.json` left from file
+        // storage may be stale, so it is read only when the item is missing or unreadable.
+        let keychainRoot = detector.codexUsesKeyring
+            ? environment.keychain.genericPassword(service: ProviderDetector.codexKeychainService).flatMap {
+                (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+            }
+            : nil
+        let root = keychainRoot ?? environment.jsonObject(at: file)
+        guard let tokens = root?["tokens"] as? [String: Any] else {
             throw CredentialResolutionError.incompleteSignIn
         }
         func field(_ name: String) throws -> String {
@@ -87,6 +94,22 @@ public struct CredentialResolver: Sendable {
         return CodexCredential(accessToken: access, refreshToken: try field("refresh_token"), idToken: idToken,
                                accountID: try field("account_id"), email: email,
                                expiresAtMilliseconds: (expiry.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    /// The environment variable Connect reads for `provider`'s API key: the first one set, in
+    /// ``AIProvider/apiKeyEnvironmentKeys`` order. Detection judges this same key, so a malformed
+    /// lower-priority alias never hides a valid one, and a valid alias never hides a malformed key.
+    static func environmentKey(_ provider: AIProvider, in environment: DetectionEnvironment) -> (name: String, value: String)? {
+        provider.apiKeyEnvironmentKeys.lazy.compactMap { name in environment.value(name).map { (name, $0) } }.first
+    }
+
+    /// Whether `key` has the format Connect accepts for `provider`'s API key. One rule for the
+    /// resolver and for detection, so Accounts never shows a key as signed in that Connect refuses.
+    public static func isWellFormedKey(_ key: String, for provider: AIProvider) -> Bool {
+        switch provider.codeRouterLink {
+        case .anthropicAPIKey: key.hasPrefix("sk-ant-") && !key.hasPrefix("sk-ant-oat") && looksLikeKey(key)
+        default: looksLikeKey(key)
+        }
     }
 
     /// One printable token of plausible length (the server validates the rest).

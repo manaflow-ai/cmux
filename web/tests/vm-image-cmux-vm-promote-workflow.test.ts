@@ -66,6 +66,11 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
     expect(job.if).toBe("${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.channel == 'dev' && needs.prod-gate.result == 'skipped')) }}");
   });
 
+  test("production has no manually maintained Freestyle anchor", () => {
+    expect(workflowText).not.toContain("FREESTYLE_PROD_ANCHOR");
+    expect(step("Promote (fresh-clone smoke on the channel's account)").env).not.toHaveProperty("FREESTYLE_PROD_ANCHOR");
+  });
+
   test("never cancels a running promotion", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
   });
@@ -164,6 +169,33 @@ describe("Check the inputs", () => {
       }
     });
   }
+});
+
+describe("production account before candidate recording", () => {
+  const name = "Verify production account before recording the candidate";
+  test("requires repository identity before importing candidate identity", () => {
+    const check = job.steps.findIndex((s) => s.name === name);
+    const record = job.steps.findIndex((s) => s.name === "Record the candidate in channels/dev.json history");
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(record);
+    expect(step(name).if).toBe("steps.inputs.outputs.promote == 'true' && inputs.channel == 'production'");
+  });
+
+  test("a refused account stops the step and removes its key file", async () => {
+    const dir = scratch();
+    const bin = path.join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, "bun"), `#!/bin/sh
+printf '%s' "$FREESTYLE_API_KEY_FILE" > "${dir}/key-path"
+printf '%s' "$*" > "${dir}/argv"
+exit 1
+`);
+    chmodSync(path.join(bin, "bun"), 0o755);
+    const result = await runScript(name, { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir, FREESTYLE_KEY_SECRET: "test-key" }, dir);
+    expect(result.status).not.toBe(0);
+    expect(readFileSync(path.join(dir, "argv"), "utf8")).toBe("scripts/cmux-vm-image/prod-copy.ts account-check");
+    expect(existsSync(readFileSync(path.join(dir, "key-path"), "utf8"))).toBe(false);
+  });
 });
 
 describe("key handling in the run scripts", () => {

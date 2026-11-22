@@ -11,17 +11,22 @@ public struct SplitRequest: TerminalSpawningRequest {
     public var direction: SplitDirection
     public var tab: SurfaceID?
     public var options: SpawnOptions
-    public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions()) {
+    /// The new pane goes before `pane` on the split axis (Split Left, Split Up; `split-before-v1`). Sent only when true.
+    public var before: Bool
+    public init(pane: PaneID, direction: SplitDirection, tab: SurfaceID? = nil, options: SpawnOptions = SpawnOptions(),
+                before: Bool = false) {
         self.pane = pane
         self.direction = direction
         self.tab = tab
         self.options = options
+        self.before = before
     }
-    enum CodingKeys: String, CodingKey { case pane, dir }
+    enum CodingKeys: String, CodingKey { case pane, dir, before }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
         try c.encode(direction, forKey: .dir)
+        if before { try c.encode(true, forKey: .before) }
         try options.encode(to: encoder)
     }
 }
@@ -51,17 +56,22 @@ public struct NewColumnRequest: TerminalSpawningRequest {
     public var pane: PaneID
     /// Fraction of the viewport, 0.1...1.0. Daemon default 2/3.
     public var width: Double?
+    /// Opens the column before the pane's column (`side: "left"`, `column-left-v1`, New Column
+    /// Left) instead of after it. Sent only when true, so older daemons see the same request.
+    public var left: Bool
     public var options: SpawnOptions
-    public init(pane: PaneID, width: Double? = nil, options: SpawnOptions = SpawnOptions()) {
+    public init(pane: PaneID, width: Double? = nil, left: Bool = false, options: SpawnOptions = SpawnOptions()) {
         self.pane = pane
         self.width = width
+        self.left = left
         self.options = options
     }
-    enum CodingKeys: String, CodingKey { case pane, width }
+    enum CodingKeys: String, CodingKey { case pane, width, side }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
         try c.encodeIfPresent(width, forKey: .width)
+        if left { try c.encode("left", forKey: .side) }
         try options.encode(to: encoder)
     }
 }

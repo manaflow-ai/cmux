@@ -13,12 +13,13 @@ use serde_json::{Map, Number, Value};
 
 use super::{
     CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
-    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_u32,
-    parse_bool, parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
+    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_purpose,
+    insert_u32, parse_bool, parse_tab_group_private, request, usage, validate_one_of,
+    validate_prefixed_id,
 };
 
 const GROUP_COLORS: &[&str] =
-    &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+    &["none", "grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
 pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 
@@ -369,14 +370,16 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
-/// `workspace list [--order session|personal]`.
+/// `workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+/// [--id <id,...>] [--tree]`.
 pub(super) fn workspace_list(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Params::default();
     insert_optional_string(&mut params.fields, flags, "order", "order");
-    params.send(Op::WorkspaceList, selectors, flags)
+    let filter = super::list_filter::take_workspace(flags)?;
+    params.send(Op::WorkspaceList, selectors, flags).map(|plan| plan.filtered(filter))
 }
 
 pub(super) fn parse_workspace_group(
@@ -397,6 +400,10 @@ pub(super) fn parse_workspace_group(
             optional_index(&mut params, flags)?;
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
+            }
+            // The room's group of that name when it has one (find or create).
+            if flags.boolean("reuse") {
+                params.insert("reuse", Value::Bool(true));
             }
             Op::WorkspaceGroupCreate
         }
@@ -674,13 +681,19 @@ pub(super) fn parse_room(words: &[&str], flags: &mut Flags) -> Result<CommandPla
     let mut selectors = Selectors::default();
     let mut params = Params::default();
     let operation = match words {
-        ["list"] => Op::RoomList,
+        ["list"] => {
+            let created_by = super::list_filter::take_created_by(flags)?;
+            return params
+                .send(Op::RoomList, &selectors, flags)
+                .map(|plan| plan.filtered(super::ListFilter { created_by, ..Default::default() }));
+        }
         ["create"] => {
             params.insert("name", Value::String(flags.required("name")?));
             for name in ["color", "icon", "theme"] {
                 insert_optional_string(&mut params.fields, flags, name, name);
             }
             optional_index(&mut params, flags)?;
+            insert_purpose(&mut params.fields, flags);
             Op::RoomCreate
         }
         ["unpin"] => {
@@ -818,7 +831,8 @@ pub(super) fn parse_screen_group(
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
 /// (the newest group of that window: Cmd-Shift-T), `closed reopen --tab T
 /// [--fallback-pane P]` (the closed tab T under its own id: a `cmux://tab/`
-/// link), `closed <id> reopen [--members 0,2] [--fallback-pane P]`,
+/// link), `closed reopen --workspace WS` (the closed workspace WS under its
+/// old id: a `cmux://workspace/` link), `closed <id> reopen [--members 0,2] [--fallback-pane P]`,
 /// `closed <id> delete [--members]`
 /// and `closed clear [--since-ms T] [--before-ms T] [--keep-newest N]`: the
 /// closed groups of the session.
@@ -838,6 +852,13 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
             if let Some(tab) = flags.take("tab") {
                 validate_prefixed_id("tab", "tab", &tab)?;
                 params.insert("tab", Value::String(tab));
+            }
+            if let Some(workspace) = flags.take("workspace") {
+                if params.fields.contains_key("tab") {
+                    return Err(UsageError::new("--workspace and --tab exclude each other"));
+                }
+                validate_prefixed_id("workspace", "ws", &workspace)?;
+                params.insert("workspace", Value::String(workspace));
             }
             fallback_pane(&mut params, flags)?;
             Op::ClosedReopen
@@ -919,6 +940,7 @@ mod checklist;
 mod status_flags;
 
 pub(super) use checklist::parse_workspace_checklist;
+pub(in crate::cli) use status_flags::parse_duration_ms;
 
 #[cfg(test)]
 mod tests;

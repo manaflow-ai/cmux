@@ -1,3 +1,6 @@
+// The path, default and choice values are generated from schemas/settings/source/home.json
+// (Schema/SettingsSchema+Home.generated.swift).
+
 public import Foundation
 
 /// `home.server` in cmux.json: which server Home's direct messages and group
@@ -7,10 +10,7 @@ public import Foundation
 /// Tailscale login, so no token is sent (plans/cmux-next/dm-group-chat-DESIGN.md 4.5).
 public nonisolated struct HomeServerSetting {
     public nonisolated init() {}
-    public static let configPath = ["home", "server"]
     public static let key = configPath.joined(separator: ".")
-    /// The choice value of cmux Cloud.
-    public static let hosted = "hosted"
     /// The member that names a self-hosted server's origin.
     public static let selfHostedKey = "selfHosted"
 
@@ -33,7 +33,7 @@ public nonisolated struct HomeServerSetting {
     /// The server `value` names, or nil when it names none: `"hosted"`, or an
     /// object whose only member is `selfHosted` with an http(s) origin.
     static func value(_ value: JSONValue) -> Value? {
-        if value.stringValue == hosted { return .hosted }
+        if let text = value.stringValue, values.contains(text) { return .hosted }
         guard let members = value.objectValue, members.count == 1, let text = members[selfHostedKey]?.stringValue,
               let origin = SettingDescriptor.httpOrigin(text) else { return nil }
         return .selfHosted(origin)

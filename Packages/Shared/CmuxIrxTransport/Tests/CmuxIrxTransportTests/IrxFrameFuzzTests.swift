@@ -19,37 +19,41 @@ import Testing
         }
     }
 
-    @Test func frameAlignerForwardsExactlyTheWholeFramesForAnyChunking() throws {
-        var rng = Rng(state: 0x61)
-        for _ in 0..<1_000 {
-            var stream = Data()
-            for _ in 0..<rng.below(5) { stream += try MobileSyncFrameCodec.encodeFrame(rng.bytes(40)) }
-            let wholeFrames = stream
-            stream += rng.bytes(8) // a partial tail or noise
-            var aligner = IrxEventFrameAligner(maximumFrameByteCount: 64)
-            var forwarded = Data()
-            var rest = stream[...]
-            var refused = false
-            while !rest.isEmpty {
-                let chunk = rest.prefix(1 + rng.below(16))
-                rest = rest.dropFirst(chunk.count)
-                do {
-                    if let block = try aligner.append(Data(chunk)) { forwarded += block }
-                } catch IrxEventFrameAligner.Failure.frameTooLarge {
-                    refused = true
-                    break
+    @Test func frameAlignerForwardsExactlyTheWholeFramesForAnyChunking() {
+        let fuzz = FuzzSeed(default: 0x61)
+        var rng = Rng(state: fuzz.seed)
+        fuzz.run {
+            for _ in 0..<fuzz.iterations(1_000) {
+                var stream = Data()
+                for _ in 0..<rng.below(5) { stream += try MobileSyncFrameCodec.encodeFrame(rng.bytes(40)) }
+                let wholeFrames = stream
+                stream += rng.bytes(8) // a partial tail or noise
+                var aligner = IrxEventFrameAligner(maximumFrameByteCount: 64)
+                var forwarded = Data()
+                var rest = stream[...]
+                var refused = false
+                while !rest.isEmpty {
+                    let chunk = rest.prefix(1 + rng.below(16))
+                    rest = rest.dropFirst(chunk.count)
+                    do {
+                        if let block = try aligner.append(Data(chunk)) { forwarded += block }
+                    } catch IrxEventFrameAligner.Failure.frameTooLarge {
+                        refused = true
+                        break
+                    }
                 }
+                // Forwarded bytes are whole frames of the stream, in order; every whole
+                // frame comes out unless an oversize header in the tail refused the stream.
+                #expect(stream.starts(with: forwarded), "\(fuzz)")
+                #expect(refused || forwarded.starts(with: wholeFrames), "\(fuzz)")
             }
-            // Forwarded bytes are whole frames of the stream, in order; every whole
-            // frame comes out unless an oversize header in the tail refused the stream.
-            #expect(stream.starts(with: forwarded))
-            #expect(refused || forwarded.starts(with: wholeFrames))
         }
     }
 
     @Test func frameAlignerAcceptsAnyBytesOrRefuses() {
-        var rng = Rng(state: 0x62)
-        for _ in 0..<2_000 {
+        let fuzz = FuzzSeed(default: 0x62)
+        var rng = Rng(state: fuzz.seed)
+        for _ in 0..<fuzz.iterations(2_000) {
             var aligner = IrxEventFrameAligner(maximumFrameByteCount: rng.below(2) == 0 ? 0 : 1 << 20)
             for _ in 0..<(1 + rng.below(4)) {
                 _ = try? aligner.append(rng.bytes(32))

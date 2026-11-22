@@ -56,7 +56,7 @@ on any exit (`terminate_all_processes`, and its process handles kill their group
 keeps their output in memory only. So a task that must outlive the agent runs under the daemon
 instead:
 
-- It starts with `_acpmux/bg/start` (the agent's MCP tools for it are a follow-up). The daemon
+- It starts with `_acpmux/bg/start`. The daemon
   starts a runner (`acpmux __bg-run`, `src/bg_run.rs`) in a session of its own, never in the
   harness's group. The runner starts the command as the leader of a new session.
 - The task outlives the agent's hibernation, the agent's exit and a daemon restart. Its state is
@@ -92,6 +92,25 @@ instead:
 - The task runs under `bash -c` (`/bin/sh` where there is no bash), in the environment the
   chat's agent runs with: the daemon builds it the way it launched the agent, so a Codex chat's
   task sees what its own shell sees although Codex passes an MCP server only a few names.
+- The agent reaches them through the `acpmux` MCP server's `bg_start`, `bg_list`, `bg_output`
+  and `bg_stop`, for its own chat (`bg_output` gives the exact bytes as base64 too). The agent is
+  steered to `bg_start` for long-running commands: by the server's instructions, and in code mode
+  (where those reach the agent only through `cmux.docs`) by the `cmux_exec` description, which
+  every turn shows, Codex's too.
+- In Claude Code a PreToolUse hook in the session's `cmux` plugin (`acpmux __bg-hook`,
+  `src/bg_hook.rs`) rewrites a `run_in_background` Bash call (and a known-slow foreground one)
+  into `acpmux process start -- COMMAND` in the foreground (`updatedInput`, no permission
+  decision). That starts the same command as a daemon-owned task on the chat's own daemon (its
+  caller token) and answers at once with the task's id and the chat's own call that reads it:
+  `mcp__acpmux__bg_output {...}`, `mcp__cmux__acpmux_bg_output {...}` when cmux lists every tool
+  or a preset allows it, or `cmux.acpmux_bg_output(...)` in a `cmux_exec` script in code mode. It
+  used to turn the call away with the `bg_start` call to make instead, which cost a turn each
+  time. When the chat's MCP config has no `acpmux` server, a preset's allowlist leaves
+  `bg_start` out, or the hook cannot read the config, the hook says nothing and the native
+  background shell runs, so the agent is never stranded. A start can still fail, so the hook
+  remembers each call it rewrote (the newest 64 per chat): a task that started takes its call
+  out again, and after a failed start the same call again runs natively, as its error says.
+  Codex keeps its unified exec on.
 - A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
   background terminal and a background subagent still do, because hibernating would end them.
 

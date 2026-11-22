@@ -17,7 +17,16 @@ const progress = (fields: Record<string, unknown>) =>
 
 test("each update's agent changes merge by index; null removes a field; a new map each time", () => {
   const first = mergeWorkflowAgents(undefined, [
-    { index: 1, label: "review:#1", state: "running", tokens: 1200, action: "gh pr view 1" },
+    {
+      index: 1,
+      label: "review:#1",
+      state: "running",
+      model: "claude-opus",
+      effort: "high",
+      lastMessage: "Checking the changed files.",
+      tokens: 1200,
+      action: "gh pr view 1",
+    },
     { index: 2, label: "review:#2", state: "queued", queuedAt: 1000 },
   ]);
   const second = mergeWorkflowAgents(first, [
@@ -26,7 +35,16 @@ test("each update's agent changes merge by index; null removes a field; a new ma
   ]);
   expect(second).not.toBe(first);
   expect(first!.get(1)!.state).toBe("running");
-  expect(second!.get(1)).toEqual({ index: 1, label: "review:#1", state: "completed", tokens: 1500, result: "SHIP" });
+  expect(second!.get(1)).toEqual({
+    index: 1,
+    label: "review:#1",
+    state: "completed",
+    model: "claude-opus",
+    effort: "high",
+    lastMessage: "Checking the changed files.",
+    tokens: 1500,
+    result: "SHIP",
+  });
   // A field of the wrong type is ignored, never taken.
   expect(second!.get(2)).toEqual({ index: 2, label: "review:#2", state: "running", queuedAt: 1000, startedAt: 5100 });
   // An update with no agents keeps the map as it was.

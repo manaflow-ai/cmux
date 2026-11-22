@@ -1,7 +1,8 @@
 public import AppKit
 
-/// Where a workspace's row is in a sidebar, for anchors drawn outside the
-/// sidebar (the agent cursor's other-workspace indicator). Computed from the
+/// Where a workspace's row is in a sidebar, for the agent cursor resolver's
+/// other-workspace anchor (`workspaceRow`; the window draws no dot for it,
+/// `AgentCursorVisibility.placement(forWindow:)`). Computed from the
 /// list layout, so it works for rows that have no view (the list realizes
 /// only rows near its viewport).
 public struct SidebarRowAnchor {
@@ -13,7 +14,7 @@ public struct SidebarRowAnchor {
     public static func workspaceRow(_ id: WorkspaceID, in sidebar: SidebarView) -> CGRect? {
         let list = sidebar.list
         let layout = list.displayed
-        let row = layout.row(for: .workspace(id)) ?? collapsedGroup(of: id, in: list).flatMap { layout.row(for: .group($0)) }
+        let row = layout.row(for: .workspace(id)) ?? collapsedGroup(of: id, in: list).flatMap(layout.groupRow)
         guard let row else { return nil }
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
         let rect = clamped(list.frame(for: row), into: visible)

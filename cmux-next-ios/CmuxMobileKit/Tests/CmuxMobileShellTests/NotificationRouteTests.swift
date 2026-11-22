@@ -24,11 +24,31 @@ import UserNotifications
     }
 
     @Test func chiefOpensChief() {
-        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief)
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m", conversationID: "home")) == .chief(conversationID: "home"))
+        #expect(decide(NotificationRoute(kind: "chief", mac: "m")) == .chief(conversationID: nil))
     }
 
     @Test func anAgentEventOpensItsChat() {
+        let ws = workspace("w1", mac: "m", tabs: ["t-chat"])
+        #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat, workspaces: [ws]) == .chat(chat))
+    }
+
+    /// The Mac's agent tree can arrive before the workspace list has updated.
+    /// The Mac-scoped resolver already establishes ownership in that interval.
+    @Test func aSessionChatCanOpenBeforeItsWorkspaceCacheArrives() {
         #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat) == .chat(chat))
+    }
+
+    /// Two Macs can retain a copy of the same conversation, or a notification
+    /// can name a stale session. Its Mac id outranks a coincidentally matching
+    /// chat id on another machine.
+    @Test func aChatOnAnotherMacNeverOpensForThisNotification() {
+        let other = workspace("w1", mac: "mac-a", tabs: ["t-chat"])
+        let route = NotificationRoute(kind: "question", mac: "mac-b", sessionID: "s")
+        #expect(decide(route, chat: chat, workspaces: [other]) == .feed)
+        #expect(decide(route, chat: chat, workspaces: [other], phase: .loading) == .wait)
+        let source = workspace("w1", mac: "mac-b", tabs: ["t-chat"])
+        #expect(decide(route, chat: chat, workspaces: [source]) == .chat(chat))
     }
 
     @Test func aTerminalNotificationOpensItsTab() {
@@ -147,7 +167,7 @@ import UserNotifications
         #expect(PushReplies.outcome(response(UNNotificationDismissActionIdentifier, question)) == .nothing)
     }
 
-    @Test func anOptionOpensTheAppAndWaitsForFaceID() {
+    @Test func anOptionOpensTheAppAndSendsFromIt() {
         guard case .foreground(let reply, let open) = PushReplies.outcome(response("cmux.option.1", question)) else {
             Issue.record("not foreground")
             return
@@ -183,6 +203,29 @@ import UserNotifications
         #expect(PushReplies.outcome(pushed) == .open(finished))
         let local = PushReplies.Response(actionIdentifier: "cmux.retry", text: nil, userInfo: reply.retryUserInfo, fromPush: false, retries: store)
         #expect(local.retry == reply)
+    }
+
+    /// A long-look option row in a build without the App Group (2026-11-04): the open that
+    /// follows carries the answer, which is sent once Face ID signs it, not dropped.
+    @Test func anOpenWithAHandedOverAnswerSendsIt() throws {
+        let answer = try #require(PushReply(payload: question, action: .option(1, label: "B")))
+        var opened = response(UNNotificationDefaultActionIdentifier, question)
+        opened.handover = answer
+        #expect(PushReplies.outcome(opened) == .foreground(answer, open: question))
+        // Not for an untrusted push, nor another Mac's reply.
+        var untrusted = PushReplies.Response(actionIdentifier: UNNotificationDefaultActionIdentifier, text: nil, payload: question,
+                                             retry: nil, actionable: false)
+        untrusted.handover = answer
+        #expect(PushReplies.outcome(untrusted) == .open(question))
+        var otherMac = opened
+        otherMac.handover = PushReply(mac: "other", kind: .question, sessionId: "s", permissionId: "p", action: .option(1, label: "B"))
+        #expect(PushReplies.outcome(otherMac) == .open(question))
+        // Nor a reply to another request of the same Mac (review finding 2).
+        var otherRequest = opened
+        var elsewhere = answer
+        elsewhere.permissionId = "another"
+        otherRequest.handover = elsewhere
+        #expect(PushReplies.outcome(otherRequest) == .open(question))
     }
 
     /// PR B security review H1: a push the gate won't trust only opens the app.
@@ -237,6 +280,49 @@ import UserNotifications
         #expect(router.isExpired(at: t0 + NotificationRouter.waitBudget + .milliseconds(1)))
         // The person went somewhere else: the route is dropped.
         router.userNavigated()
+        #expect(router.pending == nil)
+    }
+
+    /// Repeated taps have equal payloads but each tap starts a new wait. A late
+    /// timeout of the first tap must never expire the second tap's route.
+    @Test func repeatedIdenticalRouteRestartsItsOwnBudget() {
+        let router = NotificationRouter()
+        let t0 = ContinuousClock.now
+        router.set(route, at: t0)
+        let firstGeneration = router.routeGeneration
+        router.set(route, at: t0 + .seconds(4))
+        let latestGeneration = router.routeGeneration
+        #expect(latestGeneration != firstGeneration)
+
+        router.expireIfCurrent(route, generation: firstGeneration)
+        #expect(router.expired == 0)
+        #expect(router.pending == route)
+        #expect(!router.isExpired(at: t0 + .seconds(5)))
+
+        router.expireIfCurrent(route, generation: latestGeneration)
+        #expect(router.expired == 1)
+        router.opened()
+        #expect(router.pending == nil)
+        // A callback that won the race against cancellation still has no effect.
+        router.expireIfCurrent(route, generation: latestGeneration)
+        #expect(router.expired == 1)
+    }
+
+    /// Replacing a route with another, or clearing it after a successful
+    /// navigation, invalidates the old timeout without borrowing its budget.
+    @Test func replacedOrClearedRouteCannotExpire() {
+        let router = NotificationRouter()
+        router.set(route)
+        let old = router.routeGeneration
+        let other = NotificationRoute(kind: "question", mac: "second", sessionID: "other")
+        router.set(other)
+        router.expireIfCurrent(route, generation: old)
+        #expect(router.expired == 0)
+        #expect(router.pending == other)
+        let replacementGeneration = router.routeGeneration
+        router.userNavigated()
+        router.expireIfCurrent(other, generation: replacementGeneration)
+        #expect(router.expired == 0)
         #expect(router.pending == nil)
     }
 }

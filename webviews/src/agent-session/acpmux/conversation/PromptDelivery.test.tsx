@@ -8,9 +8,13 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
-import type { AcpmuxRow, PromptDelivery } from "../model";
-import { failedRuns } from "../sendFailure";
-import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./PromptDelivery";
+import type { AcpmuxRow, AcpmuxSnapshot, PromptDelivery } from "../model";
+import type { ComposerAttachment } from "../attachments";
+import { failedRuns, failedSendText } from "../sendFailure";
+import { messageMenuTarget } from "./messageMenu";
+import { DeliveryFailure } from "./PromptDelivery";
+import { FailedSendsContext, type FailedSends } from "./promptDeliveryModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -36,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -142,9 +147,14 @@ test("Retry waits while the folder's trust question is open, and comes back once
   const rows = [failed("a", "ship it", trustPending)];
   const container = await render(transcript(rows, { trustBlock: "trust.answerFirst", trustFolder: () => undefined }));
   expect(button(container, "Retry")!.disabled).toBe(true);
-  expect(button(container, "Retry")!.title).toBe("Answer the trust question first");
+  // Why it waits shows beside it, as text (a disabled button gets no hover), and describes it.
+  const why = container.querySelector<HTMLElement>(".cv-user__retry-wait");
+  expect(why?.textContent).toBe("Answer the trust question first");
+  expect(why?.hidden).toBe(false);
+  expect(button(container, "Retry")!.getAttribute("aria-describedby")).toBe(why!.id);
   await act(async () => root!.render(transcript(rows, {})));
   expect(button(container, "Retry")!.disabled).toBe(false);
+  expect(container.querySelector(".cv-user__retry-wait")).toBeNull();
   // Trusted: nothing left to fix.
   expect(button(container, "Trust folder")).toBeUndefined();
   // Any other cause never waits on the trust question.
@@ -158,4 +168,46 @@ test("Retry waits while the folder's trust question is open, and comes back once
   );
   expect(button(container, "Retry")!.disabled).toBe(false);
   expect(button(container, "Trust folder")).toBeUndefined();
+});
+
+/// A prompt past one message (`message.too_large`, acpmux's `rpc::MAX_MESSAGE_BYTES`) is refused the
+/// same way at every Retry (Leo, 2026-10-31: "this is completely hardlocked bc of message size"): its
+/// card names the attachment to take out and offers Edit, never Retry.
+test("a prompt too large to send names its largest attachment and offers Edit, not Retry", async () => {
+  const tooLarge = { code: -32000, reason: "message.too_large", message: "message too large to send: 16907300 bytes" };
+  const attachment = (id: string, name: string, bytes: number): ComposerAttachment => ({
+    id,
+    kind: "image",
+    name,
+    mimeType: "image/png",
+    size: bytes,
+    data: "A".repeat(bytes),
+  });
+  const attachments = [
+    attachment("a", "small.png", 10),
+    attachment("b", "screen-recording.png", 4_000),
+    attachment("c", "notes.png", 20),
+  ];
+  const sentence = failedSendText(tooLarge, false, attachments);
+  expect(sentence).toBe(translate("prompt.failure.tooLargeFile", { name: "screen-recording.png" }));
+  expect(sentence).toContain("screen-recording.png");
+  expect(sentence).not.toContain("16907300");
+  // With no attachment to name (a long pasted text), it still says how to send it.
+  expect(failedSendText(tooLarge, false)).toBe(translate("prompt.failure.tooLarge"));
+
+  const row: AcpmuxRow = {
+    ...failed("a", "look at these", { reason: "message.too_large", code: "-32000", error: tooLarge.message }),
+    error: sentence,
+  };
+  const container = await render(transcript([row], {}));
+  const card = container.querySelector<HTMLElement>(".cv-user__status--failed")!;
+  expect(card.dataset.failureCause).toBe("too-large");
+  expect(card.querySelector(".cv-user__failure-text")!.textContent).toBe(sentence);
+  expect(button(card, "Retry")).toBeUndefined();
+  expect(button(card, "Edit")).toBeDefined();
+  // Nor from the message's menu (the native context menu offers Retry for `retryRowId`).
+  const other = failed("b", "deploy", { code: "timeout", error: "no answer" });
+  const snapshot = { rows: [row, other], connection: "connected" } as unknown as AcpmuxSnapshot;
+  expect(messageMenuTarget(snapshot, "a")?.retryRowId).toBeUndefined();
+  expect(messageMenuTarget(snapshot, "b")?.retryRowId).toBe("b");
 });

@@ -117,6 +117,80 @@ struct AgentPaneUnsentPromptTests {
         #expect(Self.prompts(daemon, peer: 2).isEmpty, "a prompt acpmux answered went again at the next launch")
     }
 
+    /// A Send needs no key press or click (Leo, 2026-11-17, on "Not sent: it needs your own key
+    /// press or click": "go remove this"), but a prompt sent with no gesture and no ticket is still
+    /// the person's: it goes on disk first and goes again after a relaunch, as one with a gesture does.
+    @Test func aPromptSentWithNoGestureIsJournaledAndGoesAgainAfterARelaunch() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let first = AcpmuxStandInServer()
+        try await first.start()
+        defer { first.stop() }
+        first.hold("session/prompt")
+        let run1 = try await Self.pane(first, journal: AgentPanePromptJournal(url: url))
+        #expect(await run1.transport.send(connection: run1.id, frames: [Self.prompt(id: 1, promptId: "p-1")]) == nil)
+        #expect(await first.wait { _ in Self.prompts(first, peer: 0).count == 1 })
+
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run2 = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        await Self.barrier(run2, id: 2)
+        let resent = Self.prompts(daemon, peer: 0)
+        #expect(resent.count == 1, "a prompt sent with no gesture was not journaled")
+        #expect(resent.first.flatMap(Self.mux)?["resend"] as? Bool == true)
+    }
+
+    /// A Send needs no gesture but still spends the person's: the Enter that sent "hi" never
+    /// pays for the agent's next gated frame (a mode change) as its turn starts.
+    @Test func aSendSpendsThePersonsGestureThoughItNeedsNone() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        let mode = { (id: Int) in
+            #"{"jsonrpc":"2.0","id":\#(id),"method":"session/set_mode","params":{"sessionId":"s-1","modeId":"default"}}"#
+        }
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [mode(3)]) == nil, "a fresh gesture pays for a mode")
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 4, promptId: "p-4")]) == nil)
+        #expect(await run.transport.send(connection: run.id, frames: [mode(5)]) == .gestureRequired,
+                "the Send's gesture paid for a mode")
+    }
+
+    /// A prompt the CLI, MCP or a script seeded (no seed ticket) still waits in the composer for
+    /// the person's own Send, though a typed Send needs no gesture: without a ticket, with a ticket
+    /// that does not redeem, or with one the page asks for, it is refused until the person sends it.
+    @Test func anAutomationSeededPromptWaitsForThePersonsSend() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let run = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        run.transport.gestures.holdAutomationSeed()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 3, promptId: "seed")]) == .gestureRequired,
+                "an automation seed went out by itself")
+        let forged = #"{"jsonrpc":"2.0","id":4,"method":"session/prompt","params":{"sessionId":"s-1","prompt":[{"type":"text","text":"x"}],"_meta":{"cmuxGesture":"forged","acpmux":{"promptId":"seed"}}}}"#
+        #expect(await run.transport.send(connection: run.id, frames: [forged]) == .gestureRequired,
+                "a ticket that did not redeem sent an automation seed")
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": ["method": "session/prompt", "params": ["promptId": "seed"]],
+        ]))
+        #expect(run.transport.reserveGesture(intent) == nil, "an automation seed got a ticket with no gesture")
+        #expect(Self.prompts(daemon, peer: 0).isEmpty)
+
+        run.transport.gestures.record()
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 5, promptId: "seed")]) == nil,
+                "the person's own Send did not send it")
+        #expect(await run.transport.send(connection: run.id, frames: [Self.prompt(id: 6, promptId: "next")]) == nil,
+                "the hold outlived the person's Send")
+    }
+
     /// An app relaunch while the daemon is still holding a compose keeps the prompt in the host
     /// journal. The replacement pane receives it once, without making the person retype it.
     @Test func anAppRelaunchMidComposeKeepsThePromptAndRecovers() async throws {
@@ -146,16 +220,9 @@ struct AgentPaneUnsentPromptTests {
     }
 
     /// The daemon closes the connection before it acknowledged a prompt (an acpmux restart, a reset
-    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on, the pane's next connection
-    /// sends it again, once, as a resend of the same prompt id ("The agent connection was
-    /// interrupted", 2026-10-20). Off (the default), it never goes again: the page says "Not sent"
-    /// with Retry, so the prompt runs at most once whichever way.
-    @Test(arguments: [true, false])
-    func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne(replay: Bool) async throws {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(AgentPaneTunables.all)
-        TunableStore.shared.set(AgentPaneTunables.lostPromptReplay.key, .bool(replay))
-        defer { TunableStore.shared.set(AgentPaneTunables.lostPromptReplay.key, nil) }
+    /// socket). The pane's next connection sends it again, once, as a resend of the same prompt id
+    /// ("The agent connection was interrupted", 2026-10-20), so acpmux runs it at most once.
+    @Test func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne() async throws {
         let url = Self.journalURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let daemon = AcpmuxStandInServer()
@@ -181,10 +248,6 @@ struct AgentPaneUnsentPromptTests {
         #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/status","params":{}}"#]) == nil)
         try #require(await daemon.wait { _ in received.withLock { $0.contains { $0.contains(#""id":2"#) } } }, "the new connection never answered")
         let resent = Self.prompts(daemon, peer: 1)
-        guard replay else {
-            #expect(resent.isEmpty, "with the replay off, the page owns the dropped prompt (Retry): it must not go again")
-            return
-        }
         #expect(resent.count == 1, "the prompt the daemon dropped with its connection was not sent again")
         guard let frame = resent.first else { return }
         #expect(Self.mux(frame)?["promptId"] as? String == "p-5")
@@ -279,5 +342,20 @@ struct AgentPaneUnsentPromptTests {
         #expect(await pane.transport.send(connection: pane.id, frames: [frame]) != nil)
         await Self.barrier(pane, id: 2)
         #expect(Self.prompts(daemon, peer: 0).isEmpty)
+    }
+
+    @Test func aLargePromptAndMoreThan64PendingPromptsSurviveTheJournal() throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = AgentPanePromptJournal(url: url)
+        let owner = UUID()
+        for index in 0..<65 {
+            #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "p-\(index)", params: "{}", at: Date()), owner: owner))
+        }
+        let large = String(repeating: "x", count: 9 * 1024 * 1024)
+        #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "large", params: large, at: Date()), owner: owner))
+        #expect(journal.entries().count == 66)
+        #expect(journal.entries().last?.params.utf8.count == 9 * 1024 * 1024)
+        #expect(AgentPanePromptJournal(url: url).entries().count == 66)
     }
 }

@@ -30,6 +30,7 @@ use super::{Conn, str_param};
 use crate::hub::subsessions::{LimitsActor, StartRequest};
 use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -66,7 +67,11 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
 /// The session a start acts for: the proven caller, itself or a descendant it names as
 /// `parent`, or the session the person names. Any other connection is refused, as for every
 /// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
-fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+pub(super) fn start_parent(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Arc<Session>, RpcError> {
     let named = str_param(params, "parent").filter(|p| !p.is_empty());
     match (conn.caller(), named) {
         (Some(caller), named) => {
@@ -143,6 +148,9 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            owner_authorized_race: false,
+            race_id: None,
+            fork: params.get("fork").and_then(Value::as_bool).unwrap_or(false),
             force_admit: super::requests::can_force(conn.origin)
                 && super::requests::force_asked(params),
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
@@ -150,7 +158,7 @@ async fn handle(
         };
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
-            started["placed"] = json!(placed);
+            started.set("placed", json!(placed));
         }
         return Ok(started);
     }

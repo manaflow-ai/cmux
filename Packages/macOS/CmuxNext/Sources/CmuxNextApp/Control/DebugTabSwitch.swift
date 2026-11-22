@@ -72,8 +72,11 @@ extension SwitchFrameTimer {
     /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action`
     /// `start` or `stop` (else a read), then whether it records and its samples under `key`, each
     /// with its content `kind` when one was set, and `confirms_ms` (the daemon's asynchronous confirms).
+    /// `key_changes: true` at `start`: the rows of the `stop` answer have their key window changes (`SwitchKeyChanges`) from the recording's `BenchSpans`.
     func handle(_ params: [String: JSONValue], key: String) -> JSONValue {
-        if params["action"]?.stringValue == "start" { start() } else if params["action"]?.stringValue == "stop" { stop() }
+        let action = params["action"]?.stringValue
+        if action == "start" { start(); if params["key_changes"]?.boolValue == true { placeRows(); BenchSpans.begin() } }
+        if action == "stop" { if placesRows { count(SwitchKeyChanges(spans: BenchSpans.end().map { (name: $0.name, start: $0.start) }, capacity: BenchSpans.capacity)) }; stop() }
         let rows = samples.enumerated().map { index, values -> JSONValue in
             var row = values.mapValues { JSONValue.number($0) }
             if index < kinds.count, kinds[index] != "unknown" { row["kind"] = .string(kinds[index]) }

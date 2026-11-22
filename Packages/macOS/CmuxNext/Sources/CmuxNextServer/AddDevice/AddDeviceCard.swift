@@ -13,18 +13,21 @@ public final class AddDeviceCard {
         model = AddDeviceModel(services: services)
     }
 
-    /// Opens the card over `window`, on `way` when given, and reads the network again.
-    public func open(way: AddDeviceWay? = nil, over window: NSWindow?) {
+    /// Opens the card over `window`, on `way` when given, and reads the network again. The task
+    /// ends when the opening's read does (a capture awaits it).
+    @discardableResult
+    public func open(way: AddDeviceWay? = nil, over window: NSWindow?) -> Task<Void, Never> {
         let panel = panel ?? AddDeviceCardPanel(model: model)
         self.panel = panel
         panel.present(over: window)
         // task-owner: one listing per opening; a newer opening's begin() supersedes it (generation)
-        Task { await model.begin(way: way) }
+        return Task { await model.begin(way: way) }
     }
 
     public var isShown: Bool { panel?.isVisible == true }
 
     public func close() {
+        model.closeCard()
         panel?.orderOut(nil)
     }
 }

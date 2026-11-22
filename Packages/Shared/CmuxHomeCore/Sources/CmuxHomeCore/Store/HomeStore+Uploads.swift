@@ -74,6 +74,7 @@ extension HomeStore {
                 log.setUploading(key, false)
                 log.fail(key, failure)
                 leaveSendQueue(key)
+                holdSendChain(after: key)
                 afterLogChange(entry.intent.op)
                 throw failure
             }
@@ -189,6 +190,9 @@ extension HomeStore {
         job.reachedOwner = false
         uploads[newKey] = job
         log.rekey(key, to: newKey)
+        for index in sendChains.indices {
+            if let at = sendChains[index].firstIndex(of: key) { sendChains[index][at] = newKey }
+        }
     }
 
     /// The op with each attachment part's mime type, byte count and poster
@@ -299,6 +303,65 @@ extension HomeStore {
         if error is URLError { return .ownerUnreachable }
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
+    }
+
+    // MARK: Send chains
+
+    /// The send `key` committed: the next message of its chain goes.
+    func advanceSendChain(committed key: IdempotencyKey) {
+        guard let index = sendChains.firstIndex(where: { $0.first == key }) else { return }
+        sendChains[index].removeFirst()
+        startSendChainHead(index)
+    }
+
+    /// Chains whose head left the log (cancelled, or discarded after a
+    /// failure) go on with their next message; members gone from the log
+    /// leave their chain.
+    func advanceSendChains(present keys: Set<IdempotencyKey>) {
+        guard !sendChains.isEmpty else { return }
+        for index in sendChains.indices.reversed() {
+            let head = sendChains[index].first
+            sendChains[index].removeAll { !keys.contains($0) }
+            if sendChains[index].first != head { startSendChainHead(index) }
+        }
+    }
+
+    /// The send `key` failed: the rest of its chain stays logged, in order,
+    /// but leaves the conversation's queue (so other sends are not held) and
+    /// waits until `key` commits on a retry, or leaves the log.
+    func holdSendChain(after key: IdempotencyKey) {
+        guard let chain = sendChains.first(where: { $0.first == key }) else { return }
+        for held in chain.dropFirst() {
+            for conversation in Array(sendQueue.keys) where sendQueue[conversation]?.contains(held) == true {
+                removeFromSendQueue(conversation) { $0 == held }
+            }
+            log.setQueued(held, true)
+        }
+    }
+
+    /// Starts chain `index`'s head (its upload, then its turn in the
+    /// queue), dropping a chain with nothing left.
+    private func startSendChainHead(_ index: Int) {
+        guard let head = sendChains[index].first else {
+            sendChains.remove(at: index)
+            return
+        }
+        if sendChains[index].count == 1 { sendChains.remove(at: index) }
+        guard let job = uploads[head], job.task == nil, !stopped,
+              let entry = log.entries.first(where: { $0.intent.key == head }) else { return }
+        if case .failed = entry.state { return }
+        log.setQueued(head, false)
+        enqueueSend(head, in: job.conversation)
+        // Not afterLogChange: that advances chains, and this runs inside an advance.
+        rebuildRows()
+        if case .sendMessage(let conversation, _, _, _) = entry.intent.op { bumpTranscript(conversation) }
+        if isOnline {
+            resumeUpload(head)
+        } else {
+            // As a send made while offline: the reconnect resumes it, or it fails "Not
+            // Delivered" at the offline deadline.
+            waitForReconnect(head)
+        }
     }
 }
 

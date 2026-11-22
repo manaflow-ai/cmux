@@ -8,7 +8,7 @@ Build it with:
 ./scripts/build-webviews-app.sh
 ```
 
-The build output goes to `Resources/markdown-viewer/webviews-app`, which the macOS app serves as local static files from its bundled resources. It is gitignored build output: `scripts/cmux-next/build-web-bundles.sh` builds it, with the cmux-next agent pane, pages, Agent Activity and palette ranker, before every app build and Swift test run. Commit only the sources.
+The build output goes to `Resources/markdown-viewer/webviews-app`, which the macOS app serves as local static files from its bundled resources. It is gitignored build output: `scripts/cmux-next/build-web-bundles.sh` builds it, with the cmux-next agent pane, pages and Agent Activity, before every app build and Swift test run. Commit only the sources.
 
 The same build emits `diff-page.html`, the diff viewer of the cmux-next shared page host (`cmux-page://cmux.diff/`, whose root is this output directory). It embeds no config and no CSP meta: it calls `cmux.diff.config` over the cmuxPage bridge (`src/diff/page.ts` lists the ops and streams), and the scheme handler sends the CSP.
 
@@ -42,6 +42,8 @@ Static checks run through Vite+ (`vp check`: Oxlint, Oxfmt and a TypeScript Go t
 bun run check      # what CI runs
 bun run check:fix  # format and apply lint fixes
 ```
+
+Run tests with `bun run test [files, directories or name filters]`: it runs each file in its own `bun test` process, as CI does (`scripts/ci/run-webviews-tests.sh`). Never run a bare `bun test` over many files: one process leaks globals from file to file and fails tests that pass alone and in CI. `bun test FILE` on one file is fine.
 
 Interaction latency (plans/cmux-next/zero-latency.md): `bun run latency` builds the harness pages
 (`test/latency/`) for production and measures every page's named actions (input to paint) in

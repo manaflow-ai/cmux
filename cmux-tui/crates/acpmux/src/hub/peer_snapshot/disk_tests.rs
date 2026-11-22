@@ -2,6 +2,106 @@
 
 use super::*;
 use serde_json::json;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+
+thread_local! {
+    static RECORD_BYTES_ALLOCS: Cell<Option<usize>> = const { Cell::new(None) };
+    /// While [`thread_peak_bytes`] runs on this thread: the bytes it holds now and at most.
+    static PEAK_BYTES: Cell<Option<(isize, isize)>> = const { Cell::new(None) };
+}
+
+/// Counts `delta` bytes against this thread's peak, when one is measured.
+fn note_bytes(delta: isize) {
+    let _ = PEAK_BYTES.try_with(|peak| {
+        if let Some((live, most)) = peak.get() {
+            let live = live + delta;
+            peak.set(Some((live, most.max(live))));
+        }
+    });
+}
+
+struct AllocationCounter;
+
+// Test-only allocator: counting is enabled per thread, so unrelated tests do not
+// affect the record-size assertion while the old `to_vec` implementation allocates.
+unsafe impl GlobalAlloc for AllocationCounter {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        note_bytes(layout.size() as isize);
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        note_bytes(layout.size() as isize);
+        unsafe { System.alloc_zeroed(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        note_bytes(-(layout.size() as isize));
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let _ = RECORD_BYTES_ALLOCS.try_with(|count| {
+            if let Some(value) = count.get() {
+                count.set(Some(value.saturating_add(1)));
+            }
+        });
+        note_bytes(size as isize - layout.size() as isize);
+        unsafe { System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: AllocationCounter = AllocationCounter;
+
+/// `run`'s result and how many allocations it made on this thread (Linux scale tests only).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_allocations<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = RECORD_BYTES_ALLOCS.with(|count| count.replace(Some(0)));
+    let value = run();
+    let made = RECORD_BYTES_ALLOCS.with(|count| count.replace(outer)).unwrap_or(0);
+    (value, made)
+}
+
+/// `run`'s result and the most bytes it held at once on this thread above what it started with
+/// (Linux benches only).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_bytes<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = PEAK_BYTES.with(|peak| peak.replace(Some((0, 0))));
+    let value = run();
+    let most = PEAK_BYTES.with(|peak| peak.replace(outer)).map_or(0, |(_, most)| most);
+    (value, most.max(0) as usize)
+}
+
+/// Starts counting this thread's bytes from zero, unless they are counted already; whether it
+/// started. For a measure that spans calls (a source on an actor's thread), where
+/// [`thread_peak_bytes`]'s closure cannot.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_start() -> bool {
+    PEAK_BYTES.with(|peak| peak.get().is_none() && peak.replace(Some((0, 0))).is_none())
+}
+
+/// The most bytes this thread held at once, over where [`thread_peak_start`] began, since the
+/// last call; the next call counts from the bytes held now. `None` when not counting.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn thread_peak_take() -> Option<usize> {
+    PEAK_BYTES.with(|peak| {
+        let (live, most) = peak.get()?;
+        peak.set(Some((live, live)));
+        Some(most.max(0) as usize)
+    })
+}
 
 fn key(mux: &str) -> Key {
     ("huge-blue".to_owned(), mux.to_owned())
@@ -14,6 +114,16 @@ fn head(mux: &str) -> Head {
         generation: Some(7),
         ..Head::default()
     }
+}
+
+#[test]
+fn record_size_includes_its_line_terminator_without_building_a_vec() {
+    let value = json!({"sessionId": "m1", "seq": 1, "msg": "🙂"});
+    let expected = serde_json::to_vec(&value).unwrap().len() as u64 + 1;
+    RECORD_BYTES_ALLOCS.with(|count| count.set(Some(0)));
+    assert_eq!(record_bytes(&value), expected);
+    let allocations = RECORD_BYTES_ALLOCS.with(|count| count.replace(None).unwrap_or(0));
+    assert_eq!(allocations, 0, "record_bytes allocated {allocations} times");
 }
 
 #[test]

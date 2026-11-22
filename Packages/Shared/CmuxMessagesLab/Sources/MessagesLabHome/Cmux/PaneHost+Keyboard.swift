@@ -6,6 +6,12 @@
 import AppKit
 
 extension ChatController {
+    /// The picture viewer open over the pane (not one fading out after its close).
+    var openPictureViewer: NSView? { shownPictureViewer }
+
+    /// Where the pane's keyboard goes: the open picture viewer, else the compose field.
+    var keyboardTarget: NSView? { openPictureViewer ?? demo?.compose.textView.view }
+
     /// Whether focusing the pane should move the keyboard from `responder`
     /// to the compose field.
     ///
@@ -14,7 +20,16 @@ extension ChatController {
     /// transcript while the person makes or holds a text selection there
     /// (Copy). Everything else (no responder, the window, the pane itself,
     /// a header button) gives the field the keyboard.
+    ///
+    /// While the picture viewer is open over the pane it has the pane's
+    /// keyboard instead (``keyboardTarget``): a responder in it keeps the
+    /// keyboard, so a focus pass never sends its Esc and its keys to the box
+    /// under it (the user, 2026-11-11: "pressing esc doesnt work").
     func composeShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        if let viewer = openPictureViewer {
+            guard let view = responder as? NSView else { return true }
+            return !(view === viewer || view.isDescendant(of: viewer))
+        }
         if responder is NSText || responder is NSTextField { return false }
         if let doc = responder as? TranscriptDocumentView, doc === host.scrollView.document,
            selection.dragging || !selection.isEmpty {

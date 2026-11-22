@@ -28,7 +28,9 @@ pub enum Action {
     SidebarWiden,
     Send,
     Steer,
+    Queue,
     Cancel,
+    Retry,
     Stop,
     Delete,
     Rename,
@@ -76,6 +78,19 @@ pub struct ActionDef {
 pub fn find(name: &str) -> Option<&'static ActionDef> {
     let n = name.trim_start_matches('/');
     ACTIONS.iter().find(|d| d.name == n || d.aliases.contains(&n))
+}
+
+impl ActionDef {
+    /// The keys help and the palette show: the keymap's bindings, or, for Send and Steer, which
+    /// the composer's Enter runs directly rather than through the keymap, the table's keys.
+    pub fn shown_keys(&self, keymap: &super::keymap::Keymap) -> String {
+        let bound = keymap.hints(self.name);
+        if bound.is_empty() && matches!(self.action, Action::Send | Action::Steer) {
+            self.keys.to_owned()
+        } else {
+            bound
+        }
+    }
 }
 
 pub fn def(action: Action) -> &'static ActionDef {
@@ -218,7 +233,7 @@ impl App {
                 note: String::new(),
             });
             for s in &self.sessions {
-                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let id = session_route_id(s).unwrap_or_default();
                 let title = render::session_title(s);
                 let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("");
                 let project = match s.get("peer").and_then(Value::as_str) {
@@ -273,7 +288,7 @@ impl App {
                     note: String::new(),
                 });
             }
-            let keys = self.keymap.hints(d.name);
+            let keys = d.shown_keys(&self.keymap);
             let label = format!("{}{:<14} {}   {}", self.palette_prefix, d.name, d.label, keys);
             rows.push(PickRow {
                 value: d.name.to_owned(),
@@ -333,7 +348,17 @@ impl App {
             }
             Action::Send => self.send_prompt(false),
             Action::Steer => self.send_prompt(true),
+            Action::Queue => self.send_prompt(false),
             Action::Cancel => self.cancel(),
+            Action::Retry => {
+                if let Some(id) = sid {
+                    self.request_bg(
+                        method::MUX_RETRY,
+                        json!({"sessionId": id}),
+                        Some("retry sent".into()),
+                    );
+                }
+            }
             Action::Stop | Action::Delete => {
                 if let Some(id) = sid {
                     let purge = action == Action::Delete;
@@ -381,7 +406,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
                     if let Some(n) = args.first() {
-                        p["_meta"]["acpmux"]["name"] = json!(n);
+                        p.set_path(&["_meta", "acpmux", "name"], json!(n));
                     }
                     self.request_bg(method::SESSION_FORK, p, Some("forked".into()));
                 }
@@ -528,7 +553,7 @@ impl App {
                 if let Some(u) = &self.web_url {
                     // Deep link to the selected session; the token stays out of the status bar.
                     let url = match self.selected_id() {
-                        Some(id) => format!("{u}&session={id}"),
+                        Some(id) => crate::config::web_url_for_session(u, &id),
                         None => u.clone(),
                     };
                     let _ = std::process::Command::new(if cfg!(target_os = "macos") {
@@ -568,7 +593,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id});
                     if let Some(d) = args.first() {
-                        p["dest"] = json!(d);
+                        p.set("dest", json!(d));
                     }
                     self.request_bg(
                         method::MUX_EXPORT,

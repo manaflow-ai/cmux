@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>In-between states: the pane keeps its material</title>
+<style>
+body{margin:0;padding:24px;background:#141416;color:#ececf0;font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+h1{font-size:18px;margin:0 0 4px} p.lead{color:#9a9aa2;max-width:880px} h2{font-size:14px;margin:22px 0 8px}
+code{font:11px ui-monospace,Menlo,monospace;color:#c9c9d1}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:14px}
+.var{border:1px solid #2a2a2e;border-radius:10px;padding:10px;background:#1b1b1e} .var.rec{border-color:#5e8bff;box-shadow:0 0 0 1px #5e8bff55}
+.vh{margin-bottom:6px;font-weight:600} .meta{color:#9a9aa2;font-size:11px;margin-top:6px}
+.win{position:relative;height:230px;border-radius:10px;overflow:hidden;padding:6px}
+.art{background:radial-gradient(120% 90% at 20% 10%,#e3a75b 0%,#b5533c 30%,#3d2a4f 62%,#121827 100%)}
+.art2{background:radial-gradient(110% 100% at 80% 20%,#9fd3c7 0%,#3d7f8f 35%,#1d3550 70%,#0e1420 100%)}
+.pane{position:relative;height:100%;border-radius:8px;overflow:hidden;background:rgba(20,20,26,.62)}
+.strip{height:22px;display:flex;gap:4px;padding:4px 6px}
+.tab{font-size:10px;padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.08);color:#d8d8de}
+.term{padding:6px 9px;font:10.5px/1.5 ui-monospace,Menlo,monospace;color:#e8e8ec}
+.term .d{color:#9a9aa2}
+.flat{background:#fff}.flat .term{color:#d6d6dc}.flat .term .d{color:#e4e4ea}
+.ind{position:absolute;left:50%;bottom:12px;transform:translateX(-50%)}
+.pill{font-size:11px;font-weight:500;padding:4px 12px;border-radius:6px;background:#26262c;border:1px solid #3a3a42;color:#b9b9c2}
+.words{font-size:11px;color:rgba(236,236,240,.42)}
+.spin{width:14px;height:14px;border-radius:50%;border:1.6px solid rgba(236,236,240,.12);border-top-color:rgba(236,236,240,.75);opacity:.4;animation:r .9s linear infinite;margin:4px}
+@keyframes r{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style></head><body>
+<h1>In-between states keep the pane's one material</h1>
+<p class="lead">Leo, 2026-11-07: "the loading in-between indicator shouldn't all of a sudden become opaque ... we can just have the small symbols as loading indicators, like really transparent things, if even." Each card is a restoring terminal tab on a glass window over two backdrops. A restoring pane shows its last frame on the glass, never an opaque page; what differs is the indicator. The same rule covers Chromium, which no longer paints an opaque theme color while a page loads: it is see-through until the page paints, as WebKit already was.</p>
+
+<h2>Restoring terminal, four indicators</h2>
+<div class="grid">
+<div class="var"><div class="vh">A. Before (the bug)</div>
+ <div class="win art"><div class="pane flat"><div class="strip"><span class="tab">Background task</span></div><div class="term">$ glaeda-gh wait file ... --timeout 1800<br><span class="d">k stop · q close</span><br><br>Stopped by the agent after 30m 00s</div><div class="ind pill">Restoring…</div></div></div>
+ <div class="meta">Last frame saved as a JPEG: its clear pixels came back white. A raised, opaque pill on top.</div></div>
+<div class="var"><div class="vh">B. Words, no surface</div>
+ <div class="win art"><div class="pane"><div class="strip"><span class="tab">Background task</span></div><div class="term">$ glaeda-gh wait file ... --timeout 1800<br><span class="d">k stop · q close</span><br><br>Stopped by the agent after 30m 00s</div><div class="ind words">Restoring…</div></div></div>
+ <div class="meta">Glass kept. "Restoring…" in secondary ink at 42%, no pill. Still reads as text over the terminal's text.</div></div>
+<div class="var rec"><div class="vh">C. Small mark (shipped)</div>
+ <div class="win art"><div class="pane"><div class="strip"><span class="tab">Background task</span></div><div class="term">$ glaeda-gh wait file ... --timeout 1800<br><span class="d">k stop · q close</span><br><br>Stopped by the agent after 30m 00s</div><div class="ind"><div class="spin"></div></div></div></div>
+ <div class="meta">Glass kept. The shared 14 pt loading mark at 40%, no surface; the words stay its VoiceOver label. Lasting states (Disconnected, Process exited) keep their words.</div></div>
+<div class="var"><div class="vh">D. Nothing</div>
+ <div class="win art"><div class="pane"><div class="strip"><span class="tab">Background task</span></div><div class="term">$ glaeda-gh wait file ... --timeout 1800<br><span class="d">k stop · q close</span><br><br>Stopped by the agent after 30m 00s</div></div></div>
+ <div class="meta">Glass kept, no indicator. A restore that hangs looks the same as a frozen terminal.</div></div>
+</div>
+
+<h2>Same four on a second backdrop</h2>
+<div class="grid">
+<div class="var"><div class="win art2"><div class="pane flat"><div class="strip"><span class="tab">zsh</span></div><div class="term">~/Projects % cargo test<br><span class="d">running 412 tests</span></div><div class="ind pill">Restoring…</div></div></div><div class="meta">A</div></div>
+<div class="var"><div class="win art2"><div class="pane"><div class="strip"><span class="tab">zsh</span></div><div class="term">~/Projects % cargo test<br><span class="d">running 412 tests</span></div><div class="ind words">Restoring…</div></div></div><div class="meta">B</div></div>
+<div class="var rec"><div class="win art2"><div class="pane"><div class="strip"><span class="tab">zsh</span></div><div class="term">~/Projects % cargo test<br><span class="d">running 412 tests</span></div><div class="ind"><div class="spin"></div></div></div></div><div class="meta">C (shipped)</div></div>
+<div class="var"><div class="win art2"><div class="pane"><div class="strip"><span class="tab">zsh</span></div><div class="term">~/Projects % cargo test<br><span class="d">running 412 tests</span></div></div></div><div class="meta">D</div></div>
+</div>
+<p class="meta">Pick: C. It is the "small symbol, really transparent" Leo described and the thin loading mark tabs and rows already use (a thin spinner marking the active step). B still puts words over the terminal's own text, and D hides a restore that hangs. Spec: <code>design/terminal.md</code>.</p>
+</body></html>

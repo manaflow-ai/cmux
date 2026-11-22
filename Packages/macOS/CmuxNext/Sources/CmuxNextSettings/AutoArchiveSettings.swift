@@ -28,3 +28,12 @@ public nonisolated struct AutoArchiveSettings: Sendable, Equatable {
         return Self(style: style, idleDays: idleDays)
     }
 }
+
+extension SettingsController {
+    /// Writes `workspaces.autoArchive.style` by its name (an ``AutoArchiveStyle`` raw value) through
+    /// the schema's validated write, so a name the schema does not list is refused. The Tidy Up
+    /// card's Always Archive writes `quiet`; the sidebar's coordinator knows no settings types.
+    public func setAutoArchiveStyle(named name: String) async throws {
+        try await setSetting(at: AutoArchiveSettings.stylePath, to: .string(name), by: .caller("auto-archive"))
+    }
+}

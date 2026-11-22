@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -8,7 +9,7 @@ import WebKit
 /// The Dictation key (Globe-D, the 🎤 key) and Edit ▸ Start Dictation in an agent pane start the pane's
 /// own dictation, the waveform inside the composer, not macOS's black overlay that AppKit placed
 /// over the composer's corner. The `agent.systemDictation` Debug toggle brings macOS's back.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneDictationKeyTests {
     private actor NoHost: AgentPaneHostProviding {

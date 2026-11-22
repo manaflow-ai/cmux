@@ -118,6 +118,7 @@ import UserNotifications
         let ids = Set(PushActions().categories.map(\.identifier))
         #expect(ids == Set(PushCategory.allCases.map(\.rawValue)))
         #expect(ids.contains("CMUX_MOBILE_QUESTION_FORM") && ids.contains("CMUX_MOBILE_TERMINAL") && ids.contains("CMUX_MOBILE_RETRY"))
+        #expect(ids.contains("CLOUD_QUESTION") && ids.contains("CLOUD_PERMISSION") && ids.contains("CLOUD_DONE"))
     }
 
     @Test func actionIdentifiersRoundTrip() {
@@ -142,7 +143,7 @@ import UserNotifications
         #expect(try #require(PushReply(payload: permission, button: .deny)).action == .deny(optionID: "r"))
         let reply = try #require(PushReply(payload: PushPayload(mac: "m", kind: .completed, sessionId: "s"), button: .reply, text: "  go on \n"))
         #expect(reply.action == .text("go on", attachments: []) && reply.sessionId == "s" && reply.mac == "m")
-        #expect(!reply.action.needsFaceID && PushReply.Action.allow(optionID: "a").needsFaceID)
+        #expect(!reply.action.isSigned && PushReply.Action.allow(optionID: "a").isSigned)
     }
 
     @Test func refusesWhatThePushDoesNotOffer() {

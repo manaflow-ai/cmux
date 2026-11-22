@@ -41,7 +41,8 @@ final class DockBackdropView: NSView {
         if frame != cover { frame = cover }
         let inner = column.offsetBy(dx: -cover.minX, dy: -cover.minY)
         let rim = max(0, (cover.width - column.width) / 2)
-        let outerRadius = paneCornerRadius + rim
+        // The rim is the dock's padding outside the column: its corner is concentric with the column's.
+        let outerRadius = Metrics.corners.nested(in: paneCornerRadius, inset: -rim)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         shadowView.frame = bounds

@@ -2,7 +2,7 @@
 // The agents pill's list puts a nested agent right under the agent that spawned it, keeping the
 // section's order (subagents/AgentsPill.tsx `nestAgents`).
 import { describe, expect, test } from "bun:test";
-import { nestAgents } from "../src/agent-session/acpmux/subagents/AgentsPill";
+import { nestAgents } from "../src/agent-session/acpmux/subagents/agentsPillModel";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 
 const agent = (id: string, parent: string | null = null): Subagent => ({

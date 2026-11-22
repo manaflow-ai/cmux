@@ -16,7 +16,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_env = importlib.util.spec_from_file_location(
+    "git_fixture_env",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_fixture_env.py"),
+)
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
+_git_fixture_env.loader.exec_module(git_fixture_env)
+
 HERE = Path(__file__).resolve().parent
+# The review fields every arch-ratchet.json exception needs (reward-hacking audit 2026-10-30): an author, an
+# owner, an independent receipt and an expiry.
+RATCHET_REVIEW = {"author": "agent-a", "owner": "PL-arch", "expiry": "2026-11-06",
+                  "receipt": "Review (reviewer-b): SHIP at " + "a" * 40}
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 SCRIPT = HERE.parent / "arch_rules" / "layer_gate.py"
 RATCHET = HERE.parent / "arch-ratchet.py"
@@ -91,7 +103,7 @@ class Repo:
         self.git("config", "user.name", "gate")
 
     def git(self, *args: str) -> str:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True,
                               env=env).stdout.strip()
 
@@ -536,7 +548,7 @@ class LayerGateTests(unittest.TestCase):
 
     def test_cli_refuses_and_no_environment_variable_skips_it(self):
         self.repo.commit({gate.PACKAGE_SWIFT: manifest(self.with_deps(CmuxNextService=['"CmuxNextUI"']))})
-        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         run = [sys.executable, str(SCRIPT), "--repo", str(self.repo.root), "--base", self.base]
         refused = subprocess.run(run, capture_output=True, text=True, env=env)
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
@@ -595,7 +607,7 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextDomain"']
         why = {"date": "2026-10-23", "reason": "the schema moves to core in the Settings split"}
-        allowance = {"date": "2026-10-23", "row": "layer_soft", "allow": 1, "why": why["reason"]}
+        allowance = {"date": "2026-10-23", "row": "layer_soft", "allow": 1, "why": why["reason"], **RATCHET_REVIEW}
         head = self.repo.commit({
             gate.PACKAGE_SWIFT: manifest(deps),
             gate.LAYERS_JSON: layers(LAYERS, [{"from": "CmuxNextService", "to": "CmuxNextDomain", **why}]),
@@ -608,13 +620,13 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps = {name: list(entries) for name, entries in BASE_DEPS.items()}
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
         why = "moving the type next push"
-        count_only = [{"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": why}]
+        count_only = [{"date": "2026-10-23", "row": "layer_hard", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, count_only)
         self.assertEqual(rows, ["layer-gate"])
         self.assertTrue(refused)
         # One new edge, one escape: the gate's entry alone passes it (the count rule does not refuse the
         # layer_hard rise the gate's refusal answers), and its text asks for no second entry.
-        gate_only = [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        gate_only = [{"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, gate_only)
         self.assertEqual(rows, [])
         self.assertFalse(refused)
@@ -627,8 +639,8 @@ class ThroughTheRatchetTests(unittest.TestCase):
         deps["CmuxNextService"] = ['"CmuxNextCore"', '"CmuxNextUI"']
         deps["CmuxNextOtherService"] = BASE_DEPS["CmuxNextOtherService"] + ['"CmuxNextApp"']
         why = "moving both types next push"
-        exceptions = [{"date": "2026-10-23", "row": "layer_hard", "allow": 2, "why": why},
-                      {"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why}]
+        exceptions = [{"date": "2026-10-23", "row": "layer_hard", "allow": 2, "why": why, **RATCHET_REVIEW},
+                      {"date": "2026-10-23", "row": "layer-gate", "allow": 1, "why": why, **RATCHET_REVIEW}]
         rows, refused = self.run_push(deps, exceptions)
         self.assertEqual(rows, ["layer-gate", "layer-gate"])
         self.assertTrue(refused)

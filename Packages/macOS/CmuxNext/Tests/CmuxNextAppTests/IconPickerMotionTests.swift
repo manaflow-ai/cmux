@@ -1,22 +1,26 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// POLISH audit, batch 4 (cx-2grmt): the icon picker appeared and left in one frame. It opens and
 /// closes like every native popup (`PopupFade`). The picker opens in one frame,
 /// like menus and popovers; its close still fades.
-@MainActor @Suite(.serialized) struct IconPickerMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct IconPickerMotionTests {
     @Test(.enabled("needs an awake display and animations on, or every picker snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func thePickerOpensAtOnceAndClosesWithMotion() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         window.orderFrontRegardless()
         let content = try #require(window.contentView)
         try #require(window.screen != nil)
         let picker = IconPickerService(services: nil)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in picker.prepare { done.resume() } }
+        // A page that has not drawn yet holds the open (PageRevealGate); this test is about a warm picker's open.
+        for _ in 0..<100 where !picker.isPageReady { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(picker.isPageReady, "the warm page never loaded")
         var results: [IconPickerResult] = []
         // Synchronous inside: the override is process-wide.
         let (panel, opened) = try { () throws -> (IconPickerPanel, Bool) in

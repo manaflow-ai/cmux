@@ -18,6 +18,7 @@ use super::config::{self, Config};
 use super::grant::{self, Scope};
 use super::preface::{self, Op};
 use super::tailnet::{self, Tailnet};
+use cmux_json::JsonSet as _;
 
 /// How long a peer has to send its preface.
 const PREFACE_BOUND: Duration = Duration::from_secs(5);
@@ -120,6 +121,8 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    let watch = super::service::agent_watch();
     let ready = super::service::take_ready_signal();
     // One listener per state directory; the OS drops the lock with the
     // process, so `status` and `stop` never act on a stale pid. Taken before
@@ -180,35 +183,95 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let mut threads = Vec::new();
+    // `None` when a listener stopped; the launchd agent's outcome otherwise.
+    let (done, events) = std::sync::mpsc::channel();
+    super::service::follow_app_updates(watch, done.clone());
+    let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        // Sent when the thread ends, a panic included: a listener that is gone always counts.
+        let stopped = ListenerStopped(done.clone());
+        std::thread::spawn(move || {
+            let _stopped = stopped;
+            accept_loop(&host, &listener);
+        });
     }
-    for thread in threads {
-        let _ = thread.join();
+    drop(done);
+    while running > 0 {
+        match events.recv() {
+            Ok(None) => running -= 1,
+            // KeepAlive restarts only an unsuccessful exit: launchd starts the new build.
+            Ok(Some(super::service::AgentExit::Replaced)) => {
+                bail!("an update replaced this cmux; launchd starts the new build")
+            }
+            Ok(Some(super::service::AgentExit::Removed)) => return Ok(()),
+            Err(_) => break,
+        }
     }
     Err(anyhow!("every listener stopped"))
 }
 
+/// Tells `run` that a listener stopped, when its thread ends for any reason.
+struct ListenerStopped(std::sync::mpsc::Sender<Option<super::service::AgentExit>>);
+
+impl Drop for ListenerStopped {
+    fn drop(&mut self) {
+        let _ = self.0.send(None);
+    }
+}
+
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
-    for stream in listener.incoming() {
-        match stream {
+    let mut incoming = listener.incoming();
+    accept_each(|| incoming.next(), std::thread::sleep, |stream| accept_one(host, stream));
+}
+
+/// First and longest wait after an accept error that can persist, as the
+/// daemon's own accept loops (cmux-tui-core server.rs `ACCEPT_RETRY_*`).
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
+
+/// Hand every accepted connection to `serve` until `accept` answers `None`.
+/// Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across accepts,
+/// and an immediate retry ran the listener thread at 100% CPU until
+/// descriptors freed up: `wait` spaces those retries with a growing delay.
+/// A per-connection error needs none, because the next accept blocks.
+fn accept_each<S>(
+    mut accept: impl FnMut() -> Option<io::Result<S>>,
+    mut wait: impl FnMut(Duration),
+    mut serve: impl FnMut(S),
+) {
+    let mut backoff = cmux_tui_core::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+    while let Some(accepted) = accept() {
+        match accepted {
             Ok(stream) => {
-                let Ok(peer) = stream.peer_addr().map(plain_ip) else { continue };
-                let Some(pending) = Pending::enter(host, peer) else {
-                    eprintln!("cmux host: refused {peer}: too many pending connections");
-                    continue;
-                };
-                let host = Arc::clone(host);
-                std::thread::spawn(move || {
-                    if let Err(e) = serve_one(&host, stream, peer, pending) {
-                        eprintln!("cmux host: {peer}: {e:#}");
-                    }
-                });
+                backoff.reset();
+                serve(stream);
             }
-            Err(e) => eprintln!("cmux host: accept failed: {e}"),
+            Err(e) => {
+                eprintln!("cmux host: accept failed: {e}");
+                if cmux_tui_core::backoff::accept_error_needs_backoff(&e) {
+                    wait(backoff.next_delay());
+                }
+            }
         }
+    }
+}
+
+fn accept_one(host: &Arc<Host>, stream: TcpStream) {
+    let Ok(peer) = stream.peer_addr().map(plain_ip) else { return };
+    let Some(pending) = Pending::enter(host, peer) else {
+        eprintln!("cmux host: refused {peer}: too many pending connections");
+        return;
+    };
+    let host = Arc::clone(host);
+    // A thread the OS refuses drops this connection, never the listener.
+    let spawned = std::thread::Builder::new().spawn(move || {
+        if let Err(e) = serve_one(&host, stream, peer, pending) {
+            eprintln!("cmux host: {peer}: {e:#}");
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
     }
 }
 
@@ -280,8 +343,10 @@ fn serve_one(
             record("probe", "ok", None);
             let mut reply = probe_reply(host, &config, access);
             if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
+                reply.set_path(
+                    &["host", "scopes"],
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()),
+                );
             }
             preface::write_value(&mut stream, &reply)?;
             Ok(())
@@ -484,3 +549,7 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
         total += n as u64;
     }
 }
+
+#[cfg(test)]
+#[path = "serve_tests.rs"]
+mod tests;

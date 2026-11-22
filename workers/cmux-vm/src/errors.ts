@@ -37,12 +37,62 @@ export class ServiceUnavailable extends Schema.TaggedError<ServiceUnavailable>()
 export const vmNotFound = () => new NotFound({ message: "VM not found" });
 export const missingScope = (scope: Scope) =>
   new Forbidden({ message: `This credential lacks the ${scope} scope`, missingScope: scope });
-export const unavailable = () => new ServiceUnavailable({ message: "The cmux VM service is temporarily unavailable" });
+/**
+ * Names the dependency behind a 503, so a client's error says what failed without a log tail
+ * (2026-11-04: every production create answered a bare 503 and only the Worker's logs knew why).
+ * Only code-defined names: a store or provider operation, a limits or entitlements failure, an
+ * identity reason, or the error's tag. Never ids, SQL, causes or provider names.
+ */
+const field = (value: object, key: string): unknown => (key in value ? Reflect.get(value, key) : undefined);
+
+export const dependencyOf = (cause: unknown): string | undefined => {
+  if (typeof cause === "string") return cause.length > 0 ? cause : undefined;
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const tag = field(cause, "_tag");
+  if (typeof tag !== "string") return undefined;
+  const rawOperation = field(cause, "operation");
+  const operation = typeof rawOperation === "string" ? rawOperation : undefined;
+  switch (tag) {
+    case "StoreError":
+      return operation === undefined ? "database" : `database.${operation}`;
+    case "UpstreamError": {
+      const status = field(cause, "status");
+      return `${operation === undefined ? "vm-provider" : `vm-provider.${operation}`}${typeof status === "number" ? ` (HTTP ${status})` : " (no response)"}`;
+    }
+    case "LimitsUnavailable":
+      return "tenant-limits";
+    case "EntitlementUnavailable":
+      return "entitlements";
+    case "IdentityUnavailable": {
+      const reason = field(cause, "reason");
+      return typeof reason === "string" ? `identity.${reason}` : "identity";
+    }
+    default:
+      return tag;
+  }
+};
+
+const UNAVAILABLE = "The cmux VM service is temporarily unavailable";
+
+/**
+ * 503 for a failed dependency. Pass the failed dependency's error (or its name) so the message names it:
+ * "The cmux VM service is temporarily unavailable (database.countLive)". A ServiceUnavailable passes through.
+ */
+export const unavailable = (cause?: unknown): ServiceUnavailable => {
+  if (cause instanceof ServiceUnavailable) return cause;
+  const dependency = dependencyOf(cause);
+  return new ServiceUnavailable({ message: dependency === undefined ? UNAVAILABLE : `${UNAVAILABLE} (${dependency})` });
+};
 
 /** The request conflicts with the resource's current state (for example, starting a VM that is being deleted). */
+/** Machine-readable reasons a 409 can carry; most conflicts carry none. */
+export const ConflictCode = Schema.Literal("mesh.device.intent_revoked").annotations({
+  description: "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.",
+});
+
 export class Conflict extends Schema.TaggedError<Conflict>()(
   "Conflict",
-  { message: Schema.String, ...CreationRecovery },
+  { message: Schema.String, code: Schema.optional(ConflictCode), ...CreationRecovery },
   HttpApiSchema.annotations({ status: 409 }),
 ) {}
 

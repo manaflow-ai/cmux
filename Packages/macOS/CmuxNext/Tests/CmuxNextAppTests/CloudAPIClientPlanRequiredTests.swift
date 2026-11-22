@@ -2,7 +2,7 @@ import CmuxNextCloud
 import Foundation
 import Testing
 
-/// A create the plan does not include comes back as the typed plan refusal (Pro
+/// A request the plan does not include comes back as the typed plan refusal (Pro
 /// for the app's Upgrade to cmux Pro dialog, Max for a Pro plan's limits); a paid
 /// plan's ordinary limit and a credits top-up stay plain HTTP refusals. Bodies are the server's own (web/services/vms/routeHelpers.ts).
 @Suite(.serialized)
@@ -25,16 +25,18 @@ struct CloudAPIClientPlanRequiredTests {
         override func stopLoading() {}
     }
 
+    /// A refusal of a route the app still sends over HTTP itself: a Worker machines client's
+    /// desktop setup. (A Run's cancel was this route until #39022 moved the runs.* calls into the
+    /// daemon, whose Rust reads those bodies: cmux-cloud-api's tests.)
     private func create(answering body: String) async -> (any Error)? {
         RefusingAPI.body = body
-        let configuration = CloudConfiguration.resolve(
-            bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"], process: [:], isDebugBuild: true)
+        guard let baseURL = URL(string: "https://vm-api.standin.invalid") else { return nil }
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [RefusingAPI.self]
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                                 session: URLSession(configuration: sessionConfiguration))
+        let api = CloudAPIClient.workerMachines(baseURL: baseURL, accessToken: { "access" },
+                                                teamID: { "team-1" }, session: URLSession(configuration: sessionConfiguration))
         do {
-            _ = try await api.createMachine(displayName: nil)
+            try await api.setupDesktop("vm-1")
             return nil
         } catch {
             return error

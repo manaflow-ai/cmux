@@ -12,12 +12,14 @@ import java.util.Objects;
 
 /** Immutable conversation-runs request. Protocol v12; authority: local-admin. */
 public final class ConversationRunsRequest implements WireValue {
+    private final Field<List<String>> answers;
     private final Field<UInt64> beforeStartedAt;
     private final String conversation;
     private final Field<Long> limit;
     private final Field<List<String>> turns;
 
     private ConversationRunsRequest(Builder builder) {
+        this.answers = builder.answers.map(value -> List.copyOf(value));
         this.beforeStartedAt = builder.beforeStartedAt;
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
         this.conversation = Wire.nonNull(builder.conversation, "conversation");
@@ -27,6 +29,7 @@ public final class ConversationRunsRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<List<String>> answers() { return answers; }
     public Field<UInt64> beforeStartedAt() { return beforeStartedAt; }
     public String conversation() { return conversation; }
     public Field<Long> limit() { return limit; }
@@ -35,6 +38,10 @@ public final class ConversationRunsRequest implements WireValue {
     public static ConversationRunsRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationRunsRequest");
         Builder builder = builder();
+        Object rawAnswers = Wire.optional(object, "answers");
+        if (!Wire.isMissing(rawAnswers)) {
+            builder.answers(rawAnswers == null ? null : Wire.array(rawAnswers, "ConversationRunsRequest.answers", item -> Wire.string(item, "ConversationRunsRequest.answers item")));
+        }
         Object rawBeforeStartedAt = Wire.optional(object, "before_started_at");
         if (!Wire.isMissing(rawBeforeStartedAt)) {
             builder.beforeStartedAt(rawBeforeStartedAt == null ? null : Wire.uint64(rawBeforeStartedAt, "ConversationRunsRequest.before_started_at"));
@@ -55,6 +62,7 @@ public final class ConversationRunsRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "answers", answers);
         Wire.put(object, "before_started_at", beforeStartedAt);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "limit", limit);
@@ -65,22 +73,27 @@ public final class ConversationRunsRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationRunsRequest that)) return false;
-        return Objects.equals(beforeStartedAt, that.beforeStartedAt) && Objects.equals(conversation, that.conversation) && Objects.equals(limit, that.limit) && Objects.equals(turns, that.turns);
+        return Objects.equals(answers, that.answers) && Objects.equals(beforeStartedAt, that.beforeStartedAt) && Objects.equals(conversation, that.conversation) && Objects.equals(limit, that.limit) && Objects.equals(turns, that.turns);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(beforeStartedAt, conversation, limit, turns); }
+    public int hashCode() { return Objects.hash(answers, beforeStartedAt, conversation, limit, turns); }
 
     @Override
     public String toString() { return "ConversationRunsRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<List<String>> answers = Field.omitted();
         private Field<UInt64> beforeStartedAt = Field.omitted();
         private String conversation;
         private boolean conversationSet;
         private Field<Long> limit = Field.omitted();
         private Field<List<String>> turns = Field.omitted();
 
+        public Builder answers(List<String> value) {
+            this.answers = Field.ofNullable(value);
+            return this;
+        }
         public Builder beforeStartedAt(UInt64 value) {
             this.beforeStartedAt = Field.ofNullable(value);
             return this;

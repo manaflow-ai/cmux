@@ -5,11 +5,13 @@
 //! The agent runs as root and some directories it writes into are owned by
 //! the work user (`/run/cmux`, the session host's home). Writes there never
 //! follow a symlink: files are created with `O_NOFOLLOW`, and the remote
-//! identity removal refuses a path with a symlinked component.
+//! identity removal walks directory descriptors opened with `O_NOFOLLOW`.
 
+use std::ffi::{CStr, CString};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -121,67 +123,153 @@ pub fn remove_driver_file(paths: &Paths) -> io::Result<()> {
     }
 }
 
-/// `path` and every component below `base` exist as real directories (or
-/// are absent); `Err` on a symlinked component.
-fn no_symlink_below(base: &Path, path: &Path) -> io::Result<bool> {
-    let rel = path.strip_prefix(base).map_err(io::Error::other)?;
-    let mut at = base.to_path_buf();
-    for part in rel.components() {
-        at.push(part);
-        match fs::symlink_metadata(&at) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(io::Error::other(format!("{} is a symlink", at.display())));
-            }
-            Ok(_) => {}
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(true)
-}
+/// The remote state root below the session host's home.
+const REMOTE_STATE_COMPONENTS: [&str; 4] = [".local", "state", "cmux", "remote"];
+/// Deeper trees are refused, so a planted tree cannot exhaust descriptors.
+const MAX_REMOVE_DEPTH: usize = 64;
 
-/// Drops the remote identity and connection state a fork inherited:
-/// `<home>/.local/state/cmux/remote/sessions/*/auth` and `connections`.
+/// Drops the remote daemon state a fork inherited: every session under
+/// `<home>/.local/state/cmux/remote/sessions` (its identity and
+/// authorization under `auth/`, and the lifecycle fence, shutdown record and
+/// runtime metadata beside it) and `connections`.
+///
+/// The whole session goes, not only `auth/`: cmux-tui refuses to start a
+/// session that holds a lifecycle fence but no `auth/` (it reads that as a
+/// pre-fence daemon whose shutdown never finished), so dropping `auth/`
+/// alone left every rebound machine's session host exiting at startup. The
+/// session host is stopped before this runs (the bind waits for it), so no
+/// live daemon owns the state.
+///
+/// The agent is root and the tree belongs to the work user, so every step
+/// goes through a directory descriptor opened with `O_NOFOLLOW`: a
+/// component swapped for a symlink at any moment is refused (on the way
+/// to `remote`) or unlinked (below it), never followed.
 pub fn drop_remote_identity(home: &Path) -> io::Result<()> {
-    let remote = home.join(".local/state/cmux/remote");
-    if !no_symlink_below(home, &remote)? {
-        return Ok(());
-    }
-    let sessions = remote.join("sessions");
-    if remove_link(&sessions)? {
-        return remove_entry(&remote.join("connections"));
-    }
-    if sessions.is_dir() {
-        for entry in fs::read_dir(&sessions)? {
-            let session = entry?.path();
-            // A symlinked session is unlinked, never followed.
-            if !remove_link(&session)? && session.is_dir() {
-                remove_entry(&session.join("auth"))?;
+    let mut dir = match open_dir(home) {
+        Ok(fd) => fd,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
+    };
+    for component in REMOTE_STATE_COMPONENTS {
+        dir = match open_dir_at(&dir, &c_name(component)?) {
+            Ok(fd) => fd,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(err) if is_not_a_directory(&err) => {
+                return Err(io::Error::other(format!(
+                    "{component} below {} is not a directory",
+                    home.display()
+                )));
             }
+            Err(err) => return Err(err),
+        };
+    }
+    remove_tree_at(&dir, &c_name("sessions")?, 0)?;
+    remove_tree_at(&dir, &c_name("connections")?, 0)
+}
+
+fn c_name(name: &str) -> io::Result<CString> {
+    CString::new(name).map_err(io::Error::other)
+}
+
+fn open_dir(path: &Path) -> io::Result<OwnedFd> {
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
+    // SAFETY: a NUL-terminated path; the descriptor is owned at once.
+    let fd =
+        unsafe { libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just opened and is not owned elsewhere.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// `name` in `parent` as a directory, never through a symlink.
+fn open_dir_at(parent: &OwnedFd, name: &CStr) -> io::Result<OwnedFd> {
+    // SAFETY: a valid directory descriptor and a NUL-terminated name.
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just opened and is not owned elsewhere.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// `O_NOFOLLOW | O_DIRECTORY` on a symlink or a file.
+fn is_not_a_directory(err: &io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(libc::ELOOP) | Some(libc::ENOTDIR))
+}
+
+fn unlink_at(parent: &OwnedFd, name: &CStr, flags: libc::c_int) -> io::Result<()> {
+    // SAFETY: a valid directory descriptor and a NUL-terminated name.
+    if unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) } < 0 {
+        let err = io::Error::last_os_error();
+        if err.kind() == io::ErrorKind::NotFound {
+            return Ok(());
         }
+        return Err(err);
     }
-    remove_entry(&remote.join("connections"))
+    Ok(())
 }
 
-/// Unlinks `path` when it is a symlink (without following it); `true`
-/// when it was one.
-fn remove_link(path: &Path) -> io::Result<bool> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => fs::remove_file(path).map(|()| true),
-        Ok(_) => Ok(false),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(err),
+/// Removes `name` in `parent`: a directory tree, or a file or symlink (the
+/// entry itself). Absent is done.
+fn remove_tree_at(parent: &OwnedFd, name: &CStr, depth: usize) -> io::Result<()> {
+    let dir = match open_dir_at(parent, name) {
+        Ok(fd) => fd,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) if is_not_a_directory(&err) => return unlink_at(parent, name, 0),
+        Err(err) => return Err(err),
+    };
+    if depth >= MAX_REMOVE_DEPTH {
+        return Err(io::Error::other("remote state tree is too deep to remove"));
     }
+    for entry in dir_entries(&dir)? {
+        remove_tree_at(&dir, &entry, depth + 1)?;
+    }
+    unlink_at(parent, name, libc::AT_REMOVEDIR)
 }
 
-/// Removes a directory tree, a file, or a symlink (the link only).
-fn remove_entry(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(err),
+/// The entry names of `dir`, without `.` and `..`.
+fn dir_entries(dir: &OwnedFd) -> io::Result<Vec<CString>> {
+    // fdopendir takes ownership of its descriptor: give it a duplicate.
+    // SAFETY: duplicating a valid descriptor.
+    let dup = unsafe { libc::fcntl(dir.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+    if dup < 0 {
+        return Err(io::Error::last_os_error());
     }
+    // SAFETY: `dup` is a directory descriptor nothing else owns.
+    let stream = unsafe { libc::fdopendir(dup) };
+    if stream.is_null() {
+        let err = io::Error::last_os_error();
+        // SAFETY: fdopendir failed, so `dup` is still ours to close.
+        unsafe { libc::close(dup) };
+        return Err(err);
+    }
+    let mut names = Vec::new();
+    let result = loop {
+        // SAFETY: errno is thread-local; reset it to tell end from error.
+        unsafe { *libc::__errno_location() = 0 };
+        // SAFETY: `stream` is a valid open directory stream.
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            let err = io::Error::last_os_error();
+            break if err.raw_os_error().unwrap_or(0) == 0 { Ok(()) } else { Err(err) };
+        }
+        // SAFETY: `d_name` is NUL-terminated and valid until the next readdir.
+        let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if name.to_bytes() != b"." && name.to_bytes() != b".." {
+            names.push(name.to_owned());
+        }
+    };
+    // SAFETY: closes the stream and `dup` with it.
+    unsafe { libc::closedir(stream) };
+    result.map(|()| names)
 }
 
 fn systemctl(paths: &Paths, args: &[&str]) {
@@ -289,4 +377,105 @@ fn install_ssh_key(ssh_dir: &Path, key: &Path) -> io::Result<()> {
     let pub_key = PathBuf::from(format!("{}.pub", key.display()));
     fs::rename(&pub_key, ssh_dir.join("ssh_host_ed25519_key.pub"))?;
     fs::rename(key, ssh_dir.join("ssh_host_ed25519_key"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(home: &Path) -> PathBuf {
+        home.join(".local/state/cmux/remote/sessions/Y2xvdWQ")
+    }
+
+    /// A rebind must not leave the shape cmux-tui refuses at startup: a
+    /// lifecycle fence with no `auth/`.
+    #[test]
+    fn drop_remote_identity_removes_the_whole_session_with_its_lifecycle_fence() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let session = session(home);
+        fs::create_dir_all(session.join("auth")).unwrap();
+        fs::write(session.join("auth/devices.json"), "{}").unwrap();
+        fs::write(session.join("lifecycle-fence.json"), "{}").unwrap();
+        fs::write(session.join("runtime.json"), "{}").unwrap();
+        let remote = home.join(".local/state/cmux/remote");
+        fs::create_dir_all(remote.join("connections")).unwrap();
+        fs::create_dir_all(remote.join("private")).unwrap();
+
+        drop_remote_identity(home).unwrap();
+
+        assert!(!session.join("lifecycle-fence.json").exists());
+        assert!(!remote.join("sessions").exists());
+        assert!(!remote.join("connections").exists());
+        // Client-side state beside the sessions is not the daemon's.
+        assert!(remote.join("private").is_dir());
+        // Idempotent: a second bind finds nothing to drop.
+        drop_remote_identity(home).unwrap();
+    }
+
+    /// A stranded session from an older agent (fence, no `auth/`) is
+    /// repaired by the next bind too.
+    #[test]
+    fn drop_remote_identity_clears_a_fence_left_without_auth() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = session(dir.path());
+        fs::create_dir_all(&session).unwrap();
+        fs::write(session.join("lifecycle-fence.json"), "{}").unwrap();
+
+        drop_remote_identity(dir.path()).unwrap();
+
+        assert!(!session.exists());
+    }
+
+    #[test]
+    fn drop_remote_identity_unlinks_a_symlinked_sessions_dir_without_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(outside.join("Y2xvdWQ/auth")).unwrap();
+        let remote = home.join(".local/state/cmux/remote");
+        fs::create_dir_all(&remote).unwrap();
+        symlink(&outside, remote.join("sessions")).unwrap();
+
+        drop_remote_identity(&home).unwrap();
+
+        assert!(fs::symlink_metadata(remote.join("sessions")).is_err());
+        assert!(outside.join("Y2xvdWQ/auth").is_dir());
+    }
+
+    #[test]
+    fn drop_remote_identity_refuses_a_symlinked_component_above_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(outside.join("sessions/Y2xvdWQ/auth")).unwrap();
+        fs::create_dir_all(home.join(".local/state/cmux")).unwrap();
+        symlink(&outside, home.join(".local/state/cmux/remote")).unwrap();
+
+        assert!(drop_remote_identity(&home).is_err());
+        assert!(outside.join("sessions/Y2xvdWQ/auth").is_dir());
+    }
+
+    #[test]
+    fn drop_remote_identity_unlinks_nested_symlinks_without_following_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(outside.join("keep")).unwrap();
+        let session = session(&home);
+        fs::create_dir_all(session.join("auth")).unwrap();
+        symlink(&outside, session.join("auth/link")).unwrap();
+
+        drop_remote_identity(&home).unwrap();
+
+        assert!(!session.exists());
+        assert!(outside.join("keep").is_dir());
+    }
+
+    #[test]
+    fn drop_remote_identity_without_remote_state_is_a_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        drop_remote_identity(dir.path()).unwrap();
+        drop_remote_identity(&dir.path().join("missing-home")).unwrap();
+    }
 }

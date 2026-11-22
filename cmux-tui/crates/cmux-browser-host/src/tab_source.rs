@@ -13,6 +13,7 @@ use crate::driver::{EventSink, Reply, RequestFilter};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::DriverError;
 use crate::provider::LeaseState;
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -69,10 +70,10 @@ impl TabRow {
             "dataStore": self.data_store,
         });
         if let Some(opener) = &self.opener {
-            row["openerTargetId"] = Value::String(opener.clone());
+            row.set("openerTargetId", Value::String(opener.clone()));
         }
         if self.incognito {
-            row["incognito"] = Value::Bool(true);
+            row.set("incognito", Value::Bool(true));
         }
         row
     }
@@ -156,6 +157,11 @@ pub trait TabSource: Send + Sync {
     /// The tabs agent sessions kept (`remember_kept`).
     fn kept_tabs(&self) -> Vec<String> {
         Vec::new()
+    }
+    /// Whether an agent session called on `target_id` while the source knew it, so the app
+    /// already treats it as agent-driven (false when the source does not track it).
+    fn agent_tab(&self, _target_id: &str) -> bool {
+        false
     }
     /// Installs (or with `None` removes) a session's request filter; false
     /// when the engine cannot filter (the gate then fails closed).

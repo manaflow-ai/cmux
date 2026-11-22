@@ -63,4 +63,16 @@ struct AgentPaneLaunchImagesAlphaTests {
         let image = try #require(images.take("tab_c"))
         #expect(try Self.alpha(image, x: 4, y: 4) == 0)
     }
+
+    /// A saved picture that keeps clear pixels stands in for its page in any scope (`takeCovering`, the pane's first
+    /// frame, with `AgentPaneView.savedPictureCovers`'s rule), and like `take` it is handed out once.
+    @Test func aSavedPictureWithClearPixelsCoversItsPageOnce() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await AgentPaneLaunchImages(directory: directory).save(["tab_d": try Self.image(clear: true)])
+        let images = await Self.launch(directory), scope = NSView(frame: NSRect(x: 0, y: 0, width: 4, height: 4))
+        let image = try #require(images.takeCovering("tab_d", newTab: false, size: .zero, appearance: nil, in: scope))
+        #expect(try Self.alpha(image, x: 4, y: 4) == 0)
+        #expect(images.takeCovering("tab_d", newTab: false, size: .zero, appearance: nil, in: scope) == nil)
+    }
 }

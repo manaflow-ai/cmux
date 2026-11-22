@@ -5,14 +5,16 @@
 
 use std::sync::OnceLock;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
-
-const CATALOG_JSON: &str = include_str!("../../../../spec/resource-operations-v2.json");
 
 pub(crate) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     // crash-allow: compiled-in catalog JSON (include_str!); a parse failure fails every catalog test
-    CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("resource operation catalog"))
+    CATALOG.get_or_init(|| {
+        serde_json::from_str(crate::packed_catalogs::RESOURCE_OPERATIONS_V2)
+            .expect("resource operation catalog")
+    })
 }
 
 pub(crate) fn error(code: &str, message: impl Into<String>) -> Value {
@@ -57,7 +59,7 @@ pub(crate) fn request(
         let key = idempotency_key
             .filter(|k| !k.is_empty())
             .ok_or_else(|| error("validation.invalid", "a mutation needs an idempotency key"))?;
-        envelope["idempotency_key"] = Value::String(key);
+        envelope.set("idempotency_key", Value::String(key));
     }
     Ok(envelope.to_string())
 }

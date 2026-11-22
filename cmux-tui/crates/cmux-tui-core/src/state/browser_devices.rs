@@ -21,6 +21,7 @@
 
 use std::sync::OnceLock;
 
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
@@ -35,7 +36,8 @@ pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.
 pub(crate) const ID: &str = "custom";
 
-const BUILT_IN: &str = include_str!("../../data/emulated-devices.json");
+static BUILT_IN: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../data/emulated-devices.json"));
 /// Most custom devices kept (Chrome has no limit; this bounds the row set).
 pub(crate) const MAX_CUSTOM: usize = 200;
 /// Largest stored device object.
@@ -59,7 +61,8 @@ struct BuiltIn {
 fn built_in() -> &'static BuiltIn {
     static LIST: OnceLock<BuiltIn> = OnceLock::new();
     LIST.get_or_init(|| {
-        let file: Value = serde_json::from_str(BUILT_IN).expect("emulated-devices.json parses");
+        let file: Value =
+            serde_json::from_str(&BUILT_IN.inflate()).expect("emulated-devices.json parses");
         let chrome = file.get("chrome").cloned().unwrap_or(Value::Null);
         let chromium =
             chrome.get("chromium").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -695,7 +698,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     }
     let mut agent = json!({"userAgent": user_agent});
     if let Some(metadata) = &metadata {
-        agent["userAgentMetadata"] = metadata.clone();
+        agent.set("userAgentMetadata", metadata.clone());
     }
     let touch_call = if touch {
         json!({"enabled": true, "maxTouchPoints": 1})

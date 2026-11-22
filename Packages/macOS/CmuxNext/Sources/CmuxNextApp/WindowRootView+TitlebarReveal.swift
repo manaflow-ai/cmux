@@ -11,6 +11,10 @@ import CmuxNextDesign
 // button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
+        // The mode first: `add` sets each button's alpha from it at once. A fade run
+        // before this view joins a window never applies, so the buttons stayed at 0
+        // with the sidebar open until it was hidden and shown again.
+        applyTitlebarButtonsMode()
         titlebarReveal.add(toolbarBand.sidebarToggle)
         titlebarReveal.add(toolbarBand.backButton)
         titlebarReveal.add(toolbarBand.forwardButton)
@@ -21,23 +25,29 @@ extension WindowRootView {
             let glass = trafficLightsGlass
             Motion.feedback.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
         }
-        // The pointer over the sidebar shows its chrome: its + button and these buttons above it.
+        // The pointer over a shown or floating sidebar shows its chrome: its + button and these buttons above it.
         sidebar.sidebarView.onChromeRevealChange = { [weak self] revealed in
             guard let self else { return }
-            if revealed {
+            if revealed, !sidebarHidden || sidebar.model.isFloating {
                 if sidebarHoverHold == nil { sidebarHoverHold = titlebarReveal.hold() }
             } else {
-                sidebarHoverHold?.release()
-                sidebarHoverHold = nil
+                endSidebarHoverHold()
             }
         }
-        applyTitlebarButtonsMode()
     }
 
-    /// `window.titlebarButtons`: hover hides the buttons at rest; always
-    /// shows them.
+    func endSidebarHoverHold() { sidebarHoverHold?.release(); sidebarHoverHold = nil }
+
+    /// Whether the buttons hide at rest. With the sidebar open they always
+    /// show, as its + button does (Lawrence 2026-10-28 message 15460: "if
+    /// sidebar is open, all the stuff should show"), unless Minimal Mode or Show
+    /// Sidebar Controls Only on Hover is on (``SidebarSectionsPreferences/hidesControlsUntilHover``). With the
+    /// sidebar hidden, `window.titlebarButtons` decides: hover (the default)
+    /// hides them at rest; always shows them.
     func applyTitlebarButtonsMode() {
-        titlebarReveal.isEnabled = DesignSettings.shared.titlebarButtons == .hover
+        let design = DesignSettings.shared
+        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.hidesControlsUntilHover
+        if titlebarReveal.isEnabled != hidesAtRest { titlebarReveal.isEnabled = hidesAtRest }
     }
 
     /// The region is the top row above a left sidebar, and at least the
@@ -54,12 +64,11 @@ extension WindowRootView {
     /// "you only get that hoverable animation when you're in the area of
     /// the, like, the rightmost area of the go forward button").
     /// The glass patch covers the traffic lights with a small margin.
-    /// - Parameter fullBandMaxX: The open band's trailing edge (its Forward
-    ///   button's trailing edge).
-    func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
+    /// The zone never draws: it ends at Forward's own edge, not the band's pixel-aligned one (up to a device pixel off).
+    /// - Parameter openForwardMaxX: The open Forward button's trailing edge: the band's aligned origin plus its slots.
+    func layoutTitlebarReveal(rowHeight: CGFloat, openForwardMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
-        let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
-        let width = min(bounds.width, max(sidebarMaxX, bandMaxX))
+        let width = min(bounds.width, max(sidebarMaxX, openForwardMaxX))
         titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero

@@ -54,6 +54,7 @@ use tokio_util::sync::CancellationToken;
 use crate::pty::{
     FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
 };
+use cmux_json::JsonSet as _;
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
 /// mirrors this value in apps/backend/src/tunnel/terminal-ticket-route.ts —
@@ -337,7 +338,7 @@ impl Connection {
                     "rows": frame.get("rows").cloned().unwrap_or(Value::Null),
                 });
                 if let Some(surface) = frame.get("surface").and_then(Value::as_str) {
-                    opened["surface"] = Value::from(surface);
+                    opened.set("surface", Value::from(surface));
                 }
                 self.send_control(&opened);
             }
@@ -370,7 +371,7 @@ impl Connection {
                     wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
                 let mut error = json!({ "t": "error", "code": code });
                 if let Some(message) = frame.get("message").and_then(Value::as_str) {
-                    error["message"] = Value::from(message);
+                    error.set("message", Value::from(message));
                 }
                 self.send_control(&error);
                 // Non-fatal errors (an oversized input frame) keep the
@@ -440,7 +441,7 @@ async fn handle_client_frame(
                 "rows": rows,
             });
             if let Some(surface) = surface {
-                open["surface"] = Value::from(surface);
+                open.set("surface", Value::from(surface));
             }
             connection.manager.handle_frame(&open, context).await;
         }

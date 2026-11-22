@@ -698,6 +698,29 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         );
       });
 
+      test("find counts every match and Replace All replaces them all, past Monaco's 999 default", async () => {
+        await fresh();
+        const target = file("many.txt", "x\n".repeat(1500));
+        await openEditor(page, target);
+        await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "replace" }),
+        );
+        await page.waitForSelector(".find-pill__replace");
+        await page.fill(".find-pill__field", "x");
+        await page.waitForFunction(() =>
+          /^1 of \d+$/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
+        );
+        if (shots && name === "chromium") await page.screenshot({ path: path.join(shots, "editor-find-count.png") });
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 1500");
+        await page.fill(".find-pill__replace .find-pill__field", "y");
+        await page.click(".find-pill__replace-all");
+        await page.waitForFunction(
+          () => window.__cmuxEditor!.view()!.monacoEditor.getModel()!.getValue() === "y\n".repeat(1500),
+        );
+      });
+
       test("screen reader mode works from the keyboard alone", async () => {
         await fresh();
         fs.writeFileSync(

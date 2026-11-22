@@ -31,7 +31,7 @@ final class HomeStarterChips: NSView {
         }
         repaint()
         needsLayout = true
-        if let focused { window?.makeFirstResponder(buttons.first { $0.title == focused } ?? buttons.first) }
+        if let focused { FocusRoute(.system, "Home starter prompts listed").moveKeyboard(in: window, to: buttons.first { $0.title == focused } ?? buttons.first) }
     }
 
     func applyScale(_ value: CGFloat) { scale = value; repaint(); needsLayout = true }
@@ -39,10 +39,10 @@ final class HomeStarterChips: NSView {
 
     private func repaint() {
         for button in buttons {
-            button.font = .systemFont(ofSize: TypeScale.detail * scale)
+            button.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
             button.contentTintColor = text
             button.layer?.backgroundColor = look == .plain ? NSColor.clear.cgColor : fill.cgColor
-            button.layer?.cornerRadius = 12 * scale
+            button.layer?.cornerRadius = Metrics.buttonCornerRadius
         }
     }
 

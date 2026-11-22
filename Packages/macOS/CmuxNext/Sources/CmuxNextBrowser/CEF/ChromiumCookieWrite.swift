@@ -41,7 +41,15 @@ public nonisolated struct ChromiumCookieWrite: Sendable, Equatable, CustomString
     /// Microseconds since 1601-01-01 (`cef_basetime_t`), as a decimal string.
     static func baseTime(_ date: Date?) -> String {
         guard let date else { return "0" }
-        return String(Int64((date.timeIntervalSince1970 + 11_644_473_600) * 1_000_000))
+        return String(microseconds(since1601: date))
+    }
+
+    /// `date` in microseconds since 1601-01-01, held to the Int64 range: another browser's files
+    /// carry far-future expiries (a raw double or Int64), and `Int64(_:)` of those traps.
+    static func microseconds(since1601 date: Date) -> Int64 {
+        let microseconds = (date.timeIntervalSince1970 + 11_644_473_600) * 1_000_000
+        guard !microseconds.isNaN else { return 0 }
+        return Int64(min(max(microseconds, -9.2e18), 9.2e18))
     }
 
     /// The shim's JSON for `cmux_shim_import_cookies`. Built in memory only.

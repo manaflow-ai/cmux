@@ -42,7 +42,9 @@ struct HomeSidebarUnreadDotTests {
     func theDotIsNotificationBlueNotTheThemeAccent(dark: Bool) throws {
         let home = Self.home(width: 320, dark: dark)
         let dot = home.list.controller.palette.unread
-        #expect(Self.same(dot, Palette.notificationBlue.cgColor),
+        // The notification blue's hue at 3:1 on this theme's rows, read in the scope that draws it
+        // (c0230efd501: status marks keep their hue and move their lightness per theme).
+        #expect(Self.same(dot, home.performWithTheme { Palette.notificationBlue }.cgColor),
                 "the unread dot is \(String(describing: dot.components)), not the notification blue")
     }
 
@@ -52,7 +54,7 @@ struct HomeSidebarUnreadDotTests {
         home.unreadDotColor = custom
         #expect(Self.same(home.list.controller.palette.unread, custom.cgColor))
         home.unreadDotColor = nil
-        #expect(Self.same(home.list.controller.palette.unread, Palette.notificationBlue.cgColor))
+        #expect(Self.same(home.list.controller.palette.unread, home.performWithTheme { Palette.notificationBlue }.cgColor))
     }
 
     /// Unread rows and tiles show the dot and read ones do not, in the full list and the narrow

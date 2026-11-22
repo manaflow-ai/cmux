@@ -8,7 +8,6 @@
 //! array, a string from a peer). [`JsonExt::set`] inserts into an object,
 //! turns null into an object, and leaves any other value as it is.
 
-use serde_json::{Map, Value};
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Lock without panicking on poison.
@@ -37,29 +36,6 @@ impl<T: ?Sized> RwLockExt<T> for RwLock<T> {
     }
 }
 
-/// Set an object key without the panicking `IndexMut` of `serde_json::Value`.
-pub trait JsonExt {
-    /// Insert `key`; a null becomes an object first. Any other non-object
-    /// value is left unchanged (and `false` is returned).
-    fn set(&mut self, key: &str, value: Value) -> bool;
-    /// The object map, creating it from null. `None` for any other non-object.
-    fn object_mut(&mut self) -> Option<&mut Map<String, Value>>;
-}
-
-impl JsonExt for Value {
-    fn set(&mut self, key: &str, value: Value) -> bool {
-        match self.object_mut() {
-            Some(map) => {
-                map.insert(key.to_owned(), value);
-                true
-            }
-            None => false,
-        }
-    }
-    fn object_mut(&mut self) -> Option<&mut Map<String, Value>> {
-        if self.is_null() {
-            *self = Value::Object(Map::new());
-        }
-        self.as_object_mut()
-    }
-}
+/// Non-panicking `serde_json::Value` writes: the shared [`cmux_json::JsonSet`]
+/// under the name the daemon already imports.
+pub use cmux_json::JsonSet as JsonExt;

@@ -4,7 +4,8 @@
 //! `agent_mux` (or the Chief's own participant, `membership`), subscribes,
 //! and reconnects after a loss.
 
-use std::path::PathBuf;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -174,12 +175,13 @@ pub trait PreviewPort: Send {
         height: u32,
     ) -> Result<DerivedImage, OpError>;
 
-    /// `bytes` as an attachment record of `conversation` (a picture or video
-    /// the Chief sends): the same upload, with the size only when known.
+    /// Streams a local file as an attachment record of `conversation`, with
+    /// bounded reads and the size only when known. Preview images use the
+    /// separately bounded `upload_image` path.
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
@@ -205,7 +207,7 @@ fn upload_with(
                 .map_err(sdk_error)
         },
         conversation,
-        bytes,
+        &mut std::io::Cursor::new(bytes),
         mime_type,
         name,
         width,
@@ -216,12 +218,12 @@ fn upload_with(
 /// `conversation-attachment-upload` (begin, chunks, commit) through `step`,
 /// one owner request per call.
 #[allow(clippy::too_many_arguments)]
-fn upload_steps(
+fn upload_steps<R: Read + Seek>(
     send: &mut dyn FnMut(
         ConversationAttachmentUploadRequest,
     ) -> Result<ConversationAttachmentUploadResult, OpError>,
     conversation: &str,
-    bytes: &[u8],
+    reader: &mut R,
     mime_type: &str,
     name: &str,
     width: Option<u32>,
@@ -229,14 +231,24 @@ fn upload_steps(
 ) -> Result<DerivedImage, OpError> {
     use base64::Engine;
     use sha2::Digest;
-    let hash: String = sha2::Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let io_error = |error: std::io::Error| OpError::Transport(format!("attachment read: {error}"));
+    let mut buffer = vec![0; ATTACHMENT_CHUNK_BYTES as usize];
+    let mut digest = sha2::Sha256::new();
+    let mut count = 0_u64;
+    loop {
+        let length = reader.read(&mut buffer).map_err(io_error)?;
+        if length == 0 {
+            break;
+        }
+        count += length as u64;
+        digest.update(&buffer[..length]);
+    }
+    let hash = format!("{:x}", digest.finalize());
+    reader.seek(SeekFrom::Start(0)).map_err(io_error)?;
     let image = DerivedImage {
         hash: hash.clone(),
         mime_type: mime_type.to_owned(),
-        byte_count: bytes.len() as u64,
+        byte_count: count,
     };
     let step = |op: &str| ConversationAttachmentUploadRequest {
         op: op.into(),
@@ -288,25 +300,51 @@ fn upload_steps(
             "upload begin without an upload id".into(),
         ));
     };
-    // The owner takes at most ATTACHMENT_CHUNK_BYTES a chunk (its
-    // MAX_CHUNK_BYTES): a file sent whole over that is refused.
-    for (index, chunk) in bytes.chunks(ATTACHMENT_CHUNK_BYTES as usize).enumerate() {
-        send(ConversationAttachmentUploadRequest {
+    let result = (|| {
+        // The owner takes at most ATTACHMENT_CHUNK_BYTES a chunk (its
+        // MAX_CHUNK_BYTES): a file sent whole over that is refused.
+        let mut uploaded = sha2::Sha256::new();
+        let mut offset = 0_u64;
+        loop {
+            let length = reader.read(&mut buffer).map_err(io_error)?;
+            if length == 0 {
+                break;
+            }
+            if length as u64 > count.saturating_sub(offset) {
+                return Err(OpError::Rejected("attachment_changed".into()));
+            }
+            let chunk = &buffer[..length];
+            uploaded.update(chunk);
+            send(ConversationAttachmentUploadRequest {
+                upload: Optional::Value(upload.clone()),
+                piece: Optional::Value("original".into()),
+                offset: Optional::Value(offset),
+                data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(chunk)),
+                ..step("chunk")
+            })?;
+            offset += length as u64;
+        }
+        if offset != count || format!("{:x}", uploaded.finalize()) != image.hash {
+            return Err(OpError::Rejected("attachment_changed".into()));
+        }
+        let commit = send(ConversationAttachmentUploadRequest {
             upload: Optional::Value(upload.clone()),
-            piece: Optional::Value("original".into()),
-            offset: Optional::Value(index as u64 * ATTACHMENT_CHUNK_BYTES),
-            data: Optional::Value(base64::engine::general_purpose::STANDARD.encode(chunk)),
-            ..step("chunk")
+            ..step("commit")
         })?;
+        match stored(&commit) {
+            Some(done) => done,
+            None => Err(OpError::Transport("upload commit without a record".into())),
+        }
+    })();
+    if result.is_err() {
+        // The pending chunks belong to this attempt, even when commit or
+        // the connection fails. Cancel best-effort without hiding its error.
+        let _ = send(ConversationAttachmentUploadRequest {
+            upload: Optional::Value(upload),
+            ..step("cancel")
+        });
     }
-    let commit = send(ConversationAttachmentUploadRequest {
-        upload: Optional::Value(upload),
-        ..step("commit")
-    })?;
-    match stored(&commit) {
-        Some(done) => done.map(|()| image),
-        None => Err(OpError::Transport("upload commit without a record".into())),
-    }
+    result.map(|()| image)
 }
 
 /// What the brain hears from the daemon.
@@ -487,16 +525,23 @@ impl PreviewPort for SdkPreviewPort {
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
         height: Option<u32>,
     ) -> Result<DerivedImage, OpError> {
-        upload_with(
-            self.client()?,
+        let mut file = std::fs::File::open(path)
+            .map_err(|error| OpError::Transport(format!("attachment open: {error}")))?;
+        let client = self.client()?;
+        upload_steps(
+            &mut |request| {
+                client
+                    .conversation_attachment_upload(request)
+                    .map_err(sdk_error)
+            },
             conversation,
-            bytes,
+            &mut file,
             mime_type,
             name,
             width,
@@ -1144,6 +1189,7 @@ mod tests {
         declared: Option<(String, u64, String)>,
         received: Vec<u8>,
         chunks: Vec<(u64, usize)>,
+        cancelled: bool,
     }
 
     impl Owner {
@@ -1205,6 +1251,12 @@ mod tests {
                         ..Default::default()
                     })
                 }
+                "cancel" => {
+                    self.cancelled = true;
+                    self.received.clear();
+                    self.declared = None;
+                    Ok(Default::default())
+                }
                 _ => refused("bad_op"),
             }
         }
@@ -1214,7 +1266,7 @@ mod tests {
         upload_steps(
             &mut |request| owner.step(request),
             "conv-1",
-            bytes,
+            &mut std::io::Cursor::new(bytes),
             "image/png",
             "shot.png",
             Some(10),
@@ -1255,5 +1307,164 @@ mod tests {
         let mut owner = Owner::default();
         upload(&mut owner, &bytes).expect("the upload is stored");
         assert_eq!(owner.chunks, vec![(0, bytes.len())]);
+    }
+
+    #[test]
+    fn a_large_file_streams_through_upload_without_whole_file_reads() {
+        use sha2::Digest;
+        struct Bounded(std::fs::File);
+        impl Read for Bounded {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                assert!(out.len() <= ATTACHMENT_CHUNK_BYTES as usize);
+                self.0.read(out)
+            }
+        }
+        impl Seek for Bounded {
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+                self.0.seek(position)
+            }
+        }
+        let file = tempfile::tempfile().unwrap();
+        let size = 64 * 1024 * 1024 + 17;
+        file.set_len(size).unwrap();
+        let mut received = 0_u64;
+        let mut digest = sha2::Sha256::new();
+        let mut declared = None;
+        let mut committed = false;
+        let stored = upload_steps(
+            &mut |request| match request.op.as_str() {
+                "begin" => {
+                    assert_eq!(request.byte_count, Optional::Value(size));
+                    let Optional::Value(hash) = request.sha256 else {
+                        panic!("missing hash")
+                    };
+                    declared = Some(hash);
+                    Ok(ConversationAttachmentUploadResult {
+                        upload: Optional::Value("large".into()),
+                        ..Default::default()
+                    })
+                }
+                "chunk" => {
+                    assert_eq!(request.offset, Optional::Value(received));
+                    let Optional::Value(data) = request.data else {
+                        panic!("missing chunk")
+                    };
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .unwrap();
+                    assert!(bytes.len() <= ATTACHMENT_CHUNK_BYTES as usize);
+                    received += bytes.len() as u64;
+                    digest.update(bytes);
+                    Ok(Default::default())
+                }
+                "commit" => {
+                    assert_eq!(received, size);
+                    let hash = format!("{:x}", digest.clone().finalize());
+                    assert_eq!(declared.as_deref(), Some(hash.as_str()));
+                    committed = true;
+                    Ok(ConversationAttachmentUploadResult {
+                        stored: Optional::Value(ConversationAttachmentUploadResultStored {
+                            byte_count: size,
+                            hash,
+                            mime_type: "video/mp4".into(),
+                            poster: Optional::Missing,
+                            preview: Optional::Missing,
+                        }),
+                        ..Default::default()
+                    })
+                }
+                _ => panic!("unexpected upload op"),
+            },
+            "conv-1",
+            &mut Bounded(file),
+            "video/mp4",
+            "large.mp4",
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(committed);
+        assert_eq!(stored.byte_count, size);
+    }
+
+    #[test]
+    fn a_file_changed_between_hashing_and_upload_is_never_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("changing.bin");
+        std::fs::write(&path, b"before").unwrap();
+        let mut reader = std::fs::File::open(&path).unwrap();
+        let mut owner = Owner::default();
+        let result = upload_steps(
+            &mut |request| {
+                if request.op == "begin" {
+                    std::fs::write(&path, b"after!").unwrap();
+                }
+                assert_ne!(request.op, "commit");
+                owner.step(request)
+            },
+            "conv-1",
+            &mut reader,
+            "application/octet-stream",
+            "changing.bin",
+            None,
+            None,
+        );
+        assert_eq!(result, Err(OpError::Rejected("attachment_changed".into())));
+        assert!(owner.cancelled);
+    }
+
+    #[test]
+    fn every_failed_upload_cancels_its_pending_chunks() {
+        struct Reader {
+            bytes: std::io::Cursor<Vec<u8>>,
+            fail_upload: bool,
+            fail: bool,
+        }
+        impl Read for Reader {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                if self.fail {
+                    return Err(std::io::Error::other("source read failed"));
+                }
+                self.bytes.read(out)
+            }
+        }
+        impl Seek for Reader {
+            fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+                self.fail = self.fail_upload;
+                self.bytes.seek(position)
+            }
+        }
+        for phase in ["read", "chunk", "commit", "stored"] {
+            let mut owner = Owner::default();
+            let result = upload_steps(
+                &mut |request| {
+                    let op = request.op.clone();
+                    if op == phase {
+                        return Err(OpError::Transport("connection lost".into()));
+                    }
+                    let mut result = owner.step(request)?;
+                    if phase == "stored"
+                        && op == "commit"
+                        && let Optional::Value(stored) = &mut result.stored
+                    {
+                        stored.byte_count += 1;
+                    }
+                    Ok(result)
+                },
+                "conv-1",
+                &mut Reader {
+                    bytes: std::io::Cursor::new(b"original".to_vec()),
+                    fail_upload: phase == "read",
+                    fail: false,
+                },
+                "application/octet-stream",
+                "original.bin",
+                None,
+                None,
+            );
+            assert!(result.is_err(), "{phase}: {result:?}");
+            assert!(owner.cancelled, "{phase} did not cancel");
+            assert!(owner.received.is_empty(), "{phase} left pending chunks");
+        }
     }
 }

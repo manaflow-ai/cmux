@@ -100,6 +100,8 @@ Capability differences are absorbed by the schema, not the UI:
 
 Cursor Agent has two ACP capability gaps: it advertises blocking `cursor/ask_question` and `cursor/create_plan` requests, which this adapter answers with JSON-RPC `-32601` instead of prompting; it also advertises `cursor_login`, but the adapter does not call `authenticate`, so an unauthenticated `session/new` failure has no login hint.
 
+Codex's `item/tool/requestUserInput` (a tool asking the person mid-turn) becomes a `question` event: the chat shows a card above the composer with each question's options, a text field where the question takes typed text (masked for secret questions), Answer and Decline. The page sends `{op: "answer-question", sessionId, questionId, answers}` (one string per question id, or `null` to decline) and the adapter replies `{answers: {<id>: {answers: [text]}}}`; a decline replies `{answers: {}}`. A question is never answered by the approvals option. It closes with one `question-resolved` event when answered, declined, settled by Codex (`serverRequest/resolved`), or when its turn ends, Stop is pressed or the app-server exits. Secret answers never reach the transcript.
+
 Runtime options are declared by adapters as `SessionOption[]` and replayed as
 `options` events. React renders the schema generically; provider-specific logic
 stays in adapters.

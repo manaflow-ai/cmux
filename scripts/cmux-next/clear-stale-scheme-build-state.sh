@@ -30,7 +30,22 @@ if [[ "${RUNNER_TEMP:-}" == /* && -d "$RUNNER_TEMP" ]]; then
   runner_temp="$(resolve "$RUNNER_TEMP")"
   [[ "$runner_temp" == /?*/?*/?* ]] || runner_temp=""
 fi
+# The fleet compile cache's canonical Release root (release-compile-fleet-cas.sh exports it):
+# only its DerivedData, and only for a root that resolves at least three levels down.
+cas_root=""
+if [[ "${CMUX_NEXT_RELEASE_CAS_ROOT:-}" == /* && -d "$CMUX_NEXT_RELEASE_CAS_ROOT" ]]; then
+  cas_root="$(resolve "$CMUX_NEXT_RELEASE_CAS_ROOT")"
+  [[ "$cas_root" == /?*/?*/?* ]] || cas_root=""
+fi
+# A measurement step builds the app in its checkout's .build/DerivedData/cmux-measure (reload.sh,
+# measurement_derived_data_path), a folder kept between steps: only that one folder, and only of the
+# checkout this helper itself is in, both judged where they resolve.
+own_checkout="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 if [[ -n "$runner_temp" && ( "$derived_data" == "$runner_temp"/cmux-next-* || "$derived_data" == "$runner_temp"/cmux-scheme-compile ) ]]; then
+  :
+elif [[ -n "$cas_root" && "$derived_data" == "$cas_root/DerivedData" ]]; then
+  :
+elif [[ "$derived_data" == "$own_checkout/.build/DerivedData/cmux-measure" ]]; then
   :
 else
   case "$derived_data" in

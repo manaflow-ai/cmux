@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -30,12 +31,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const titles = [
@@ -84,9 +82,9 @@ test("the Updated card's change titles show no hover preview", async () => {
   await render((strings) => (
     <UpdatedCard data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
   ));
-  // One line per area (updateSummary.ts); no line, area name or change has a tooltip.
-  expect(host.querySelectorAll(".wn-card-areas li").length).toBe(2);
-  expect(titleTooltips(".wn-card-areas")).toEqual([]);
+  // The top change (updateSummary.ts's first area) and the rest of the card have no tooltip.
+  expect(host.querySelectorAll(".wn-card-note").length).toBe(1);
+  expect(titleTooltips(".wn-card")).toEqual([]);
 });
 
 test("the Update Ready popover's change titles show no hover preview", async () => {

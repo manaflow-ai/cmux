@@ -3,8 +3,9 @@
 // no optimistic copy and never holds a password: reveal, copy and export happen in native sheets,
 // and the page only learns that they finished. React reads it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import type { SortMode } from "./model";
+import { keepUnchanged, type SortMode } from "./model";
 import {
   PasswordCodes,
   PasswordOps,
@@ -53,6 +54,10 @@ export class PasswordsStore {
   private generation = 0;
   private stops: Array<() => void> = [];
   private started = false;
+  /** The change subscription, from the first ask until it fails or the page stops. */
+  private changes?: Promise<void>;
+  /** Bumped by `stop()`, so a subscription still in flight can tell it is stale. */
+  private epoch = 0;
 
   constructor(
     private readonly client: PageClient | null,
@@ -83,21 +88,21 @@ export class PasswordsStore {
     };
   };
 
-  /** Subscribes to the change stream and the page streams, then loads. Idempotent. */
+  /** Subscribes to the page streams and the change stream, then loads. Idempotent. */
   async start(): Promise<void> {
     if (!this.client || this.started) return;
     this.started = true;
     try {
-      this.stops.push(
-        await this.client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
-          if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
-        }),
-      );
+      // The link events first: a start whose change subscription fails while the host is gone
+      // still hears the link come back and finishes then (`resume`).
       this.stops.push(
         await subscribePageStreams(this.client, { onConnection: (connected) => this.onConnection(connected) }),
       );
+      await this.followChanges(this.client);
     } catch (error) {
       this.set({ loading: false, ...failure(error) });
+      // Without the link events nothing hears a reconnect: a later start() begins clean.
+      if (this.stops.length === 0) this.started = false;
       return;
     }
     if (!this.started) {
@@ -107,8 +112,30 @@ export class PasswordsStore {
     await this.reload();
   }
 
+  /** Follows the app's `cmux.passwords.changed`; one subscription, however many starts and reconnects ask. */
+  private followChanges(client: PageClient): Promise<void> {
+    if (this.changes) return this.changes;
+    const epoch = this.epoch;
+    const subscribing = (async () => {
+      const stop = await client.subscribe<ChangedEvent>(PasswordOps.changed, (event) => {
+        if (event.profile === undefined || event.profile === this.snapshot.profile) void this.reload();
+      });
+      // The page stopped (or stopped and started) while this was in flight: it is not this run's.
+      if (epoch !== this.epoch || !this.started) return stop();
+      this.stops.push(stop);
+    })();
+    this.changes = subscribing;
+    // A failed subscription is not kept: the next start or reconnect asks again.
+    subscribing.catch(() => {
+      if (this.changes === subscribing) this.changes = undefined;
+    });
+    return subscribing;
+  }
+
   stop(): void {
     this.started = false;
+    this.epoch += 1;
+    this.changes = undefined;
     for (const stop of this.stops) stop();
     this.stops = [];
   }
@@ -118,8 +145,20 @@ export class PasswordsStore {
       this.set({ connection: "disconnected", loading: false });
     } else if (this.snapshot.connection === "disconnected") {
       this.set({ connection: "connecting" });
-      void this.reload();
+      void this.resume();
     }
+  }
+
+  /** The link came back: follow the changes if the start could not, then read the lists. */
+  private async resume(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.followChanges(this.client);
+    } catch (error) {
+      this.set({ loading: false, ...failure(error) });
+      return;
+    }
+    await this.reload();
   }
 
   /** Reads the capabilities and profiles, then every list the build can serve. */
@@ -144,9 +183,10 @@ export class PasswordsStore {
         profiles: state.profiles,
         profile,
         sections,
-        passwords: passwords?.passwords ?? [],
-        passkeys: passkeys?.passkeys ?? [],
-        exceptions: exceptions?.exceptions ?? [],
+        // Unchanged rows keep their objects, so the page's memoized rows draw only the changed ones.
+        passwords: keepUnchanged(this.snapshot.passwords, passwords?.passwords ?? []),
+        passkeys: keepUnchanged(this.snapshot.passkeys, passkeys?.passkeys ?? []),
+        exceptions: keepUnchanged(this.snapshot.exceptions, exceptions?.exceptions ?? []),
       });
     } catch (error) {
       if (generation !== this.generation) return;
@@ -296,7 +336,10 @@ export class PasswordsStore {
   private report(error: unknown): void {
     if (isPageError(error) && error.code === PasswordCodes.cancelled) return;
     if (isPageError(error) && error.code === PasswordCodes.unavailable) {
-      this.set({ notice: { kind: "failed", message: error.message } });
+      // The owner words this one for the person (PasswordStrings).
+      this.set({
+        notice: { kind: "failed", message: userMessage(error, { [PasswordCodes.unavailable]: OWNER_SENTENCE }) },
+      });
       void this.reload();
       return;
     }
@@ -315,5 +358,5 @@ export class PasswordsStore {
 
 function failure(error: unknown): Partial<PasswordsSnapshot> {
   if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected" };
-  return { notice: { kind: "failed", message: error instanceof Error ? error.message : String(error) } };
+  return { notice: { kind: "failed", message: userMessage(error) } };
 }

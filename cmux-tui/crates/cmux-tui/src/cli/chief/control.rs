@@ -9,6 +9,7 @@ use super::link::{Link, LinkError};
 use super::messages::messages;
 use super::{GlobalArgs, Session};
 use crate::cli::OutputMode;
+use cmux_json::JsonSet as _;
 
 /// What `cmux chief engine|stop` asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +58,7 @@ fn stop(link: &mut Link, name: Option<&str>, chief: Option<&str>) -> Result<bool
         None => json!({}),
     };
     if let Some(chief) = chief {
-        params["chief"] = json!(chief);
+        params.set("chief", json!(chief));
     }
     let result = link.call("chief.stop", params, Some(&key))?;
     Ok(result.pointer("/value/stopped").and_then(Value::as_bool).unwrap_or(false))
@@ -72,6 +73,10 @@ pub(super) fn engine_line(report: &Value) -> String {
     let mut line = format!("{} · {} · {}", text("harness"), text("model"), text("effort"));
     if engine.get("speed").and_then(Value::as_str) == Some("fast") {
         line.push_str(" · fast");
+    }
+    // The permission mode the next Claude turn runs in (cmux#37392).
+    if let Some(mode) = engine.get("permission_mode").and_then(Value::as_str) {
+        line.push_str(&format!(" · {mode}"));
     }
     line
 }

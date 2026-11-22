@@ -11,14 +11,17 @@ import Testing
 struct HeaderLitTests {
     typealias Row = HeaderSplitOrderTests.Row
 
+    /// The toggling Terminal (`agentChat.terminalButtonAdds` off; on, it never lights, HeaderTerminalAddsTests).
     @Test func aToggleIsOnWhileTheSplitItOpenedIsOpen() {
-        let row = Row(), toggles = AgentChatSplitToggles()
-        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
-        row.click("splitRight", toggles: toggles)
-        row.click("splitBrowserRight", toggles: toggles)
-        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight", "splitRight"])
-        row.click("splitRight", toggles: toggles)
-        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+        HeaderTerminalAddsTests.with(adds: false) {
+            let row = Row(), toggles = AgentChatSplitToggles()
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
+            row.click("splitRight", toggles: toggles)
+            row.click("splitBrowserRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight", "splitRight"])
+            row.click("splitRight", toggles: toggles)
+            #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight"])
+        }
     }
 
     @Test func closingTheSplitFromItsOwnTabTellsThePageItIsOff() async {

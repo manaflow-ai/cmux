@@ -3,30 +3,42 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
-private let theme = CmuxMobileTheme.standard
-
-/// What a terminal tab shows until the Mac's terminal is attached: a
-/// skeleton of terminal lines with the shimmer (SPEC 7.1) and a glass
-/// capsule with a spinner and the state ("Connecting to Aziz's Mac Studio…",
-/// "Reattaching…"), styled like the connection banner (SPEC 7.4). Never
-/// made-up output.
+/// What a terminal page shows over its surface until the Mac's terminal is
+/// attached: the page as last seen on this phone, as it was (never dimmed,
+/// never covered), or, for a terminal never opened on this phone, a skeleton
+/// of terminal lines with the shimmer (SPEC 7.1). Never made-up output, and
+/// never a status pill over the content: the connection's state is the title
+/// pill's subtitle, and only after ``QuietStatusGate/threshold``
+/// (``TerminalModel/connectionLine``).
+///
+/// Leo, 2026-11-12, on LTE: "wack reconnection state / just show the cache".
 public struct TerminalConnectingView: View {
-    let state: TerminalConnectionState
     /// The status bar area over the page.
     let topInset: CGFloat
-    /// The page as last seen (a tab coming back from the warm set, or a
-    /// dropped link): shown dimmed instead of the skeleton, under the same
-    /// label, so the user sees their terminal at once and that it is not live.
+    /// The page as last seen (a tab coming back from the warm set, a cold
+    /// launch, or a dropped link).
     let lastFrame: UIImage?
-    /// Whether the glass label shows. A workspace tab says "Reattaching…"
-    /// in its title pill instead (SPEC P5), so its page draws no caption.
-    let showsLabel: Bool
+    /// Whether a page with no frame draws the skeleton (a warm surface that
+    /// keeps its own live rows draws nothing over them).
+    let showsPlaceholder: Bool
 
-    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsLabel: Bool = true) {
-        self.state = state
+    public init(topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsPlaceholder: Bool = true) {
         self.topInset = topInset
         self.lastFrame = lastFrame
-        self.showsLabel = showsLabel
+        self.showsPlaceholder = showsPlaceholder
+    }
+
+    /// What the view draws: the cached frame wins; the skeleton only with no
+    /// cache at all.
+    enum Content: Equatable {
+        case lastFrame
+        case skeleton
+        case nothing
+    }
+
+    static func content(hasLastFrame: Bool, showsPlaceholder: Bool) -> Content {
+        if hasLastFrame { return .lastFrame }
+        return showsPlaceholder ? .skeleton : .nothing
     }
 
     /// Line widths of the skeleton, as fractions of the width: a prompt, some
@@ -51,39 +63,29 @@ public struct TerminalConnectingView: View {
 
     public var body: some View {
         ZStack(alignment: .top) {
-            if let lastFrame {
-                GeometryReader { proxy in
-                    Image(uiImage: lastFrame)
-                        .resizable()
-                        .interpolation(.medium)
-                        .frame(width: proxy.size.width,
-                               height: proxy.size.width * lastFrame.size.height / max(1, lastFrame.size.width))
-                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-                        .clipped()
-                        .opacity(0.55)
+            switch Self.content(hasLastFrame: lastFrame != nil, showsPlaceholder: showsPlaceholder) {
+            case .lastFrame:
+                if let lastFrame {
+                    GeometryReader { proxy in
+                        Image(uiImage: lastFrame)
+                            .resizable()
+                            .interpolation(.medium)
+                            .frame(width: proxy.size.width,
+                                   height: proxy.size.width * lastFrame.size.height / max(1, lastFrame.size.width))
+                            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                            .clipped()
+                    }
+                    .accessibilityHidden(true)
                 }
-                .accessibilityHidden(true)
-            } else {
+            case .skeleton:
                 skeleton
-            }
-            if showsLabel, let label = state.label {
-                HStack(spacing: 8) {
-                    if state.showsProgress { ProgressView().controlSize(.small) }
-                    Text(verbatim: label)
-                }
-                .font(theme.type.meta.weight(.semibold))
-                .foregroundStyle(Color.white)
-                .padding(.horizontal, 14)
-                .frame(height: 36)
-                .glassEffect(.regular, in: .capsule)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.updatesFrequently)
-                .accessibilityIdentifier("terminal.connecting")
+            case .nothing:
+                EmptyView()
             }
         }
-        .environment(\.colorScheme, .dark)
         .allowsHitTesting(false)
+        .accessibilityIdentifier("terminal.connecting")
+        .environment(\.colorScheme, .dark)
     }
 }
 #endif

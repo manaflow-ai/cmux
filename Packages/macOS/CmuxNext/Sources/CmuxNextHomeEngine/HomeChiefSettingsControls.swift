@@ -25,7 +25,7 @@ final class HomeChiefAvatarButton: NSButton {
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyUpOrDown
         wantsLayer = true
-        layer?.cornerRadius = size / 2
+        layer?.cornerRadius = size / 2 // radius-allow: Chief's avatar picture is a circle, not a button face
         layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: size), heightAnchor.constraint(equalToConstant: size)])
@@ -35,10 +35,6 @@ final class HomeChiefAvatarButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
 
     /// The one picture file a drag carries; nil for none, several, or another type.
     private func picture(in drag: any NSDraggingInfo) -> URL? {
@@ -127,10 +123,6 @@ final class HomeChiefLinkButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

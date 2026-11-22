@@ -23,6 +23,8 @@ final class ExtensionsMenuController {
         var extensionID: String?
         var isEnabled: Bool
         var isSeparator = false
+        /// The row's tooltip (the built-in uBlock Origin's "built in" note).
+        var tooltip: String?
     }
 
     let content: ExtensionsMenuView
@@ -213,6 +215,12 @@ final class ExtensionsMenuController {
         closed()
     }
 
+    /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
+    func closePanel() {
+        close()
+        popup.closePanel()
+    }
+
     /// Closes the bubble, then runs `work` with the handler (an item that opens a page, a popup
     /// or Chromium's own menu must not open under the bubble).
     private func closeThen(_ work: @escaping (any ExtensionMenuHandling) -> Void) {
@@ -316,7 +324,7 @@ final class ExtensionsMenuController {
         guard isShown else { return nil }
         var items = content.rows.map { row in
             ReportItem(title: row.info.name, identifier: ExtensionsMenu.rowIdentifier(row.extensionID),
-                       extensionID: row.extensionID, isEnabled: row.primary.isEnabled)
+                       extensionID: row.extensionID, isEnabled: row.primary.isEnabled, tooltip: row.primary.themedToolTip)
         }
         items.append(ReportItem(title: "-", isEnabled: false, isSeparator: true))
         items.append(ReportItem(title: Strings.extensionMenuTitle(.manage), identifier: ExtensionsMenu.footerIdentifier(.manage),

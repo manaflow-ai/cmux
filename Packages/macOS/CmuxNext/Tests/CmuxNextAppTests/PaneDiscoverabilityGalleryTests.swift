@@ -3,13 +3,14 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import ImageIO
 import Testing
 
 /// Native stills for the pane creation controls. The first frame is the existing compact plus;
 /// the next two show the pane's type affordance and the persistent creation actions.
-@MainActor @Suite(.serialized) struct PaneDiscoverabilityGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneDiscoverabilityGalleryTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
@@ -71,7 +72,7 @@ import Testing
         }
         if variant != .baseline {
             let target = variant.showsActions ? ActionTargetRef(kind: .pane, id: "gallery-pane") : nil
-            let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { pane.stripView.contextMenuProvider?(.newTabButton) }, paneTarget: target)
+            let toolbar = PaneToolbar(registry: { registry }, paneTarget: target)
             toolbar.update(target: "gallery-terminal", kind: .terminal, paneKinds: [.terminal])
             pane.toolbar = toolbar
         }

@@ -32,8 +32,13 @@ nonisolated final class AgentPaneLineReader: Sendable {
             try await withCheckedThrowingContinuation { continuation in
                 // Reading starts before the continuation is stored: a line or a
                 // cancel that lands in between is kept in `outcome` and resumed here.
-                // concurrency-allow: readabilityHandler runs on the handle's own dispatch queue and data is already available
-                handle.readabilityHandler = { [self] handle in receive(handle.availableData) }
+                handle.readabilityHandler = { [self] handle in
+                    switch handle.readReady() {
+                    case .bytes(let chunk): receive(chunk)
+                    case .retry: return
+                    case .end: receive(Data())
+                    }
+                }
                 let early = state.withLock { state -> Result<String, any Error>? in
                     if state.outcome == nil { state.continuation = continuation }
                     return state.outcome
@@ -48,7 +53,7 @@ nonisolated final class AgentPaneLineReader: Sendable {
         }
     }
 
-    /// Feeds bytes as the dispatch source delivers them; empty data is EOF.
+    /// Feeds bytes as the dispatch source delivers them; empty data is EOF or a failed read.
     func receive(_ chunk: Data) {
         guard !chunk.isEmpty else { return finish(.failure(Failure.endOfFile)) }
         let line = state.withLock { state -> Result<String, any Error>? in

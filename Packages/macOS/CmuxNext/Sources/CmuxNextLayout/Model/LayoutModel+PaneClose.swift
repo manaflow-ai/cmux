@@ -18,15 +18,15 @@ extension LayoutModel {
     /// A pane with a sibling in its split tree closes this way, and so does a column's only pane
     /// when another column stays (Leo 2026-10-25: "we should never block shit on the tab
     /// animation"; the column used to wait for the daemon's tree while its emptied strip played the
-    /// tab's close). The screen's last pane and a pane in a column with rows leave with the
-    /// daemon's tree.
+    /// tab's close), and so does a pane in a column with rows (its row's tree loses it; a row it
+    /// empties leaves the column, ``removingRowPane(_:from:)``). The screen's last pane leaves with
+    /// the daemon's tree.
     ///
     /// - Parameter pane: The pane whose last tab (or which) closes.
     /// - Returns: The pending close, for ``settlePaneClose(_:)`` or ``cancelPaneClose(_:)``; nil when
     ///   the pane is not shown, is zoomed, or nothing stays to take its space.
     public func showPaneClose(_ pane: PaneID) -> PendingPaneClose? {
-        guard paneCloses[pane] == nil, let screen = screens.first(where: { $0.layout.contains(pane) }), !screen.zoomed,
-              let after = Self.removingSplitPane(pane, from: screen.layout) else { return nil }
+        guard let (screen, after) = paneCloseShown(pane) else { return nil }
         let close = PendingPaneClose(pane: pane, successor: Self.successor(of: pane, in: screen.layout), transaction: .make())
         paneCloseSequence += 1
         paneCloses[pane] = PaneCloseHold(transaction: close.transaction, sequence: paneCloseSequence)
@@ -45,6 +45,18 @@ extension LayoutModel {
         return close
     }
 
+    /// Whether ``showPaneClose(_:)`` would show `pane`'s close now (it changes nothing): a close
+    /// that may still be rolled back (a terminal's close while the daemon's read decides) hides the
+    /// pane only when the layout can show it leaving.
+    public func canShowPaneClose(_ pane: PaneID) -> Bool { paneCloseShown(pane) != nil }
+
+    /// `pane`'s screen and its layout without `pane`, when its close can be shown.
+    private func paneCloseShown(_ pane: PaneID) -> (screen: LayoutScreen, after: ScreenLayout)? {
+        guard paneCloses[pane] == nil, let screen = screens.first(where: { $0.layout.contains(pane) }), !screen.zoomed,
+              let after = Self.removingSplitPane(pane, from: screen.layout) else { return nil }
+        return (screen, after)
+    }
+
     /// The daemon accepted the close: the next snapshot says what is true (it was asked after the
     /// close committed), with the pane or without it.
     public func settlePaneClose(_ close: PendingPaneClose) {
@@ -58,6 +70,16 @@ extension LayoutModel {
         paneCloses[close.pane] = nil
         showOverlaid()
         flushLandedCloseSizes()
+    }
+
+    /// Takes back `pane`'s pending close, whoever showed it, as a refusal does: the caller shows the pane
+    /// again (a rolled-back hide) or hands the close on to one shown in this same turn.
+    /// - Returns: Whether a close was pending.
+    @discardableResult
+    public func withdrawPaneClose(_ pane: PaneID) -> Bool {
+        guard let hold = paneCloses[pane] else { return false }
+        cancelPaneClose(PendingPaneClose(pane: pane, successor: nil, transaction: hold.transaction))
+        return true
     }
 
     /// Whether `pane` is hidden by a pending close.
@@ -173,20 +195,88 @@ struct PaneCloseHold {
 
 extension LayoutModel {
     /// `layout` without `pane`: its sibling in its place, or, for a column's only pane, without its
-    /// column (``removingColumn(at:from:)``). Nil when `pane` is the screen's last pane or sits in a
-    /// column with rows.
+    /// column (``removingColumn(at:from:)``), or, in a column with rows, out of its row
+    /// (``removingRowPane(_:from:)``). Nil when `pane` is the screen's last pane.
     static func removingSplitPane(_ pane: PaneID, from layout: ScreenLayout) -> ScreenLayout? {
         switch layout {
         case let .splits(root):
             return root.contains(pane) ? root.removing(pane).map(ScreenLayout.splits) : nil
         case var .columns(columns):
-            guard let index = columns.firstIndex(where: { $0.root.contains(pane) }), !columns[index].hasRows else { return nil }
+            guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
+            if columns[index].hasRows {
+                // A pane in no row (one the rows did not map) leaves with the daemon's tree.
+                guard columns[index].row(containing: pane) != nil else { return nil }
+                releasingChatRole(of: &columns[index], closing: pane)
+                columns[index] = removingRowPane(pane, from: columns[index])
+                // A lone column left with one row is the screen's split tree again
+                // (`project_layout_columns`), unless it is a pinned dock.
+                if columns.count == 1, !columns[0].hasRows, columns[0].dock?.isPinned != true { return .splits(columns[0].root) }
+                return .columns(columns)
+            }
             guard let root = columns[index].root.removing(pane) else {
                 return columns.count > 1 ? removingColumn(at: index, from: columns) : nil
             }
+            releasingChatRole(of: &columns[index], closing: pane)
             columns[index].root = root
             return .columns(columns)
         }
+    }
+
+    /// `column` (with two or more rows) without `pane`, as cmux-tui's tree shows it after the close
+    /// (`remove_pane_from_screen_layout`, then `LayoutColumn::normalize_rows`): the pane leaves its
+    /// row's tree, its sibling in its place; a row it empties leaves the column (the top row's going
+    /// leaves the next row's id and height as the top); the rows left keep their heights; a column
+    /// left with one row is a plain column whose tree is that row's. The compat chain `root` is
+    /// refolded from the rows: chain split k is row k's (ids and splits as the daemon's chain had
+    /// them), its ratio the heights above it over the heights through it, in `f32` as the daemon
+    /// computes it.
+    static func removingRowPane(_ pane: PaneID, from column: LayoutColumn) -> LayoutColumn {
+        guard let index = column.rows.firstIndex(where: { $0.root.contains(pane) }) else { return column }
+        var column = column
+        // The chain's splits, top first: `chain[k - 1]` joins rows 0..<k above row k.
+        var chain: [SplitID] = []
+        var node = column.root
+        while chain.count < column.rows.count - 1, case .split(let id, .vertical, _, let a, _) = node {
+            chain.append(id)
+            node = a
+        }
+        chain.reverse()
+        guard chain.count == column.rows.count - 1 else {
+            // Not the chain the daemon builds: the compat tree just loses the pane.
+            column.root = column.root.removing(pane) ?? column.root
+            if let root = column.rows[index].root.removing(pane) { column.rows[index].root = root } else { column.rows.remove(at: index) }
+            if column.rows.count < 2 { column.rows = [] }
+            return column
+        }
+        if let root = column.rows[index].root.removing(pane) {
+            column.rows[index].root = root
+        } else {
+            // The emptied row's split goes; for the top row, the split under it (the next row is the top now).
+            column.rows.remove(at: index)
+            chain.remove(at: max(index - 1, 0))
+        }
+        guard column.rows.count >= 2 else {
+            column.root = column.rows[0].root
+            column.rows = []
+            return column
+        }
+        var root = column.rows[0].root
+        var before = Float(column.rows[0].height)
+        for (row, split) in zip(column.rows.dropFirst(), chain) {
+            let height = Float(row.height)
+            let ratio = clampedRatio(Double(before / (before + height)))
+            root = .split(split, axis: .vertical, ratio: ratio, a: root, b: row.root)
+            before += height
+        }
+        column.root = root
+        return column
+    }
+
+    /// The agent chat's own pane (its dock's top pane, read before the close) leaving while panes
+    /// stay below it: the dock stays on its edge as a plain dock (cmux-tui `release_agent_chat_role`).
+    static func releasingChatRole(of column: inout LayoutColumn, closing pane: PaneID) {
+        guard column.dock?.role == .agentChat, column.root.panes.first == pane else { return }
+        column.dock?.role = nil
     }
 
     /// `columns` without the column at `index`, as cmux-tui's tree shows it after the close
@@ -210,15 +300,19 @@ extension LayoutModel {
     }
 
     /// The pane that takes the focus from `pane` (close-focus.md): the first pane of its sibling in
-    /// its split tree; for a column's only pane, the first pane of the nearest column to its left
-    /// in visual order, else to its right.
+    /// its split tree (its row's, in a column with rows); for a row's only pane, the first pane of
+    /// the row above, else below; for a column's only pane, the first pane of the nearest column to
+    /// its left in visual order, else to its right.
     static func successor(of pane: PaneID, in layout: ScreenLayout) -> PaneID? {
         switch layout {
         case let .splits(root):
             return CloseSizing.parent(of: pane, in: root)?.1.panes.first
         case .columns:
-            if let root = layout.column(containing: pane)?.root, let sibling = CloseSizing.parent(of: pane, in: root) {
-                return sibling.1.panes.first
+            if let column = layout.column(containing: pane), let tree = column.tree(containing: pane) {
+                if let sibling = CloseSizing.parent(of: pane, in: tree) { return sibling.1.panes.first }
+                if column.hasRows, let index = column.rows.firstIndex(where: { $0.root.contains(pane) }) {
+                    return (index > 0 ? column.rows[index - 1] : column.rows[index + 1]).root.panes.first
+                }
             }
             let visual = layout.visualColumns
             guard let index = visual.firstIndex(where: { $0.root.contains(pane) }) else { return nil }

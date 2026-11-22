@@ -28,21 +28,21 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 /// Tick resolution while active; boringtun's own device uses the same.
-pub(crate) const TIMER_TICK: Duration = Duration::from_millis(250);
+pub const TIMER_TICK: Duration = Duration::from_millis(250);
 /// How long after the last activity boringtun's timers can still fire:
 /// KEEPALIVE_TIMEOUT + REKEY_TIMEOUT (15 s) plus margin.
-pub(crate) const ACTIVE_WINDOW: Duration = Duration::from_secs(20);
+pub const ACTIVE_WINDOW: Duration = Duration::from_secs(20);
 /// REJECT_AFTER_TIME * 3 (540 s) plus margin: one tick after this zeroes
 /// the session keys.
-pub(crate) const EXPIRY_SWEEP: Duration = Duration::from_secs(541);
+pub const EXPIRY_SWEEP: Duration = Duration::from_secs(541);
 /// A session younger than REKEY_AFTER_TIME (120 s) is used as it is after a
 /// network change; an older one is replaced by a handshake at once.
-pub(crate) const SESSION_FRESH: Duration = Duration::from_secs(120);
+pub const SESSION_FRESH: Duration = Duration::from_secs(120);
 /// Resolution of a persistent keepalive on an otherwise idle tunnel.
-pub(crate) const KEEPALIVE_TICK: Duration = Duration::from_secs(1);
+pub const KEEPALIVE_TICK: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
-pub(crate) struct TimerSchedule {
+pub struct TimerSchedule {
     last_activity: Instant,
     last_tick: Instant,
     swept: bool,
@@ -50,12 +50,12 @@ pub(crate) struct TimerSchedule {
 }
 
 impl TimerSchedule {
-    pub(crate) fn new(now: Instant, persistent_keepalive: bool) -> Self {
+    pub fn new(now: Instant, persistent_keepalive: bool) -> Self {
         Self { last_activity: now, last_tick: now, swept: false, persistent_keepalive }
     }
 
     /// A datagram was authenticated, or a data or handshake datagram left.
-    pub(crate) fn on_activity(&mut self, now: Instant) {
+    pub fn on_activity(&mut self, now: Instant) {
         if now > self.last_activity {
             self.last_activity = now;
         }
@@ -64,7 +64,7 @@ impl TimerSchedule {
 
     /// Whether boringtun's timers can still fire: the session carried
     /// traffic within the active window.
-    pub(crate) fn is_active(&self, now: Instant) -> bool {
+    pub fn is_active(&self, now: Instant) -> bool {
         now < self.last_activity + ACTIVE_WINDOW
     }
 
@@ -74,12 +74,12 @@ impl TimerSchedule {
     /// second condition matters: without it a scheduled tick that is not
     /// overdue never runs, `next_tick` stays in the past, and the driver
     /// wakes for it without pause.
-    pub(crate) fn due(&self, now: Instant) -> bool {
+    pub fn due(&self, now: Instant) -> bool {
         now >= self.last_tick + TIMER_TICK || self.next_tick().is_some_and(|tick| tick <= now)
     }
 
     /// `update_timers` ran at `now`.
-    pub(crate) fn on_tick(&mut self, now: Instant) {
+    pub fn on_tick(&mut self, now: Instant) {
         self.last_tick = now;
         if now >= self.last_activity + EXPIRY_SWEEP {
             self.swept = true;
@@ -87,7 +87,7 @@ impl TimerSchedule {
     }
 
     /// When `update_timers` must run next, or `None` to wait for an event.
-    pub(crate) fn next_tick(&self) -> Option<Instant> {
+    pub fn next_tick(&self) -> Option<Instant> {
         let regular = self.last_tick + TIMER_TICK;
         if regular <= self.last_activity + ACTIVE_WINDOW {
             return Some(regular);

@@ -222,6 +222,7 @@ export type BillingGrantClaim =
   | { readonly kind: "already_claimed" };
 
 export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
+  readonly countSavedUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<number, VmDatabaseError>;
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -421,6 +422,12 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly observation: VmIdleObservation | null;
     readonly probedAt: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Advance scheduling only; preserve the idle observation and lifecycle timestamp. */
+  readonly recordIdleCheck?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly probedAt: number;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
   readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
@@ -1248,13 +1255,13 @@ function assertCreateReservationFitsPlan(input: {
 const ACTIVE_LIMIT_NAMED_MACHINES = 20;
 
 /**
- * The refusal for a full active-VM allowance, naming the machines the count
- * saw. Clients list every non-destroyed machine, including paused ones that
- * do not count, so the names are what lets a person see which slots are used.
+ * The refusal for a full machine allowance, naming the machines the count
+ * saw. New allocations include paused machines; a resume only checks active
+ * compute admission because its saved machine already occupies a slot.
  */
 async function activeLimitExceededInTx(
   tx: CloudDbTransaction,
-  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number },
+  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number; readonly includesPaused?: boolean },
 ): Promise<VmLimitExceededError> {
   const rows = await tx
     .select({
@@ -1265,7 +1272,7 @@ async function activeLimitExceededInTx(
       status: cloudVms.status,
     })
     .from(cloudVms)
-    .where(and(inArray(cloudVms.status, ["provisioning", "running"]), input.scope))
+    .where(and(inArray(cloudVms.status, input.includesPaused === false ? ["provisioning", "running"] : LIVE_VM_RESOURCE_STATUSES), input.scope))
     .orderBy(asc(cloudVms.createdAt))
     .limit(ACTIVE_LIMIT_NAMED_MACHINES);
   return new VmLimitExceededError({
@@ -1277,7 +1284,7 @@ async function activeLimitExceededInTx(
       return {
         id,
         name: row.displayName?.trim() || row.slug?.trim() || id,
-        status: row.status === "running" ? "running" as const : "provisioning" as const,
+        status: row.status === "paused" ? "paused" as const : row.status === "running" ? "running" as const : "provisioning" as const,
       };
     }),
   });
@@ -2120,6 +2127,17 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .returning({ id: cloudVms.id });
       return rows.length > 0;
     }),
+  recordIdleCheck: (input) =>
+    dbEffect("recordIdleCheck", async () => {
+      await cloudDb().update(cloudVms).set({
+        providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+          || jsonb_build_object(${VM_IDLE_PROBED_AT_KEY}::text, greatest(${metadataMillis(VM_IDLE_PROBED_AT_KEY)}, ${input.probedAt}::bigint))`,
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        eq(cloudVms.status, "running"),
+      ));
+    }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()
       .select()
@@ -2214,6 +2232,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .limit(input.limit);
       return rows.map((row) => row.providerMetadata);
     }),
+
+  countSavedUserVms: (userId, billingTeamId) => dbEffect("countSavedUserVms", async () => {
+    const [row] = await cloudDb().select({ total: count() }).from(cloudVms)
+      .where(and(billingTeamId ? eq(cloudVms.billingTeamId, billingTeamId) : eq(cloudVms.userId, userId), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+    return Number(row?.total ?? 0);
+  }),
 
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
@@ -2351,7 +2375,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running"]),
+                  inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                   eq(cloudVms.billingTeamId, input.billingTeamId),
                 ),
               );
@@ -2496,7 +2520,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .select({ total: count() })
               .from(cloudVms)
               .where(and(
-                inArray(cloudVms.status, ["provisioning", "running"]),
+                inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                 eq(cloudVms.billingTeamId, input.billingTeamId),
               ));
             const activeCount = Number(active?.total ?? 0);
@@ -2716,7 +2740,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
-            inArray(cloudVms.status, ["provisioning", "running"]),
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
             eq(cloudVms.billingTeamId, input.billingTeamId),
           ];
           const [active] = await tx
@@ -3178,6 +3202,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               scope: teamScope,
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
+              includesPaused: false,
             });
           }
           if (input.resourcePool) {

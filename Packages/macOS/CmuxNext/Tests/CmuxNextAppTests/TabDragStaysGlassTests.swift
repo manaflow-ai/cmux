@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// #22807: in a translucent window a dragged tab stays glass. `DragGlassTests` sets `isLifted` on a lone cell; this
@@ -8,7 +9,7 @@ import Testing
 /// the selection the press made syncs back from the model), and reads the lifted cell's fill at every step: a thicker
 /// piece of the window's glass (`WindowBackdrop.dragLiftAlpha`), never the solid theme block. Blur and alpha do not
 /// show in a capture, so the cell's own layer is the evidence.
-@MainActor @Suite(.serialized) struct TabDragStaysGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabDragStaysGlassTests {
     @Test func theLiftedTabKeepsItsGlassFillWhileItIsDragged() throws {
         let original = ThemeScope.app.store.input
         defer { _ = ThemeScope.app.store.apply(original) }

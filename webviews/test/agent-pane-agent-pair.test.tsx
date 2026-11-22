@@ -17,7 +17,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxAgentPair, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { AgentPairNote, spelledWindow } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { AgentPairNote } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { spelledWindow } from "../src/agent-session/acpmux/conversation/agentPairNoteModel";
 import { reduceAgentPair } from "../src/agent-session/acpmux/conversation/agentPairs";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import {
@@ -36,6 +37,7 @@ import {
   released,
   resumed,
 } from "./support/agentPairDaemon";
+import { settleReact } from "./support/domTeardown";
 
 /// What a row says, compactly: why, what it still holds, what settled, whether it resumed.
 const summary = (pair: AcpmuxAgentPair) => ({
@@ -217,6 +219,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

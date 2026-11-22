@@ -13,7 +13,7 @@ export interface PressReleaseHandlers {
   /** The row under the pointer while the press drags. */
   hover?(row: HTMLElement): void;
   /** Picks `row` (default: a mouse press and click on it, as rows pick on either). */
-  pick?(row: HTMLElement): void;
+  pick?(row: HTMLElement, event: PointerEvent): void;
   /** Released on `row`, after it was picked. */
   picked?(row: HTMLElement): void;
   /** Released after dragging away, not on a row. */
@@ -58,7 +58,7 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     const held = Date.now() - startedAt >= PRESS_CLICK_MS;
     const row = moved || held ? rowAt(event) : null;
     if (row) {
-      (handlers.pick ?? clickRow)(row);
+      (handlers.pick ?? clickRow)(row, event);
       handlers.picked?.(row);
     } else if (moved && held) {
       handlers.close?.();
@@ -78,6 +78,55 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
   doc.addEventListener("pointermove", move, true);
   doc.addEventListener("pointerup", up, true);
   doc.addEventListener("pointercancel", cancel, true);
+  return stop;
+}
+
+/**
+ * Follows a press still held when a menu opened at the pointer (a right-click or Control-click: a
+ * Mac sends `contextmenu` on the press) until its release: dragging onto a row of `menu` and
+ * releasing clicks it; releasing after dragging away, held past a click, calls `close`. The same
+ * rules as `trackPressRelease`, for a press with no trigger. Returns a cancel.
+ */
+export function trackHeldMenuRelease(
+  doc: Document,
+  start: { clientX: number; clientY: number },
+  menu: () => HTMLElement | null,
+  close: () => void,
+): () => void {
+  const startedAt = Date.now();
+  let moved = false;
+  const movedTo = (event: PointerEvent) => {
+    if (!moved) moved = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) >= SLOP;
+  };
+  const rowAt = (event: PointerEvent) => {
+    const root = menu();
+    const target = doc.elementFromPoint?.(event.clientX, event.clientY);
+    if (!root || !target || !root.contains(target)) return null;
+    const row = target.closest<HTMLElement>(PRESS_ROW);
+    if (!row || row.matches('[aria-disabled="true"], :disabled')) return null;
+    return row;
+  };
+  const move = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse") return;
+    movedTo(event);
+  };
+  const up = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse") return;
+    stop();
+    movedTo(event);
+    const held = Date.now() - startedAt >= PRESS_CLICK_MS;
+    const row = moved || held ? rowAt(event) : null;
+    if (row) row.click();
+    else if (moved && held) close();
+  };
+  function stop() {
+    doc.removeEventListener("pointermove", move, true);
+    doc.removeEventListener("pointerup", up, true);
+    doc.removeEventListener("pointercancel", stop, true);
+  }
+  doc.addEventListener("pointermove", move, true);
+  doc.addEventListener("pointerup", up, true);
+  doc.addEventListener("pointercancel", stop, true);
   return stop;
 }
 

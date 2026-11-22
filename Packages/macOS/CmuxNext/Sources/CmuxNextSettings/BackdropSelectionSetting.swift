@@ -6,24 +6,26 @@ public import CmuxNextDesign
 /// (`daily`), the pictures of a folder shuffled (`folder:<absolute path>`), or `none`. Unset is
 /// ``defaultSelection``. A shuffle turns as often as `appearance.backgroundRotation` says.
 public struct BackdropSelectionSetting: Sendable {
-    /// The shared Settings, CLI and cmux.json path.
-    public let configPath = ["appearance", "background"]
-
     /// Shuffle Paintings: the art set's work of the period (``BackdropArt/shuffled(on:every:calendar:)``).
     /// The id keeps its first name, from when it turned only daily.
     public static let dailyID = "daily"
     /// Shuffle a folder: `folder:<absolute path>` turns through the pictures in it.
     public static let folderPrefix = "folder:"
-    /// How often a shuffle turns (``BackdropRotation``).
-    public static let rotationPath = ["appearance", "backgroundRotation"]
 
     /// Creates the setting parser.
     public init() {}
 
+    /// The Settings picker's choices after None and Shuffle Paintings (schemas/settings/source/appearance.json):
+    /// the bundled art by collection, Dark Art first, then the desktop picture.
+    static var catalogChoices: [SettingChoice] {
+        BackdropCatalog.bundled.map { SettingChoice($0.id, $0.title) }
+            + [SettingChoice(BackdropSelection.desktopID, SettingsText.keyed("settings.choice.desktopWallpaper", "Desktop Wallpaper"))]
+    }
+
     /// The shuffle `root` asks for, with how often it turns; nil for a fixed background.
     public static func shuffle(_ root: JSONValue) -> BackdropShuffle? {
-        guard let raw = root.value(at: ["appearance", "background"])?.stringValue else { return nil }
-        let rotation = root.value(at: rotationPath)?.stringValue.flatMap(BackdropRotation.init(rawValue:)) ?? .defaultRotation
+        guard let raw = root.value(at: configPath)?.stringValue else { return nil }
+        let rotation = Self.rotation(root.value(at: rotationPath)) ?? rotationDefault
         if raw == dailyID { return BackdropShuffle(source: .paintings, rotation: rotation) }
         return folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: rotation) }
     }
@@ -49,21 +51,8 @@ public struct BackdropSelectionSetting: Sendable {
     /// domain marker so all entry points accept the same values.
     static func accepts(_ value: JSONValue) -> Bool {
         guard let raw = value.stringValue else { return false }
-        return raw == "none" || raw == dailyID || folderPath(raw) != nil || BackdropSelection(id: raw) != nil
-    }
-
-    /// Portable examples used by schema export and conformance tests. System
-    /// paths are a domain rather than a fixed enum because each macOS install
-    /// publishes a different wallpaper set.
-    static var acceptedSamples: [JSONValue] {
-        [.string("none"), .string(dailyID), .string(BackdropSelection.desktopID)] + BackdropArt.allCases.map { .string($0.rawValue) } +
-            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"), .string("file:/Users/Shared/Harbor.png"),
-             .string("folder:/Users/Shared/Wallpapers")]
-    }
-
-    static var refusedSamples: [JSONValue] {
-        [.string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"), .string("file:"), .string("folder:relative"),
-         .string("folder:"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
+        return raw == "none" || raw == dailyID || raw == appearanceID || raw == scheduleID || folderPath(raw) != nil
+            || BackdropSelection(id: raw) != nil
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in
@@ -78,7 +67,7 @@ public struct BackdropSelectionSetting: Sendable {
 
     /// Parses the new key and accepts the legacy bundled-art key.
     func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BackdropSelection? {
-        if let value = root.value(at: configPath) {
+        if let value = root.value(at: Self.configPath) {
             guard let raw = value.stringValue else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
                                                       message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
@@ -86,8 +75,16 @@ public struct BackdropSelectionSetting: Sendable {
             }
             if raw == "none" { return nil }
             if BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
-            // A shuffle shows its picture of now; the app's timer turns it (`TerminalThemeSetting`).
-            if let shuffle = Self.shuffle(root) { return shuffle.pick(on: Date(), calendar: .current) }
+            // Light and Dark: each view draws the side for its appearance.
+            if raw == Self.appearanceID { return Self.pair(root) }
+            if raw == Self.scheduleID, Self.schedule(root) == nil, root.value(at: Self.schedulePath) != nil {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundSchedule",
+                                                      message: "expected an object of HH:MM or sunrise, sunset, dawn, dusk, noon (with +/-Nm or Nh) to fixed backgrounds"))
+            }
+            // A switch (shuffle, schedule, dynamic wallpaper by time) shows its picture of now; the
+            // app's timer turns it (`TerminalThemeSetting`).
+            if let auto = BackdropSwitch(root) { return auto.turn(at: Date(), calendar: .current).picture }
+            if raw == Self.scheduleID { return nil }
             guard let selection = BackdropSelection(id: raw) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
                                                       message: "expected none, daily, desktop, bundled art, folder:<absolute path>, or an absolute system wallpaper or image path"))
@@ -95,7 +92,7 @@ public struct BackdropSelectionSetting: Sendable {
             }
             return selection
         }
-        guard let legacy = root.value(at: BackdropArtSetting().configPath) else { return Self.defaultSelection }
+        guard let legacy = root.value(at: BackdropArtSetting.configPath) else { return Self.defaultSelection }
         if let raw = legacy.stringValue, BackdropArt.removedIDs.contains(raw) { return Self.defaultSelection }
         return BackdropArtSetting().parse(root, diagnostics: &diagnostics).map(BackdropSelection.art)
     }

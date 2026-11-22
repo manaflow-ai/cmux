@@ -7,6 +7,7 @@
 
 use super::driver::{INTERNAL_TIMEOUT, Inner, cookie_matches, playwright_cookie};
 use crate::protocol::DriverError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Whether a cookie's Domain belongs to `site` (the site or a subdomain).
@@ -72,7 +73,7 @@ impl Inner {
             )?,
             None => {
                 let mut call = store.clone();
-                call["cookies"] = Value::Array(cookies);
+                call.set("cookies", Value::Array(cookies));
                 self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?
             }
         };
@@ -153,7 +154,7 @@ impl Inner {
         // A relayed app tab's store has no id here: the restore goes back
         // through that tab (its CDP target id), never another profile's.
         if self.conn.root_alias().is_some() {
-            record["relayTarget"] = json!(session.target_id);
+            record.set("relayTarget", json!(session.target_id));
         }
         let full = |message: String| {
             DriverError::new(

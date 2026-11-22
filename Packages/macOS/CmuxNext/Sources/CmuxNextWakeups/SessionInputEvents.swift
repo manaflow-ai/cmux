@@ -18,4 +18,12 @@ public protocol SessionInputEvents: AnyObject {
     /// is a key-down or a mouse-button-down. Returns false while it cannot yet (no `NSApp`): the
     /// caller asks again on its next check.
     func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (_ timestamp: TimeInterval, _ isKeyOrClick: Bool) -> Void) -> Bool
+    /// Whether a menu of this app is tracking the pointer now (a right-click menu, the menu bar):
+    /// while one is, the pointer's motion is a person moving through its rows, and each row's
+    /// highlight waits for the main thread.
+    var isMenuTracking: Bool { get }
+}
+
+extension SessionInputEvents {
+    public var isMenuTracking: Bool { false }
 }

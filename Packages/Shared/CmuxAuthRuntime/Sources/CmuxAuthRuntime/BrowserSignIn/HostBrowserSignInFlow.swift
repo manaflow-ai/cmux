@@ -67,6 +67,10 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
     @ObservationIgnored private var isAwaitingCallbackApproval = false
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    /// `nextAttemptID` at the last sign-out: no attempt started since, so a late
+    /// callback the sign-out made stale stays quiet instead of reporting a failure.
+    @ObservationIgnored private var signedOutAtAttempt: UInt64?
+    private var signedOutSinceLastAttempt: Bool { signedOutAtAttempt == nextAttemptID }
     /// The attempt whose callback is being completed: its tokens are already
     /// seeded, so a Cancel then is ignored rather than tearing it down mid-way.
     @ObservationIgnored private var completingAttemptID: UInt64?
@@ -227,11 +231,20 @@ public final class HostBrowserSignInFlow {
             // cannot burn the user's still-pending state.
             guard callbackRouter.callbackPayload(from: url) != nil else {
                 log.log("auth.callback.external.reject reason=invalidPayload")
-                lastFailure = .invalidCallback
+                if !signedOutSinceLastAttempt { lastFailure = .invalidCallback }
                 return false
             }
             guard issuedCallbackStates.consume(state) else {
                 log.log("auth.callback.external.reject reason=unknownOrExpiredState")
+                // Relaunch loses issued states. Keep rejecting the callback, but
+                // let the signed-out UI offer a fresh attempt instead of silence.
+                // A sign-out since the last attempt cleared the states on purpose: stay quiet.
+                guard !signedOutSinceLastAttempt else { return false }
+                let generation = signOutGeneration
+                let attempt = nextAttemptID
+                await coordinator.awaitBootstrapped()
+                if generation == signOutGeneration, attempt == nextAttemptID,
+                   !isSigningIn, !coordinator.isAuthenticated { lastFailure = .invalidCallback }
                 return false
             }
             log.log("auth.callback.external.routeToIssuedState")
@@ -250,7 +263,7 @@ public final class HostBrowserSignInFlow {
     private func completeUnsolicitedCallbackIfApproved(_ url: URL) async -> Bool {
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback.unsolicited.reject reason=invalidPayload")
-            lastFailure = .invalidCallback
+            if !signedOutSinceLastAttempt { lastFailure = .invalidCallback }
             return false
         }
         guard !isAwaitingCallbackApproval else {
@@ -285,6 +298,7 @@ public final class HostBrowserSignInFlow {
         if await signOutCoordinator.joinActive() { return }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
+        signedOutAtAttempt = nextAttemptID
         lastFailure = nil
         cancelActiveAttempt()
         await signOutCoordinator.run()
@@ -617,6 +631,22 @@ public final class HostBrowserSignInFlow {
             lastFailure = .invalidCallback
             return false
         }
+        return await completeSession(payload, attemptID: attemptID, callbackState: authCallbackState(from: url))
+    }
+
+    /// Signs in with a session another device of the same person handed over (`cmux auth handoff`,
+    /// redeemed by the app from cmux-api): the same seed, validation and sign-out race guards as a
+    /// browser callback, with no URL and no state. Returns whether the app ended signed in.
+    public func completeHandoff(accessToken: String, refreshToken: String) async -> Bool {
+        guard !accessToken.isEmpty, !refreshToken.isEmpty else { return false }
+        log.log("auth.handoff.complete.begin")
+        return await completeSession(AuthCallbackPayload(refreshToken: refreshToken, accessToken: accessToken),
+                                     attemptID: nil, callbackState: nil)
+    }
+
+    /// The tail every sign-in shares: seed `payload`, complete it through the coordinator, and roll
+    /// back on a racing sign-out. `callbackState` is spent when the sign-in completes.
+    private func completeSession(_ payload: AuthCallbackPayload, attemptID: UInt64?, callbackState: String?) async -> Bool {
         let generation = signOutGeneration
         if let attemptID { completingAttemptID = attemptID }
         defer { if completingAttemptID == attemptID { completingAttemptID = nil } }
@@ -726,7 +756,7 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        if let state = authCallbackState(from: url) {
+        if let state = callbackState {
             // Single use: the popup's state may also have been issued for the
             // default-browser fallback.
             issuedCallbackStates.remove(state)

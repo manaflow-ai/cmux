@@ -69,6 +69,37 @@ import Testing
         wire.cancel(code: 1000, reason: "done")
     }
 
+    /// A chat made on that Mac (its tab's host is `install:<id>`) viewed here: the wire notes its
+    /// children under the tab's host and under the daemon's store host (`registry:<id>`), which
+    /// opening a child checks, so a click on an unopened child opens it.
+    @Test func anInstallTabsChildrenAreNotedUnderTheDaemonsStoreHostToo() async throws {
+        let client = FakeClient(parent: "inst-chat", children: [["sessionId": "inst-child", "startedBy": "inst-chat"]])
+        let wire = RemoteAcpmuxWire(client: client, session: "inst-chat", host: "install:other-mac",
+                                    linksAlias: "registry:other-mac-store")
+        _ = try await Self.watch(wire)
+        let links = RemoteAgentSessionLinks.shared
+        for _ in 0..<50 where links.parent(of: "inst-child", host: "registry:other-mac-store") == nil { await Task.yield() }
+        #expect(links.parent(of: "inst-child", host: "install:other-mac") == "inst-chat")
+        #expect(links.parent(of: "inst-child", host: "registry:other-mac-store") == "inst-chat")
+        #expect(links.hostAliases["install:other-mac"]?.contains("registry:other-mac-store") == true)
+        #expect(links.hostAliases["registry:other-mac-store"]?.contains("install:other-mac") == true)
+        wire.cancel(code: 1000, reason: "done")
+    }
+
+    /// A daemon that lists no children still gets its own (empty) map from a host-qualified wire,
+    /// so a reused session id there never reads another daemon's hostless link.
+    @Test func aHostQualifiedWireWithNoChildrenGivesItsHostAnEmptyMap() async throws {
+        let host = "registry:no-lineage-store"
+        let wire = RemoteAcpmuxWire(client: FakeClient(parent: "nl-chat", children: []), session: "nl-chat", host: host)
+        _ = try await Self.watch(wire)
+        let links = RemoteAgentSessionLinks.shared
+        for _ in 0..<50 where links.parentsByHost[host] == nil { await Task.yield() }
+        #expect(links.parentsByHost[host] == [:])
+        links.note([["sessionId": "nl-child", "startedBy": "nl-chat"]])
+        #expect(links.parent(of: "nl-child", host: host) == nil)
+        wire.cancel(code: 1000, reason: "done")
+    }
+
     /// A tab that names its chat by another id than acpmux's (a session name, or a chat rebound on
     /// that machine since the page got its id): the watch says which session the daemon attached as
     /// the tab's, so the page opens it instead of saying "This chat isn't available".
@@ -99,7 +130,7 @@ import Testing
             (child, [AgentSessionRef(host: vm, session: "vm-child")]),
             (other, [AgentSessionRef(host: vm, session: "vm-other")]),
         ]
-        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["vm-child": "vm-chat"],
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: [vm: ["vm-child": "vm-chat"]],
                                                localHost: "install:mac", pullRequests: [:])
         #expect(pass.state.parents == [child: parent])
         let none = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: "install:mac", pullRequests: [:])
@@ -108,10 +139,14 @@ import Testing
 
     /// A Subagents row of a chat on another machine opens a child that chat started there beside
     /// it; never a session that machine did not list under the chat.
-    @Test func aRemoteChatOpensItsListedChildBesideIt() async {
-        RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]])
+    @Test func aRemoteChatOpensItsListedChildBesideIt() async throws {
+        let host = "registry:vm-row"
+        RemoteAgentSessionLinks.shared.note([["sessionId": "vm-row-child", "startedBy": "vm-row-chat"]], host: host)
         let model = AgentPaneModel(host: NoHost(), sessionId: "vm-row-chat")
         model.remoteChat = true
+        let wire = RemoteAcpmuxWire(client: FakeClient(parent: "vm-row-chat", children: []), session: "vm-row-chat", host: host)
+        let connection = try await model.transport.open(.remote(AgentPaneRemoteRoute(machine: "display-vm", hostID: host) { wire }))
+        defer { model.transport.close(connection: connection) }
         let opened = Opened()
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openSide: { _, fork in opened.ids.append(fork) })

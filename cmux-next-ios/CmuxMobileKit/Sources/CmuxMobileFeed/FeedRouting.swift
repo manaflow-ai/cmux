@@ -35,5 +35,8 @@ public final class FeedRouting {
     public var openTerminal: ((FeedItem) -> Void)?
     /// Clear All Notifications on the linked Mac (nil: no Mac can clear now).
     public var clearAllNotifications: (() async throws -> Void)?
+    /// Mark All Notifications as Read on every linked Mac (nil: no Mac can now): the number
+    /// of tabs it read.
+    public var markAllNotificationsRead: (() async throws -> Int)?
 }
 #endif

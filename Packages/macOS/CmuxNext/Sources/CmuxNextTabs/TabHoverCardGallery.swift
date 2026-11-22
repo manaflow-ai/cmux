@@ -17,9 +17,9 @@ public struct TabHoverCardGallery {
                              icon: .symbol("terminal"), status: .failure)
         failed.hover = TabHoverFacts(kind: .terminal, branch: "feat/shared-hover-card")
         var page = TabItem(id: TabID("gallery-browser"), title: "cmux docs", subtitle: "https://cmux.com/docs/getting-started",
-                           icon: favicon().map(TabIcon.image) ?? .icon(.browser))
+                           icon: favicon().map(TabIcon.image) ?? .browser)
         page.hover = TabHoverFacts(kind: .browser)
-        var blank = TabItem(id: TabID("gallery-blank"), title: "about:blank", subtitle: "about:blank", icon: .icon(.browser))
+        var blank = TabItem(id: TabID("gallery-blank"), title: "about:blank", subtitle: "about:blank", icon: .browser)
         blank.hover = TabHoverFacts(kind: .browser)
         var chat = TabItem(id: TabID("gallery-chat"), title: "Make the hover cards look like Codex's", subtitle: "~/Projects/cmux",
                            icon: .icon(.agentChat))
@@ -40,7 +40,7 @@ public struct TabHoverCardGallery {
                                                                          processCount: 1, sharedWithTabs: 0, available: true)],
                                                  total: usage, processCount: 1))
             }
-            return (name, HoverCardGalleryHost(body: card) { [weak card] in card?.applyColors() })
+            return (name, HoverCardGalleryHost(body: card, cornerRadius: Metrics.tabCornerRadius) { [weak card] in card?.applyColors() })
         }
     }
 
@@ -51,7 +51,7 @@ public struct TabHoverCardGallery {
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.setFillColor(CGColor(red: 0.22, green: 0.45, blue: 0.95, alpha: 1))
-        context.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerWidth: 7, cornerHeight: 7, transform: nil))
+        context.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: side, height: side), cornerWidth: Metrics.insetCornerRadius, cornerHeight: Metrics.insetCornerRadius, transform: nil))
         context.fillPath()
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 9, y: 9, width: 14, height: 14))

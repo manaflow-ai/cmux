@@ -1,5 +1,5 @@
 // The selected machine: header (rename, connect, pause or resume, delete), overview (size from the
-// record with a memory resize from the plan's sizes, idle policy, image, created), then the sections
+// record with a memory resize from the plan's sizes, cost (cost.ts), idle policy, image, created), then the sections
 // in DetailSections.tsx, PortsSection.tsx and FilesSection.tsx. Delete and resize ask the host's
 // native confirmation. A classic machine (contract 4) is read-only: a "Classic" badge, its overview
 // and snapshots, and Upgrade (a native action) once the user moved their classic machines. Rename is
@@ -8,6 +8,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { canUpgradeClassic } from "./account";
+import { costLine, costTicks, useCostClock } from "./cost";
 import type { MachineDetail } from "./detail";
 import { SnapshotsSection } from "./DetailSections";
 import { FilesSection } from "./FilesSection";
@@ -29,9 +30,13 @@ import {
   type MachineRow,
 } from "./model";
 import { CloudOps, type CloudPlan, type MigrationStatus } from "./ops";
+import { machineCapNote } from "./spendCap";
 import type { CloudStore } from "./store";
+import { canArchive, canKeep } from "./retention";
 import { L } from "./strings";
 import type { FileTransfer } from "./transfers";
+import { DiskHealthSummary } from "./DiskHealth";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 export interface DetailProps {
   store: CloudStore;
@@ -65,6 +70,7 @@ export function MachineDetailView({
   const classic = !!row.classic;
   const [renaming, setRenaming] = useState<string | null>(null);
   const busy = !changeable(row);
+  const kept = row.keep ?? !!machine.keep;
   const saveRename = () => {
     if (renaming !== null) void store.rename(machine.id, renaming);
     setRenaming(null);
@@ -77,9 +83,12 @@ export function MachineDetailView({
     event.preventDefault();
     event.stopPropagation();
   };
+  const now = useCostClock(costTicks(machine));
+  const cost = costLine(machine, now, t, language);
+  const capNote = machineCapNote(machine, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
-  const idle = machine.idle_policy?.idle_seconds ?? 0;
+  const idle = (row.idle !== undefined ? row.idle : machine.idle_policy?.idle_seconds) ?? 0;
   const idleChoices = IDLE_CHOICES.some((seconds) => (seconds ?? 0) === idle) ? IDLE_CHOICES : [...IDLE_CHOICES, idle];
   return (
     <section className="cloud-detail" aria-labelledby="cloud-detail-title">
@@ -106,6 +115,7 @@ export function MachineDetailView({
         {classic && <span className="cloud-badge cloud-classic-badge">{t(L.classic)}</span>}
         <span className="cloud-detail-status">
           {t(row.pending ? IntentLabel[row.pending] : StatusLabel[row.status])}
+          {!row.pending && capNote ? ` · ${capNote}` : ""}
         </span>
         <div className="cloud-detail-actions">
           {classic ? (
@@ -152,6 +162,33 @@ export function MachineDetailView({
                   {t(L.resume)}
                 </button>
               )}
+              {canKeep(machine) && (
+                // Kept shows at once on a toggle (a quick intent); the platform's record follows.
+                <WithFacts facts={[{ value: t(L.keepHint) }]}>
+                  {(facts) => (
+                    <button
+                      {...facts}
+                      type="button"
+                      className={`cloud-button cloud-machine-keep${kept ? " on" : ""}`}
+                      aria-pressed={kept}
+                      disabled={busy}
+                      onClick={() => void store.keep(machine.id, !kept)}
+                    >
+                      {t(kept ? L.kept : L.keep)}
+                    </button>
+                  )}
+                </WithFacts>
+              )}
+              {canArchive(machine) && (
+                <button
+                  type="button"
+                  className="cloud-button cloud-machine-archive-delete"
+                  disabled={busy}
+                  onClick={() => void store.archiveDelete(machine.id)}
+                >
+                  {t(L.archiveDelete)}
+                </button>
+              )}
               <button
                 type="button"
                 className="cloud-button destructive cloud-machine-delete"
@@ -168,8 +205,6 @@ export function MachineDetailView({
 
       <h3 className="cloud-subsection-title">{t(L.overview)}</h3>
       <dl className="cloud-fields">
-        <dt>{t(L.fieldId)}</dt>
-        <dd className="cloud-mono">{machine.id}</dd>
         <dt>{t(L.fieldSize)}</dt>
         <dd>
           {machine.size && <span className="cloud-size-spec">{sizeSpec(machine.size, t, language)}</span>}
@@ -194,6 +229,20 @@ export function MachineDetailView({
             </select>
           )}
         </dd>
+        {machine.disk_health && (
+          <>
+            <dt>{t(L.fieldDisk)}</dt>
+            <dd>
+              <DiskHealthSummary health={machine.disk_health} strings={strings} />
+            </dd>
+          </>
+        )}
+        {cost && (
+          <>
+            <dt>{t(L.fieldCost)}</dt>
+            <dd className="cloud-machine-cost">{cost}</dd>
+          </>
+        )}
         <dt>{t(L.fieldIdle)}</dt>
         <dd>
           {classic || unavailable.includes(CloudOps.machineIdlePolicySet) ? (

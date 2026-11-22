@@ -410,3 +410,33 @@ Rules:
 3. Read `machine_id` from `machine.list` or `identify` with machine metadata on, after connect.
    Older daemons without `machine-identity-v1` have no `machine_id`: a cloud group then refuses
    to bind (`incompatible(version)` header, section 5) and does not fall back to `registry_id`.
+
+## 20. Slice E and the CLI entrance (2026-10-30, a909)
+
+Landed:
+
+- `cmux workspace group create --remote <host> [--name N]` runs New Remote Group
+  (`remote.newGroup`, which now takes an optional `name` shown on the group's header), and
+  `cmux workspace group create --parent <group> --name N` runs New Subgroup
+  (`workspaceGroup.newSubgroup`, which now takes optional `group` and `name`; a personal group id
+  from `workspace group list` names its document item). A plain `workspace group create` stays the
+  daemon's. `--remote` with `--parent` is refused: a remote group is a machine's top-level group.
+  MCP gets the same through the action arguments.
+- Slice E (host picker): New Remote Group's host step lists the app's SSH machines, online
+  Tailscale peers (`cmux-tui acp host candidates`) and `~/.ssh/config` aliases (with one level of
+  `Include`), each host once, plus "Enter Host…" for typed text (`ActionSuggestions.remoteHosts`,
+  `RemoteHostCatalog`, `SSHConfigHosts`, `RemoteHostChoice` in CmuxNextServer). The lists are
+  cached and refresh once a minute in the background; the app warms them once at launch.
+
+Nesting state (user, 2026-10-30, "this might require subgroups"): groups already nest inside a
+remote group (`SidebarDocSubgroupPlan.maxDepth` levels; New Subgroup on the group menu, palette,
+CLI `--parent`, MCP; drag in/out and collapse per slice 2).
+
+Still open:
+
+- A parent group that holds several remote machines (a "Fleet" folder over three Mac minis). A
+  remote group is a machine section, and sections have no parent in the sidebar document, so this
+  needs a section folder (`Section.parent` or a folder section kind) in `cmux-layout-reducer`, its
+  check/repair/view rules, and the Swift header drawing. Next slice.
+- Cloud VMs are not in the host picker: a Cloud machine becomes a remote group through New Cloud
+  Workspace (it is marked on create), not through `remote.newGroup`'s SSH connect.

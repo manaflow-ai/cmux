@@ -17,7 +17,11 @@
 //! Seeds 38, 44, 57, 81 and 88 were re-recorded from the Rust rules when a
 //! closed pane's column whose id changed (two columns collapsing into a
 //! split screen) started to map to its surviving panes: each now focuses
-//! the closed pane's column neighbor instead of the first pane.
+//! the closed pane's column neighbor instead of the first pane. Seed 111
+//! step 7, seed 63 step 23 and seed 104 step 10 were rewritten to the Rust
+//! rules' output when a programmatic sidebar responder stopped taking a
+//! pane's keyboard and stopped dropping a keyboard sidebar focus (QUIT P0,
+//! 2026-11-01): the old steps encoded that bug. The Swift recorder is gone.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent};
 use cmux_focus_core::reducer;
@@ -238,4 +242,143 @@ fn closing_one_of_two_columns_keeps_the_focus_on_its_screen() {
         Some("p1"),
         "the focus left the screen for a pane of another screen"
     );
+}
+
+/// QUIT P0 (2026-11-01): at a relaunch the restored pane's content is not
+/// presented yet, the window comes forward, and AppKit picks the sidebar list
+/// as its first key view on its own. That programmatic report must not take
+/// the focused pane's keyboard: the first line typed after the reopen went to
+/// the sidebar list. A person's click or key still moves focus there, and the
+/// list's echo of a sidebar focus the state already has keeps it as it is.
+fn restored_two_panes() -> FocusState {
+    let mut state = FocusState::default();
+    let mut effects = Vec::new();
+    let event: FocusEvent =
+        serde_json::from_value(json!({"topology": {"_0": {"workspace": "w", "panes": [
+        {"id": "main", "selected": "t1", "tabs": [{"id": "t1", "kind": "terminal"}]},
+        {"id": "right", "selected": "t2", "tabs": [{"id": "t2", "kind": "terminal"}]}]}}}))
+        .unwrap();
+    reducer::reduce(&mut state, &event, &mut effects);
+    let focus: FocusEvent =
+        serde_json::from_value(json!({"focusPane": {"_0": "right", "source": "programmatic"}}))
+            .unwrap();
+    reducer::reduce(&mut state, &focus, &mut effects);
+    state
+}
+
+fn send(state: &mut FocusState, event: Value) -> Vec<FocusEffect> {
+    let mut effects = Vec::new();
+    reducer::reduce(state, &serde_json::from_value(event).unwrap(), &mut effects);
+    effects
+}
+
+fn target(state: &FocusState) -> Value {
+    state.export()["target"].clone()
+}
+
+#[test]
+fn a_sidebar_responder_the_platform_picks_never_takes_a_panes_keyboard() {
+    let mut state = restored_two_panes();
+    assert_eq!(target(&state), json!({"content": {}}));
+    let effects =
+        send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": "programmatic"}}));
+    assert_eq!(
+        target(&state),
+        json!({"content": {}}),
+        "the platform's own pick moved focus to the sidebar"
+    );
+    assert_eq!(state.export()["pane"], json!("right"));
+    assert!(
+        effects.iter().any(|e| matches!(e, FocusEffect::MoveResponder { .. })),
+        "the pane's keyboard is not re-applied: {effects:?}"
+    );
+}
+
+#[test]
+fn a_person_still_puts_the_keyboard_on_the_sidebar() {
+    for (source, keyboard) in [("mouse", false), ("keyboard", true)] {
+        let mut state = restored_two_panes();
+        send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": source}}));
+        assert_eq!(target(&state), json!({"sidebar": {"keyboard": keyboard}}), "{source}");
+    }
+}
+
+#[test]
+fn the_lists_echo_keeps_a_keyboard_sidebar_focus() {
+    let mut state = restored_two_panes();
+    send(
+        &mut state,
+        json!({"focusTarget": {"_0": {"sidebar": {"keyboard": true}}, "source": "keyboard"}}),
+    );
+    send(&mut state, json!({"responder": {"_0": {"sidebar": {}}, "source": "programmatic"}}));
+    assert_eq!(
+        target(&state),
+        json!({"sidebar": {"keyboard": true}}),
+        "the echo dropped the keyboard flag"
+    );
+}
+
+/// QA chrome-parity-v2-2-2 bug 1 (ported from the dogfood line, 92f8d64d0be): from Home,
+/// Ctrl+` and Cmd+Shift+L example.com (a browser tab in the pane beside Home), Cmd-Q, reopen,
+/// type: the text went into Home's Chief message box. The launch window showed the home
+/// workspace (Home's page first, the pane beside it with a terminal and the selected browser
+/// tab) before it adopted the saved window record, whose focused pane, the browser pane, came
+/// as `restoredPane` for that shown workspace. The rule dropped it, so the first pane (Home)
+/// kept the focus.
+fn restore_after_the_workspace_shows(before_record: &[Value]) -> (FocusState, Vec<FocusEffect>) {
+    let mut state = FocusState::default();
+    send(
+        &mut state,
+        json!({"topology": {"_0": {"workspace": "w", "panes": [
+            {"id": "home", "tabs": [{"id": "home-tab", "kind": "page"}], "selected": "home-tab"},
+            {"id": "right", "selected": "web", "tabs": [
+                {"id": "term", "kind": "terminal"}, {"id": "web", "kind": "browser"}]},
+        ]}}}),
+    );
+    for event in before_record {
+        send(&mut state, event.clone());
+    }
+    let effects = send(&mut state, json!({"restoredPane": {"_0": "right", "workspace": "w"}}));
+    (state, effects)
+}
+
+#[test]
+fn a_record_for_the_shown_workspace_focuses_its_saved_pane() {
+    let browser = json!({"browserPage": {"pane": "right", "tab": "web"}});
+    let (state, effects) = restore_after_the_workspace_shows(&[]);
+    assert_eq!(json!(state.resolved()), browser, "the saved pane, not the first one");
+    assert!(
+        effects.iter().any(|e| matches!(e, FocusEffect::MoveResponder { .. })),
+        "the responder is not moved to the saved pane: {effects:?}"
+    );
+    // Home's message box took the keyboard by itself first (a programmatic report): no
+    // person's choice.
+    let home_took_it =
+        json!({"responder": {"_0": {"content": {"pane": "home"}}, "source": "programmatic"}});
+    let (state, _) = restore_after_the_workspace_shows(&[home_took_it]);
+    assert_eq!(json!(state.resolved()), browser, "a view's own grab does not keep the restore");
+    // A platform pick that moved the target (the saved pane's own address bar, programmatic) is no
+    // person's choice either: the restore puts the keyboard back on the page.
+    let platform_pick =
+        json!({"responder": {"_0": {"addressBar": {"pane": "right"}}, "source": "programmatic"}});
+    let (state, _) = restore_after_the_workspace_shows(&[platform_pick]);
+    assert_eq!(json!(state.resolved()), browser, "a programmatic target move kept the restore off");
+    // The person chose Home after the window opened: that choice stays.
+    let clicked = json!({"focusPane": {"_0": "home", "source": "mouse"}});
+    let (state, _) = restore_after_the_workspace_shows(&[clicked]);
+    assert_eq!(json!(state.resolved()), json!({"page": {"pane": "home", "tab": "home-tab"}}));
+}
+
+#[test]
+fn a_record_before_the_workspace_shows_still_lands_on_its_pane() {
+    let mut state = FocusState::default();
+    send(&mut state, json!({"restoredPane": {"_0": "right", "workspace": "w"}}));
+    send(
+        &mut state,
+        json!({"topology": {"_0": {"workspace": "w", "panes": [
+            {"id": "home", "tabs": [{"id": "home-tab", "kind": "page"}], "selected": "home-tab"},
+            {"id": "right", "tabs": [{"id": "web", "kind": "browser"}], "selected": "web"},
+        ]}}}),
+    );
+    assert_eq!(json!(state.resolved()), json!({"browserPage": {"pane": "right", "tab": "web"}}));
 }

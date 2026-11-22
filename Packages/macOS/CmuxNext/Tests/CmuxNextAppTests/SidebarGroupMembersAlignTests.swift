@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on a group's rows sitting ~12 pt right of the rows above them, with the selected
@@ -10,7 +11,7 @@ import Testing
 /// by its header and its members' line, which runs in the list's inset beside the rows, never over
 /// them or pushing them in (his 2026-10-03 rule: "a thin colored vertical line ties members together,
 /// with no extra indent").
-@MainActor @Suite(.serialized) struct SidebarGroupMembersAlignTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupMembersAlignTests {
     static let group = GroupID("g-coordinator")
     static let looseID = WorkspaceID("ws-loose")
     static let leadID = WorkspaceID("ws-lead")
@@ -26,7 +27,10 @@ import Testing
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(id: looseID, title: "scratch")), .group(coordinator)]),
         ], activeWorkspaceID: selected)
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        // The band look (`sidebar.groupHeader.background` Automatic): plain folders indent their members by design.
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderBackground = .auto
+        let sidebar = SidebarView(model: model, design: design)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -104,7 +108,8 @@ import Testing
             if let landing = list.landing { list.finishLand(landing, then: nil) }
         }
         let lift = try #require(list.subviews.first { $0 is DragLiftView })
-        #expect(lift.frame.minX == line.frame.minX, "the card starts at \(lift.frame.minX), the line at \(line.frame.minX)")
+        #expect(lift.frame.minX == line.frame.minX - SidebarStyle.groupRailInset,
+                "the card starts at its header's edge \(lift.frame.minX), the line \(SidebarStyle.groupRailInset) pt in at \(line.frame.minX)")
         let block = try #require(Self.descendant(of: lift) { $0 is SidebarLiftBlockView })
         let members = block.subviews.compactMap { $0 as? WorkspaceRowView }
         let lines = block.subviews.filter { !($0 is SidebarRowView) }

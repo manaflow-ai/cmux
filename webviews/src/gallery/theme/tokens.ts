@@ -217,9 +217,9 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
         )
       : null;
   const accent = app ? parseHex(app.tokens.accent) : null;
-  const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
-  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.1 : 0.08);
-  const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
+  const hover = withAlpha(fg, isDark ? 0.05 : 0.04);
+  const selection = accent ? withAlpha(accent, isDark ? 0.26 : 0.16) : withAlpha(fg, isDark ? 0.08 : 0.06);
+  const pressed = withAlpha(fg, isDark ? 0.12 : 0.1);
   // Swift's `min` keeps the first of equal elements; so does this reduce.
   const worstSurface = [composited(pressed, bg), composited(selection, bg)].reduce((worst, next) =>
     contrast(fg, next) < contrast(fg, worst) ? next : worst,
@@ -253,7 +253,7 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     textTertiary: tertiary,
     hoverFill: hover,
     selectionFill: selection,
-    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.07 : 0.055),
+    secondarySelectionFill: accent ? withAlpha(accent, isDark ? 0.18 : 0.11) : withAlpha(fg, isDark ? 0.056 : 0.042),
     pressedFill: pressed,
     badgeFill: withAlpha(fg, isDark ? 0.14 : 0.1),
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
@@ -278,6 +278,19 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     ansi: palette,
     backgroundOpacity: input.backgroundOpacity,
   };
+}
+
+/**
+ * ThemeTokens.wallpaperTintOpacity: the alpha of the theme tint the window lays over a background
+ * picture (WindowBackdrop, with no Opacity of the user's own). Dark themes keep a denser tint; lighter
+ * and higher-contrast themes show more of the picture.
+ */
+export function wallpaperTintOpacity(tokens: ThemeTokens): number {
+  const window = tokens.windowBackground;
+  const headroom = clamp((contrast(tokens.textPrimary, window) - MINIMUM_TEXT_CONTRAST) / 8);
+  const bias = Math.min(Math.max((luminance(window) - 0.18) * 0.12, -0.03), 0.08);
+  const floor = tokens.isDark ? 0.62 : 0.56;
+  return Math.min(Math.max(floor + (1 - headroom) * 0.1 + bias, 0.52), 0.76);
 }
 
 /**

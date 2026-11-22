@@ -1,11 +1,12 @@
 // Small parts the detail sections share: the "Not available yet" note, a number field that submits on
 // plain Return, and byte sizes.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { SECTION_OPS, type DetailSection, type MachineDetail } from "./detail";
 import { plain } from "./model";
 import type { CloudStore } from "./store";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 export interface SectionProps {
   store: CloudStore;
@@ -42,6 +43,8 @@ export function PortField({
   inputClass,
   buttonClass,
   before,
+  pending = false,
+  busyLabel,
   onSubmit,
 }: {
   label: string;
@@ -49,15 +52,26 @@ export function PortField({
   inputClass: string;
   buttonClass: string;
   before?: ReactNode;
-  onSubmit: (port: number) => void;
+  pending?: boolean;
+  busyLabel: string;
+  onSubmit: (port: number) => Promise<boolean>;
 }) {
   const [value, setValue] = useState("");
+  const submitting = useRef(false);
+  const [waiting, setWaiting] = useState(false);
+  const busy = pending || waiting;
   const port = Number(value);
   const valid = value !== "" && Number.isInteger(port) && port > 0 && port < 65536;
-  const submit = () => {
-    if (!valid) return;
-    onSubmit(port);
-    setValue("");
+  const submit = async () => {
+    if (!valid || busy || submitting.current) return;
+    submitting.current = true;
+    setWaiting(true);
+    try {
+      if (await onSubmit(port)) setValue("");
+    } finally {
+      submitting.current = false;
+      setWaiting(false);
+    }
   };
   return (
     <span className="cloud-inline-form">
@@ -67,18 +81,22 @@ export function PortField({
         inputMode="numeric"
         placeholder={label}
         aria-label={label}
+        disabled={busy}
         value={value}
         onChange={(event) => setValue(event.target.value.replace(/[^0-9]/g, ""))}
-        onKeyDown={plainKeys(submit)}
+        onKeyDown={plainKeys(() => void submit())}
       />
       <button
         type="button"
         className={`cloud-button ${buttonClass}`}
         aria-label={label}
-        aria-disabled={!valid}
-        onClick={submit}
+        disabled={!valid || busy}
+        aria-busy={busy}
+        // tooltip-allow: the button is a glyph ("+"), with no words of its own.
+        title={busy ? busyLabel : label}
+        onClick={() => void submit()}
       >
-        {button}
+        {busy ? <output aria-label={busyLabel}>…</output> : button}
       </button>
     </span>
   );
@@ -86,7 +104,7 @@ export function PortField({
 
 export function formatBytes(bytes: number, strings: Strings): string {
   const { t, language } = strings;
-  const number = (value: number) => new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(value);
+  const number = (value: number) => intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(value);
   if (bytes < 1024) return format(t(L.bytes), { value: number(bytes) });
   if (bytes < 1024 * 1024) return format(t(L.kilobytes), { value: number(bytes / 1024) });
   return format(t(L.megabytes), { value: number(bytes / (1024 * 1024)) });

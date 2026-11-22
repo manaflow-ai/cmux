@@ -6,6 +6,8 @@ import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
 import { storePlan } from "./inference/plan.ts"
+import { confirmTeamFacts, nextReadTicket, noteTeamEvent, readStackTeam } from "./cloud-vm-plan.ts"
+import { deliverPendingCarry, pendingCarryAt, planCarryOnDelete } from "./team-grant-carry.ts"
 import type { StackMember, StackServer } from "./stack-server.ts"
 
 /**
@@ -31,6 +33,8 @@ export interface StackEvent {
   readonly type: string
   readonly stack_team: string
   readonly stack_user?: string
+  /** A person waits on this sync (user.teams.list found the team in Stack): it never takes the low lane. */
+  readonly urgent?: true
 }
 
 export type StackSyncReply = { readonly ok: true; readonly outcome: string; readonly duplicate?: true } | { readonly ok: false; readonly reason: string }
@@ -47,6 +51,13 @@ export interface StackSyncDeps {
   readonly revokeStuck: (user: string) => void
   /** The shared pace of sign-in reads (STACK_READ_LIMIT): one token before each sync's reads; false = not now (cx-f5tk4). */
   readonly pace?: () => Promise<boolean>
+  /**
+   * The low lane (stackLowReadPace): a sync of a team not mirrored here whose deliveries carry no membership and
+   * no urgent flag takes a token here first, then one of `pace`. Absent: no low cap.
+   */
+  readonly lowPace?: () => Promise<boolean>
+  /** Records a deleted team's Cloud grant in its owner's personal TeamDO (team-grant-carry.ts). Absent: nothing is carried. */
+  readonly carryTo?: (personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -57,16 +68,25 @@ const RECHECK_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 6 *
 /** A member whose removal made no progress this many times is set aside (logged) until the object restarts. */
 const DRAIN_MAX_ATTEMPTS = 3
 /**
- * A sync that could not read Stack now (no pace token, a 429 or another read failure) waits 1 min doubling
- * to 1 h with ±20 % jitter (cx-f5tk4), then tries again from the alarm; after SYNC_MAX_FAILS (about two
+ * A sync that could not read Stack (a 429 or another read failure) waits 1 min doubling to 1 h with ±20 %
+ * jitter (cx-f5tk4; one without a pace token waits less first, pacedBackoffMs), then tries again from the alarm; after SYNC_MAX_FAILS (about two
  * days) it ends, logged. The delivery itself was already answered 200 `queued`.
  */
 export const SYNC_BACKOFF_MS = { first: 60_000, max: 60 * 60_000 } as const
 export const SYNC_MAX_FAILS = 50
 export const syncBackoffMs = (fails: number, random: () => number = Math.random) =>
   Math.round(Math.min(SYNC_BACKOFF_MS.max, SYNC_BACKOFF_MS.first * 2 ** Math.max(0, fails - 1)) * (0.8 + 0.4 * random()))
+/**
+ * A sync that found the shared pace full (no token; Stack was not asked) waits 5, 10, 20 and 40 s first, ±20 %:
+ * the pace frees a token within its 60 s window and a person waits on a join (prod 2026-10-29: a new team listed
+ * after 67 s). After PACED_QUICK_TRIES it follows syncBackoffMs, so a pace that stays full still ends in about two days.
+ */
+export const PACED_QUICK_TRIES = 4
+const PACED_FIRST_MS = 5_000
+export const pacedBackoffMs = (fails: number, random: () => number = Math.random) =>
+  fails <= PACED_QUICK_TRIES ? Math.round(PACED_FIRST_MS * 2 ** Math.max(0, fails - 1) * (0.8 + 0.4 * random())) : syncBackoffMs(fails - PACED_QUICK_TRIES, random)
 
-type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number }
+type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number; urgent: number }
 /** While a row's Stack read runs, the row waits this long (a lease): a restart mid-read leaves it for the alarm. */
 export const SYNC_LEASE_MS = 5 * 60_000
 
@@ -98,6 +118,8 @@ export class StackTeamSync {
     if (deps.sql.exec(`SELECT 1 FROM stack_webhook_events WHERE svix_id = ?`, ev.svix_id).toArray().length > 0) return Promise.resolve({ ok: true, outcome: "duplicate", duplicate: true })
     if (!deps.stack) return Promise.resolve({ ok: false, reason: "stack_server_not_configured" })
     const now = Date.now()
+    // A team event may change the team's Cloud grant: the copy a delete carries is current only once a read follows it.
+    if (ev.type !== "team.deleted") noteTeamEvent(deps.sql)
     const k = enqueue(deps.sql, ev, now)
     deps.sql.exec(`INSERT OR REPLACE INTO stack_webhook_events (svix_id, at, outcome) VALUES (?, ?, ?)`, ev.svix_id, now, "queued")
     deps.sql.exec(`DELETE FROM stack_webhook_events WHERE at < ?`, now - SEEN_RETENTION_MS)
@@ -130,7 +152,13 @@ export class StackTeamSync {
   private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined, clock?: number): Promise<string | undefined> {
     // The alarm's time (tests inject it) or now, whichever is later: a long alarm batch never backs off into the past.
     const at = () => Math.max(clock ?? 0, Date.now())
-    const paced = deps.pace ? await deps.pace().catch(() => false) : true
+    const before = readRow(deps.sql, k)
+    if (!before) return undefined
+    // A team never mirrored here whose deliveries name no member and no waiting person (cmux.com visitors'
+    // sign-up teams, in production) takes the low lane first, so it never uses the whole pace.
+    const low = deps.state().team == null && before.urgent === 0 && deps.lowPace !== undefined
+    const take = () => (deps.pace ? deps.pace().catch(() => false) : Promise.resolve(true))
+    const paced = low ? (await deps.lowPace!().catch(() => false)) && (await take()) : await take()
     // Read again after the await: a delivery may have merged in, or another run synced it.
     const row = readRow(deps.sql, k)
     if (!row) return undefined
@@ -146,9 +174,11 @@ export class StackTeamSync {
           ...(row.stack_user ? { stack_user: row.stack_user } : {})
         }
     deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ?`, at() + SYNC_LEASE_MS, k)
+    // This run's read ticket (cloud-vm-plan.ts): every fact it reads is as new as this, never as a clock says.
+    const ticket = nextReadTicket(deps.sql)
     let out: string
     try {
-      out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts)
+      out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts, ticket)
     } catch (e) {
       // A Stack failure (never its body, never a user id): the row waits and tries again.
       console.error(JSON.stringify({ msg: "stack webhook lookup failed", team: deps.team, type: row.type, error: String(e).slice(0, 200) }))
@@ -161,6 +191,10 @@ export class StackTeamSync {
     // Done: remove the row unless something changed it meanwhile (a merged delivery or a re-check that
     // reconcile scheduled bumps gen). A merged delivery's row runs again at once, as a full sync.
     const changed = deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND gen = ?`, k, row.gen).rowsWritten === 0
+    // Every event up to this read is reconciled only when this run read and committed the team and its member(s), no
+    // delivery merged in meanwhile, and no other event's sync waits (a backoff or a re-check). Then the local owner
+    // and the grant copy are confirmed as of this read (the grant carry needs both, team-grant-carry.ts).
+    if (!changed && CONFIRMING.has(out) && deps.sql.exec(`SELECT 1 FROM stack_team_recheck WHERE type != 'team.deleted' LIMIT 1`).toArray().length === 0) confirmTeamFacts(deps.sql, ticket)
     if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, at(), k)
     // A confirmed delete is final: a team.deleted that merged meanwhile has nothing left to do (review P3).
     if (changed && out === "team_deleted") deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND type = 'team.deleted'`, k)
@@ -182,6 +216,15 @@ export class StackTeamSync {
       if (deps.stack) await (this.queue = this.queue.then(run, run))
     }
     this.drainDeleted(deps, now)
+    await this.deliverCarry(deps, now)
+  }
+
+  /** A deleted team's pending Cloud grant transfer, when due (team-grant-carry.ts); never throws. */
+  private async deliverCarry(deps: StackSyncDeps, now: number) {
+    if (!deps.carryTo || deps.state().team?.deleted_at === undefined) return
+    await deliverPendingCarry({ sql: deps.sql, state: deps.state(), rows: deps.rows(), carryTo: deps.carryTo, now }, deps.team).catch((e: unknown) =>
+      console.error(JSON.stringify({ msg: "cloud grant carry failed", team: deps.team, error: String(e).slice(0, 160) }))
+    )
   }
 
   /** When the alarm should run next for this work, or null. */
@@ -189,10 +232,12 @@ export class StackTeamSync {
     if (state.team?.kind === "personal") return null
     const deps = this.deps()
     if (this.pendingRemovals(state, deps.rows(), 1).length > 0) return Math.max(now, this.drainRetryAt ?? now)
+    const carryAt = state.team?.deleted_at !== undefined && deps.carryTo ? pendingCarryAt(deps.sql) : null
     // Without a Stack client a due re-check could not run (no hot alarm loop).
-    if (!deps.stack) return null
+    if (!deps.stack) return carryAt === null ? null : Math.max(now, carryAt)
     ensureTables(deps.sql)
-    const next = deps.sql.exec<{ at: number | null }>(`SELECT MIN(due_at) AS at FROM stack_team_recheck`).one().at
+    const recheck = deps.sql.exec<{ at: number | null }>(`SELECT MIN(due_at) AS at FROM stack_team_recheck`).one().at
+    const next = recheck === null ? carryAt : carryAt === null ? recheck : Math.min(recheck, carryAt)
     return next === null ? null : Math.max(now, next)
   }
 
@@ -226,16 +271,19 @@ export class StackTeamSync {
   }
 
   /** Stack's current answer committed, then the owner count of an older head set once; `attempt` is the re-check number (-1 for a delivery). */
-  private async reconcile(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
-    const out = await this.reconcileOnce(deps, stack, ev, attempt)
+  private async reconcile(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, ticket: number): Promise<string> {
+    const out = await this.reconcileOnce(deps, stack, ev, attempt, ticket)
     if (!out.startsWith("reject:")) this.ensureOwnerCount(deps, ev.svix_id)
     return out
   }
 
-  private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number): Promise<string> {
+  private async reconcileOnce(deps: StackSyncDeps, stack: StackServer, ev: StackEvent, attempt: number, ticket: number): Promise<string> {
     const commit = (op: string, params: Record<string, unknown>) => {
       const before = noOwnerOf(deps.state())
-      const res = deps.submitSystem(op, params, `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`)
+      // Idempotency keys are at most 128 characters (owner-preflight.ts): a retried team.deleted's synthetic id made
+      // one of 129 and every retry was refused (validation.invalid), so the delete was dropped. A long key is hashed.
+      const key = `stack-webhook:${ev.svix_id}:${op}:${hash(params)}`
+      const res = deps.submitSystem(op, params, key.length <= 128 ? key : `stack-webhook:${hash(key)}`)
       const rej = res.frames.find((f) => f.t === "reject")
       if (rej && rej.t === "reject") return `reject:${rej.code}`
       if (!before && noOwnerOf(deps.state())) logNoOwner(deps.team)
@@ -243,16 +291,30 @@ export class StackTeamSync {
     }
     // The plan copy is dated before the read (review P3): a slower read never looks newer than it is.
     const readAt = Date.now()
-    const team = await stack.getTeam(ev.stack_team)
+    // Every grant observed is kept at once, before any early return (review F1 at e9544f44): a delete that waits for
+    // its confirmation, or a sync that stops early, must never leave an older (since revoked) grant as the copy.
+    const team = await readStackTeam(deps.sql, stack, ev.stack_team, readAt, ticket)
     // Stack still lists a team that a team.deleted named: change nothing now and ask again later, keeping the delete.
     if (team !== null && ev.type === "team.deleted") return schedule(deps.sql, ev, attempt, Date.now()) ? "team_delete_pending" : "team_delete_unconfirmed"
     if (team === null) {
       // Only Stack's own team.deleted, confirmed by this read, deletes the team.
-      if (ev.type === "team.deleted") return commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+      if (ev.type === "team.deleted") {
+        // The team's Cloud grant transfer is recorded first (ask-7b9075082b), with no remote call, so the tombstone
+        // and the members' revocation never wait on it; it is delivered after, and from the alarm until it lands.
+        if (deps.carryTo) planCarryOnDelete({ sql: deps.sql, state: deps.state(), rows: deps.rows(), now: Date.now() }, ev.stack_team)
+        const out = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, deleted: true }) ?? "team_deleted"
+        if (out === "team_deleted") await this.deliverCarry(deps, Date.now())
+        return out
+      }
       return schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped"
     }
     // A cmux VM personal tenant is a private Stack team behind one personal owner: never a cmux team (team-vm-api-personal.ts).
-    if (team.vm_personal_tenant === true) return "vm_personal_tenant_ignored"
+    // A tenant made before its create marked it for clients too is marked now (CMUX-380), so the person's sign-in
+    // client stops offering it as a team; a failed mark leaves it ignored, and the next sync tries again.
+    if (team.vm_personal_tenant === true) {
+      if (team.vm_personal_tenant_visible === true || !stack.markVmPersonalTenantVisible) return "vm_personal_tenant_ignored"
+      return (await stack.markVmPersonalTenantVisible(ev.stack_team).catch(() => false)) ? "vm_personal_tenant_marked" : "vm_personal_tenant_ignored"
+    }
     const missing = () => (schedule(deps.sql, ev, attempt, Date.now()) ? "team_missing_recheck" : "team_missing_dropped")
     // Members are read before the mirror commit: a team not mirrored here yet whose Stack members are all
     // anonymous is a cmux.com visitor's sign-up personal team (StackMember.anonymous) and is never mirrored.
@@ -276,7 +338,7 @@ export class StackTeamSync {
     if (mirrored) return mirrored
     // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
     // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
-    storePlan(deps.sql, team.plan, readAt)
+    storePlan(deps.sql, team.plan, readAt, team.next_plan ?? null)
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (listed !== undefined) return this.syncMembers(deps, listed, commit) ?? "team_mirrored"
     const user = userIdFor(deps.stackProjectId, ev.stack_user!)
@@ -332,6 +394,9 @@ export class StackTeamSync {
   }
 }
 
+/** Outcomes of a run that read the team and committed its member(s) as Stack has them now. */
+const CONFIRMING: ReadonlySet<string> = new Set(["team_mirrored", "member_present", "member_absent", "member_anonymous", "member_anonymous_removed"])
+
 const logNoOwner = (team: string) => console.error(JSON.stringify({ msg: "stack team has no owner; a Stack team admin must promote one", team }))
 
 const UUIDISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -344,7 +409,7 @@ const ensureTables = (sql: SqlStorage) => {
   // second delivery merged in. `attempts` stays the team-missing re-check count. Checked once per instance.
   if (!migrated.has(sql)) {
     const have = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(stack_team_recheck)`).toArray().map((c) => c.name))
-    for (const c of ["fails", "gen", "merged"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+    for (const c of ["fails", "gen", "merged", "urgent"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
     migrated.add(sql)
   }
 }
@@ -353,7 +418,7 @@ const migrated = new WeakSet<SqlStorage>()
 const syncKey = (stackTeam: string) => `sync|${stackTeam}|`
 
 const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
-  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
+  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
 
 /**
  * Records a delivery's pending sync, durably, before any Stack read (cx-f5tk4). A team.deleted keeps its own
@@ -363,7 +428,9 @@ const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
  */
 const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): string => {
   const [k, type] = ev.type === "team.deleted" ? [`team.deleted|${ev.stack_team}|`, "team.deleted"] : [syncKey(ev.stack_team), "sync"]
-  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1`, k, type, ev.stack_team, now)
+  // A membership event or a waiting person marks the row urgent for good: it never takes the low lane.
+  const urgent = ev.urgent === true || ev.type.startsWith("team_membership") ? 1 : 0
+  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0, ?) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1, urgent = MAX(urgent, excluded.urgent)`, k, type, ev.stack_team, now, urgent)
   return k
 }
 
@@ -376,7 +443,7 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup", at
     console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
-  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + syncBackoffMs(fails), fails, row.k)
+  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + (why === "paced" ? pacedBackoffMs(fails) : syncBackoffMs(fails)), fails, row.k)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */

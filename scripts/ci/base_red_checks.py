@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Classify push check-job reds against the immediately previous tip.
 
-The checks job is warning-only for failures already present on the previous push;
-missing or unreadable base evidence fails closed so a new red cannot be excused.
+The checks job stays red for every red check; this only names, in annotations, which reds
+the push added and which the previous tip already had (or had not finished), so the commit
+that broke a check is the one told to fix it.
 """
 from __future__ import annotations
 
@@ -62,12 +63,18 @@ def base_reds(repo: str, before: str, base: str, token: str) -> set[str] | None:
     # unfiltered first page of 100 often left this job out ("no checks job").
     query = urllib.parse.urlencode({"check_name": CHECKS_JOB, "filter": "latest", "per_page": 100})
     payload = json.loads(api(base, token, f"/repos/{repo}/commits/{before}/check-runs?{query}"))
-    runs = [r for r in payload.get("check_runs", []) if str(r.get("name", "")) == CHECKS_JOB]
+    # Since the checks job moved off feat-cmux-next pushes into the base tier
+    # dispatch, a tip carries a skipped checks run from its push run beside the
+    # real one; "latest" can name the skipped one, whose log is gone (404, base
+    # tier run 44986369912). Read the newest run that actually ran.
+    runs = [r for r in payload.get("check_runs", [])
+            if str(r.get("name", "")) == CHECKS_JOB and r.get("conclusion") != "skipped"]
+    runs.sort(key=lambda r: r.get("started_at") or "", reverse=True)
     if not runs:
         raise RuntimeError("previous tip has no cmux-next checks job")
     # A push can start before the previous tip's checks job has finished.  Leo's
     # feat-cmux-next rule is that pending and queued base checks never block a
-    # landing, so let the caller classify this push's reds as warning-only until
+    # landing, so let the caller name this push's reds as inherited until
     # the next completed tip provides comparable evidence.
     status = runs[0].get("status")
     if status in PENDING:
@@ -102,7 +109,7 @@ def main() -> int:
         print(f"base-red: unable to read previous tip {args.before}: {error}", file=sys.stderr)
         return 2
     if previous is None:
-        print(f"base-red: previous tip {args.before} is still pending; current reds are warning-only",
+        print(f"base-red: previous tip {args.before} is still pending; current reds are named as inherited",
               file=sys.stderr)
         for name in sorted(current):
             print(f"BASE_RED {name}")

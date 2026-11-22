@@ -25,7 +25,8 @@ import Testing
         store.macData["m2"] = MacDataMachine()
         store.handleMacData(.restored(count: 2, savedAt: now), macID: "m2")
         store.macConnection = ["m1": .connected, "m2": .failed("timeout")]
-        store.macLinkStatus = ["m2": "Connecting over WireGuard…"]
+        store.macLinkStatus = ["m2": "Reconnecting…"]
+        store.macLinkDiagnostics = ["m2": "private diagnostic"]
         store.accountMacCount = 2
         return store
     }
@@ -43,6 +44,7 @@ import Testing
         #expect(store.macData["m2"] == nil)
         #expect(store.macConnection == ["m1": .connected])
         #expect(store.macLinkStatus.isEmpty)
+        #expect(store.macLinkDiagnostics.isEmpty)
         #expect(store.accountMacCount == 1)
         // Its workspaces' remembered tabs go too; others stay.
         #expect(store.lastTabByWorkspace == ["w1": "tab-b"])

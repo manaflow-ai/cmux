@@ -43,6 +43,7 @@ pub(super) fn test_host_shared_with_budget(
         master: Mutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
         command: vec!["/bin/cat".into()],

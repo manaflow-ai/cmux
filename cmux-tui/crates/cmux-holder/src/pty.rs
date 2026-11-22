@@ -34,10 +34,10 @@ pub struct Spawned {
 /// before `execve`.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
-    if argv.is_empty() {
+    let Some(program) = request.argv.first() else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty argv"));
-    }
-    let programs = program_candidates(&request.argv[0], &request.env)?;
+    };
+    let programs = program_candidates(program, &request.env)?;
     let env = c_strings(&request.env)?;
     let cwd = CString::new(request.cwd.clone())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cwd has a NUL"))?;
@@ -106,7 +106,7 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
         report: [0; REPORT_BYTES],
         got: 0,
         cwd: request.cwd.clone(),
-        program: request.argv[0].clone(),
+        program: program.clone(),
     };
     Ok(Spawned { master, pid, start })
 }
@@ -145,7 +145,10 @@ impl Start {
     /// is not known).
     pub fn poll(&mut self) -> Option<io::Result<()>> {
         loop {
-            let room = &mut self.report[self.got..];
+            // `got` stops at REPORT_BYTES (a full report returns below).
+            let Some(room) = self.report.get_mut(self.got..) else {
+                return Some(Err(self.failure()));
+            };
             // SAFETY: reads into the unfilled tail of a live buffer.
             let n =
                 unsafe { libc::read(self.pipe.as_raw_fd(), room.as_mut_ptr().cast(), room.len()) };

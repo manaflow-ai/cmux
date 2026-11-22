@@ -1,3 +1,5 @@
+use cmux_json::JsonSet as _;
+
 mod creation_lookup;
 use super::resource_store::{
     apply_resource_patch, apply_resource_patch_timed, complete_terminal_close_patch,
@@ -12,9 +14,11 @@ mod creation_record;
 mod effect_intent;
 mod input_receipts;
 mod receipt_presence;
+mod receipt_retention;
 use creation_record::read_creation_record;
 pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
+pub(crate) use receipt_retention::compact_resource_receipts;
 
 /// Transient input and viewport interactions keep a finite exactly-once replay
 /// window. Cleanup runs in batches so high-frequency traffic does not pay for
@@ -124,6 +128,23 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS resource_effect_receipts_by_operation_revision
            ON resource_effect_receipts(operation, committed_revision DESC)
            WHERE state = 'committed';
+         -- The open's recovery and invariants look up in-flight receipts
+         -- only. Without these they read every stored receipt (0.45 s cold
+         -- for 16,093 on a 41.6 GB registry); a receipt is in flight briefly,
+         -- so each index is nearly always empty.
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_executing
+           ON resource_effect_receipts(idempotency_key)
+           WHERE state = 'executing';
+         CREATE INDEX IF NOT EXISTS resource_creation_receipts_executing
+           ON resource_creation_receipts(execution_kind)
+           WHERE state = 'executing';
+         -- The notification ids of committed notification receipts: the local
+         -- feed's start trims its folded set against this list
+         -- (feed_local_store::trim_feed_local_folded) without reading any
+         -- receipt row (0.40 s -> 22 ms cold on a 41.6 GB registry).
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_notification_ids
+           ON resource_effect_receipts(json_extract(outcome_json, '$.value.id'))
+           WHERE operation = 'notification.create' AND state = 'committed';
          CREATE TABLE IF NOT EXISTS resource_input_receipt_completions (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
            idempotency_key TEXT UNIQUE NOT NULL,
@@ -134,18 +155,33 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
     Ok(())
 }
 
+/// The newest effect receipt rowid the backfill below has read.
+const INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY: &str = "input_receipts_backfilled_through_rowid";
+
 /// Adds completion ordering for pre-retention databases and enforces the
 /// startup bound. `committed_revision` cannot provide this order because
 /// receipt-only interactions deliberately do not advance the public revision.
+///
+/// A commit records its own completion, so only receipts a build without
+/// retention wrote lack one, and those are newer than the last backfill: the
+/// backfill reads the rows above a watermark in `meta`, not every receipt
+/// (0.45 s cold for 16,093 on a 41.6 GB registry). The prune runs only when
+/// the completions are over their bound; the commit path prunes as well.
 pub(super) fn initialize_resource_input_receipt_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
+    let since = meta_value(transaction, INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY)?
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    // `+effect.state`: the scan follows the rowid range, not the
+    // committed-receipts index, which holds nearly every row.
     transaction.execute(
         &format!(
             "INSERT INTO resource_input_receipt_completions(idempotency_key)
              SELECT effect.idempotency_key
              FROM resource_effect_receipts AS effect
-             WHERE effect.state = 'committed'
+             WHERE effect.rowid > ?1
+               AND +effect.state = 'committed'
                AND {TRANSIENT_INPUT_EFFECT_SQL}
                AND NOT EXISTS (
                  SELECT 1
@@ -154,9 +190,28 @@ pub(super) fn initialize_resource_input_receipt_retention(
                )
              ORDER BY effect.committed_revision ASC, effect.rowid ASC"
         ),
-        [],
+        [since],
     )?;
-    prune_resource_input_receipts(transaction)?;
+    let through: i64 = transaction.query_row(
+        "SELECT COALESCE(MAX(rowid), 0) FROM resource_effect_receipts",
+        [],
+        |row| row.get(0),
+    )?;
+    if through != since {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![INPUT_RECEIPTS_BACKFILLED_THROUGH_META_KEY, through.to_string()],
+        )?;
+    }
+    let completions: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM resource_input_receipt_completions",
+        [],
+        |row| row.get(0),
+    )?;
+    if usize::try_from(completions).unwrap_or(usize::MAX) > RESOURCE_INPUT_RECEIPT_CAPACITY {
+        prune_resource_input_receipts(transaction)?;
+    }
     Ok(())
 }
 
@@ -222,12 +277,13 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
            )",
         [],
     )?;
+    let ids = StoredIds::load(transaction)?;
     for (idempotency_key, operation, intent_json) in interrupted {
         append_resource_effect_journal_record(
             transaction,
             &idempotency_key,
             &operation,
-            &serde_json::from_str(&intent_json)?,
+            &serde_json::from_str(&ids.text(intent_json))?,
             None,
             ResourceEffectJournalState::Indeterminate,
         )?;
@@ -468,41 +524,50 @@ impl WorkspaceRegistry {
         });
         match stored.state.as_str() {
             "prepared" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_same_idempotency_key");
+                result.set("state", json!("not_applied"));
+                result.set("recovery", json!("retry_same_idempotency_key"));
             }
             "not_applied" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_new_idempotency_key");
+                result.set("state", json!("not_applied"));
+                result.set("recovery", json!("retry_new_idempotency_key"));
             }
             "executing"
                 if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
             {
-                result["state"] = json!("pending");
-                result["recovery"] = json!("wait");
+                result.set("state", json!("pending"));
+                result.set("recovery", json!("wait"));
             }
             "executing" | "indeterminate" => {
-                result["state"] = json!("indeterminate");
-                result["recovery"] = json!("do_not_retry");
+                result.set("state", json!("indeterminate"));
+                result.set("recovery", json!("do_not_retry"));
             }
             "created" => {
-                result["state"] = json!("created");
-                result["recovery"] = json!("none");
-                result["created_path"] = serde_json::from_str(
-                    stored
-                        .created_path_json
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
-                )?;
-                result["generation"] = json!(stored.generation.ok_or_else(|| {
-                    anyhow::anyhow!("created resource omitted its generation")
-                })?);
-                result["revision"] = json!(
-                    u64::try_from(stored.committed_revision.ok_or_else(|| {
-                        anyhow::anyhow!("created resource omitted its revision")
-                    })?)
-                    .context("stored creation revision is negative")?
-                    .to_string()
+                result.set("state", json!("created"));
+                result.set("recovery", json!("none"));
+                result.set(
+                    "created_path",
+                    serde_json::from_str(
+                        stored
+                            .created_path_json
+                            .as_deref()
+                            .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
+                    )?,
+                );
+                result.set(
+                    "generation",
+                    json!(stored.generation.ok_or_else(|| {
+                        anyhow::anyhow!("created resource omitted its generation")
+                    })?),
+                );
+                result.set(
+                    "revision",
+                    json!(
+                        u64::try_from(stored.committed_revision.ok_or_else(|| {
+                            anyhow::anyhow!("created resource omitted its revision")
+                        })?)
+                        .context("stored creation revision is negative")?
+                        .to_string()
+                    ),
                 );
             }
             other => anyhow::bail!("invalid resource creation state {other:?}"),
@@ -844,7 +909,7 @@ impl WorkspaceRegistry {
     /// under the same key.
     /// Commit a projected patch and its effect receipt. Public `deltas` that
     /// the journal already states are dropped first; `restates_all` says
-    /// they restate every live resource, so they may seed the public fold.
+    /// they restate every live resource, so they complete the public fold.
     #[allow(clippy::too_many_arguments)]
     pub fn commit_resource_effect_patch(
         &mut self,
@@ -874,6 +939,28 @@ impl WorkspaceRegistry {
         self.resource_patch_failures_remaining.set(failures);
     }
 
+    /// Makes the next `failures` topology snapshot reads fail (tests).
+    #[cfg(test)]
+    pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
+        self.topology_snapshot_failures_remaining.set(failures);
+    }
+
+    /// Makes every later effect outcome commit fail inside SQLite, as a full
+    /// disk or an I/O error does, while intent and indeterminate marks still
+    /// commit.
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.connection
+            .get()
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_resource_effect_commit
+                 BEFORE UPDATE OF state ON resource_effect_receipts
+                 WHEN NEW.state = 'committed'
+                 BEGIN SELECT RAISE(ABORT, 'injected outcome commit failure'); END;",
+            )
+            .unwrap();
+    }
+
     /// Commit every durable side of a topology close before the mux detaches
     /// the corresponding live surfaces. Legacy workspace and terminal event
     /// streams advance in this same transaction as the public tombstones and
@@ -890,6 +977,7 @@ impl WorkspaceRegistry {
         deltas: &Value,
         terminals: &[(String, Option<String>)],
         workspace_close: Option<&ResourceWorkspaceClose>,
+        restates_all: bool,
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
@@ -954,7 +1042,7 @@ impl WorkspaceRegistry {
             resource.revision.saturating_sub(1),
             resource.revision,
             &deltas,
-            true,
+            restates_all,
         );
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }
@@ -1017,7 +1105,7 @@ fn commit_resource_effect_patch_in_transaction(
     spans: &mut CommitSpans,
     report_closed: bool,
 ) -> anyhow::Result<ResourcePatchCommit> {
-    let (stored_operation, stored_fingerprint, state, _) =
+    let (stored_operation, stored_fingerprint, state, intent_json) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
             anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
         })?;
@@ -1043,7 +1131,31 @@ fn commit_resource_effect_patch_in_transaction(
         .then(|| crate::state::closed_history_store::closed_seq(transaction))
         .transpose()?;
     let applying = std::time::Instant::now();
-    let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
+    // The stored `created_by` (ask-48544d7525): this commit may run on the
+    // journal writer thread, not the request's, so the request's scope is
+    // not seen here.
+    let intent = serde_json::from_str::<Value>(&intent_json).unwrap_or(Value::Null);
+    let apply = || apply_resource_patch_timed(transaction, patch, sqlite_revision);
+    let fields = intent.get("fields").and_then(Value::as_object);
+    let (patch, prune) = match fields {
+        Some(fields) => crate::state::created_by::scoped_by_fields(fields, apply),
+        None => apply(),
+    }?;
+    // `created-by-detail-v1`: a tab an agent or a script made keeps who and why, in the commit
+    // that makes it.
+    if let (Some(created_by), Some(tab)) = (
+        fields.and_then(crate::state::created_by::CreatedBy::from_fields),
+        result.get("tab_id").and_then(Value::as_str),
+    ) && matches!(stored_operation.as_str(), "tab.create_terminal" | "tab.create_browser")
+        && crate::state::store::state_tables_ready(transaction)?
+    {
+        crate::state::created_by::record_made(
+            transaction,
+            crate::state::created_by::Made::Tab,
+            tab,
+            &created_by,
+        )?;
+    }
     (spans.prune, spans.apply, spans.written) =
         (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;
@@ -1222,6 +1334,12 @@ fn read_effect_preparation(
     else {
         return Ok(None);
     };
+    let ids = StoredIds::load(connection)?;
+    let (stored_fingerprint, intent_json, outcome_json) = (
+        ids.fingerprint(stored_fingerprint)?,
+        ids.text(intent_json),
+        outcome_json.map(|outcome| ids.text(outcome)),
+    );
     require_effect_identity(
         idempotency_key,
         operation,
@@ -1263,8 +1381,17 @@ fn read_effect_record(
             [idempotency_key],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
-        .optional()
-        .map_err(Into::into)
+        .optional()?
+        .map(|(operation, fingerprint, state, intent_json): (String, String, String, String)| {
+            let ids = StoredIds::load(connection)?;
+            Ok::<_, anyhow::Error>((
+                operation,
+                ids.fingerprint(fingerprint)?,
+                state,
+                ids.text(intent_json),
+            ))
+        })
+        .transpose()
 }
 
 fn require_effect_identity(
@@ -1284,3 +1411,6 @@ fn require_effect_identity(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receipt_retention_tests;

@@ -175,3 +175,32 @@ fn only_a_whole_messaging_call_is_not_progress() {
     assert!(progress_record(&rec(json!({"title": "Bash",
         "rawInput": {"command": "cmux agent message acp:b 'a' ; make"}}))));
 }
+
+/// A held message keeps its class (`prompt_class.rs`) in its record, so a restart releases it as
+/// what it was; a record from before classes has none (its release reads it as a result).
+#[test]
+fn a_held_message_keeps_its_class_across_its_record() {
+    let held = Held {
+        from: "a".into(),
+        to: "b".into(),
+        blocks: vec![json!({"type": "text", "text": "stuck"})],
+        client: "acpmux".into(),
+        steer: true,
+        steer_only: false,
+        interrupt: false,
+        prompt_id: "p-1".into(),
+        provenance: json!({"kind": "session_message", "from": "a", "fromName": "lane", "to": "b"}),
+        control: Control::Local,
+        trust_gate: false,
+        class: Some(crate::prompt_class::PromptClass::Block),
+        order: 3,
+        failures: 0,
+    };
+    let record = held.record("lane");
+    assert_eq!(record["class"], "block");
+    let back = Held::from_record("b", &record).expect("a held record reads back");
+    assert_eq!(back.class, Some(crate::prompt_class::PromptClass::Block));
+    let mut old = record.clone();
+    old.as_object_mut().unwrap().remove("class");
+    assert_eq!(Held::from_record("b", &old).unwrap().class, None);
+}

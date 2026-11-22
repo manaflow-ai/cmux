@@ -130,10 +130,22 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         lastPixels = pixels
         enqueue(pixels)
         let done = now()
-        let decodeMicros = UInt32(clamping: done &- started)
-        let latency = age.map { $0 + Int64(clamping: done &- received) }
+        let decodeMicros = UInt32(clamping: done >= started ? done - started : 0)
+        let latency = Self.latencyMicros(age: age, received: received, done: done)
         shown(Shown(frame: frame, latencyMicros: latency, decodeMicros: decodeMicros, bytes: accessUnit.count,
                     width: Int32(CVPixelBufferGetWidth(pixels)), height: Int32(CVPixelBufferGetHeight(pixels))))
+    }
+
+    /// Capture-to-shown latency: the frame's age when it arrived plus the time
+    /// since. Nil when it cannot be known. The stream clock reads 0 once the
+    /// connection is gone (`now` holds it weakly), which is earlier than
+    /// `received`: the unsigned difference then wrapped, clamped to
+    /// `Int64.max`, and adding the age trapped on overflow (TestFlight crash
+    /// AN2IpAo8i1J9psM-5eqCAks, INTERNAL 20261110000821).
+    static func latencyMicros(age: Int64?, received: UInt64, done: UInt64) -> Int64? {
+        guard let age, done >= received else { return nil }
+        let (sum, overflow) = age.addingReportingOverflow(Int64(clamping: done - received))
+        return overflow ? nil : sum
     }
 
     private func makeSession(sps: Data, pps: Data) -> Bool {

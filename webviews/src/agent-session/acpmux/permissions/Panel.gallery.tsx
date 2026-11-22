@@ -32,7 +32,7 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
-const request = (title: string, command: string, path: string) => ({
+const request = (title: string, command: string | string[], path: string) => ({
   toolCall: {
     title,
     kind: "execute",
@@ -170,8 +170,8 @@ const openReceipt: Play = async (ctx) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-receipt[open]")));
 };
 
-/// A chat-wide allowance alone draws no card: its remove lives in the composer's access menu
-/// (ComposerPickers.gallery `access-grants`). The panel still answers the Revoke menu action, which
+/// A chat-wide allowance alone draws no card: its Revoke lives in Session Info's Environment
+/// (inspector/EnvironmentSection.tsx). The panel still answers the Revoke menu action, which
 /// the app relays as `cmux-acpmux-permissionRevoke`.
 const revokeAllowance: Play = async (ctx) => {
   if (ctx.document.querySelector(".acpmux-permission-panel")) throw new Error("An allowance alone drew a card");
@@ -269,6 +269,32 @@ export default componentEntry<Props>({
     expanded: {
       note: "A click on a row opens its full command, folder and scope in plain words; the answers stay on the row.",
       props: { state: baseState, ...callbacks },
+      play: expandDetails,
+    },
+    "argv-command": {
+      note: "A Codex argv command opens as a shell block, quoting arguments with spaces and apostrophes.",
+      props: {
+        state: {
+          ...baseState,
+          groups: [
+            {
+              ...pendingGroup,
+              items: [
+                {
+                  permissionId: "permission-gallery-argv",
+                  state: "pending",
+                  request: request(
+                    "Read the release notes",
+                    ["cat", "docs/release notes.md", "docs/what's next.md"],
+                    "docs",
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+        ...callbacks,
+      },
       play: expandDetails,
     },
     "allow-once": {

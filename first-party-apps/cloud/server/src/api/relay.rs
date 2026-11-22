@@ -26,6 +26,10 @@
 //!   "code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
+//! - server -> host: `{"type":"relay.carrier","id","machine"}`: the Mac app's
+//!   carrier socket of the machine (crate::link::dial). The host answers a
+//!   `relay.result` as for `relay.op`, with `value` = `{"socket": PATH}` or
+//!   the app's typed refusal; no credential either way.
 //! - host-only ops (`cmux.host.link.get`, `cmux.terminal.connector.open`):
 //!   `t` frames, see [`super::host`]. A host frame that arrives during a
 //!   relay call is kept and applied after the call, on the loop thread: a
@@ -454,19 +458,7 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
         let mut request = serde_json::to_value(call).expect("WireCall serializes");
         request["type"] = json!("relay.op");
         let answer = self.exchange(request)?;
-        match answer["ok"].as_bool() {
-            Some(true) => Ok(WireReply::Result(WireResult {
-                value: answer.get("value").cloned().unwrap_or(Value::Null),
-                revision: answer["revision"].as_str().map(str::to_owned),
-                replayed: answer["replayed"].as_bool().unwrap_or(false),
-            })),
-            Some(false) => serde_json::from_value::<WireError>(answer["error"].clone())
-                .map(WireReply::Error)
-                .map_err(|e| {
-                    RelayError::Unavailable(format!("relay error has no typed error: {e}"))
-                }),
-            None => Err(RelayError::Unavailable("relay result has no ok".into())),
-        }
+        wire_reply(&answer)
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
@@ -475,5 +467,25 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
             signed_in: answer["signed_in"].as_bool().unwrap_or(false),
             team: answer["team"].as_str().map(str::to_owned),
         })
+    }
+
+    fn carrier_socket(&mut self, machine: &str) -> Result<WireReply, RelayError> {
+        let answer = self.exchange(json!({ "type": "relay.carrier", "machine": machine }))?;
+        wire_reply(&answer)
+    }
+}
+
+/// A `relay.result` line as the wire answer it carries.
+fn wire_reply(answer: &Value) -> Result<WireReply, RelayError> {
+    match answer["ok"].as_bool() {
+        Some(true) => Ok(WireReply::Result(WireResult {
+            value: answer.get("value").cloned().unwrap_or(Value::Null),
+            revision: answer["revision"].as_str().map(str::to_owned),
+            replayed: answer["replayed"].as_bool().unwrap_or(false),
+        })),
+        Some(false) => serde_json::from_value::<WireError>(answer["error"].clone())
+            .map(WireReply::Error)
+            .map_err(|e| RelayError::Unavailable(format!("relay error has no typed error: {e}"))),
+        None => Err(RelayError::Unavailable("relay result has no ok".into())),
     }
 }

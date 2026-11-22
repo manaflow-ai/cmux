@@ -55,6 +55,26 @@ function render(v: ReleaseView, news?: NewsLayout): Document {
 
 const fixes = Array.from({ length: 23 }, (_, i) => item(`fix${i}`, "fixed"));
 
+test("PR-backed clips and leads show one PR chip per item alongside their existing actions", () => {
+  const linked = item("linked", "new", {
+    pr: "https://github.com/manaflow-ai/cmux/pull/27919",
+    media: clip,
+    action: { id: "palette.checkForUpdates" },
+    docs: "https://cmux.com/docs/updates",
+  });
+  for (const layout of ["alternate", "stack", "grid", "lead"] as const) {
+    const doc = render(view(linked, []), layout);
+    const row = doc.querySelector(layout === "lead" ? ".cln-lead" : ".cln-clip")!;
+    expect(row).not.toBeNull();
+    expect(row.querySelector("h2")?.textContent).toContain(linked.title);
+    expect(row.querySelectorAll("a.cl-pr").length).toBe(1);
+    expect(row.querySelectorAll("a.cl-change-link").length).toBe(1);
+    expect(row.querySelector<HTMLAnchorElement>(".cl-pr")?.href).toBe(linked.pr!);
+    expect(row.querySelector(".cl-actions button")?.textContent).toBe("Try it");
+    expect(row.querySelector<HTMLAnchorElement>(".cl-actions .cl-link")?.href).toBe(linked.docs!);
+  }
+});
+
 test("every change with a clip shows it with its caption; the rest of New and Improved are cards", () => {
   const captioned = { ...picture, alt: "Archive a workspace from its menu." };
   const v = view(item("hero", "new", { media: captioned }), [

@@ -21,6 +21,8 @@ export function iconPickerFixtureOps(state: IconPickerPageVariant): Record<strin
             if (state.assetState === "error")
               throw new HostError("cmux.iconPicker.failed", "Sample asset download refused");
           }
+          if (op === IconPickerOps.finish && state.finishState === "refused")
+            throw new HostError("cmux.iconPicker.failed", "Sample pick refused");
           return provider.call(op, params);
         },
       ]),

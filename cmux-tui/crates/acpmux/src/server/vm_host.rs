@@ -12,6 +12,7 @@
 use super::{Conn, Origin};
 use crate::hub::{Control, Hub, vm_host};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -53,10 +54,10 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     }
     let Some(peer) = hub.connected_peers().into_iter().find(|p| p.name == name) else {
         return Err(RpcError::invalid_params(format!(
-            "no connected peer named {name:?}: `acpmux host ls` lists the peers"
+            "no connected peer named {name:?}: `acpmux machine ls` lists the peers"
         )));
     };
     let mut reply = peer.request(METHOD, json!({"on": on})).await?;
-    reply["name"] = json!(name);
+    reply.set("name", json!(name));
     Ok(reply)
 }

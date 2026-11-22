@@ -1,3 +1,4 @@
+import CryptoKit
 public import Foundation
 
 /// A paired server's cmux session that the app shows next to local, SSH and
@@ -87,6 +88,21 @@ public struct ServerReach: Hashable, Sendable {
     /// The id prefixes of ``localChief(homeID:socket:name:)``.
     static let localChiefPrefix = (host: "host_chief", install: "inst_chief")
 
+    /// Another of the person's Macs, joined to their account, reached through this Mac's acpmux: the route
+    /// acpmux keeps for the machine whose hub `daemonId` is `daemonID` (`_acpmux/machine_routes`), a socket
+    /// beside acpmux's own that carries each connection to that Mac's own session, which it admits only
+    /// while its person allows this account's other Macs (hq#11046). Its ids are a hash of `daemonID`, so
+    /// the same machine keeps one row across reads and launches.
+    /// - Throws: ``Invalid`` when `socket` or `name` is not valid.
+    public static func signedInMachine(daemonID: String, socket: String, name: String) throws(Invalid) -> ServerReach {
+        let digest = SHA256.hash(data: Data(daemonID.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return try ServerReach(hostID: signedInPrefix.host + digest, installID: signedInPrefix.install + digest,
+                               name: name, route: .unix(socket))
+    }
+
+    /// The id prefixes of ``signedInMachine(daemonID:socket:name:)``.
+    static let signedInPrefix = (host: "host_mesh", install: "inst_mesh")
+
     /// Whether this is the local Chief owner (``localChief(homeID:socket:name:)``): both ids carry
     /// the Chief prefix and the same home id, which a paired server's random ids never do.
     public var isLocalChief: Bool {
@@ -94,9 +110,13 @@ public struct ServerReach: Hashable, Sendable {
             && hostID.dropFirst(Self.localChiefPrefix.host.count) == installID.dropFirst(Self.localChiefPrefix.install.count)
     }
 
+    /// The prefix of every ``machineID``: how the app tells a paired server's id from a Cloud one
+    /// (`MachineRegistry.isCloudMachineID`).
+    public static let machineIDPrefix = "server-"
+
     /// The app's machine id for this server: stable per paired host, never
     /// `local`, an `ssh-…` or a Cloud `vm…` id.
-    public var machineID: String { "server-" + hostID }
+    public var machineID: String { Self.machineIDPrefix + hostID }
 
     /// The route to a placed chief's brain on a remote server over SSH:
     /// the destination is the server's host name as a DNS label (what macOS

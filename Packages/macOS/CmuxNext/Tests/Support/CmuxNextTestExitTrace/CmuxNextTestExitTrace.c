@@ -24,7 +24,8 @@ static void cmux_next_test_exit_trace(void) {
 }
 
 /// A run that lists or dumps its tests (`--list-tests`, `--dump-tests-json`) instead of running them.
-static int lists_tests(void) {
+/// Shared with the run-loop guard beside this file, so both read one answer.
+int cmux_next_test_lists_tests(void) {
     int count = *_NSGetArgc();
     char **arguments = *_NSGetArgv();
     for (int index = 1; index < count; index++) {
@@ -33,8 +34,25 @@ static int lists_tests(void) {
     return 0;
 }
 
+static int backtrace_kept_from_children;
+
 __attribute__((constructor)) static void cmux_next_test_exit_trace_install(void) {
-    installed = lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
+    installed = cmux_next_test_lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
+    // scripts/cmux-next/swift-test-with-hang-sampler.sh exports SWIFT_BACKTRACE=enable=yes,... so a
+    // crash of this process prints its stack (#25857). The Swift runtime read it when libswiftCore
+    // loaded, before this bundle, so this process keeps its backtracer. Its children must not
+    // inherit it:
+    // - an exit test's child (#expect(processExitsWith:)) traps on purpose, and with the variable
+    //   set it spawned the backtracer to symbolicate the whole test binary: the parent waited in
+    //   wait4 until the stuck-test watchdog ended the run (BlockingCheckTests, #26809's shard 6);
+    // - a privileged tool (/usr/bin/python3, tar) writes "swift runtime: backtrace-on-crash is not
+    //   supported for privileged executables." to stderr first, which a test that reads the
+    //   child's stderr takes for its answer (ChromiumRuntimeInstallerTests, #27981's python bridges).
+    backtrace_kept_from_children = getenv("SWIFT_BACKTRACE") == NULL || unsetenv("SWIFT_BACKTRACE") == 0;
+}
+
+int cmux_next_test_backtrace_kept_from_children(void) {
+    return backtrace_kept_from_children;
 }
 
 int cmux_next_test_exit_trace_installed(void) {

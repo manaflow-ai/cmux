@@ -9,6 +9,7 @@
 use super::driver::{INTERNAL_TIMEOUT, Inner, Session};
 use super::keys::{modifier_bits, mouse_button};
 use crate::protocol::{DriverError, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -62,7 +63,7 @@ impl Inner {
             let mut event = json!({"type": kind, "x": x, "y": y, "modifiers": modifiers,
                 "buttons": buttons, "button": if kind == "mouseMoved" && buttons == 0 { "none" } else { button }});
             if kind != "mouseMoved" {
-                event["clickCount"] = json!(1);
+                event.set("clickCount", json!(1));
             }
             self.send_until(session, "Input.dispatchMouseEvent", event, deadline)
         };

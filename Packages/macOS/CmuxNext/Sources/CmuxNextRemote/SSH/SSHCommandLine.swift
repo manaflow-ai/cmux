@@ -13,6 +13,8 @@ public import Foundation
 /// `StreamLocalBindUnlink`/stale-socket races, no `AllowStreamLocalForwarding`
 /// requirement on the server, and the link resumes reliable sequence
 /// numbers across short drops instead of resetting every attachment.
+/// The link is the only layer that redials (cmuxterm-hq#7766): it stays up
+/// under its own budget while the app holds it, so no attempt cap is passed.
 ///
 /// Every ssh gets ``enforcedOptions``: no prompts (the app has no TTY, so a
 /// prompt would hang or fail obscurely), and no agent, X11 or port
@@ -34,10 +36,6 @@ public struct SSHCommandLine: Sendable {
         "-oPermitLocalCommand=no",
     ]
 
-    /// Link retries inside one `remote connect` before it exits and the
-    /// app's event-driven retry takes over.
-    public static let linkReconnectAttempts = 5
-
     public var sshBinary: String
 
     public init(sshBinary: String = SSHCommandLine.systemSSH) {
@@ -47,9 +45,23 @@ public struct SSHCommandLine: Sendable {
     /// `ssh … host 'sh -s'`: the caller writes a POSIX script to stdin, so
     /// the user's login shell (bash, zsh, fish) only ever sees `sh -s`.
     public func script(_ host: SSHHost) -> [String] {
+        script(host.destination)
+    }
+
+    /// ``script(_:)`` for a destination with no saved machine (an acpmux peer's).
+    public func script(_ destination: SSHDestination) -> [String] {
         var argv = [sshBinary, "-T"] + Self.enforcedOptions
-        if let port = host.destination.port { argv += ["-p", String(port)] }
-        argv += ["--", host.destination.sshArgument, "sh -s"]
+        if let port = destination.port { argv += ["-p", String(port)] }
+        argv += ["--", destination.sshArgument, "sh -s"]
+        return argv
+    }
+
+    /// `ssh -tt … host <command>`: the command on a pty of its own, which only the caller's
+    /// process reads and types into (`cmux cloud deliver-secrets`'s receiver, SSHMachineSecrets).
+    public func pty(_ destination: SSHDestination, _ command: String) -> [String] {
+        var argv = [sshBinary, "-tt"] + Self.enforcedOptions
+        if let port = destination.port { argv += ["-p", String(port)] }
+        argv += ["--", destination.sshArgument, command]
         return argv
     }
 
@@ -77,7 +89,6 @@ public struct SSHCommandLine: Sendable {
             "--state-dir", clientStateDir,
             "--local-socket", localSocket,
             "--connect-timeout-seconds", "30",
-            "--reconnect-attempts", String(Self.linkReconnectAttempts),
         ]
         if let stateDir = host.remoteStateDir { args += ["--remote-state-dir", stateDir] }
         if let socket = host.remoteMuxSocket { args += ["--remote-mux-socket", socket] }

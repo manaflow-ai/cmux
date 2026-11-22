@@ -5,6 +5,7 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// A password CSV import's conflicts and the store's failures, at the
 /// boundary the app writes through (cx-dwg.6, #20029 review):
@@ -16,7 +17,7 @@ import Testing
 ///   Move to Trash offer for the plaintext file.
 /// - A second CSV import right after the first leaves the first file's
 ///   offer up beside its own (cx-dwg.8, #20029 review nit).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(1)))
 struct PasswordImportConflictTests {
     private static let csv = "name,url,username,password\nexample,https://example.com/login,someone,throwaway-1\n"
 
@@ -49,8 +50,8 @@ struct PasswordImportConflictTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("conflict-\(UUID().uuidString).csv")
-        try Data(Self.csv.utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
+        try Data(Self.csv.utf8).write(to: file)
         let hold = PasswordConflictHold { _, _ in ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0) }
         hold.keep([Self.login()], profile: .default)
         var report = PasswordImportReport()
@@ -76,8 +77,8 @@ struct PasswordImportConflictTests {
         defer { window.close() }
         let first = FileManager.default.temporaryDirectory.appendingPathComponent("conflict-\(UUID().uuidString).csv")
         let second = FileManager.default.temporaryDirectory.appendingPathComponent("rejected-\(UUID().uuidString).csv")
-        for file in [first, second] { try Data(Self.csv.utf8).write(to: file) }
         defer { for file in [first, second] { try? FileManager.default.removeItem(at: file) } }
+        for file in [first, second] { try Data(Self.csv.utf8).write(to: file) }
         let hold = PasswordConflictHold { _, _ in ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0) }
         hold.keep([Self.login()], profile: .default)
         var conflicted = PasswordImportReport()

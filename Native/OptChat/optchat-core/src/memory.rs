@@ -150,6 +150,9 @@ pub struct Memory {
     not_free: HashSet<NodeId>,
     /// Nodes with a model call running.
     busy: HashSet<NodeId>,
+    /// Busy nodes that wait for a late retry (the host's stuck wait): not restarted, and
+    /// not counted against `JOBS`, so a run of stuck nodes never holds every slot.
+    parked: HashSet<NodeId>,
     budget: usize,
     /// Imported messages (section 10), as sorted disjoint `[from, to)`
     /// ranges of ids. The reference client keeps them on their own side: a
@@ -182,6 +185,7 @@ impl Memory {
             ready: BTreeSet::new(),
             not_free: HashSet::new(),
             busy: HashSet::new(),
+            parked: HashSet::new(),
             budget,
             imported: Vec::new(),
         }
@@ -615,7 +619,7 @@ impl Memory {
                     .filter(|id| id.end() <= last_leaf[self.imported_side(*id) as usize]),
             );
             let mut running = [0usize; 2];
-            for id in &self.busy {
+            for id in self.busy.difference(&self.parked) {
                 running[self.imported_side(*id) as usize] += 1;
             }
             candidates.sort_by_key(|id| {
@@ -713,6 +717,7 @@ impl Memory {
         if !self.busy.remove(&node) {
             return Err(NotRunning(node));
         }
+        self.parked.remove(&node);
         self.build(node, text.len());
         // As the reference client fits its views after a stored node: only
         // past the budget, and only a whole batch, one that brings the view
@@ -777,6 +782,15 @@ impl Memory {
     /// fixed retry wait).
     pub fn fail(&mut self, node: NodeId) {
         self.busy.remove(&node);
+        self.parked.remove(&node);
+    }
+
+    /// A busy `node` waits a long time before its next try (it is stuck): it stays busy, so
+    /// it is not started again, but frees its `JOBS` slot for other work until `fail`.
+    pub fn park(&mut self, node: NodeId) {
+        if self.busy.contains(&node) {
+            self.parked.insert(node);
+        }
     }
 
     /// Records a built node. The views change only in the size of a

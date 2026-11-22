@@ -6,7 +6,9 @@ import Foundation
 /// app (`cmux_shim_set_file_dialogs`); the app asks for that only while an agent's file offer stands on some
 /// tab (`BrowserAgentFiles`, `cmux browser <tab> upload`), so a person's choosers keep Chromium's panel and
 /// its accept filters. A chooser that reaches the app goes to its tab's offer first; one from a tab with no
-/// offer (another tab while an agent's offer stood) asks the person with the App's panel.
+/// offer (another tab while an agent's offer stood) asks the person with the App's panel. A cmux page
+/// that records the person's pick (`CEFTab.pageFilesChosen`, the agent chat) sends its own choosers to
+/// the app, and only its own (`cmux_shim_browser_set_file_dialogs`).
 extension CEFRuntime {
     /// Shim modes (`CEFShimEvent.fileDialog`).
     private enum FileDialogMode: Int32 {
@@ -21,6 +23,12 @@ extension CEFRuntime {
         if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0) }
     }
 
+    /// Sends `tab`'s own choosers to the app while it records the person's pick, else gives them back.
+    func applyFileDialogRoute(_ tab: CEFTab) {
+        guard let browser = tab.browserID else { return }
+        shim?.browserSetFileDialogs(browser, tab.pageFilesChosen != nil ? 1 : 0)
+    }
+
     /// Answers chooser `dialogID` (shim `mode`) from `tab`: its agent offer, else the person's panel.
     func answerFileDialog(_ dialogID: Int32, mode raw: Int32, defaultPath: String, tab: CEFTab?) {
         let mode = FileDialogMode(rawValue: raw) ?? .open
@@ -31,7 +39,9 @@ extension CEFRuntime {
         if mode == .save { return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
         guard let fileInput else { return answerFileDialog(dialogID, multiple: false, []) }
         fileInput.answerFileInput(allowsMultipleSelection: mode == .openMultiple, allowsDirectories: mode == .folder,
-                                  window: window) { [weak self] urls in
+                                  window: window) { [weak self, weak tab] urls in
+            // The person's pick, before the page gets it (a page that records it, `pageFilesChosen`).
+            if let urls, !urls.isEmpty { tab?.pageFilesChosen?(urls) }
             self?.answerFileDialog(dialogID, multiple: mode == .openMultiple, urls ?? [])
         }
     }

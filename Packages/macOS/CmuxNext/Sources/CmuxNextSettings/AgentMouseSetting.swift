@@ -1,13 +1,10 @@
 /// `browser.agentMouse.motion` and `browser.agentMouse.maxMoveMs`: how an
-/// agent's pointer moves in browser tabs (plans/cmux-next/human-mouse-DESIGN.md).
+/// agent's pointer moves in browser tabs (plans/cmux-next/human-mouse-DESIGN.md). The paths,
+/// defaults, the cap's range and the motions (`AgentMouseMotion`) come from
+/// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct AgentMouseSetting: Sendable {
     /// How an agent's pointer moves.
-    public enum Motion: String, Sendable, Hashable, CaseIterable {
-        /// A person's path: curved, slow-fast-slow, a rest before each press.
-        case human
-        /// One jump to the target and an instant press, the fastest.
-        case instant
-    }
+    public typealias Motion = AgentMouseMotion
 
     /// The parsed setting.
     public struct Value: Sendable, Hashable {
@@ -25,20 +22,13 @@ public nonisolated struct AgentMouseSetting: Sendable {
         }
     }
 
-    /// The motion key's path in cmux.json.
-    public let motionPath = ["browser", "agentMouse", "motion"]
-    /// The cap key's path in cmux.json.
-    public let maxMoveMsPath = ["browser", "agentMouse", "maxMoveMs"]
-    /// The values while the keys are absent: human motion, 350 ms cap.
-    public let fallback = Value(motion: .human, maxMoveMs: 350)
-    /// The cap's accepted range in ms.
-    public let maxMoveMsRange: ClosedRange<Double> = 60...1_000
+    /// The values while the keys are absent.
+    public static let fallback = Value(motion: motionDefault, maxMoveMs: maxMoveMsDefault)
 
-    /// The setting's paths and defaults.
     public init() {}
 
     /// Absent keys keep the default; a bad value keeps it too, with a diagnostic.
-    func parse(_ root: JSONValue) -> (Value, [SettingsDiagnostic]) {
+    static func parse(_ root: JSONValue) -> (Value, [SettingsDiagnostic]) {
         var value = fallback
         var diagnostics: [SettingsDiagnostic] = []
         if let raw = root.value(at: motionPath) {

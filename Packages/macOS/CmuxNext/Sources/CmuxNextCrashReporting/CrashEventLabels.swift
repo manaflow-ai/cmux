@@ -16,8 +16,12 @@ public nonisolated struct CrashEventLabels: Sendable, Equatable {
     /// Sentry groups it into a cmux-next issue even when a stack looks like
     /// a main-app one. A fingerprint the event already has keeps its parts
     /// after the prefix.
-    public func apply(to event: Event) {
+    /// - Parameters:
+    ///   - event: The event, already scrubbed: these tags are added after the scrubber.
+    ///   - identity: The install, commit and team member tags (``CrashReportIdentity/tags``).
+    public func apply(to event: Event, identity: CrashReportIdentity = CrashReportIdentity()) {
         var tags = event.tags ?? [:]
+        for (key, value) in identity.tags { tags[key] = value }
         tags["app"] = Self.app
         tags["channel"] = policy.channel?.rawValue ?? "unknown"
         if let tag = policy.devTag { tags["dev_tag"] = tag }

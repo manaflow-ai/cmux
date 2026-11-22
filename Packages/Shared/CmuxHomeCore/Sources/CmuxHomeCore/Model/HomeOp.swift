@@ -17,7 +17,10 @@ public enum HomeOp: Hashable, Sendable {
     /// `read_cursor.set` for the signed-in user.
     case setReadCursor(conversation: ConversationID, seq: Seq)
     /// `conversation.create`: a group with these participants (humans and Chiefs).
-    case createGroup(title: String, participants: [ParticipantID])
+    /// `invites`: email or phone addresses the owner invites into the new
+    /// group (`invite.create` each, keyed from the intent), so one New Message
+    /// with people and addresses starts one group; they show as invited.
+    case createGroup(title: String, participants: [ParticipantID], invites: [ContactAddress] = [])
     /// `mux.create`: a new subchief owned by the signed-in user, with its DM.
     case createChief(name: String)
     /// Opens (or creates on the owner) the DM with a person reached by email

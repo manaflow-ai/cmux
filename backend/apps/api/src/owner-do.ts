@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
+import { ChannelLocks, DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
@@ -14,6 +14,11 @@ const doSql = (storage: DurableObjectStorage): SqlStore => ({
   exec: <T>(q: string, ...params: Array<unknown>) => storage.sql.exec(q, ...params).toArray() as Array<T>,
   transaction: <T>(fn: () => T): T => storage.transactionSync(fn)
 })
+
+/** How long a caller waits for the commit-time drain of prompt channels (OwnerDO.promptDrained). */
+const PROMPT_DRAIN_WAIT_MS = 2_000
+/** Target objects one commit-time drain sends to; the rest wait for the alarm (a 12,000-member team's index is the alarm's). */
+const PROMPT_DRAIN_MAX_CHANNELS = 32
 
 export interface Attachment {
   readonly principal: Principal
@@ -112,9 +117,41 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
-  /** The commit-time drain of Chief wake channels in flight (afterCommit), and whether a commit came during it. */
+  /** One send per outbox channel at a time, across the commit-time drain and the alarm (owner-outbox.ts ChannelLocks). */
+  private readonly channelLocks = new ChannelLocks()
+  /** The commit-time drain of prompt channels in flight (afterCommit), and whether a commit came during it. */
   private wakeDrain: Promise<void> | undefined
   private wakeAgain = false
+  /**
+   * The outbox channels a person waits on, drained at commit time instead of only by the alarm (which
+   * drains the PlanetScale projection first: seconds in prod). Chief wake queues by default.
+   */
+  protected promptChannel(channel: string): boolean {
+    return isWakeChannel(channel)
+  }
+  /**
+   * Resolves once the commit-time drain of prompt channels (and any drain a commit during it started) ended, or
+   * after `maxMs`, whichever is first: a slow target never holds the caller (the alarm retries what is left).
+   */
+  protected async promptDelivered(delivered: () => boolean, maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
+    // One caller's own outbox item: resolves once `delivered()` holds, when no commit-time drain is left that could send
+    // it (the alarm sends what is left), or after `maxMs`. Never waits on a drain once its own item is out.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let late = false
+    const deadline = new Promise<void>((r) => (timer = setTimeout(() => ((late = true), r()), maxMs)))
+    try {
+      // Every send that ends, of any channel and either path, wakes it to look again: never held behind a slower later channel.
+      while (!late && !delivered() && this.wakeDrain) await Promise.race([this.channelLocks.nextSendEnd(), this.wakeDrain, deadline])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  protected async promptDrained(maxMs = PROMPT_DRAIN_WAIT_MS): Promise<void> {
+    if (!this.wakeDrain) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settled = (async () => { while (this.wakeDrain) await this.wakeDrain })()
+    await Promise.race([settled, new Promise<void>((r) => (timer = setTimeout(r, maxMs)))]).finally(() => clearTimeout(timer))
+  }
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -340,8 +377,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private drainWakes(now: number): void {
     if (!this.engine) return
     if (this.wakeDrain) return void (this.wakeAgain = true)
-    if (!this.engine.outbox.dueChannels(now).some(isWakeChannel)) return
-    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel)
+    const prompt = (c: string) => this.promptChannel(c)
+    if (!this.engine.outbox.dueChannels(now).some(prompt)) return
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, prompt, PROMPT_DRAIN_MAX_CHANNELS, this.channelLocks)
       .catch(() => undefined)
       .finally(() => {
         this.wakeDrain = undefined
@@ -520,7 +558,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private async alarmOnce() {
     this.gate.sweep(Date.now())
     if (!this.engine) return
-    await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
+    await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, undefined, Infinity, this.channelLocks)
     this.engine.pruneEventWindow(Date.now())
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
@@ -537,6 +575,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
     const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
+    // A commit-time drain started by this run's own commits ends inside the run (the alarm is awaited; a drain is not).
+    await this.promptDrained()
     if (at !== null && Number.isFinite(at)) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

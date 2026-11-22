@@ -1,6 +1,7 @@
 //! Requests to the server, their deadlines, and transport shutdown.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl RemoteSession {
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
@@ -29,7 +30,7 @@ impl RemoteSession {
         let attach_surface = matches!(deadline, RequestDeadline::Attach)
             .then(|| cmd.get("surface").and_then(Value::as_u64))
             .flatten();
-        cmd["id"] = json!(id);
+        cmd.set("id", json!(id));
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
@@ -164,11 +165,11 @@ impl RemoteSession {
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
-        cmd["id"] = json!(id);
+        cmd.set("id", json!(id));
         // The local remote bridge replaces eligible sends with compact binary
         // MuxInput packets. Direct/older mux servers ignore this hint and keep
         // the existing JSON response behavior.
-        cmd["no_reply"] = json!(true);
+        cmd.set("no_reply", json!(true));
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
@@ -207,7 +208,7 @@ impl RemoteSession {
             // The server may have accepted a press whose reply was lost.
             // Closing the connection removes this client from the server
             // registry and wakes every browser worker to balance its capture.
-            self.disconnect_transport();
+            self.fail_transport("a pointer press got no answer in time");
         }
         result
     }
@@ -345,8 +346,18 @@ impl RemoteSession {
         }
     }
 
+    /// Close the connection as a deliberate local end: the app takes the
+    /// closed event stream as a clean exit. A close because something failed
+    /// is [`Self::fail_transport`].
     pub(super) fn disconnect_transport(&self) {
         self.disconnect_transport_with_reason(None);
+    }
+
+    /// Close the connection because something failed. The reason is kept,
+    /// so the app reports a lost session instead of exiting as if the
+    /// session had ended (`on_mux_empty` reads it).
+    pub(super) fn fail_transport(&self, reason: &str) {
+        self.disconnect_transport_with_reason(Some(reason.to_owned()));
     }
 
     pub(in crate::session) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
@@ -361,6 +372,11 @@ impl RemoteSession {
         self.disconnect_state.notify();
         self.begin_shutdown();
         self.interactive_writer.close();
+    }
+
+    /// What the daemon's shutdown notice said, or `None` when none came.
+    pub(crate) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
+        self.disconnect_state.shutdown_notice()
     }
 
     /// Returns the first reason recorded when the remote reader stopped.

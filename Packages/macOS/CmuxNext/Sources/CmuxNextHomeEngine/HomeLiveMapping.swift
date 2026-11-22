@@ -38,7 +38,9 @@ nonisolated struct HomeLiveMapping {
 
     func event(_ changed: ConversationRunChanged) -> HomeLiveEvent {
         .run(HomeLiveRunChange(conversation: ConversationID(changed.conversation), author: author(changed.run.author),
-                               run: changed.run.id, turn: changed.run.turn.map { IdempotencyKey($0) }, status: changed.run.status))
+                               run: changed.run.id, turn: changed.run.turn.map { IdempotencyKey($0) }, status: changed.run.status,
+                               agentRun: HomeAgentRunMapping.run(changed.summary, conversation: changed.conversation,
+                                                               steps: changed.steps ?? [], author: author)))
     }
 
     private static func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }

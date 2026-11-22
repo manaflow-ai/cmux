@@ -112,7 +112,7 @@ impl Surface {
             // Only the request is sent under the runtime lock; the wait is not.
             let barrier =
                 match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
-                    PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(),
+                    PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(deadline),
                     _ => return true,
                 };
             if let Some(acknowledged) = barrier {

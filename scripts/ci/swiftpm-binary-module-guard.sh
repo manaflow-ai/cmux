@@ -6,8 +6,7 @@
 #
 # Why: a fleet step-warm slot (hq build-fleet cmd/worker/step_warm.go), a
 # GitHub runner's kept checkout or an nx-remote tree builds many commits in one
-# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, CmuxTerminalClientFFI,
-# iroh-ffi) gives its headers to the build at a fixed path
+# .build. A binary target (CCmuxAppFFI, GhosttyNextKit, iroh-ffi) gives its headers to the build at a fixed path
 # (.build/out/Products/<config>/include/... under Xcode 27). Its explicit
 # precompiled module (.pcm) is keyed by the compile arguments, which do not
 # change when a pin moves, so the build reuses the old .pcm against the new
@@ -16,7 +15,9 @@
 # ("cannot find type CmuxFocusReply"). A fresh .build never fails this way.
 #
 # swiftpm_binary_module_guard PKGDIR [SCRATCH]
-#   Resolves PKGDIR (so the binary artifacts in SCRATCH are the commit's), then
+#   Resolves PKGDIR (so the binary artifacts in SCRATCH are the commit's; a network
+#   fetch failure is tried again, swiftpm_resolve_package, and when every try fails
+#   it returns 75, "fetch failed, no test ran": the caller decides), then
 #   hashes every header, module map and API notes file the build can read from
 #   a binary target: SCRATCH/artifacts and each *.xcframework of the checkout
 #   that the package's or a local dependency's manifest names.
@@ -110,15 +111,95 @@ swiftpm_binary_module_digest() {
   } | swiftpm__sha256 | cut -d' ' -f1
 }
 
+# A resolve's output (FILE) shows a network fetch failure: git, curl or a release download lost the connection
+# or got a server error (5xx), not the commit's own manifest, pins, a 404 or a checksum mismatch (those are the
+# commit's defects and stay a red). Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a
+# partial file".
+swiftpm__network_fetch_failure() {
+  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: 5[0-9][0-9]|badResponseStatusCode[(]5[0-9][0-9]|The network connection was lost|The request timed out' "$1"
+}
+
+# `swift package resolve` of PKGDIR (ARGS go after --package-path), its output in the step log. A failure on
+# a network fetch is tried again after each delay of CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS (seconds, default
+# "5 20": three tries). Returns 0 when it resolved, 75 when every try failed on the network (no test can run),
+# 1 when it failed for another reason (the build reports why).
+# Seed SwiftPM's shared artifact cache for PKGDIR with curl, each artifact checked against its manifest
+# checksum (scripts/ci/swiftpm_prefetch_binary_artifacts.py), so the resolve after it downloads nothing.
+# On the fleet workers SwiftPM's own NSURLSession download of a binary artifact traps (exit 133): macOS's
+# single sign-on check (AppSSO) calls xpc_connection_set_target_uid, an API misuse in the worker's process
+# context (2026-11-20, cmux-austin-mini-0; every CmuxNext swift test on a new FFI pin until the worker had it
+# cached). Runs on macOS, and on Linux when CMUX_SWIFTPM_ARTIFACT_STORE names a store. Never fails the step:
+# what it does not seed, SwiftPM fetches as before. CMUX_SWIFTPM_ARTIFACT_CACHE overrides the cache (tests).
+swiftpm_seed_binary_artifacts() {
+  local pkgdir="$1" seeder args=()
+  shift
+  seeder="$(dirname "${BASH_SOURCE[0]}")/swiftpm_prefetch_binary_artifacts.py"
+  [ -f "$seeder" ] || return 0
+  [ "${CMUX_SWIFTPM_SEED_ARTIFACTS:-1}" != 0 ] || return 0
+  if [ -n "${CMUX_SWIFTPM_ARTIFACT_STORE:-}" ]; then
+    args+=(--store "$CMUX_SWIFTPM_ARTIFACT_STORE")
+  elif [ "$(uname -s)" != Darwin ]; then
+    return 0
+  fi
+  if [ -n "${CMUX_SWIFTPM_ARTIFACT_CACHE:-}" ]; then
+    args+=(--cache "$CMUX_SWIFTPM_ARTIFACT_CACHE")
+  else
+    # A resolve with its own --cache-path reads that cache.
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --cache-path) [ "$#" -lt 2 ] || args+=(--cache "$2/artifacts"); shift ;;
+        --cache-path=*) args+=(--cache "${1#--cache-path=}/artifacts") ;;
+      esac
+      shift
+    done
+  fi
+  python3 -I "$seeder" --package-path "$pkgdir" ${args[@]+"${args[@]}"} < /dev/null || true
+}
+
+swiftpm_resolve_package() {
+  local pkgdir="$1" log delays tries try=1 delay code
+  shift
+  swiftpm_seed_binary_artifacts "$pkgdir" "$@"
+  read -r -a delays <<< "${CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS-5 20}"
+  tries=$((${#delays[@]} + 1))
+  log="$(mktemp)"
+  while :; do
+    code=0
+    swift package resolve --package-path "$pkgdir" "$@" < /dev/null >"$log" 2>&1 || code=$?
+    if [ "$code" -eq 0 ]; then
+      rm -f "$log"
+      return 0
+    fi
+    echo "ci-phase swift package resolve failed in $pkgdir (try $try of $tries, exit $code); its last lines:"
+    tail -n 20 "$log" | sed 's/^/  | /' || true
+    if ! swiftpm__network_fetch_failure "$log"; then
+      rm -f "$log"
+      return 1
+    fi
+    if [ "$try" -ge "$tries" ]; then
+      rm -f "$log"
+      return 75
+    fi
+    delay="${delays[$((try - 1))]}"
+    echo "ci-phase the resolve failed on a network fetch; trying again in ${delay}s"
+    sleep "$delay"
+    try=$((try + 1))
+  done
+}
+
 swiftpm_binary_module_guard() {
-  local pkgdir="$1" scratch="${2:-$1/.build}" stamp digest previous="" resolve_args=()
+  local pkgdir="$1" scratch="${2:-$1/.build}" stamp digest previous="" resolve_args=() resolved=0
   [ "$scratch" = "$pkgdir/.build" ] || resolve_args=(--scratch-path "$scratch")
   stamp="$scratch/$swiftpm_binary_module_inputs_file"
   # Resolution fetches and unpacks the commit's binary artifacts. When it fails
   # (the build reports why), the artifacts may still be the old commit's, so the
   # digest proves nothing: drop the caches and the stamp, and the next step
-  # starts from a digest of its own.
-  if ! swift package resolve --package-path "$pkgdir" ${resolve_args[@]+"${resolve_args[@]}"} < /dev/null >/dev/null 2>&1; then
+  # starts from a digest of its own. A network fetch failure is tried again; when
+  # every try fails, no test can run for PKGDIR: the guard returns 75 (no verdict)
+  # and the caller decides (a lane of several packages records it for this one
+  # package and goes on; a step of one package ends with 75, never 1).
+  swiftpm_resolve_package "$pkgdir" ${resolve_args[@]+"${resolve_args[@]}"} || resolved=$?
+  if [ "$resolved" -ne 0 ]; then
     digest=""
   else
     digest="$(swiftpm_binary_module_digest "$pkgdir" "$scratch")"
@@ -137,6 +218,10 @@ swiftpm_binary_module_guard() {
   if [ -z "$digest" ]; then
     rm -f "$stamp"
     echo "ci-phase swift package resolve failed in $pkgdir: removed the build outputs in $scratch"
+    if [ "$resolved" -eq 75 ]; then
+      echo "ci-phase fetch failed, no test ran: swift package resolve in $pkgdir failed on a network fetch on every try (infrastructure, no verdict: 75; rerun the step)"
+      return 75
+    fi
     return 0
   fi
   printf '%s\n' "$digest" > "$stamp"
@@ -206,6 +291,21 @@ swiftpm_purge_build_outputs() {
       *) rm -rf -- "$entry" ;;
     esac
   done
+}
+
+# swiftpm_unverified_build SCRATCH: the fleet worker kept this .build after a
+# step whose build never finished (stopped at its max-run, cancelled, or failed)
+# and marked it unverified (hq build-fleet cmd/worker step_warm.go,
+# warmUnverifiedFile). SwiftPM resumes such a build where it stopped: the
+# 2026-11-21 CmuxNext suite steps on lent minis were stopped at 180 min with 27
+# of 13,437-15,760 targets left, and the worker used to drop the .build, so the
+# next step compiled all of them again. When a build on an unverified .build
+# fails, the caller builds once more from clean outputs, so a bad leftover (the
+# 2026-10-10 undefined-symbols link) never reports red. A complete build
+# removes the marker (record_built_ref, run-swift-testing-suites.sh). The worker
+# keeps an unfinished .build only for a step whose script calls this function.
+swiftpm_unverified_build() {
+  [ -f "$1/.cmux-ci-unverified" ]
 }
 
 swiftpm_stale_module_failure() {

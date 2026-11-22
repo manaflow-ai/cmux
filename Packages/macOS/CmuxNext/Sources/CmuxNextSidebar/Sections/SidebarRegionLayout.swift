@@ -34,6 +34,10 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     /// How far a list row ends short of the region's right edge: a block in the sidebar's list takes the
     /// list rows' `SidebarStyle.rowTrailingTrim`, so a pinned row's pill ends where a workspace row's does.
     public var trailingTrim: CGFloat = 0
+    /// The room between two consecutive rows of a list section: the sidebar list's own row gap
+    /// (`SidebarDensityTokens.rowSpacing`), so Home and the pinned rows step down at the workspace rows' pitch
+    /// (Lawrence 2026-11-11). 0 stacks the rows edge to edge.
+    public var rowGap: CGFloat = 0
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
@@ -124,7 +128,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         }
         for (index, section) in shown.enumerated() {
             if index > 0 {
-                if look.separatesSections {
+                // No line under Home's section (Lawrence 2026-11-13: "get rid of line under "home""); its gap stays.
+                if look.separatesSections, shown[index - 1].id != SidebarLayoutDocument.topSectionID {
                     result.separators.append(CGRect(x: 0, y: y + (m.sectionGap - m.lineWidth) / 2, width: width, height: m.lineWidth))
                     result.separatorKeys.append(section.id.rawValue)
                 }
@@ -134,7 +139,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
             // A tiles section sits on its own card in every look: the tonal
             // step, plus a section gap below it, sets it apart from the list.
             let tiled = if case .tiles = SectionFlow.mode(section, look: look) { true } else { false }
-            let carded = look == .card || tiled
+            let carded = isCarded(section, look: look)
             let x = carded ? m.inset : 0
             let innerWidth = max(0, width - x * 2)
             let top = y
@@ -160,13 +165,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                     let lines = min(flow.lines, section.maxRows ?? flow.lines)
                     sectionCapped += CGFloat(lines) * flow.lineHeight + CGFloat(max(0, lines - 1)) * flow.gap
                 } else {
-                    for item in section.items {
+                    for (index, item) in section.items.enumerated() {
+                        if index > 0 { y += m.rowGap }
                         result.rows.append(SidebarRegionRow(kind: .item(item.id, section: section.id),
-                                                            frame: CGRect(x: x, y: y, width: max(0, innerWidth - (carded ? 0 : m.trailingTrim)),
+                                                            frame: CGRect(x: x, y: y, width: max(0, innerWidth - itemTrailingTrim(section, look: look, metrics: m)),
                                                                           height: m.rowHeight)))
                         y += m.rowHeight
                     }
-                    sectionCapped += CGFloat(min(section.items.count, section.maxRows ?? section.items.count)) * m.rowHeight
+                    let lines = min(section.items.count, section.maxRows ?? section.items.count)
+                    sectionCapped += CGFloat(lines) * m.rowHeight + CGFloat(max(0, lines - 1)) * m.rowGap
                 }
             }
             if carded {
@@ -192,6 +199,19 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     /// An empty titled section's title: it draws it in every look, so the section stays in sight and takes a drop
     /// there (an empty section with no title takes no space).
+    /// A tiles section sits on its own card in every look, and every section does in the card look.
+    static func isCarded(_ section: LayoutSection, look: SectionsLookVariant) -> Bool {
+        if look == .card { return true }
+        if case .tiles = SectionFlow.mode(section, look: look) { return true }
+        return false
+    }
+
+    /// How far `section`'s list rows end short of its header's right edge: `metrics.trailingTrim`, none on a card (its
+    /// rows keep the card's width). The header centers its chevron on its rows' trailing column with it.
+    static func itemTrailingTrim(_ section: LayoutSection, look: SectionsLookVariant, metrics: SidebarRegionMetrics) -> CGFloat {
+        isCarded(section, look: look) ? 0 : metrics.trailingTrim
+    }
+
     static func emptyTitle(_ section: LayoutSection) -> String? {
         section.content == .items && section.items.isEmpty ? section.headerTitle : nil
     }
@@ -210,6 +230,14 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 }
 
 extension SidebarLayoutDocument {
+    /// App-contributed sections that belong to one pinned region. The
+    /// bottom band intentionally projects only these sections: ordinary
+    /// item sections stored in the bottom region remain hidden for the
+    /// cx-n0i9 layout decision.
+    public nonisolated func appSections(in region: SidebarRegion, room: String?) -> [LayoutSection] {
+        sections(in: region, room: room).filter { $0.content == .app }
+    }
+
     /// The item sections drawn above and below the workspace list in
     /// `room`, in region order (top, middle, bottom) split at the
     /// workspaces section. Items sections in the middle region draw in the

@@ -1,8 +1,9 @@
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextDesign
 
-/// A toolbar row that shows the arrow over its whole frame and the I-beam
-/// over the omnibar's text area (`OmnibarPointer`).
+/// A toolbar row that shows the arrow over its whole frame, buttons included,
+/// and the I-beam over the omnibar's text area (`OmnibarPointer`).
 ///
 /// Cursor rects work only in the key window. A Chromium page is a child
 /// window that takes the key while the page has the keyboard
@@ -23,7 +24,7 @@ import CmuxNextCompat
 /// from `displayCycleUpdateStructuralRegions`). After each run loop pass the
 /// row under the pointer sets its cursor again when another one shows
 /// (`keepCursor`).
-public class ArrowCursorView: NSView {
+public class ArrowCursorView: NSView, ClickableCursorHost {
     private var cursorArea: NSTrackingArea?
     /// Owns the row's cursor tracking area, so the area's events end there
     /// and never travel up the responder chain (a tracking area keeps its
@@ -31,13 +32,41 @@ public class ArrowCursorView: NSView {
     private let cursorTracker = RowCursorTracker()
     /// The cursor the row last set on a pointer move (`debug.omnibar`).
     private(set) var trackedCursor: OmnibarPointer.Cursor?
+    /// Where the pointer was, in window coordinates, when the row last set its cursor; nil once
+    /// it left the row, the row hid (a parked tab) or the row left its window. Only a hint that
+    /// the pointer may be over the row: `clickableStateDidChange` reads the pointer again.
+    private(set) var pointerPoint: NSPoint?
+    /// Where the pointer is now, in the row's window coordinates, when the row's window is the
+    /// top window under it; nil otherwise. Tests replace it (no real pointer on a test host).
+    var currentPointer: (ArrowCursorView) -> NSPoint? = { row in
+        guard let window = row.window else { return nil }
+        return ClickableButton.currentPointer(in: window)
+    }
 
+    /// No cursor rect and no tracking area where a layout screen serves the row (``PanePointerFollowing``): the screen's
+    /// one area sets the row's cursor from its hit test, so a row that moves with its pane costs AppKit no cursor-rect
+    /// walk (RESIZE MAIN BUDGET, BrowserPaneMotionPointerAreasTests).
     public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
+        if !isServedByPanePointerArea { addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor) }
     }
 
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        syncPointerTracking()
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        syncPointerTracking()
+    }
+
+    /// Its own tracking area only outside a layout screen.
+    private func syncPointerTracking() {
+        if isServedByPanePointerArea {
+            if let cursorArea { removeTrackingArea(cursorArea) }
+            cursorArea = nil
+            return
+        }
         // `.inVisibleRect` follows the view's visible rect: one area is enough. No
         // `.cursorUpdate`: AppKit sends a cursor update to the view under the pointer, which
         // may answer with the arrow (an input-host run with `.cursorUpdate` showed the arrow
@@ -50,8 +79,20 @@ public class ArrowCursorView: NSView {
         cursorArea = area
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        pointerPoint = nil
+    }
+
+    /// Parking a tab hides its row under a still pointer, with no exit event.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        pointerPoint = nil
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        pointerPoint = nil
         Self.rows.removeAll { $0.row == nil || $0.row === self }
         if window != nil {
             Self.rows.append(WeakRow(row: self))
@@ -59,10 +100,35 @@ public class ArrowCursorView: NSView {
         }
     }
 
-    fileprivate func setCursor(at point: NSPoint) {
+    func setCursor(at point: NSPoint) {
+        track(at: point).cursor.set()
+    }
+
+    /// The row's cursor at `point` (window coordinates), noted as the one it shows there.
+    @discardableResult
+    fileprivate func track(at point: NSPoint) -> OmnibarPointer.Cursor {
         let cursor = OmnibarPointer.cursor(atWindowPoint: point, in: self)
+        pointerPoint = point
         trackedCursor = cursor
-        cursor.cursor.set()
+        return cursor
+    }
+
+    fileprivate func pointerDidLeave() { pointerPoint = nil }
+
+    /// A button under a still pointer was enabled or disabled (Back running out of history while a
+    /// Chromium page has the key): the row's rule gives the new cursor at once, where
+    /// `keepCursor` would keep the one it set last and the button's rects wait for the key.
+    /// `pointerPoint` only says the pointer was over the row; an exit can be skipped (a hide, a
+    /// menu's tracking loop), so the row reads the pointer again and sets a cursor only while it
+    /// is inside the row's visible rect, in the top window under it, and the row shows.
+    public func clickableStateDidChange(_ view: NSView) {
+        guard pointerPoint != nil else { return }
+        guard window != nil, let point = currentPointer(self),
+              ClickableButton.cursorRect(of: self)?.contains(convert(point, from: nil)) == true else {
+            pointerPoint = nil
+            return
+        }
+        setCursor(at: point)
     }
 
     // MARK: After a move, while a child window has the key
@@ -167,6 +233,15 @@ enum MoveHookStats {
 }
 #endif
 
+/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these; the screen sets the cursor
+/// (unless a divider shows its resize cursor there), as the row's own area did.
+extension ArrowCursorView: PanePointerFollowing {
+    public func panePointerCursor(at point: NSPoint) -> NSCursor? { track(at: convert(point, to: nil)).cursor }
+    public func panePointerEntered(with event: NSEvent) { track(at: event.locationInWindow) }
+    public func panePointerMoved(with event: NSEvent) { track(at: event.locationInWindow) }
+    public func panePointerExited(with event: NSEvent) { pointerDidLeave() }
+}
+
 /// The owner of `ArrowCursorView`'s cursor tracking area: an enter or a
 /// move sets the row's cursor; nothing goes further. It reads
 /// only `locationInWindow` of an enter or a move (a mouse event), never
@@ -176,5 +251,5 @@ private final class RowCursorTracker: NSResponder {
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
-    override func mouseExited(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { row?.pointerDidLeave() }
 }
