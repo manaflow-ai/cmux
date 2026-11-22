@@ -7,60 +7,85 @@
 // The transcript's CSS motions (a row's entrance, the streamed words' fade, the Thinking line's roll, the
 // Worked for clock's roll) start from a class or a mount, whatever the view: the overscan holds up to
 // four viewports of rows the reader cannot see, and each one's motion played there, half done when he
-// scrolled to it. One listener on the scroller ends each such start: `animationstart` and
-// `transitionrun` come once per start, on the frame after the one that resolved it, so a motion out of
-// sight draws one frame there and then its end. Ambient loops (a spinner, a shimmer) never end and are
-// left alone. WAAPI motions are not seen here; each WAAPI site gates itself (turnEndFold.ts).
+// scrolled to it. A mutation observer on the thread sees each mount and class change in the microtask
+// after its commit, before the frame that would draw it: a row there that is out of the view has its
+// new finite animations finished, so it is drawn once, at its end. `animationstart` and
+// `transitionrun` catch what no mutation starts (a transition from an inherited value). Ambient loops
+// (infinite iterations: a spinner) are left alone. WAAPI motions are not seen here; each WAAPI site
+// gates itself (turnEndFold.ts).
 //
-// Cost: one box read per start, none at rest.
+// Cost: per commit that adds nodes or changes a class, one box read for the view and one per changed
+// row; none at rest, none for a text-only change.
 
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
+const ROW = ".acpmux-row";
+
+type Box = { top: number; bottom: number; width: number; height: number };
+
+const misses = (box: Box, view: Box) =>
+  !(box.width === 0 && box.height === 0) && (box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX);
 
 /// Whether `element`'s box misses `scroller`'s.
 export function outOfView(element: Element, scroller: Element): boolean {
-  const box = element.getBoundingClientRect();
-  if (box.width === 0 && box.height === 0) return false;
-  const view = scroller.getBoundingClientRect();
-  return box.bottom <= view.top + EDGE_PX || box.top >= view.bottom - EDGE_PX;
+  return misses(element.getBoundingClientRect(), scroller.getBoundingClientRect());
+}
+
+/// Finishes each of `animations` that has a finite end and is still to play.
+function finishAll(animations: readonly Animation[]): void {
+  for (const animation of animations) {
+    if (animation.playState === "finished" || animation.playState === "idle") continue;
+    const end = animation.effect?.getComputedTiming?.().endTime;
+    if (end === undefined || !Number.isFinite(Number(end))) continue;
+    try {
+      animation.finish();
+    } catch {
+      // An animation that cannot finish keeps running.
+    }
+  }
 }
 
 /// Ends, at once, each finite CSS animation or transition that starts inside `scroller` out of its view.
 /// Returns the unsubscribe.
 export function endOffscreenMotion(scroller: HTMLElement | null | undefined): () => void {
   if (!scroller || typeof scroller.addEventListener !== "function") return () => {};
+  const View = scroller.ownerDocument.defaultView;
+  /// The rows' own CSS animations only: a WAAPI motion (a fold's clip, a glide) is its owner's to gate.
+  const cssOf = (element: Element) =>
+    element
+      .getAnimations({ subtree: true })
+      .filter(
+        (animation) =>
+          (View?.CSSAnimation && animation instanceof View.CSSAnimation) ||
+          (View?.CSSTransition && animation instanceof View.CSSTransition),
+      );
+  const observer = View?.MutationObserver
+    ? new View.MutationObserver((records) => {
+        const rows = new Set<Element>();
+        for (const record of records) {
+          const nodes = record.type === "childList" ? [...record.addedNodes] : [record.target];
+          for (const node of nodes) {
+            if (!(node instanceof Element)) continue;
+            const row = node.closest(ROW) ?? (node.matches(ROW) ? node : null);
+            if (row && scroller.contains(row)) rows.add(row);
+          }
+        }
+        if (rows.size === 0) return;
+        const view = scroller.getBoundingClientRect();
+        for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
+      })
+    : undefined;
+  observer?.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
   const started = (event: Event) => {
     const target = event.target;
     if (!(target instanceof Element) || typeof target.getAnimations !== "function") return;
-    const named = event as AnimationEvent & TransitionEvent;
-    const pseudo = named.pseudoElement || "";
-    const mine = target.getAnimations().filter((animation) => {
-      const css = animation as Animation & {
-        animationName?: string;
-        transitionProperty?: string;
-        effect: (AnimationEffect & { pseudoElement?: string | null }) | null;
-      };
-      if ((css.effect?.pseudoElement ?? "") !== pseudo) return false;
-      return event.type === "animationstart"
-        ? css.animationName === named.animationName
-        : css.transitionProperty === named.propertyName;
-    });
-    if (mine.length === 0) return;
     if (!outOfView(target, scroller)) return;
-    for (const animation of mine) {
-      if (animation.playState === "finished" || animation.playState === "idle") continue;
-      const end = animation.effect?.getComputedTiming?.().endTime;
-      if (end === undefined || !Number.isFinite(Number(end))) continue;
-      try {
-        animation.finish();
-      } catch {
-        // An animation that cannot finish keeps running.
-      }
-    }
+    finishAll(cssOf(target));
   };
   scroller.addEventListener("animationstart", started, true);
   scroller.addEventListener("transitionrun", started, true);
   return () => {
+    observer?.disconnect();
     scroller.removeEventListener("animationstart", started, true);
     scroller.removeEventListener("transitionrun", started, true);
   };
