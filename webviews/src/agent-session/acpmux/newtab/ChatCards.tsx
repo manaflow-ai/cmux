@@ -1,10 +1,11 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, type CSSProperties } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { ShortcutKeycaps } from "../ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
 import { AgentMark } from "../NewTabPage";
+import { homeCardGlowArm, homeCardTint, type HomeCardGlowArm } from "./homeCardGlow.experiment";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
@@ -22,6 +23,7 @@ export function ChatCards({
   onOpenInTerminal,
   onShowAll,
   onColdArchive,
+  glow,
 }: {
   cards: ChatCard[];
   /** The first session-list read has not settled; populated cards stay visible. */
@@ -38,10 +40,15 @@ export function ChatCards({
   /// The card menu's Compress Chat and Decompress Chat (acpmux `_acpmux/cold_archive`): an acpmux chat's
   /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
   onColdArchive?(sessionId: string, archived: boolean): void;
+  /// The home-card-glow experiment's arm (homeCardGlow.experiment.ts); unset reads the chosen arm.
+  glow?: HomeCardGlowArm;
 }) {
   const nt = useNt();
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
+  // The tinted glow draws on the card grid only; the one-line list keeps its plain rows.
+  const glowArm = variant === "cards" ? (glow ?? homeCardGlowArm()) : "off";
+  const glowing = glowArm !== "off";
   const list = useRef<HTMLDivElement>(null);
   /// Parents whose child list is open; each starts collapsed.
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -59,6 +66,7 @@ export function ChatCards({
       data-state={card.state}
       data-child={child ? "" : undefined}
       data-archived={card.archived ? "" : undefined}
+      style={glowing ? ({ "--nt-card-tint": homeCardTint(card) } as CSSProperties) : undefined}
       aria-label={nt("card.open", { title: card.title })}
       {...pressToOpen(() => onOpen(card.sessionId))}
     >
@@ -123,7 +131,7 @@ export function ChatCards({
       ) : cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
-        <div ref={list} className="nt-cards" data-variant={variant}>
+        <div ref={list} className="nt-cards" data-variant={variant} data-glow={glowing ? glowArm : undefined}>
           {cards.map((card) => (
             // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Compress
             // Chat or Decompress Chat.

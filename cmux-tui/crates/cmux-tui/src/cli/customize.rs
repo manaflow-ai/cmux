@@ -8,7 +8,9 @@
 //!
 //! No verb needs the app or the daemon except an ask, which starts an agent
 //! chat: status, apply, discard and rollback are file operations, so they
-//! work with cmux quit and in safe mode.
+//! work with cmux quit and in safe mode. With a daemon running, a verb asks
+//! it to load the customization folder before it returns ([`load_views`]),
+//! so the views it wrote are there for the next thing the person opens.
 
 mod ask;
 mod dir;
@@ -51,7 +53,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
-  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
+  cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
 If a layer broke cmux (no app needed, with cmux quit too):
@@ -469,11 +471,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(0);
     }
     let chat = ask::Child { globals: child_globals(&global) };
-    let result = Customize::from_env()
-        .map_err(Failure::from)
-        .and_then(|customize| execute(&customize, request, "cli", now_ms(), &chat));
+    let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
+        let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
+        Ok((answer, load_views(&global, &customize)))
+    });
     Some(match result {
-        Ok(answer) => {
+        Ok((answer, loaded)) => {
+            if let super::ext::FolderLoad::Refused(issue) = &loaded
+                && global.output != OutputMode::Quiet
+            {
+                eprintln!("cmux: the customization's views did not load: {issue}");
+            }
             if matches!(answer, render::Answer::TriedOn(_)) {
                 spawn_try_on_waiter();
             }
@@ -503,7 +511,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 /// `cmux customize WORDS…` in this process with its JSON answer returned:
 /// what the `customize_*` MCP tools call. An ask from MCP is the calling
 /// agent's own work, so no verb here starts a chat.
-pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
+pub(super) fn run_json(
+    global: &super::GlobalArgs,
+    words: &[String],
+    origin: &str,
+) -> Result<Value, Value> {
     let request = parse(words).map_err(|what| Failure::usage(what).envelope())?;
     if matches!(request, Request::Ask { .. } | Request::Help) {
         return Err(Failure::usage(
@@ -517,10 +529,26 @@ pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
         .map_err(|failure| failure.envelope())?;
+    load_views(global, &customize);
     if matches!(answer, render::Answer::TriedOn(_)) {
         spawn_try_on_waiter();
     }
     Ok(answer.json())
+}
+
+/// Asks the running daemon to load the customization folder now, after a
+/// verb that may have rewritten it (`use`, `discard`, `rollback`, a try-on, a
+/// library change, or any verb that settled a try-on whose time was up), and
+/// waits for its answer. Without it the verb returned before the daemon's
+/// folder watch, seconds late on a loaded Mac, had loaded the look's app: a
+/// New Tab page opened at once found no app to show and kept cmux's own
+/// page. A folder that did not change costs the daemon one fingerprint read;
+/// with no daemon, or one too old to ask, nothing waits.
+pub(super) fn load_views(
+    global: &super::GlobalArgs,
+    customize: &Customize,
+) -> super::ext::FolderLoad {
+    super::ext::load_customize_folder(global, &customize.roots().customize_dir)
 }
 
 /// Leaves `cmux customize settle --wait` running on its own, so a try-on

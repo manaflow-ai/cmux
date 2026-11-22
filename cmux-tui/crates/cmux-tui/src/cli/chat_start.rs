@@ -169,6 +169,8 @@ Starts an agent chat, right here unless --on names another target:
   --prompt TEXT      A first prompt (`-` reads it from stdin); a Cloud chat needs one
   --allow-large      Copy --from-folder even past 20 GB or 500,000 files (a Cloud chat)
   -w, --wait         Wait for the chat's turn to end and print the reply
+  --timings          Where a Cloud chat's start went, as a table on stderr
+                     (--json always has it as stages)
   --timeout DURATION How long --wait waits: 30s, 5m, 1h (a bare number is seconds;
                      default 15m, at most 4h)
 
@@ -233,6 +235,8 @@ pub(super) struct Start {
     pub timeout: Option<String>,
     /// `--allow-large`: a Cloud chat's `--from-folder` copied even past the copy's limits.
     pub allow_large: bool,
+    /// `--timings`: a Cloud chat's `stages` as a table on stderr (`cloud start-chat --timings`).
+    pub timings: bool,
 }
 
 // Parsed once per `cmux chat` run and matched at once: the size of `Run` costs nothing, and a
@@ -334,6 +338,7 @@ pub(super) fn parse_with(
         wait: false,
         timeout: None,
         allow_large: false,
+        timings: false,
     };
     let mut index = 0;
     while let Some(word) = words.get(index).map(String::as_str) {
@@ -417,6 +422,7 @@ pub(super) fn parse_with(
             "--wait" | "-w" => start.wait = true,
             "--no-wait" => start.wait = false,
             "--allow-large" => start.allow_large = true,
+            "--timings" => start.timings = true,
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
@@ -1283,6 +1289,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     if start.allow_large {
         words.push("--allow-large".to_owned());
+    }
+    if start.timings {
+        words.push("--timings".to_owned());
     }
     if start.no_folder {
         words.push("--no-folder".to_owned());
