@@ -656,6 +656,17 @@ if [ "$retries" -ne 0 ] && [ -n "${CMUX_WEB_TEST_BASE_REDS:-}" ] && [ -s "$CMUX_
     : > "$results/base-red"
 fi
 base_red_skipped=0
+# CMUX_WEB_TEST_RETRY_BREAKER=K (0 or unset: off): once K alone retries have run and none passed, the rest of the red
+# files get no alone retry and go to react-apps-base-check with their first run, as a base red does. A shard where
+# nothing passes alone is not losing races for the CPU, so its retries only re-confirm reds: 24 h of shards to
+# 2026-11-22 07:17Z had 2,440 jobs with a 30-80 min test step, and in 8 sampled long shards 7 of 88 alone retries
+# passed, while the gallery files (accent-glass-invariants, control-contrast) failed again at 470-615 s apiece.
+# The verdict does not move: the base check replays every red on the base and re-runs alone on the head any red it
+# would charge to the change (up to 25 a shard), so a contention flake the breaker left unretried still passes there.
+# Retries with a pass among the first K run as before (their shard is contended). Undo: set it to 0.
+retry_breaker="${CMUX_WEB_TEST_RETRY_BREAKER:-0}"
+[[ "$retry_breaker" =~ ^[0-9]+$ ]] || retry_breaker=0
+breaker_skipped=0
 while read -r result file log; do
   if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
     if [ "$result" != PASS ] && [ "$retries" -gt 0 ]; then printf '%s\n' "$file" >> "$results/retry-skipped"; fi
@@ -665,6 +676,13 @@ while read -r result file log; do
   if grep -qxF -- "$file" "$results/base-red"; then
     echo "NO RETRY $result $file: every red of its first run is red on the base's push too; react-apps-base-check judges it"
     base_red_skipped=$((base_red_skipped + 1))
+    printf '%s\n' "$file" >> "$results/retry-skipped"
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  if [ "$retry_breaker" -gt 0 ] && [ $((retried + timeout_retried)) -ge "$retry_breaker" ] && [ ! -s "$results/retry-passed" ]; then
+    echo "NO RETRY $result $file: the first $retry_breaker alone retries all failed again (CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"
+    breaker_skipped=$((breaker_skipped + 1))
     printf '%s\n' "$file" >> "$results/retry-skipped"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
@@ -796,6 +814,11 @@ if [ -s "$results/not-run" ]; then
 fi
 if [ "$base_red_skipped" -gt 0 ]; then
   echo "red on the base's push too, so not retried (react-apps-base-check judges them): $base_red_skipped"
+fi
+if [ "$breaker_skipped" -gt 0 ]; then
+  breaker_line="alone retries skipped: $breaker_skipped, since the first $retry_breaker alone retries all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"
+  echo "$breaker_line"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$breaker_line" >> "$GITHUB_STEP_SUMMARY" || true; fi
 fi
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
