@@ -15,13 +15,10 @@ import datetime as dt
 import json
 import os
 import re
-import signal
-import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping
 
-import portable_job_placement as portable
 from fleet_admission_transport import exchange
 import nightly_admission_receipt as published
 from nightly_admission_receipt import validate
@@ -83,8 +80,7 @@ def admit(env: Mapping[str, str], request: Mapping[str, Any]) -> dict[str, Any]:
     return receipt
 
 
-def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[str, Any] | None,
-           runners=None, snapshot=None) -> dict[str, str]:
+def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[str, Any] | None) -> dict[str, str]:
     if env.get("CHECK_RECEIPTS") == "1" and receipt is None:
         raise ValueError("published admission is required before routing")
     status = validate(receipt, request) if receipt is not None else "unknown"
@@ -93,11 +89,7 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     if status == "fleet":
         return dict(receipt["runners"])
     # A configured label is not live runner evidence. Only a verified fleet
-    # receipt selects Linux; minis also require a successful capacity read.
-    placement_env = {**env, "FLEET_LINUX": "", "LINUX_ONLY": "",
-                     "NIGHTLY": "1", "NIGHTLY_WAIT_FOR_FLEET": "",
-                     "REQUIRE_LIVE_CAPACITY": "1" if env.get("CHECK_RECEIPTS") == "1" else env.get("REQUIRE_LIVE_CAPACITY", "")}
-    placed = portable.decide(placement_env, runners, snapshot, dt.datetime.now(dt.timezone.utc))
+    # receipt selects Linux.
     fallback = env.get("OVERFLOW_LINUX", "")
     if fallback not in OVERFLOW:
         raise ValueError("overflow runner is outside the declared set")
@@ -106,8 +98,6 @@ def routes(env: Mapping[str, str], request: Mapping[str, Any], receipt: Mapping[
     light = table.get("hosted_light_jobs", {})
     result = {job: "ubuntu-24.04" if env.get("CHECK_RECEIPTS") != "1" and request["run_attempt"] == 1 and f"nightly.yml#{job}" in light else fallback
               for job in request["jobs"]}
-    for job in placed.mini_jobs:
-        result[job] = placed.mini_runner
     return result
 
 
@@ -134,35 +124,13 @@ def write(env: Mapping[str, str], selected: Mapping[str, str], receipt: Mapping[
     print(json.dumps(record, sort_keys=True))
 
 
-def read_minis(env: Mapping[str, str]):
-    """Capacity reads cannot extend the placement step beyond its five-minute budget."""
-    previous = signal.getsignal(signal.SIGALRM)
-
-    def timeout(_signum, _frame):
-        raise portable.Deadline("owned-mini capacity read deadline")
-
-    try:
-        signal.signal(signal.SIGALRM, timeout)
-        signal.setitimer(signal.ITIMER_REAL, 30)
-        return portable.read(env, dt.datetime.now(dt.timezone.utc))
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-
-
 def main(env: Mapping[str, str] = os.environ) -> int:
     request = identity(env)
     if env.get("CHECK_RECEIPTS") == "1":
         try:
             receipt = admit(env, request)
-            runners = snapshot = None
-            if receipt["status"] == "overflow":
-                try:
-                    runners, snapshot = read_minis(env)
-                except (Exception, portable.Deadline):
-                    pass  # The verified controller receipt still authorizes paid overflow.
-            selected = routes(env, request, receipt, runners, snapshot)
-        except (Exception, portable.Deadline) as failure:
+            selected = routes(env, request, receipt)
+        except Exception as failure:
             write(env, {}, None, f"published fleet admission unavailable: {type(failure).__name__}")
             return 1
         write(env, selected, receipt)
@@ -172,13 +140,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     observation = None
     receipt = None
     error = ""
-    runners = snapshot = None
     try:
         receipt = admit(env, request)
-        if receipt["status"] == "overflow":
-            runners, snapshot = read_minis(env)
-        selected = routes(env, request, receipt, runners, snapshot)
-    except (Exception, portable.Deadline) as failure:
+        selected = routes(env, request, receipt)
+    except Exception as failure:
         # The pool may not be enrolled at all. Never strand a job on its label
         # when the controller cannot prove a registered runner is ready.
         error = f"fleet admission unavailable: {type(failure).__name__}"
@@ -194,12 +159,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                        "ended_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                        "no_start_seconds": time.monotonic() - started,
                        "scope": "no admitted runner received; not a controller capacity receipt"}
-        # Read immediately before placing; a pre-wait idle snapshot is stale.
-        try:
-            runners, snapshot = read_minis(env)
-        except (Exception, portable.Deadline):
-            runners = snapshot = None
-        selected = routes(env, request, None, runners, snapshot)
+        selected = routes(env, request, None)
     write(env, selected, receipt, error, observation)
     return 0
 
