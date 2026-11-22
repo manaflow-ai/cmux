@@ -42,9 +42,9 @@ type Seen = {
   block: string;
 };
 
-const KEYS = ["Shift+Enter", "Alt+Enter"] as const;
-
 await requireBrowserLane("composer-newline.test.ts", async () => {
+  const KEYS = ["Shift+Enter", "Alt+Enter"] as const;
+
   setDefaultTimeout(240_000);
   const engines: [string, BrowserType][] = [];
   for (const [name, engine] of [

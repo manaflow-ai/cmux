@@ -1518,7 +1518,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         richPlugins.current = [];
       };
     },
-    [configureLiteral],
+    [configureLiteral, newLine],
   );
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
