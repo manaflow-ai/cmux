@@ -374,11 +374,11 @@ jobs:
             // A rate-limited read first goes again on the spare token (another installation's budget), when the
             // job minted one. Otherwise every request waits for the limit's reset (Retry-After, else
             // x-ratelimit-reset) and tries again; any other error is unchanged. The core budget resets hourly, so
-            // the cap is 65 minutes in all: run 44849687076 ran dry at 01:22Z, gave up at the old 20-minute cap at
-            // 01:42Z, and the reset was 01:51Z.
+            // one 65-minute window covers the whole decision: every reset and Retry-After wait of every request
+            // comes out of it (run 44849687076 gave up at a 20-minute cap at 01:42Z; the reset was 01:51Z).
             const spareReader = process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : null;
+            const deadline = Date.now() + 65 * 60 * 1000;
             if (github.hook && typeof github.hook.wrap === 'function') github.hook.wrap('request', async (request, options) => {
-              const deadline = Date.now() + 65 * 60 * 1000;
               for (let attempt = 1; ; attempt += 1) {
                 try {
                   return await request(options);
