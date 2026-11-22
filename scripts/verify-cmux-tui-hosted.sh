@@ -113,6 +113,14 @@ if [[ ! "$dispatch_backoff" =~ ^[0-9]{1,4}$ ]]; then
   echo "error: CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS must be a whole number of seconds below 10000" >&2
   exit 2
 fi
+# A refusal that names when the quota resets ("retry after 18:40Z (reset)") is answered by waiting
+# for that time instead of spending the tries inside the window it names. Bounded, so a far-off
+# reset still ends the script with its reason rather than parking it.
+dispatch_reset_wait="${CMUX_TUI_HOSTED_DISPATCH_RESET_WAIT_SECONDS:-900}"
+if [[ ! "$dispatch_reset_wait" =~ ^[0-9]{1,5}$ ]]; then
+  echo "error: CMUX_TUI_HOSTED_DISPATCH_RESET_WAIT_SECONDS must be a whole number of seconds below 100000" >&2
+  exit 2
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
@@ -328,6 +336,35 @@ dispatched_run() {
     --event workflow_dispatch --limit 30 --json databaseId,displayTitle,headSha,createdAt \
     --jq "$filter" 2>"$temp_dir/lookup.err"
 }
+# Seconds until the time a refusal names to retry at ("retry after 18:40Z (reset)", or a full
+# instant): 0 when it names none or that time has passed, capped at $dispatch_reset_wait. A
+# gh-quota refusal always names one, and nothing is sent to GitHub before then, so a try before it
+# can only fail.
+seconds_until_named_retry() {
+  local text="$1" when date_part time_part stamp target now seconds
+  when="$(sed -nE 's/.*[Rr]etry after (([0-9]{4}-[0-9]{2}-[0-9]{2}T)?[0-9]{2}:[0-9]{2}(:[0-9]{2})?)Z.*/\1/p' <<<"$text" | head -n 1)"
+  if [[ -z "$when" ]]; then
+    printf '0'
+    return 0
+  fi
+  [[ "$when" == *T* ]] || when="$(date -u +%Y-%m-%d)T$when"
+  date_part="${when%%T*}"
+  time_part="${when#*T}"
+  [[ "${#time_part}" -eq 5 ]] && time_part="$time_part:00"
+  stamp="${date_part}T${time_part}Z"
+  target="$(date -u -d "$stamp" +%s 2>/dev/null \
+    || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$stamp" +%s 2>/dev/null)" || {
+    printf '0'
+    return 0
+  }
+  now="$(date -u +%s)"
+  seconds=$((target - now))
+  # A time named without a date, read just after midnight UTC, is today's: 00:05Z at 23:59Z.
+  ((seconds < -300)) && seconds=$((seconds + 86400))
+  ((seconds < 0)) && seconds=0
+  ((seconds > dispatch_reset_wait)) && seconds=$dispatch_reset_wait
+  printf '%d' "$seconds"
+}
 check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $remote_branch --event workflow_dispatch"
 dispatch_tries=3
 for ((try = 1; ; try++)); do
@@ -342,8 +379,18 @@ for ((try = 1; ; try++)); do
     exit 1
   fi
   printf 'warning: the workflow dispatch failed (try %d of %d): %s\n' "$try" "$dispatch_tries" "$dispatch_error" >&2
-  # Bounded backoff between tries; it also lets GitHub render a run-name.
-  sleep $((try * dispatch_backoff))
+  # Bounded backoff between tries; it also lets GitHub render a run-name. A refusal that names when
+  # it can be retried is waited out instead: three tries 10 s and 20 s apart all land inside a
+  # ten-minute spent quota window, and the caller loses the whole dispatch (2026-11-22: twice, two
+  # verifies and two agent round trips for nothing).
+  dispatch_pause="$(seconds_until_named_retry "$dispatch_error")"
+  if ((dispatch_pause > 0)); then
+    printf 'waiting %d s for the time the refusal names, then try %d of %d\n' \
+      "$dispatch_pause" "$((try + 1))" "$dispatch_tries"
+  else
+    dispatch_pause=$((try * dispatch_backoff))
+  fi
+  sleep "$dispatch_pause"
   lookup_status=0
   run_id="$(dispatched_run)" || lookup_status=$?
   if [[ $lookup_status -ne 0 ]]; then
