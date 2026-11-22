@@ -1213,14 +1213,18 @@ JOBS_PAGE = 30
 # older red never stands over a newer green. A suite that never runs the job (DEV daily runs, the other
 # suites) is skipped unread, here and in the window above. At most TIP_SUITE_JOB_READS job lists; none of
 # them with a verdict refuses as before.
+CHECKS_JOB_NAME = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 SUITES = {
-    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
-    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
+    # Every suite but the DEV daily also runs the checks job (cmux-next.yml checks' `if`), so naming it in one
+    # suite means naming it in all of them: SUITE_JOBS skips a run whose suite does not list a job it lists.
+    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test", CHECKS_JOB_NAME}),
+    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests", CHECKS_JOB_NAME}),
     # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else. Its generated
-    # files are checked on the generated-files job itself (path routing's generated_host), never folded.
+    # files are checked on the generated-files job itself (path routing's generated_host), never folded. Since
+    # 2026-11-22 it also carries the checks job, which a feat-cmux-next push no longer runs (workflow note-26).
     "cmux-next base tier · ": frozenset({
         "cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)",
-        "cmux-next crash ends the app",
+        "cmux-next crash ends the app", CHECKS_JOB_NAME,
     }),
     # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
     "cmux NEXT DEV daily": frozenset(),
@@ -1278,7 +1282,10 @@ SUITE_JOBS = frozenset().union(*SUITES.values())
 # read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
 # over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
-CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+# The checks job is a Linux job too, so a cancel that waited only on the Mac jobs can leave its verdict behind.
+CANCELLED_TIER_VERDICT_JOBS = frozenset({
+    "cmux-next daemon tests", "cmux-next generated files", CHECKS_JOB_NAME,
+})
 
 
 def cancelled_base_tier(run: dict) -> bool:
@@ -4000,7 +4007,7 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # the head is the pin that compile built with: the loader hands its URL and checksum to the binary target, and SwiftPM
 # resolves it from those, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
-FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_JOB = CHECKS_JOB_NAME
 FFI_PIN_CHECK = "Check the app FFI pin"
 FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
@@ -6789,11 +6796,13 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
-    to tell a lost runner from an unreadable verdict, which stays the refusal it was."""
+    to tell a lost runner from an unreadable verdict, which stays the refusal it was. A log that reads keeps the same
+    question: a runner shut down under a job prints its notice there and leaves a failed step behind
+    (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
         raise infra(name, job, why)
     try:
-        return github.log(repo, job)
+        text = github.log(repo, job)
     except Refused as error:
         try:
             notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
@@ -6802,6 +6811,9 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
             raise infra(name, job, why) from None
         raise
+    if why := test_reds.lost_runner(job, (), text):
+        raise infra(name, job, why)
+    return text
 
 
 def section_lines(view: FailedView) -> list[tuple[dict, list[str]]]:
