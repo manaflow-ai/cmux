@@ -190,6 +190,19 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
           await page.mouse.move(view.x + view.width - 4, middle.y, { steps: 6 });
           // The screencast can make the move outlast the linger; a step of scroll back down (the view is at the top by now) with the pointer
           // on the bar shows the thumb again, and the pointer there holds it.
+          await page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const seen: string[] = ((window as any).__marks = []);
+            new MutationObserver((records) => {
+              for (const record of records)
+                seen.push(
+                  `${record.attributeName}=${scroller.hasAttribute(record.attributeName!)}@${Math.round(performance.now())}`,
+                );
+            }).observe(scroller, {
+              attributes: true,
+              attributeFilter: ["data-cmux-scrolling", "data-cmux-scroller-near"],
+            });
+          });
           await page.mouse.wheel(0, 60);
           // A move on the bar while the scroll shows reads the pointer against the shown thumb.
           await page.mouse.move(view.x + view.width - 4, middle.y + 1, { steps: 2 });
@@ -198,6 +211,8 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
               return {
                 attributes: scroller.getAttributeNames().filter((name) => name.startsWith("data-cmux")),
+                marks: (window as any).__marks,
+                now: Math.round(performance.now()),
                 top: scroller.scrollTop,
                 height: scroller.scrollHeight,
                 client: scroller.clientHeight,
