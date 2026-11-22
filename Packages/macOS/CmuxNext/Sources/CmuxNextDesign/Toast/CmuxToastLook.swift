@@ -1,3 +1,5 @@
+public import CoreGraphics
+
 /// What a ``CmuxToastStyle`` draws: the knobs ``CmuxToastView``, ``CmuxToastOverlayHost`` and
 /// ``CmuxToastMotion`` read. Two styles never have the same look.
 public nonisolated struct CmuxToastLook: Hashable, Sendable {
@@ -33,6 +35,23 @@ public nonisolated struct CmuxToastLook: Hashable, Sendable {
     public var placement: CmuxToastPlacement = .bottomCenter
     /// How it arrives and leaves.
     public var entrance: CmuxToastEntrance = .rise
+    /// A rounded surface's corner (``Corner``); a capsule's is always half its height.
+    public var corner: Corner = .concentric
+
+    /// A rounded toast's corner. Its buttons stay concentric inside it (the corner less the padding), as every
+    /// container of buttons (``ConcentricContainer``). The Toast Playground's Corner row draws each (Leo,
+    /// 2026-11-22, on the one-line Undo toast: "im not sure if it should be that rounded. what's our design
+    /// language?").
+    public enum Corner: Hashable, Sendable {
+        /// The button corner plus the padding: 16 pt on a 38 pt one-line toast, which reads as a pill.
+        case concentric
+        /// A corner of this many points before the interface scale (12: the card and composer corner of
+        /// design/grid.md and `--ds-radius-xl`; 8: the popup corner, `--ds-radius-popup`).
+        case points(CGFloat)
+        /// The toast surface role's corner (``SurfaceRole/toast``, the one concentric corner rule's outer
+        /// radius): "a rounded rect, never a capsule, even on one line".
+        case surfaceRole
+    }
 
     public init() {}
 }
