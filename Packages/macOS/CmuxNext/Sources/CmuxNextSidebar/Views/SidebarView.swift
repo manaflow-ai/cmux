@@ -108,16 +108,9 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
-    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
-    /// layout. It never fades with the footer; Minimal Mode fades it with the cards (``minimalChromeViews``).
-    public var healthIndicator: NSView? {
-        didSet {
-            oldValue?.removeFromSuperview()
-            healthIndicator.map { addSubview($0) }
-            needsLayout = true
-        }
-    }
+    /// Opens app health's card (design/app-health.md) over this sidebar's window, for the restoring card's
+    /// Details. The sidebar itself draws nothing about health.
+    public var openAppHealth: (@MainActor () -> Void)?
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -497,9 +490,6 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
-        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
-        // nothing in it.
-        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
