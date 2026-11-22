@@ -93,7 +93,9 @@ impl fmt::Debug for BlobFrame {
 pub enum Message {
     /// Phone to Mac.
     Viewport(Viewport),
-    /// Phone to Mac: hashes in the phone's priority order. Replaces the last.
+    /// Phone to Mac: hashes in the phone's priority order, sent ahead of
+    /// anything pushed. Replaces the last `want`. Each named hash is sent,
+    /// even one the Mac sent before.
     Want(Vec<BlobHash>),
     /// Phone to Mac: hashes the phone already holds, sent once on link-up.
     Have(Vec<BlobHash>),

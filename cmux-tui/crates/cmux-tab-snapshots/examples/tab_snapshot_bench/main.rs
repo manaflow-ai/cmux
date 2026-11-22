@@ -206,9 +206,9 @@ fn args() -> Res<Workload> {
 
 #[derive(Clone, Copy)]
 enum SessionMode {
-    /// The briefed rules: blobs move only after the phone's `want`.
+    /// [`Session::without_push`]: blobs move only after the phone's `want`.
     Want,
-    /// [`Session::push_before_want`]: blobs move right after the manifest.
+    /// [`Session::new`], the default: blobs move right after the manifest.
     Push,
 }
 
@@ -216,14 +216,14 @@ impl SessionMode {
     fn name(self) -> &'static str {
         match self {
             Self::Want => "want",
-            Self::Push => "push_before_want",
+            Self::Push => "push",
         }
     }
 
     fn session(self) -> Session {
         match self {
-            Self::Want => Session::new(),
-            Self::Push => Session::push_before_want(),
+            Self::Want => Session::without_push(),
+            Self::Push => Session::new(),
         }
     }
 }

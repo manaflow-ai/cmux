@@ -83,7 +83,11 @@ fn run(
                     } else {
                         t.deltas += 1;
                     }
-                    up.extend(mirror.want_frame());
+                    // A pushing Mac sends every card blob unasked; the
+                    // phone wants only from a Mac that does not push.
+                    if !session.pushes() {
+                        up.extend(mirror.want_frame());
+                    }
                 }
                 Applied::Gap { .. } => up.extend(mirror.resume_frame()),
                 Applied::Blob { hash, len, .. } => {
@@ -121,8 +125,13 @@ fn cold_open_fills_every_card_and_sends_a_shared_favicon_once() {
     assert_eq!(t.blobs.len(), 6);
     let github = BlobHash::of(b"icon-github");
     assert_eq!(t.blobs.iter().filter(|h| **h == github).count(), 1);
-    // Favicons arrive first.
-    assert_eq!(&t.blobs[..2], &[github, BlobHash::of(b"icon-docs")]);
+    // Pushed in row order: per row the favicon, then the thumbnail or screen.
+    let docs = BlobHash::of(b"icon-docs");
+    let thumb = |n: u8| BlobHash::of(&[n; 4000]);
+    let screen = BlobHash::of(b"$ cargo test\nok\n");
+    assert_eq!(t.blobs, vec![github, thumb(1), thumb(2), docs, thumb(3), screen]);
+    // No want went up: the only up frame is the viewport.
+    assert_eq!(t.up_bytes, Message::Viewport(Viewport::default()).encode().len());
 }
 
 #[test]
@@ -236,4 +245,39 @@ fn a_reorder_while_disconnected_reaches_the_phone_in_one_delta() {
     let mac_ids: Vec<_> = p.rows().iter().map(|r| r.tab_id.as_str()).collect();
     assert_eq!(ids, vec!["t1", "b3", "b2", "b4"]);
     assert_eq!(ids, mac_ids);
+}
+
+#[test]
+fn cold_open_without_push_moves_the_same_blobs_after_want() {
+    let p = mac();
+    let mut pushed = Mirror::new();
+    let up = link_up(&pushed);
+    let push = run(&p, &mut Session::new(), &mut pushed, up);
+    let mut wanted = Mirror::new();
+    let up = link_up(&wanted);
+    let want = run(&p, &mut Session::without_push(), &mut wanted, up);
+    assert!(all_filled(&wanted));
+    assert_eq!(push.blob_bytes, want.blob_bytes);
+    // Push and want differ in order only: per row versus favicons first.
+    let mut a = push.blobs.clone();
+    let mut b = want.blobs.clone();
+    a.sort_unstable();
+    b.sort_unstable();
+    assert_eq!(a, b);
+    assert!(push.up_bytes < want.up_bytes, "push sends no want");
+}
+
+#[test]
+fn a_want_after_eviction_resends_a_pushed_blob() {
+    let p = mac();
+    let mut phone = Mirror::new();
+    let mut session = Session::new();
+    let up = link_up(&phone);
+    run(&p, &mut session, &mut phone, up);
+    // The phone evicted b3's thumbnail and asks for it again.
+    let thumb = BlobHash::of(&[3; 4000]);
+    let want = Message::Want(vec![thumb]).encode();
+    let t = run(&p, &mut session, &mut phone, vec![want]);
+    assert_eq!(t.blobs, vec![thumb]);
+    assert_eq!(session.stats().resent, 1);
 }

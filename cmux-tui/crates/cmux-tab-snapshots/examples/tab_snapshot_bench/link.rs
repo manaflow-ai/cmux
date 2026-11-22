@@ -122,7 +122,8 @@ pub fn simulate(
                 let reply = match mirror.apply_frame(&frame)? {
                     Applied::Manifest { .. } | Applied::Delta { .. } => {
                         marks.rows.get_or_insert(now);
-                        mirror.want_frame()
+                        // A pushing Mac sends every card blob unasked.
+                        if session.pushes() { None } else { mirror.want_frame() }
                     }
                     Applied::Gap { .. } => mirror.resume_frame(),
                     Applied::Blob { len, .. } => {
