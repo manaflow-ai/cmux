@@ -1,5 +1,6 @@
 #if os(iOS)
 @testable import CmuxMobileFeed
+import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
 import SwiftUI
@@ -57,12 +58,13 @@ import UIKit
         #expect(controller.sparesMade == 1, "a spare was built during the scroll")
     }
 
-    /// The warm-up draws the Feed's row shapes when it comes to rest, a frame's share at a time:
-    /// it ran its whole queue back to back (74 ms of one frame, profile db0af69e).
-    @Test func theWarmUpSpreadsOverFrames() throws {
+    /// The warm-up draws the Feed's row shapes when it comes to rest, a frame's share at a time: it
+    /// ran its whole queue back to back (74 ms of one frame, profile db0af69e). Each item costs
+    /// 3 ms on a fake clock, so the count between two display frames is the budget's, not timing's.
+    @Test func theWarmUpTakesAFramesShareAtATime() throws {
         let store = FeedStore.shared
         let saved = store.items
-        store.replaceAll(FeedStore.stressItems(count: 120, now: Date()))
+        store.replaceAll([])
         defer { store.replaceAll(saved) }
         let screen = FeedScreen(path: .constant([])) { ToolbarItem { EmptyView() } }
             .environment(AppStore.mock())
@@ -78,12 +80,25 @@ import UIKit
         }
         let feed = try #require(list, "the Feed's table")
         let controller = try #require(feed.delegate as? FeedListController, "the Feed's controller")
-        let shapes = controller.warmQueueCount
-        for _ in 0..<200 where controller.warmQueueCount > 0 { settle(0.02) }
-        #expect(controller.warmQueueCount == 0, "the warm-up did not finish")
-        if shapes > 2 {
-            #expect(controller.warmBatches > 1, "\(shapes) warm-up draws ran in one pass")
+        var now: CFTimeInterval = 1000
+        controller.warmClock = { now }
+        controller.warmItemHook = { now += 0.003 }
+        // Items done between display frames.
+        var lastDone = controller.warmItemsDone
+        var perFrame: [Int] = []
+        let token = FrameClock.shared.subscribe { _ in
+            perFrame.append(controller.warmItemsDone - lastDone)
+            lastDone = controller.warmItemsDone
         }
+        defer { FrameClock.shared.unsubscribe(token) }
+        // Many row shapes at once: the warm-up queues one item per new shape.
+        store.replaceAll(FeedStore.stressItems(count: 120, now: Date()))
+        for _ in 0..<300 where controller.warmQueueCount > 0 || controller.warmItemsDone == 0 { settle(0.02) }
+        settle(0.05)
+        #expect(controller.warmItemsDone > 3, "too few warm-up items to tell (\(controller.warmItemsDone))")
+        let budgetItems = Int(FeedListController.warmBudget / 0.003) + 1
+        #expect((perFrame.max() ?? 0) <= budgetItems,
+                "\(perFrame.max() ?? 0) warm-up items ran in one frame (at most \(budgetItems)): \(perFrame.filter { $0 > 0 })")
     }
 
     /// The spare is filled with the heaviest row (a permission card) but the first row that needs

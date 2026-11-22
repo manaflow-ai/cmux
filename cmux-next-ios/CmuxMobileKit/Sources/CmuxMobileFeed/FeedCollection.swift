@@ -792,9 +792,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 // A frame's share at most (profile db0af69e: the queue drained back to back, 74 ms of
                 // one frame and 17 of the next, right after the Feed came to rest): items until the
                 // budget is spent, the rest at the next frame.
-                let start = CACurrentMediaTime()
-                while !self.warmQueue.isEmpty, CACurrentMediaTime() - start < Self.warmBudget {
+                let start = self.warmClock()
+                while !self.warmQueue.isEmpty, self.warmClock() - start < Self.warmBudget {
                     self.warmOne()
+                    self.warmItemsDone += 1
+                    self.warmItemHook?()
                 }
                 self.warmBatches += 1
                 guard !self.warmQueue.isEmpty else { return }
@@ -814,6 +816,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     static let warmBudget: CFTimeInterval = 0.004
     /// Warm-up passes run, one per frame at most (tests).
     private(set) var warmBatches = 0
+    /// Warm-up items drawn, the clock the budget reads, and a hook after each item (tests give each
+    /// item a fixed cost on a fake clock).
+    private(set) var warmItemsDone = 0
+    var warmClock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    var warmItemHook: (() -> Void)?
     var warmQueueCount: Int { warmQueue.count }
 
     private func warmOne() {
