@@ -32,6 +32,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position (Cmd-T) |
 | `tabs.newTabButtonPosition` | string | `"end"` | `afterCurrent`, `end`, `start` | New Tab Position (+ Button) |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | + Button Visibility. Applies in Minimal Mode; otherwise the + always shows. |
+| `tabs.plusMenu` | array | `[]` | `terminal`, `localWorkspace`, `machineWorkspace`, `host` | + Button Menu. Choose and order the actions shown when clicking +. Empty keeps direct creation. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position |
 | `browser.toolbarPosition` | string | `"top"` | `top`, `bottom` | Browser Toolbar Position. Where the address bar of browser and Markdown panes sits. |
 | `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. Whether the tab bar sits above or below the address bar. |

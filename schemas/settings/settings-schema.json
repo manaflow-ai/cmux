@@ -582,6 +582,7 @@
               "tabs.newTabPosition",
               "tabs.newTabButtonPosition",
               "tabs.plusButton",
+              "tabs.plusMenu",
               "tabs.barPosition",
               "browser.toolbarPosition",
               "tabs.barOrder",
@@ -5056,6 +5057,185 @@
       "title" : {
         "key" : "settings.tabs.plusButton",
         "text" : "+ Button Visibility"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "host",
+          "machineWorkspace",
+          "localWorkspace",
+          "terminal"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.plusMenu.terminal",
+            "text" : "New Terminal Tab"
+          },
+          "value" : "terminal"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.plusMenu.localWorkspace",
+            "text" : "New Local Workspace"
+          },
+          "value" : "localWorkspace"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.plusMenu.machineWorkspace",
+            "text" : "New Workspace on Machine…"
+          },
+          "value" : "machineWorkspace"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.plusMenu.host",
+            "text" : "Connect to Machine…"
+          },
+          "value" : "host"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.plusMenu.help",
+        "text" : "Choose and order the actions shown when clicking +. Empty keeps direct creation."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.plusMenu",
+      "keywords" : [
+        "plus",
+        "creation",
+        "menu",
+        "terminal",
+        "workspace",
+        "host"
+      ],
+      "kind" : "string_list",
+      "ordered" : true,
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "plusMenu"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "terminal",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:tabs.plusMenu"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.plusMenu",
+        "text" : "+ Button Menu"
       },
       "validation" : "portable"
     },
@@ -34684,181 +34864,6 @@
     },
     {
       "accepts" : [
-        "off",
-        "flush",
-        "flush-tight",
-        "flush-goo"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.off",
-            "text" : "Pill"
-          },
-          "value" : "off"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.flush",
-            "text" : "Flush"
-          },
-          "value" : "flush"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.tight",
-            "text" : "Flush, Tight to the Sidebar"
-          },
-          "value" : "flush-tight"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.cornerFlush.goo",
-            "text" : "Goo"
-          },
-          "value" : "flush-goo"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "flush",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.panes",
-        "text" : "Panes"
-      },
-      "help" : {
-        "key" : "settings.appearance.cornerFlush.help",
-        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.cornerFlush",
-      "keywords" : [
-        "corner",
-        "flush",
-        "goo",
-        "gooey",
-        "folder tab",
-        "fillet",
-        "pill",
-        "selected tab",
-        "tab shape",
-        "card",
-        "material"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "cornerFlush"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.cornerFlush.summary",
-        "text" : "Pill, flush or goo for the selected tab"
-      },
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:appearance.cornerFlush"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.appearance.cornerFlush",
-        "text" : "Selected Tab Shape"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -39138,6 +39143,181 @@
       "title" : {
         "key" : "settings.appearance.titleAreaContrast",
         "text" : "Title Area Contrast"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
       },
       "validation" : "portable"
     },

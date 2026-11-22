@@ -5990,6 +5990,23 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.plusMenu" : {
+      "default" : [
+
+      ],
+      "description" : "Choose and order the actions shown when clicking +. Empty keeps direct creation.",
+      "items" : {
+        "enum" : [
+          "terminal",
+          "localWorkspace",
+          "machineWorkspace",
+          "host"
+        ],
+        "type" : "string"
+      },
+      "title" : "+ Button Menu",
+      "type" : "array"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",

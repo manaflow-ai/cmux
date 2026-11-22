@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 652,
+  "count": 653,
   "sections": [
     {
       "id": "general",
@@ -1532,6 +1532,14 @@
             "hover",
             "always"
           ]
+        },
+        {
+          "key": "tabs.plusMenu",
+          "title": "+ Button Menu",
+          "help": "Choose and order the actions shown when clicking +. Empty keeps direct creation.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Tabs"
         },
         {
           "key": "tabs.swapCmdTAndCmdN",
