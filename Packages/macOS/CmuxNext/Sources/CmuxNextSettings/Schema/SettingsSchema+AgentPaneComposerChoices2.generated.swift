@@ -15,3 +15,11 @@ public nonisolated enum AgentPaneSessionWorktrees: String, Sendable, Hashable, C
     case shared
     case project
 }
+
+/// The composer's look in every chat (agentPane.composerLook; composerLook.ts): auto is the app's own composer; studio (opt-in) lays the model, effort and access chips inside the box with an attach paperclip and a round accent Send on the right, as a coding studio's composer does (composerLook.css data-composer-variant). The New Tab page always draws its own. Leo: "the composer doesn't even look remotely similar".
+public nonisolated enum AgentPaneComposerLook: String, Sendable, Hashable, CaseIterable {
+    /// The app's own composer (as before).
+    case auto
+    /// The model, effort and access chips inside the box on the left, the attach paperclip and a round accent Send on the right. The name of a look, not translated.
+    case studio
+}
