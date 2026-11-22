@@ -28,7 +28,7 @@ public struct MacTabCard: Equatable, Sendable {
     public var filled: Bool
 
     init(_ row: TabsRow) {
-        tabID = row.tabId
+        tabID = MacTabsFeed.tabID(wire: row.tabId)
         title = row.title
         kind = row.kind
         faviconHash = row.faviconHash
@@ -86,6 +86,18 @@ public final class MacTabsFeed {
 
     public init() {}
 
+    /// The app's id of the tab a `tabs` row names. The wire names a tab by its daemon surface
+    /// as a decimal string (PROTOCOL.md, `tabs`); the app's tab id is ``DaemonTree/tabID(surface:)``.
+    nonisolated static func tabID(wire: String) -> String {
+        Int(wire).map(DaemonTree.tabID(surface:)) ?? wire
+    }
+
+    /// The wire's name of the app tab `tabID`, the inverse of ``tabID(wire:)``.
+    nonisolated static func wireID(tabID: String) -> String {
+        guard tabID.hasPrefix("s"), let surface = Int(tabID.dropFirst()) else { return tabID }
+        return String(surface)
+    }
+
     /// The newest cards of `macID` (empty before its first manifest).
     public func cards(macID: String) -> [MacTabCard] {
         sessions[macID]?.mirror.rows().map(MacTabCard.init) ?? []
@@ -98,13 +110,13 @@ public final class MacTabsFeed {
         guard near[macID] != tabIDs else { return }
         near[macID] = tabIDs
         guard let session = sessions[macID] else { return }
-        write(session.mirror.setNear(tabIds: tabIDs), to: session)
+        write(session.mirror.setNear(tabIds: tabIDs.map(Self.wireID(tabID:))), to: session)
     }
 
     /// `tabID` is opening: its page-size picture is asked for first.
     public func opening(tabID: String, macID: String) {
         guard let session = sessions[macID] else { return }
-        write(session.mirror.wantFrame(tabId: tabID), to: session)
+        write(session.mirror.wantFrame(tabId: Self.wireID(tabID: tabID)), to: session)
     }
 
     private func write(_ frames: [Data], to session: Session) {
@@ -170,7 +182,7 @@ public final class MacTabsFeed {
         case .blob(let hash, let mime, let bytes, let fresh, let tabIDs):
             guard let sink else { return }
             if fresh { sink.save(bytes, hash: hash, mime: mime, macID: macID) }
-            sink.blobArrived(hash: hash, tabIDs: tabIDs, macID: macID)
+            sink.blobArrived(hash: hash, tabIDs: tabIDs.map(Self.tabID(wire:)), macID: macID)
         case .gap(let send):
             write(send, to: session)
         case .dropped(let reason):
