@@ -679,6 +679,11 @@ const RowFrame = React.memo(function RowFrame({
   });
   // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
   useLayoutEffect(() => writeSetSizeOnMount(), []);
+  // The row as of this commit, for its open state (`queueDrawn` below), written before it reads it.
+  const drawnRow = useRef(row);
+  useLayoutEffect(() => {
+    drawnRow.current = row;
+  });
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -701,10 +706,9 @@ const RowFrame = React.memo(function RowFrame({
     ];
     queuedFor.current = now;
     const versionOnly = was !== undefined && now.every((value, at) => value === was[at]);
-    // `row` is read for its open state; its id and version say when that changed, so a new object
+    // The row is read for its open state; its id and version say when that changed, so a new object
     // with the same version queues nothing again (a toggle inside it is its observer's report).
-    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly, row);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return queueDrawn(node, row.id, row.version, replyActions, status, versionOnly, drawnRow.current);
   }, [
     row.id,
     row.version,
