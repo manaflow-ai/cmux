@@ -625,7 +625,7 @@ mod tests {
         }
         // A Mac that predates it sends none: 0.
         let old: Theme = serde_json::from_value(serde_json::json!({
-            "background": "#000000", "foreground": "#ffffff", "palette": ["#000000"; 8]
+            "background": "#000000", "foreground": "#ffffff", "palette": vec!["#000000"; 8]
         }))
         .unwrap();
         assert_eq!(old.background_blur, 0);
