@@ -417,6 +417,142 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default)
 }
 
+/// Reads (and drops) notifications until the link has been quiet for one round trip, the
+/// jitter and two retransmissions (a segment lost twice), or `deadline`.
+async fn settle(link: &mut Link, profile: &LinkProfile, deadline: Instant) {
+    let rto = profile.rto_min_ms.max(2 * profile.rtt_ms);
+    let quiet = Duration::from_millis(300.max(profile.rtt_ms + profile.jitter_ms + 3 * rto));
+    while let Next::Frame(..) = link.notification((Instant::now() + quiet).min(deadline)).await {}
+    link.pending.clear();
+}
+
+/// Duress: the agent streams (a chunk every 50 ms, about a model's token rate) while the app
+/// opens the chat again on the same link; then the app's link drops and it redials with
+/// `afterSeq` while the stream runs (`reconnect` first_content_ms, every profile). Returns the
+/// redialed link.
+#[allow(clippy::too_many_arguments)]
+async fn streaming_and_redial(
+    shaper: &Shaper,
+    control: &mut Control,
+    mut link: Link,
+    token: &str,
+    session: &str,
+    profile: &str,
+    scale: &str,
+    run: u64,
+    seed: u64,
+) -> Option<Link> {
+    let k = Key { profile, phase: "streaming", scale, run, seed };
+    // Long enough for the slowest profile's two attaches; cancelled once they are measured.
+    let turn = control.prompt(session, "ticking:2400:50").await;
+    let deadline = Instant::now() + BOUND;
+    let mut last = 0u64;
+    let mut live = false;
+    while let Next::Frame(_, v) = link.notification(deadline).await {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+            if v.to_string().contains("tick") {
+                live = true;
+                break;
+            }
+        }
+    }
+    let end_turn = |control: &mut Control| {
+        let tx = control.tx.clone();
+        let session = session.to_owned();
+        async move {
+            let _ = tx
+                .send(
+                    RpcMessage::notification(method::SESSION_CANCEL, json!({"sessionId": session}))
+                        .to_line(),
+                )
+                .await;
+        }
+    };
+    if !live {
+        for p in ["streaming", "reconnect"] {
+            let k = Key { phase: p, ..k };
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", "the agent's stream never reached the phone");
+        }
+        end_turn(control).await;
+        let _ = control.answer(turn, BOUND).await;
+        return None;
+    }
+    shaper.reset_counters();
+    let start = Instant::now();
+    match link.attach(session, None, start + BOUND).await {
+        Ok((at, reply)) if !rows(&reply).is_empty() => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+            last = last.max(rows(&reply).into_iter().max().unwrap_or(0));
+        }
+        Ok(_) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", "the attach reply carried no rows");
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+        }
+    }
+    // What the app has seen when its link drops.
+    for (_, v) in link.pending.drain(..) {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+        }
+    }
+    while let Ok(Some((_, Some(v)))) = tokio::time::timeout(Duration::ZERO, link.rx.recv()).await {
+        if let Some(seq) = event_seq(&v) {
+            last = last.max(seq);
+        }
+    }
+    drop(link);
+
+    // The redial: a new connection, attach with afterSeq; first content is the first row or
+    // event newer than what the app had.
+    let k = Key { phase: "reconnect", ..k };
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let mut out = None;
+    let first = match Link::open(shaper.addr(), token, deadline).await {
+        Err(e) => Err(e),
+        Ok(mut l) => {
+            let got = match l.attach(session, Some(last), deadline).await {
+                Ok((at, reply)) if rows(&reply).iter().any(|s| *s > last) => Ok(at),
+                Ok(_) => loop {
+                    match l.notification(deadline).await {
+                        Next::Frame(at, v) if event_seq(&v).is_some_and(|s| s > last) => {
+                            break Ok(at);
+                        }
+                        Next::Frame(..) => {}
+                        _ => break Err("nothing newer than afterSeq arrived".to_owned()),
+                    }
+                },
+                Err(e) => Err(e),
+            };
+            out = Some(l);
+            got
+        }
+    };
+    match first {
+        Ok(at) => {
+            emit(&k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(&k, shaper);
+        }
+        Err(e) => {
+            emit(&k, "first_content_ms", None);
+            emit_error(&k, "first_content_ms", &e);
+        }
+    }
+    end_turn(control).await;
+    let _ = control.answer(turn, BOUND).await;
+    let mut l = out?;
+    settle(&mut l, &shaper.profile(), Instant::now() + BOUND).await;
+    Some(l)
+}
+
 /// cold, then warm on the same connection; returns the open, watched, attached link.
 async fn cold_and_warm(
     shaper: &Shaper,
@@ -490,9 +626,10 @@ async fn cold_and_warm(
             emit_error(&k, "interactive_ms", "the prompt's user_message never came back");
         }
     }
-    // Let the ping's turn end before the reopen.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    link.pending.clear();
+    // Let the ping's turn finish arriving before the reopen. A fixed pause was shorter than one
+    // round trip on a slow link: the turn's tail was still in flight and the warm reply queued
+    // behind it (the shaper delivers in order), so warm measured the ping turn too.
+    settle(&mut link, &shaper.profile(), deadline).await;
 
     let k = Key { phase: "warm", ..k };
     shaper.reset_counters();
@@ -709,6 +846,21 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
                 let Some(link) =
                     cold_and_warm(&shaper, &listener.token, &session, &name, scale, run, seed)
                         .await
+                else {
+                    continue;
+                };
+                let Some(link) = streaming_and_redial(
+                    &shaper,
+                    &mut control,
+                    link,
+                    &listener.token,
+                    &session,
+                    &name,
+                    scale,
+                    run,
+                    seed,
+                )
+                .await
                 else {
                     continue;
                 };

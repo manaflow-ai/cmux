@@ -100,6 +100,9 @@ struct Daemon {
     history: Vec<(String, u64)>,
     /// Prints a tick every 250 ms (the reconnect's live output).
     ticker: u64,
+    /// Streams a line every 20 ms (the streaming duress: output on the link while another
+    /// surface attaches); none in the bytes-per-minute bench.
+    streamer: Option<u64>,
     /// The pane new tabs go in, and the next tab's serial (`Daemon::tab`).
     pane: Value,
     serial: AtomicU64,
@@ -209,6 +212,12 @@ impl Daemon {
             &mut client,
             "i=0; while :; do i=$((i+1)); printf 'tick %d\\n' $i; sleep 0.25; done".to_owned(),
         );
+        let streamer = (!scales.is_empty()).then(|| {
+            tab(
+                &mut client,
+                "i=0; while :; do i=$((i+1)); printf 'stream %07d the quick brown fox jumps over the lazy dog\\n' $i; sleep 0.02; done".to_owned(),
+            )
+        });
         // Every history is printed before anything is measured.
         let deadline = std::time::Instant::now() + Duration::from_secs(300);
         for (scale, surface) in &history {
@@ -224,7 +233,7 @@ impl Daemon {
                 std::thread::sleep(Duration::from_millis(200));
             }
         }
-        Self { child, dir, socket, history, ticker, pane, serial: AtomicU64::new(0x800) }
+        Self { child, dir, socket, history, ticker, streamer, pane, serial: AtomicU64::new(0x800) }
     }
 
     /// A new tab in the bench's pane running `script`; its surface.
@@ -594,6 +603,58 @@ impl Bench {
         }
     }
 
+    /// Duress: another surface streams on the link while this one attaches.
+    async fn streaming(
+        &self,
+        profile: &LinkProfile,
+        scale: &str,
+        surface: u64,
+        streamer: u64,
+        run: u64,
+        seed: u64,
+    ) {
+        let phase = "streaming";
+        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
+        {
+            Ok(shaper) => shaper,
+            Err(e) => return error(profile, phase, scale, run, &format!("shaper: {e}")),
+        };
+        let Ok(mut conn) = Conn::open(shaper.addr()).await else {
+            return error(profile, phase, scale, run, "connect failed");
+        };
+        if attach(&mut conn, streamer, true).await.is_none()
+            || conn
+                .output(streamer, None, false, Instant::now() + Duration::from_secs(10))
+                .await
+                .is_none()
+        {
+            emit(profile, phase, scale, "first_content_ms", None, run, seed);
+            return error(profile, phase, scale, run, "the stream is not live");
+        }
+        shaper.reset_counters();
+        let down_before = conn.down_bytes.load(Ordering::SeqCst);
+        let started = Instant::now();
+        match attach(&mut conn, surface, false).await {
+            Some(first) => {
+                emit(
+                    profile,
+                    phase,
+                    scale,
+                    "first_content_ms",
+                    Some(ms(first - started)),
+                    run,
+                    seed,
+                );
+                let down = conn.down_bytes.load(Ordering::SeqCst) - down_before;
+                emit(profile, phase, scale, "bytes_down", Some(down as f64), run, seed);
+            }
+            None => {
+                emit(profile, phase, scale, "first_content_ms", None, run, seed);
+                error(profile, phase, scale, run, "no first content");
+            }
+        }
+    }
+
     async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
         let scale = "1x";
         let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
@@ -722,6 +783,11 @@ fn terminal_attach_under_link_profiles() {
             for (scale, surface) in &daemon.history {
                 for run in 0..runs {
                     bench.cold_and_warm(profile, scale, *surface, run, seed_base + run).await;
+                    if let Some(streamer) = daemon.streamer {
+                        bench
+                            .streaming(profile, scale, *surface, streamer, run, seed_base + run)
+                            .await;
+                    }
                 }
             }
             if profile.disrupts_lan() {

@@ -29,7 +29,50 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
-PHASE_ORDER = ["cold", "warm", "reconnect"]
+PHASE_ORDER = ["cold", "warm", "streaming", "reconnect"]
+
+
+def first_content_summary(rows: list[dict]) -> list[str]:
+    """First content, p50 / p95 ms, profile x history scale x phase; then each phase's p95 at
+    the largest scale over the smallest (history size must not move first content). With a
+    before, the summary shows after; the change is in the detail tables below."""
+    label = "after"
+    cells: dict[tuple, dict] = {}
+    for row in rows:
+        if row["metric"] == "first_content_ms" and row[label] and row[label]["n"]:
+            cells[(row["surface"], row["profile"], row["scale"], row["phase"])] = row[label]
+    out: list[str] = []
+    for surface in sorted({k[0] for k in cells}):
+        phases = [p for p in PHASE_ORDER if any(k[0] == surface and k[3] == p for k in cells)]
+        profiles = list(dict.fromkeys(k[1] for k in cells if k[0] == surface))
+        scales = sorted({k[2] for k in cells if k[0] == surface}, key=scale_order)
+        out.append(f"### {surface}: first content ms, p50 / p95 (n per cell in report.json)")
+        out.append("")
+        out.append("| profile | history | " + " | ".join(phases) + " |")
+        out.append("|---|---|" + "---|" * len(phases))
+        for profile in profiles:
+            for scale in scales:
+                vals = []
+                for phase in phases:
+                    c = cells.get((surface, profile, scale, phase))
+                    vals.append(f"{c['p50']:,.0f} / {c['p95']:,.0f}" if c else "-")
+                if any(v != "-" for v in vals):
+                    out.append(f"| {profile} | {scale} | " + " | ".join(vals) + " |")
+            history = [sc for sc in scales if scale_order(sc)[0] == 0]
+            if len(history) >= 2:
+                lo, hi = history[0], history[-1]
+                ratio = []
+                for phase in phases:
+                    a, b = cells.get((surface, profile, lo, phase)), cells.get((surface, profile, hi, phase))
+                    ratio.append(f"{b['p95'] / a['p95']:.2f}" if a and b and a["p95"] else "-")
+                out.append(f"| {profile} | p95 {hi}/{lo} | " + " | ".join(ratio) + " |")
+        out.append("")
+    return out
+
+
+def scale_order(scale: str) -> tuple:
+    # history scales sort by size ("1x" < "10x"); a named scale such as "ios" sorts after them
+    return (0, int(scale[:-1]), "") if re.fullmatch(r"\d+x", scale) else (1, 0, scale)
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -97,8 +140,7 @@ def main() -> int:
             surface,
             profile,
             PHASE_ORDER.index(phase) if phase in PHASE_ORDER else 9,
-            # history scales sort by size ("1x" < "10x"); a named scale such as "ios" sorts after them
-            (0, int(scale[:-1]), "") if re.fullmatch(r"\d+x", scale) else (1, 0, scale),
+            scale_order(scale),
             METRIC_ORDER.index(metric) if metric in METRIC_ORDER else 99,
         )
 
@@ -120,7 +162,7 @@ def main() -> int:
     with open(args.json, "w") as handle:
         json.dump({"after": args.after, "before": args.before, "rows": rows}, handle, indent=1)
 
-    out = []
+    out = first_content_summary(rows)
     for surface in sorted({row["surface"] for row in rows}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))
         out.append("")
