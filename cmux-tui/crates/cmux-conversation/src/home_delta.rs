@@ -144,9 +144,10 @@ impl HomeChangeLog {
         let mut changed = Vec::new();
         let mut removed = Vec::new();
         for id in order {
-            match latest[id] {
-                ChangeKind::Changed => changed.push(id.to_owned()),
-                ChangeKind::Removed => removed.push(id.to_owned()),
+            match latest.get(id) {
+                Some(ChangeKind::Changed) => changed.push(id.to_owned()),
+                Some(ChangeKind::Removed) => removed.push(id.to_owned()),
+                None => {}
             }
         }
         HomeDelta::Since { changed, removed }
