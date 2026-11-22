@@ -157,6 +157,27 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.textContent).not.toContain("Imagining");
 });
 
+test("waiting on a subagent times the wait, not the whole turn (Leo, 2026-11-20: '... for seven minutes and 39 seconds?')", () => {
+  const T0 = 1_800_000_000_000;
+  // The turn began 7m 39s ago; it worked 5m 39s, then has waited 2m on its subagent.
+  const now = () => T0 + 459_000;
+  act(() =>
+    root!.render(
+      <Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 339_000} turnTotal />,
+    ),
+  );
+  const line = container.querySelector(".cv-worked")!;
+  expect(line.textContent).toContain("Waiting on 1 subagent");
+  // The default look shows one clock: the wait's, never the turn's 7m 39s.
+  expect(line.textContent).not.toContain("7m 39s");
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("2m");
+  // A wait from the turn's very start has the turn's clock, which is already the wait's.
+  act(() =>
+    root!.render(<Thinking since={T0} now={now} liveState="subagents" liveAgents={1} waitAt={T0 + 200} turnTotal />),
+  );
+  expect(container.querySelector(".cv-worked__time")?.textContent).toBe("7m 39s");
+});
+
 test("a new call rolls the live line's words: the old rise out above, the new restart their roll in", () => {
   const output = () => container.querySelector("output.cv-thinking")!;
   act(() => root!.render(<Thinking since={0} now={() => 1_000} />));

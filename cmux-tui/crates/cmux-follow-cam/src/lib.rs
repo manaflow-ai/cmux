@@ -7,7 +7,7 @@
 //!   focused window, else the screen ([`Camera::focus`]).
 //! - Cut: a change of focused window (an app or window switch) or an
 //!   explicit [`Signal::Cut`] snaps the crop to the new focus. Signals for
-//!   [`CUT_SETTLE_US`] after a cut snap too, so the caret of the new window
+//!   [`Config::cut_settle_us`] after a cut snap too, so the caret of the new window
 //!   lands in the same shot.
 //! - Dead zone: while the focus stays inside the middle [`Config::dead_zone`]
 //!   of the crop's goal, the goal does not move (a locked shot).
@@ -24,13 +24,17 @@
 //! rate (the motion steps at [`STEP_US`]). Coordinates are the shared
 //! screen's pixels, origin top left.
 
+pub mod damage;
+pub mod video;
+
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
 /// The motion's fixed step: 240 Hz.
 pub const STEP_US: u64 = 1_000_000 / 240;
-/// After a cut, how long new focus signals still snap instead of pan.
+/// After a cut, how long new focus signals still snap instead of pan, by
+/// default ([`Config::cut_settle_us`]).
 pub const CUT_SETTLE_US: u64 = 200_000;
 /// Damage rects kept for the focus (newest last).
 const MAX_DAMAGE: usize = 64;
@@ -132,6 +136,15 @@ pub struct Config {
     /// Damage covering more than this share of the screen (a full redraw,
     /// a scroll of everything) says nothing about where to look.
     pub damage_max_share: f64,
+    /// After a cut, how long new focus still snaps instead of panning: short
+    /// live, where the new window's caret comes at once; longer for a
+    /// recording, where a new scene's first typing can come a second later.
+    #[serde(default = "default_cut_settle_us")]
+    pub cut_settle_us: u64,
+}
+
+fn default_cut_settle_us() -> u64 {
+    CUT_SETTLE_US
 }
 
 impl Default for Config {
@@ -145,6 +158,7 @@ impl Default for Config {
             intent_hold_us: 3_000_000,
             damage_hold_us: 800_000,
             damage_max_share: 0.4,
+            cut_settle_us: CUT_SETTLE_US,
         }
     }
 }
@@ -363,7 +377,7 @@ impl Camera {
         self.caret = None;
         self.pointer_moved_us = None;
         self.damage.clear();
-        self.snap_until_us = Some(t + CUT_SETTLE_US);
+        self.snap_until_us = Some(t + self.config.cut_settle_us);
         self.shot = None;
     }
 
