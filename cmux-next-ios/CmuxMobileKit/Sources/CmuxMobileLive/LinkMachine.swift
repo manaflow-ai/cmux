@@ -371,12 +371,12 @@ extension LinkMachine.Phase {
         case .idle: nil
         case .macOffline: "Offline"
         case .signedOut: "Signed out"
-        case .connecting: "Reconnecting…"
+        // A link coming back says nothing (Leo, 2026-11-22: "i dont wanna see reconnecting to the
+        // Mac ... i want it to just connect").
+        case .connecting: nil
         case .connected: "Connected"
         case .waiting(_, _, let reason, _):
-            reason == LinkController.reason(LinkError(code: "offline", message: ""))
-                ? "Offline"
-                : "Reconnecting…"
+            reason == LinkController.reason(LinkError(code: "offline", message: "")) ? "Offline" : nil
         }
     }
 

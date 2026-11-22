@@ -452,8 +452,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect") while its outage has lasted
+    /// A read (no host is created): the tab's pill says nothing while its link comes back
+    /// (Leo, 2026-11-22), "Can't connect" once its outage has lasted
     /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
     /// place a terminal tab shows its connection: no row by the composer
     /// (Leo, 2026-11-17: "The reconnect takes an extra line").
@@ -461,7 +461,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }
         guard indicator.isShown else { return nil }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
+        return hosts[tab.id]?.model.connectionState.pillSubtitle
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {

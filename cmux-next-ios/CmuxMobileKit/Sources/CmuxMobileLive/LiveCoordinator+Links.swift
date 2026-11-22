@@ -1072,12 +1072,9 @@ extension LiveCoordinator {
             }
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
-        case .connecting(_, let attempt):
-            if attempt == 1, !everConnected {
-                banner = .connecting(to: name, identity: session.macID)
-            } else {
-                banner = .reconnecting(to: name, identity: session.macID)
-            }
+        case .connecting:
+            // The link comes up on its own: nothing to read or do while it does (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+            banner = nil
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
@@ -1086,25 +1083,22 @@ extension LiveCoordinator {
         }
     }
 
-    /// Redial attempts after a lost link that still read "Reconnecting"
+    /// Redial attempts after a lost link that still show nothing
     /// (about the first half minute of the backoff); later ones say why.
     nonisolated static let reconnectingAttempts = 6
 
     /// The banner while a redial waits out its backoff. An offline Mac is not
     /// a connection failure. A Mac a link was connected to is being
-    /// reconnected (the machine keeps retrying), so a lost link reads
-    /// "Reconnecting", not "Can't reach", which reads as giving up, for the
-    /// first `reconnectingAttempts` attempts. Longer failures offer a retry;
-    /// transport and relay details stay in Settings diagnostics.
+    /// reconnected (the machine keeps retrying), so a lost link shows nothing
+    /// for the first `reconnectingAttempts` attempts (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+    /// Longer failures offer a retry; transport and relay details stay in Settings diagnostics.
     nonisolated static func waitingBanner(macName: String, transport _: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
-                                          relayAvailable _: Bool?, identity: String? = nil) -> ConnectionBannerState {
+                                          relayAvailable _: Bool?, identity: String? = nil) -> ConnectionBannerState? {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) {
             return .macOffline(macName, identity: identity)
         }
-        if wasConnected, attempt <= reconnectingAttempts {
-            return .reconnecting(to: macName, identity: identity)
-        }
+        if wasConnected, attempt <= reconnectingAttempts { return nil }
         return .connectionFailed.identified(identity)
     }
 }

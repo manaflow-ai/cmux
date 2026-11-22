@@ -70,8 +70,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
     public var label: String? {
         switch self {
         case .connecting(let mac):
-            guard let mac, !mac.isEmpty else { return "Connecting…" }
-            return "Connecting to \(mac)…"
+            // What is coming, never the link (Leo, 2026-11-22: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it to just work").
+            return "Opening terminal…"
         case .reattaching:
             return "Reattaching…"
         case .offline(let mac):
@@ -88,10 +88,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
     public var quietLine: String? {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
-        case .connecting(let mac): return "Connecting to \(named(mac))…"
-        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
+        case .connecting, .reattaching: return nil
         case .offline: return label
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
@@ -103,8 +101,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// the working directory: the page itself gets no status row.
     public var pillSubtitle: String? {
         switch self {
-        case .connecting: return "Connecting…"
-        case .reattaching: return "Reattaching…"
+        case .connecting, .reattaching: return nil
         case .offline: return "Mac offline"
         case .failed: return "Can't connect"
         case .attached: return nil

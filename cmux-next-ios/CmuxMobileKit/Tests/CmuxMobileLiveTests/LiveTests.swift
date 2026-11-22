@@ -65,7 +65,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.

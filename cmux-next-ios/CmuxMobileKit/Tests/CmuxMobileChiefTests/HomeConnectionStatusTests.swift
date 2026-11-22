@@ -58,6 +58,6 @@ import Testing
         let status = try #require(HomeConnectionStatus.make(linkDown: false, macOnline: true, failed: false, retrying: true, macName: "Studio"))
         #expect(status.kind == .connecting)
         #expect(status.empty == nil)
-        #expect(HomeConnectionStatus.connectingTitle(macName: "Studio") == "Connecting to Studio…")
+        #expect(HomeConnectionStatus.connectingTitle(macName: "Studio") == "Loading conversations…")
     }
 }

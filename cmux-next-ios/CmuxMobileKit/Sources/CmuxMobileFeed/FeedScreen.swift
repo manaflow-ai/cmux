@@ -237,7 +237,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     private var connectingState: some View {
         VStack(spacing: 10) {
             CmuxSpinner()
-            Text("Connecting to your Mac…")
+            Text("Loading…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
