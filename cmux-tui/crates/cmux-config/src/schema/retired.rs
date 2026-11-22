@@ -7,10 +7,11 @@
 //!
 //! An entry with `replaced_by` names the row that took the key's place, and
 //! `values` what the old key's values read as in it (any other reads as the
-//! row's default). While the row is unset its effective value reads the old
-//! key through that table, and every write or reset of the row, and Reset
-//! All, removes the old key, so it never applies behind the row (Swift
-//! `RenamedSettingKeys`, from the same file).
+//! row's default). One row may replace several keys (`updates.automatic`
+//! replaced three update toggles): while the row is unset its effective value
+//! is the first of them, in the file's order, whose value the table lists, and
+//! every write or reset of the row, and Reset All, removes all of them, so none
+//! applies behind the row (Swift `RenamedSettingKeys`, from the same file).
 
 use std::sync::OnceLock;
 
@@ -86,9 +87,16 @@ pub fn replaced_keys() -> &'static [Replaced] {
     })
 }
 
-/// The retired key the row at `path` replaced, if any.
-pub fn replaced_by_row(path: &[String]) -> Option<&'static Replaced> {
-    replaced_keys().iter().find(|replaced| replaced.row == path)
+/// The retired keys the row at `path` replaced, in the order they are read.
+pub fn replaced_by_row(path: &[String]) -> impl Iterator<Item = &'static Replaced> + '_ {
+    replaced_keys().iter().filter(move |replaced| replaced.row == path)
+}
+
+/// What the retired keys the row at `path` replaced read as in `root`: the first
+/// of them whose value the table lists, else `None`.
+pub fn replaced_value(path: &[String], root: &Value) -> Option<&'static Value> {
+    replaced_by_row(path)
+        .find_map(|replaced| replaced.read(crate::value::value_at(root, &replaced.old)?))
 }
 
 /// Every retired dotted key and why, in the file's order.

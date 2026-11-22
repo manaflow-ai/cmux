@@ -29,8 +29,10 @@ extension SettingsController {
         guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
         // A renamed key's old key goes with the write, so it can never apply
         // again behind the new value (or behind a reset to the default).
-        var legacy: [String]?
-        if let old = RenamedSettingKeys.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
+        var legacy: [[String]] = []
+        for old in RenamedSettingKeys.legacyPaths(for: descriptor.path) {
+            if try await file.value(at: old) != nil { legacy.append(old) }
+        }
         if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
         // A write never copies the theme file's own entries into cmux-next.json (Theme Studio writes
         // the whole edits map it shows, which holds the file's colors).
@@ -74,15 +76,15 @@ extension SettingsController {
         let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
         do {
             if let value {
-                if legacy != nil || !linked.isEmpty {
-                    try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
+                if !legacy.isEmpty || !linked.isEmpty {
+                    try await file.apply([(path: descriptor.path, value: value)] + legacy.map { (path: $0, value: nil) } + linked)
                 } else {
                     try await file.set(value, at: descriptor.path)
                 }
                 if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
                 await reloadAfterWrite()
             } else {
-                if let legacy { try await file.remove(legacy) }
+                for old in legacy { try await file.remove(old) }
                 // One publish removes the pair; removePruning then drops the emptied parents.
                 if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
                 try await removePruning(descriptor.path)
@@ -123,7 +125,7 @@ extension SettingsController {
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             edits.append(.reset(descriptor.path))
             // A renamed row's old key would apply again behind the reset (``RenamedSettingKeys``).
-            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { edits.append(.reset(legacy)) }
+            for legacy in RenamedSettingKeys.legacyPaths(for: descriptor.path) { edits.append(.reset(legacy)) }
         }
         for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
             edits.append(.reset(CmuxConfigFile.keyPath(from: key)))

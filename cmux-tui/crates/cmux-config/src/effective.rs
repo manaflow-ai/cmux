@@ -50,9 +50,14 @@ impl EffectiveSettings {
                 root = with_value(&root, value.clone(), &key_path(key));
             }
         }
-        // Lowest: the build's defaults (Swift `SettingsBuildDefaults.filling`).
+        // Lowest: the build's defaults (Swift `SettingsBuildDefaults.filling`). A key an old key
+        // it replaced still answers for is not unset: the person's old pick wins
+        // (`updates.downloadAutomatically: false` reads as `updates.automatic` Notify Only).
         for (key, value) in sorted_setting_entries(schema.build_defaults()) {
-            if value_at(&root, &key_path(key)).is_none() {
+            let path = key_path(key);
+            if value_at(&root, &path).is_none()
+                && crate::schema::replaced_value(&path, &root).is_none()
+            {
                 root = with_value(&root, value.clone(), &key_path(key));
             }
         }

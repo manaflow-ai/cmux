@@ -176,7 +176,7 @@ public final class WebUpdates {
     private func follow(_ settings: UpdatesSettings, updater: WebUpdater) {
         updater.allowsConstrained = settings.meteredNetwork == .download
         updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
-        updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)
+        updater.follow(WebUpdater.Channel(rawValue: settings.webInEffect.rawValue) ?? .off)
     }
 
     /// The update the pages serve now (nil: the bundled web). The updater's `state.active` runs

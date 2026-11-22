@@ -5,16 +5,13 @@ extension UpdatesSettings {
     /// `updates.channel`: Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.
     public nonisolated static let channelPath = ["updates", "channel"]
     public nonisolated static let channelDefault: UpdatesChannelSetting = .nightly
-    /// `updates.checkAutomatically`.
-    public nonisolated static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
-    public nonisolated static let checkAutomaticallyDefault = true
+    /// `updates.automatic`: The one update choice (Leo 2026-11-22: "the toggle for \"automatic update\" seems vacuous if we're saying yeah ok it can auto download"; "maybe too many settings and bullshit that can be consolidated"). How far cmux goes by itself on one ladder: check, download, install. It replaced updates.checkAutomatically, updates.downloadAutomatically and updates.installWhenIdle (retired-keys.json reads them while this is unset). NIGHTLY's build default is download (SettingsBuildDefaults); every other build has notify. Design: cmuxterm-hq docs/design/update-settings.md.
+    public nonisolated static let automaticPath = ["updates", "automatic"]
+    public nonisolated static let automaticDefault: UpdatesAutomaticSetting = .notify
     /// `updates.checkIntervalSeconds`: Seconds between automatic checks.
     public nonisolated static let checkIntervalPath = ["updates", "checkIntervalSeconds"]
     public nonisolated static let checkIntervalDefault: Double = 3600
     public nonisolated static let checkIntervalRange: ClosedRange<Double> = 900...604_800
-    /// `updates.downloadAutomatically`.
-    public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
-    public nonisolated static let downloadAutomaticallyDefault = false
     /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
     public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
     public nonisolated static let oneClickInstallDefault = false
@@ -33,9 +30,6 @@ extension UpdatesSettings {
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
-    /// `updates.installWhenIdle`: Update when idle (Leo 2026-11-19: "maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle"): a downloaded update installs after updates.installWhenIdleMinutes of idle, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent. Off by default.
-    public nonisolated static let installWhenIdlePath = ["updates", "installWhenIdle"]
-    public nonisolated static let installWhenIdleDefault = false
     /// `updates.installWhenIdleMinutes`: How long cmux must be idle before updates.installWhenIdle installs a downloaded update.
     public nonisolated static let installWhenIdleMinutesPath = ["updates", "installWhenIdleMinutes"]
     public nonisolated static let installWhenIdleMinutesDefault: Double = 15
@@ -74,7 +68,7 @@ extension AnnouncementsSettings {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum UpdateSettingsSchema {
-    /// Automatic updates under General (R114): every step of checking, downloading and installing is a row; the defaults keep cmux current with no clicks beyond the one that relaunches.
+    /// Automatic updates under General: one Automatic Updates choice (off, notify, download, idle) and the channel; the finer knobs stay in cmux.json, off the page and the palette (2026-11-22, cmuxterm-hq docs/design/update-settings.md).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.updates", "Updates")
         return [
@@ -94,13 +88,19 @@ nonisolated enum UpdateSettingsSchema {
                 keywords: ["update", "channel", "ring", "release", "stable", "nightly", "canary", "beta", "dev"]
             ),
             SettingDescriptor(
-                UpdatesSettings.checkAutomaticallyPath,
+                UpdatesSettings.automaticPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.updates.checkAutomatically", "Check for Updates Automatically"),
-                kind: .toggle,
-                default: .bool(UpdatesSettings.checkAutomaticallyDefault),
-                keywords: ["update", "sparkle", "check", "automatic"]
+                title: SettingsText.keyed("settings.updates.automatic", "Automatic Updates"),
+                help: SettingsText.keyed("settings.updates.automatic.help", "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running."),
+                kind: .choice([
+                    SettingChoice(UpdatesAutomaticSetting.off.rawValue, SettingsText.keyed("settings.choice.updatesAutomaticOff", "Off")),
+                    SettingChoice(UpdatesAutomaticSetting.notify.rawValue, SettingsText.keyed("settings.choice.updatesAutomaticNotify", "Notify Only")),
+                    SettingChoice(UpdatesAutomaticSetting.download.rawValue, SettingsText.keyed("settings.choice.updatesAutomaticDownload", "Download Automatically")),
+                    SettingChoice(UpdatesAutomaticSetting.idle.rawValue, SettingsText.keyed("settings.choice.updatesAutomaticIdle", "Install When Idle")),
+                ]),
+                default: .string(UpdatesSettings.automaticDefault.rawValue),
+                keywords: ["update", "updates", "automatic", "check", "download", "install", "idle", "restart", "sparkle", "auto update", "update when idle"]
             ),
             SettingDescriptor(
                 UpdatesSettings.checkIntervalPath,
@@ -110,17 +110,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.checkIntervalRange, step: 900, unit: .seconds)),
                 default: .number(UpdatesSettings.checkIntervalDefault),
                 keywords: ["update", "interval", "frequency", "hourly", "daily"]
-            ),
-            SettingDescriptor(
-                UpdatesSettings.downloadAutomaticallyPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux asks before downloading. It always asks before restarting."),
-                kind: .toggle,
-                default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
-                keywords: ["update", "download", "background", "metered"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.oneClickInstallPath,
                 section: .general,
@@ -130,7 +120,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.oneClickInstallDefault),
                 keywords: ["update", "install", "restart", "relaunch", "one click"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.whatsNewInstallPath,
                 section: .general,
@@ -140,7 +130,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.whatsNewInstallDefault),
                 keywords: ["update", "install", "version", "rollback", "earlier", "nightly", "what's new"]
-            ),
+            ).hiddenFromSettingsPage("a feature gate, not a choice (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.meteredNetworkPath,
                 section: .general,
@@ -154,7 +144,7 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.meteredNetworkDefault.rawValue),
                 keywords: ["update", "metered", "cellular", "low data", "hotspot"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.webPath,
                 section: .general,
@@ -168,7 +158,7 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.webDefault.rawValue),
                 keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
-            ),
+            ).hiddenFromSettingsPage("web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.liveWebReloadPath,
                 section: .general,
@@ -188,17 +178,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.installOnQuitDefault),
                 keywords: ["update", "install", "quit"]
-            ),
-            SettingDescriptor(
-                UpdatesSettings.installWhenIdlePath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.updates.installWhenIdle", "Update When Idle"),
-                help: SettingsText.keyed("settings.updates.installWhenIdle.help", "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."),
-                kind: .toggle,
-                default: .bool(UpdatesSettings.installWhenIdleDefault),
-                keywords: ["update", "install", "idle", "automatic", "restart"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.installWhenIdleMinutesPath,
                 section: .general,
@@ -208,7 +188,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.installWhenIdleMinutesRange, step: 1, unit: .minutes)),
                 default: .number(UpdatesSettings.installWhenIdleMinutesDefault),
                 keywords: ["update", "install", "idle", "automatic", "restart", "minutes"]
-            ),
+            ).hiddenFromSettingsPage("the idle time of Automatic Updates' Install When Idle (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.notifyPath,
                 section: .general,
@@ -220,7 +200,7 @@ nonisolated enum UpdateSettingsSchema {
                 ]),
                 default: .string(UpdatesSettings.notifyDefault.rawValue),
                 keywords: ["update", "notify", "badge", "silent"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.keepPreviousVersionsPath,
                 section: .general,
@@ -230,7 +210,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.keepPreviousVersionsRange, step: 1, unit: .count)),
                 default: .number(UpdatesSettings.keepPreviousVersionsDefault),
                 keywords: ["update", "rollback", "previous", "downgrade"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.showWhatsNewPath,
                 section: .general,
@@ -260,7 +240,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.idleInstallMaxWaitRange, step: 60, unit: .seconds)),
                 default: .number(UpdatesSettings.idleInstallMaxWaitDefault),
                 keywords: ["update", "install", "idle", "wait", "automatic", "nightly"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
             SettingDescriptor(
                 UpdatesSettings.idleInstallQuietPath,
                 section: .general,
@@ -270,7 +250,7 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.idleInstallQuietRange, step: 5, unit: .seconds)),
                 default: .number(UpdatesSettings.idleInstallQuietDefault),
                 keywords: ["update", "install", "idle", "quiet", "typing", "nightly"]
-            ),
+            ).hiddenFromSettingsPage("folded into Automatic Updates (2026-11-22); cmux.json only"),
         ]
     }
 

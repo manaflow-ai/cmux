@@ -14,7 +14,7 @@ no harness feed, and only the nightly key could sign one for it). Steps:
      takes the daemon handoff a real nightly update takes), a throwaway EdDSA key, the signed appcast served on
      127.0.0.1. v1 gets its own cmux-next.json: updates.installWhenIdle on (--install-when-idle on, the opt-in; unset leaves
      the build's default), installWhenIdleMinutes N (1), a low
-     idleInstallQuietSeconds, downloadAutomatically on, automatic checks off.
+     idleInstallQuietSeconds, updates.automatic "idle" (or "download" for the off run).
   2. Before the update stages: agent session A finishes a turn; agent session B starts a turn that waits on a FIFO
      (acpmux's fake agent, `gate:`); a new chat gets an unsent draft typed into its composer (`debug.key`, the path a
      key press takes). The acpmux agent host census is taken (the hosts records, their live pids, `acpmux ls --json`).
@@ -289,10 +289,11 @@ def main():
         # Its own config, never the Mac's shared ~/.config/cmux/cmux-next.json (cmux#45598).
         config = os.path.join(work, "cmux-next.json")
         with open(config, "w") as f:
+            # Automatic Updates (updates.automatic): Install When Idle, or Download Automatically for the
+            # "off" run. The check is the harness's Check for Updates; a day's interval keeps the timer out.
             updates = {"installWhenIdleMinutes": a.idle_minutes, "idleInstallQuietSeconds": a.quiet_seconds,
-                       "downloadAutomatically": True, "checkAutomatically": False}
-            if a.install_when_idle == "on":
-                updates["installWhenIdle"] = True
+                       "automatic": "idle" if a.install_when_idle == "on" else "download",
+                       "checkIntervalSeconds": 86400}
             json.dump({"updates": updates}, f)
         result["config"] = json.load(open(config))
         marks = Marks(marks_path)

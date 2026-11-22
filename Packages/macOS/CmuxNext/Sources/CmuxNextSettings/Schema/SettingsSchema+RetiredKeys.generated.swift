@@ -82,13 +82,21 @@ extension SettingsSchema {
         "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
         // Lawrence (2026-11-20): "remove share screen with chief". Its capture host had already gone with the cmux Computer Use helper.
         "home.chiefPanel.seesScreen": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
+        // One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: "maybe too many settings and bullshit that can be consolidated"); read in this order while updates.automatic is unset.
+        "updates.checkAutomatically": "Automatic Updates (updates.automatic) is one choice now: Off, Notify Only, Download Automatically or Install When Idle (false reads as Off)",
+        // One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: "maybe too many settings and bullshit that can be consolidated"); read in this order while updates.automatic is unset.
+        "updates.installWhenIdle": "Automatic Updates (updates.automatic) is one choice now (true reads as Install When Idle)",
+        // One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: "maybe too many settings and bullshit that can be consolidated"); read in this order while updates.automatic is unset.
+        "updates.downloadAutomatically": "Automatic Updates (updates.automatic) is one choice now (true reads as Download Automatically, false as Notify Only)",
     ]
 
-    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default). While the row is
-    /// unset Settings shows the old key's value, and every write or reset of the row removes the
-    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
-        ["remote", "ultra"]: (old: ["remote", "ultraMode"], values: [.bool(true): .string("always")]),
+    /// Retired keys a row took the place of, by the row's path: each old key's path and what its
+    /// values read as in the row, in the order they are read (the first old key whose value is
+    /// listed wins; any other value reads as the row's default). While the row is unset Settings
+    /// shows that value, and every write or reset of the row removes every old key
+    /// (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: [(old: [String], values: [JSONValue: JSONValue])]] = [
+        ["remote", "ultra"]: [(old: ["remote", "ultraMode"], values: [.bool(true): .string("always")])],
+        ["updates", "automatic"]: [(old: ["updates", "checkAutomatically"], values: [.bool(false): .string("off")]), (old: ["updates", "installWhenIdle"], values: [.bool(true): .string("idle")]), (old: ["updates", "downloadAutomatically"], values: [.bool(true): .string("download"), .bool(false): .string("notify")])],
     ]
 }

@@ -95,7 +95,7 @@ fn ultra_row() -> Row {
 fn the_unset_row_reads_the_old_key_as_the_tunnels_do() {
     let row = ultra_row();
     assert!(
-        replaced_by_row(&row.path).is_some(),
+        replaced_by_row(&row.path).next().is_some(),
         "retired-keys.json says remote.ultra replaced it"
     );
     let read = |root: Value| effective_value(&row, &root, &Domains::default());
@@ -103,4 +103,36 @@ fn the_unset_row_reads_the_old_key_as_the_tunnels_do() {
     assert_eq!(read(json!({"remote": {"ultraMode": false}})), Some(json!("auto")), "the default");
     assert_eq!(read(json!({"remote": {"ultraMode": true, "ultra": "off"}})), Some(json!("off")));
     assert_eq!(read(json!({})), Some(json!("auto")));
+}
+
+/// `updates.automatic` replaced three toggles (retired-keys.json): while it is
+/// unset the first of them, in the file's order, whose value the table lists
+/// answers for it (checks off, then idle install on, then downloads), and a
+/// write or reset of it removes all three.
+#[test]
+fn a_row_that_replaced_several_keys_reads_them_in_order_and_removes_all() {
+    let path = ["updates".to_string(), "automatic".to_string()];
+    assert_eq!(replaced_by_row(&path).count(), 3, "retired-keys.json lists three");
+    let read = |root: Value| cmux_config::schema::replaced_value(&path, &root).cloned();
+    let both = json!({"updates": {"checkAutomatically": false, "installWhenIdle": true}});
+    assert_eq!(read(both), Some(json!("off")), "checks off wins");
+    let idle = json!({"updates": {"installWhenIdle": true, "downloadAutomatically": false}});
+    assert_eq!(read(idle), Some(json!("idle")));
+    assert_eq!(read(json!({"updates": {"downloadAutomatically": true}})), Some(json!("download")));
+    assert_eq!(read(json!({"updates": {"downloadAutomatically": false}})), Some(json!("notify")));
+    assert_eq!(read(json!({"updates": {"checkAutomatically": true}})), None, "the default");
+    assert_eq!(read(json!({})), None);
+
+    let old = r#"{"updates": {"checkAutomatically": true, "downloadAutomatically": true, "installWhenIdle": false, "channel": "dev"}}"#;
+    for op in [
+        Op::Set { target: key("updates.automatic"), value: json!("idle"), meta: user() },
+        Op::Reset { target: key("updates.automatic"), meta: user() },
+    ] {
+        let text = apply(&state(old), op).expect("applies").write.expect("a change");
+        let root: Value = serde_json::from_str(&text).expect("JSON");
+        for gone in ["checkAutomatically", "downloadAutomatically", "installWhenIdle"] {
+            assert_eq!(root.pointer(&format!("/updates/{gone}")), None, "{gone}: {root}");
+        }
+        assert_eq!(root.pointer("/updates/channel"), Some(&json!("dev")));
+    }
 }

@@ -113,16 +113,15 @@ extension SettingsSchema {
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive, "app.warnBeforeClosingAgentSession": .destructive,
         // Update checks and downloads reach the network; install on quit replaces the app.
-        "updates.checkAutomatically": .network, "updates.checkIntervalSeconds": .network,
-        "updates.downloadAutomatically": .network, "updates.meteredNetwork": .network,
+        "updates.checkIntervalSeconds": .network, "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
         // Web UI updates download and run new page code from files.cmux.com.
         "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
-        // On, cmux restarts into a downloaded update by itself once idle: the person's call.
-        "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
+        // Whether cmux checks, downloads, or restarts into an update by itself once idle: the person's call.
+        "updates.automatic": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,

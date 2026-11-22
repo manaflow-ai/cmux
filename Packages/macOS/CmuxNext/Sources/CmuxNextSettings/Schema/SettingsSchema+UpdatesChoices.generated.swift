@@ -9,16 +9,17 @@ public nonisolated enum UpdatesChannelSetting: String, Sendable, Hashable, CaseI
     case dev
 }
 
+/// The one update choice (Leo 2026-11-22: "the toggle for \"automatic update\" seems vacuous if we're saying yeah ok it can auto download"; "maybe too many settings and bullshit that can be consolidated"). How far cmux goes by itself on one ladder: check, download, install. It replaced updates.checkAutomatically, updates.downloadAutomatically and updates.installWhenIdle (retired-keys.json reads them while this is unset). NIGHTLY's build default is download (SettingsBuildDefaults); every other build has notify. Design: cmuxterm-hq docs/design/update-settings.md.
+public nonisolated enum UpdatesAutomaticSetting: String, Sendable, Hashable, CaseIterable {
+    case off
+    case notify
+    case download
+    case idle
+}
+
 /// What automatic downloads do on a metered link.
 public nonisolated enum UpdatesMeteredSetting: String, Sendable, Hashable, CaseIterable {
     case deferLowData = "defer-low-data"
     case deferExpensive = "defer-expensive"
     case download
-}
-
-/// Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
-public nonisolated enum UpdatesWebSetting: String, Sendable, Hashable, CaseIterable {
-    case everyMerge = "every-merge"
-    case nightly
-    case off
 }

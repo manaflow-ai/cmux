@@ -14,10 +14,10 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         self.values = values
     }
 
-    /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
-    /// default, `.none`) on every other channel.
+    /// `updates.automatic` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
+    /// Download Automatically on cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically
+    /// downloads and installs/unpacks and you simply click and it restarts"), filled here; Notify Only
+    /// (the schema's default, `.none`) on every other channel.
     ///
     /// `mobile.allowIPhoneConnections` is on in a DEV build (`BuildStatePaths.isolatesSharedState`): DEV builds
     /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to
@@ -25,7 +25,7 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     /// NIGHTLY and stable keep the schema's off.
     public static func channel(downloadsAutomatically: Bool, devBuild: Bool = false) -> SettingsBuildDefaults {
         var values: [[String]: JSONValue] = [:]
-        if downloadsAutomatically { values[UpdatesSettings.downloadAutomaticallyPath] = .bool(true) }
+        if downloadsAutomatically { values[UpdatesSettings.automaticPath] = .string(UpdatesAutomaticSetting.download.rawValue) }
         if devBuild { values[MobileSettings.allowIPhoneConnectionsPath] = .bool(true) }
         return SettingsBuildDefaults(values: values)
     }
@@ -40,9 +40,14 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         return (try? encoder.encode(dotted)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    /// `root` with every build default whose key it leaves unset.
+    /// `root` with every build default whose key it leaves unset. A key an old key it replaced still
+    /// answers for (``RenamedSettingKeys``: `updates.downloadAutomatically: false` reads as Notify Only) is
+    /// not unset: the person's old pick wins over the build's default.
     func filling(_ root: JSONValue) -> JSONValue {
-        values.reduce(root) { root, entry in root.value(at: entry.key) == nil ? root.setting(entry.value, at: entry.key) : root }
+        values.reduce(root) { root, entry in
+            root.value(at: entry.key) == nil && RenamedSettingKeys.legacyValue(for: entry.key, in: root) == nil
+                ? root.setting(entry.value, at: entry.key) : root
+        }
     }
 }
 
