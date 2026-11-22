@@ -85,6 +85,12 @@ public final class PagedListProbe {
     /// How long the committed-frame measure took for one drawn frame, in milliseconds (DEBUG): the
     /// stress bench reports it beside its hitches, since a run without the probe has no such cost.
     public var samplerCost: ((_ ms: Double) -> Void)?
+    /// After every committed frame, while set (DEBUG): how far the rows drew on screen beyond what the
+    /// scroll explains, read from their cells' presentation layers (what Core Animation shows, with
+    /// animations), not from the layout. The row being read when it survives, else the first row on
+    /// screen in both frames. A move of the offset and the layout together (a windowed swap, a
+    /// correction) draws nothing and reads 0; a move that draws counts, whatever the layout says.
+    public var drawnShift: ((_ shift: CGFloat, _ detail: String?) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -372,6 +378,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// main thread its frames: up-fast-busy, steps 6d8bcee4 and f902d4d6).
     private var drawnFrames: [DrawnFrame] = []
     private var committedFrames = 0
+    /// The drawn measure's last frame: each row on screen's drawn top in the window, in screen order,
+    /// and the row being read.
+    private var drawnRows: [(id: CellID, y: CGFloat)] = []
+    private var drawnReading: CellID?
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
     /// Counts every offset move the scroll explains (the finger, a fling, the list's own slide): a
@@ -1011,6 +1021,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// (SwiftUI gives the collection its bounds before its center): that never draws, so only the
     /// committed frames count. Skipped as the pass measure skips (a rotation, the row left or moved).
     private func timedSampleCommitted() {
+        sampleDrawn()
         guard let cost = probe?.samplerCost else { return sampleCommitted() }
         let start = CACurrentMediaTime()
         sampleCommitted()
@@ -1077,6 +1088,44 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             found = (id, indexPath.item, windowY(attributes))
         }
         return found.map { ($0.0, nil, nil, false, $0.2) }
+    }
+
+    /// The drawn measure (``PagedListProbe/drawnShift``): reads each row on screen's top from its
+    /// cell's presentation layer, in the window's presentation space, once per committed frame.
+    private func sampleDrawn() {
+        guard let report = probe?.drawnShift, loaded, !updating, let window = collectionView.window else {
+            drawnRows = []
+            return
+        }
+        let windowLayer = window.layer.presentation() ?? window.layer
+        var rows: [(id: CellID, y: CGFloat)] = []
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
+            guard let id = dataSource.itemIdentifier(for: indexPath), case .row = id,
+                  let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            let layer = cell.layer.presentation() ?? cell.layer
+            rows.append((id, layer.convert(CGPoint(x: 0, y: layer.bounds.minY), to: windowLayer).y))
+        }
+        querying += 1
+        let reading = referenceRow()?.id
+        querying -= 1
+        let explained = ledger.committedExplained
+        defer { drawnRows = rows; drawnReading = reading }
+        guard !drawnRows.isEmpty else { return }
+        // The row being read last frame when it is still drawn, else the first row drawn in both
+        // frames (a row swapped out of the list is not followed out of it).
+        let was: (id: CellID, y: CGFloat)?
+        if let id = drawnReading, let row = drawnRows.first(where: { $0.id == id }), rows.contains(where: { $0.id == id }) {
+            was = row
+        } else {
+            was = drawnRows.first { old in rows.contains { $0.id == old.id } }
+        }
+        guard let was, let now = rows.first(where: { $0.id == was.id }) else { return }
+        let shift = (now.y - was.y) + explained
+        let detail = abs(shift) > 0.5 && probe?.shiftDetail != nil
+            ? String(format: "drawn moved=%.1f explained=%.1f row=%@ followed=%@", now.y - was.y, explained,
+                     String(describing: was.id), was.id == drawnReading ? "reading" : "survivor")
+            : nil
+        report(shift, detail)
     }
 
     /// The list's frame in its window (a container that moves it moves what is read).
