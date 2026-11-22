@@ -74,7 +74,7 @@ fn what_a_server_serves_reads_back_as_written() {
     assert_eq!(ServerRecord::decode(&unnamed.encode()), Some(unnamed));
 }
 
-fn git_in(dir: &std::path::Path, args: &[&str]) {
+fn git_in(dir: &Path, args: &[&str]) {
     let status = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
