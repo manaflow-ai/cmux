@@ -102,8 +102,10 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+// `cmux-screen-sharing __shortcut-tap`: Send System Shortcuts under the helper's Accessibility.
 #[cfg(target_os = "linux")]
 mod shm;
+pub mod shortcut_tap;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod stream;
 #[cfg(feature = "bench")]
@@ -254,6 +256,11 @@ pub fn run_cli(args: &[String]) -> i32 {
     #[cfg(all(target_os = "macos", feature = "computer-use"))]
     if cmd == computer_use_worker::MODE {
         return computer_use_worker::run(&args[1..]);
+    }
+    // The Mac Screen viewer's Send System Shortcuts tap (src/shortcut_tap.rs): stdin and stdout
+    // are the app's, so nothing else may print there.
+    if cmd == shortcut_tap::MODE {
+        return shortcut_tap::run(&args[1..]);
     }
     if matches!(cmd.as_str(), "-h" | "--help" | "help") {
         println!("{USAGE}");

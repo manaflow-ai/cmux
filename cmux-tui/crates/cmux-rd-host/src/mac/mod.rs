@@ -14,6 +14,7 @@ mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
 pub(crate) mod pasteboard;
+pub(crate) mod shortcut_tap;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;

@@ -88,9 +88,11 @@ public final class RemoteInputSurface {
     /// Gives the keyboard back to the viewer.
     public func releaseKeyboard() { capture.releaseKeyboard() }
 
-    /// A key from the system shortcut tap: true when it was sent (the tap
-    /// consumes it), false to let it go on to macOS.
-    public func takeSystemKey(_ key: RemoteTapKey) -> Bool { capture.controller.takeSystemKey(key) }
+    /// A key the system shortcut tap took from macOS: sends it to the other Mac.
+    public func sendSystemKey(_ key: RemoteTapKey) { capture.controller.sendSystemKey(key) }
+
+    /// The chord that releases the keyboard (the system shortcut tap never takes it).
+    public var releaseChord: RemoteReleaseChord { capture.controller.releaseChord }
 
     /// The window the surface is in.
     public var window: NSWindow? { capture.window }

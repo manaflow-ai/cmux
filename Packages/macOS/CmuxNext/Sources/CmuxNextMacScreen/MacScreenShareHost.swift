@@ -131,11 +131,10 @@ public final class MacScreenShareHost {
         request(screenRecording: false)
     }
 
-    /// Accessibility for this app itself: the viewer's Send System Shortcuts tap
-    /// (``MacScreenSystemShortcuts``) runs in the app, not in the helper.
-    public func requestAppAccessibility() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        if !AXIsProcessTrustedWithOptions(options) { openSettings(screenRecording: false) }
+    /// This build's Screen Sharing helper, found once; nil in a build without one. The viewer's
+    /// Send System Shortcuts tap runs in it (``MacScreenSystemShortcuts``).
+    func screenSharingHelper() async -> MacScreenHelper? {
+        await lookUpHelper(helper)
     }
 
     private func request(screenRecording: Bool) {
