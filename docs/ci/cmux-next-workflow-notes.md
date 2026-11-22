@@ -687,6 +687,16 @@ p50 of 6.4 min. Every log that was read showed a cold start and was 99% through 
 137081242103: step 14646 of 14698). The cancelled runs were then re-run (attempts 2 to 5), each one cold
 again, so none of them gave a verdict. With 30, a cold run finishes once and reports pass or fail.
 
+Other runs get 60, not 30. On 2026-11-22, run 45002704947 (cmux#49316) was cancelled at 30 three times
+(job 137149824562 on cmux18-glaeda-1, 08:35:54 to 09:05:06Z; job 137170836244 on cmux13s-mac-mini-glaeda-3,
+10:05:56 to 10:36:24Z). Each started cold: the seed root was refused ("busy, unprovisioned or has no room") and
+every shared root was busy, so the job skipped the R2 restore. `swift build --build-tests` for CmuxHomeRender
+took 37 s. For CmuxNext it ran 28.5 min, reached step 13998 of 14000 (CmuxNextAppTests) and was cancelled
+before any test started. That build takes no `--jobs`: SwiftPM uses every core, so the hook's
+`CMUX_CI_CPU_BUDGET=2` does not slow it, and raising the grant would not speed it up. The time comes from the
+cold start on a host that a waiting fleet build also needs. With 60, a cold run gets past its last link and
+gives a verdict.
+
 ## note-40
 
 Above `fast-tier: Fingerprint this job's inputs` in `.github/workflows/cmux-next.yml`.
