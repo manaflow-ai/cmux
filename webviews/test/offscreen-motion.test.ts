@@ -255,9 +255,51 @@ test("an element out of the view that is no part of a row is left alone", async 
   const sheet = page({ top: 0, height: 300 });
   const stop = endOffscreenMotion(sheet.scroller);
   try {
-    const spacer = sheet.plays(sheet.add(sheet.scroller, "acpmux-spacer", { top: 900, height: 40 }), sheet.fade());
+    const spacer = sheet.add(sheet.scroller, "acpmux-spacer", {
+      top: 900,
+      height: 40,
+    });
+    const motion = sheet.plays(spacer, sheet.fade());
+    // Neither pass claims it: the virtualizer's spacers, the header and the composer are not rows,
+    // and only a row's own motion is this gate's to draw.
     await sheet.flush();
-    expect(spacer.finished).toBe(0);
+    spacer.dispatchEvent(new sheet.window.Event("animationstart", { bubbles: true }));
+    spacer.dispatchEvent(new sheet.window.Event("transitionrun", { bubbles: true }));
+    expect(motion.finished).toBe(0);
+  } finally {
+    stop();
+    sheet.close();
+  }
+});
+
+test("a line with no box yet inside a row out of the view is drawn at its end when it starts", async () => {
+  const sheet = page({ top: 0, height: 300 });
+  const row = sheet.add(sheet.scroller, "acpmux-row", { top: 800, height: 40 });
+  // A line that has just mounted has no box of its own, so its own box reads as in the view, and the
+  // row it sits in is what the reader cannot see. The event pass is the only one that sees the
+  // motions a `data-*` flip starts, so judging the target alone left them playing out there.
+  const unlaid = sheet.add(row, "acpmux-row__line", {
+    top: 0,
+    height: 0,
+    width: 0,
+  });
+  const near = sheet.add(sheet.scroller, "acpmux-row", {
+    top: 100,
+    height: 40,
+  });
+  const laid = sheet.add(near, "acpmux-row__line", {
+    top: 0,
+    height: 0,
+    width: 0,
+  });
+  const stop = endOffscreenMotion(sheet.scroller);
+  try {
+    const out = sheet.plays(unlaid, sheet.fade());
+    const seen = sheet.plays(laid, sheet.fade());
+    unlaid.dispatchEvent(new sheet.window.Event("animationstart", { bubbles: true }));
+    laid.dispatchEvent(new sheet.window.Event("animationstart", { bubbles: true }));
+    expect(out.finished).toBeGreaterThanOrEqual(1);
+    expect(seen.finished).toBe(0);
   } finally {
     stop();
     sheet.close();

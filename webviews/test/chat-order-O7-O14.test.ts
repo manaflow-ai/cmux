@@ -27,7 +27,12 @@ type Played = {
   cancelled: number;
 };
 
-const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
+const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 1,
+  kind,
+});
 
 const realNow = performance.now.bind(performance);
 const realSetTimeout = globalThis.setTimeout;
@@ -43,7 +48,9 @@ afterEach(() => {
 /// A page whose rows are laid out by their inline top and height, with the frames and timers the test
 /// runs by hand, recording every animation.
 function page() {
-  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  const dom = new JSDOM("<!doctype html><main></main>", {
+    pretendToBeVisual: true,
+  });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
   // The thread stands in for the scroller here, so it needs a view of its own: `captureTurnEnd`
   // plays nothing whose rows all sit outside the scroller's box, and jsdom gives every box its
@@ -63,7 +70,17 @@ function page() {
   proto.getBoundingClientRect = function () {
     const top = this.offsetTop;
     const height = this.offsetHeight;
-    return { top, bottom: top + height, height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON() {} };
+    return {
+      top,
+      bottom: top + height,
+      height,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: top,
+      toJSON() {},
+    };
   };
   const played: Played[] = [];
   proto.animate = function (keyframes, options) {
