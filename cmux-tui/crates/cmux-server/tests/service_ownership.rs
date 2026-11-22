@@ -400,6 +400,8 @@ fn uninstall_never_removes_a_unit_edited_while_it_stops_the_service() {
         let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            // The service lock stays while a unit does.
+            .filter(|name| name != ".cmux-server.lock")
             .collect();
         assert_eq!(names.len(), 1, "{platform:?}: left extra files: {names:?}");
     }
@@ -1135,4 +1137,406 @@ fn a_dangling_symlink_into_a_shared_folder_on_the_launchagent_log_path_is_refuse
         text.contains(&shown.display().to_string()) && text.contains("does not exist"),
         "{err}"
     );
+}
+
+/// A write handle another account opened on a unit file while it could
+/// (a write grant since taken back, an ACL entry), kept open: install must
+/// not keep that file as the unit, or the handle rewrites what the manager
+/// loads at the next login or boot. The unit stays unchanged on disk as far
+/// as the manager can tell (same bytes, same modification time).
+#[cfg(unix)]
+#[test]
+fn install_never_keeps_a_unit_file_an_old_handle_can_write() {
+    use std::io::Write as _;
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        let mut handle = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let report = svc.install(false).unwrap();
+        assert!(!report.changed, "{platform:?}: the same unit counts as changed");
+        handle.set_len(0).unwrap();
+        handle.write_all(b"[Service]\nExecStart=/tmp/evil\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            text,
+            "{platform:?}: an old handle rewrote the unit install kept"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            modified,
+            "{platform:?}: systemd would say the unit changed on disk"
+        );
+    }
+}
+
+/// The same handle at uninstall: the manager may read the unit file again
+/// when it stops the service, so uninstall must stop it through a unit file
+/// no old handle reaches. Bytes written through the handle then go nowhere,
+/// and uninstall removes the unit it checked.
+#[cfg(unix)]
+#[test]
+fn uninstall_stops_the_service_through_a_unit_file_no_old_handle_can_write() {
+    use std::io::Write as _;
+    use std::sync::{Arc, Mutex};
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        svc.install(false).unwrap();
+        let (path, text) = svc.unit_files().unwrap().remove(0);
+        let handle = Mutex::new(std::fs::OpenOptions::new().write(true).open(&path).unwrap());
+        let seen = Arc::new(Mutex::new(None::<String>));
+        let (at, saw) = (path.clone(), seen.clone());
+        runner.on_run(stop_step(platform), move || {
+            let mut handle = handle.lock().unwrap();
+            handle.set_len(0).unwrap();
+            handle.write_all(b"[Service]\nExecStop=/tmp/evil\n").unwrap();
+            *saw.lock().unwrap() = std::fs::read_to_string(&at).ok();
+        });
+        let removed = svc.uninstall();
+        assert_eq!(
+            seen.lock().unwrap().as_deref(),
+            Some(text.as_str()),
+            "{platform:?}: the manager would read what an old handle wrote at the stop"
+        );
+        assert_eq!(removed.unwrap(), vec![path.clone()], "{platform:?}");
+        assert!(!path.exists(), "{platform:?}: the unit is left");
+    }
+}
+
+/// Two `cmux server` commands at once (install while uninstall stops the
+/// service) must not interleave: the second one refuses and changes
+/// nothing, so uninstall never removes a unit the other just installed and
+/// started, and install never reports a server that uninstall then removes.
+#[test]
+fn a_second_service_command_refuses_while_one_runs() {
+    use std::sync::{Arc, Mutex};
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let binary = tmp.path().join(".local/bin/cmux-tui");
+        let svc = services(&layout, &runner, &binary);
+        svc.install(false).unwrap();
+        let second: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let (layout2, binary2, out) = (layout.clone(), binary.clone(), second.clone());
+        runner.on_run(stop_step(platform), move || {
+            // Another command: another thread (here) or another process.
+            let (layout2, binary2) = (layout2.clone(), binary2.clone());
+            let result = std::thread::spawn(move || {
+                let other = RecordingRunner::new();
+                other.answer_always("--property=LoadState", not_found());
+                other.answer_always("launchctl print", not_loaded());
+                let result = services(&layout2, &other, &binary2).install(true);
+                let started = other.lines().iter().any(|l| {
+                    l.contains("bootstrap") || l.contains(" start ") || l.contains("restart")
+                });
+                match result {
+                    Ok(_) => format!("installed (started: {started})"),
+                    Err(e) if !started => format!("refused: {e}"),
+                    Err(e) => format!("failed after a start: {e}"),
+                }
+            })
+            .join()
+            .unwrap();
+            *out.lock().unwrap() = Some(result);
+        });
+        svc.uninstall().unwrap();
+        let second = second.lock().unwrap().clone().unwrap_or_default();
+        assert!(
+            second.starts_with("refused:") && second.contains("another"),
+            "{platform:?}: the second command ran: {second}"
+        );
+        assert!(!svc.unit_path().unwrap().exists(), "{platform:?}");
+    }
+}
+
+/// macOS: install keeps no ACL entry that lets another account write the
+/// plist it leaves in place (the mode bits do not reach those entries).
+#[cfg(target_os = "macos")]
+#[test]
+fn install_leaves_no_acl_write_grant_on_a_plist_it_keeps() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let path = svc.unit_path().unwrap();
+    add_acl(&path, "group:everyone allow write");
+    assert!(cmux_server::acl::write_grants(&path).unwrap());
+    svc.install(false).unwrap();
+    assert!(!cmux_server::acl::write_grants(&path).unwrap(), "the plist keeps the grant");
+}
+
+/// macOS: the record of the unit files cmux wrote decides what uninstall
+/// removes. One another account can write through an ACL entry is refused
+/// like one it can write through its mode.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_unit_record_others_can_write_through_an_acl_is_refused() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    svc.install(false).unwrap();
+    let record = cmux_server::fsx::local(&layout.state).join("service-units.json");
+    assert!(record.is_file());
+    add_acl(&record, "group:everyone allow write");
+    let err = svc.foreign_units().unwrap_err();
+    assert!(err.to_string().contains("service-units.json"), "{err}");
+}
+
+/// The CLI holds the service lock for a whole verb and calls the steps that
+/// take it again: the same thread may. Once the verb ends, it is free.
+#[test]
+fn a_command_holding_the_service_lock_runs_its_own_steps() {
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        {
+            let _verb = svc.lock().unwrap();
+            svc.install(false).unwrap();
+            svc.uninstall().unwrap();
+            // `uninstall --purge` removes the state folder while it holds
+            // the lock: the lock must outlive that.
+            std::fs::remove_dir_all(cmux_server::fsx::local(&layout.state)).unwrap();
+            // Another thread is another command: refused while the verb runs.
+            let (layout2, home) = (layout.clone(), tmp.path().to_path_buf());
+            let other = std::thread::spawn(move || {
+                let runner = RecordingRunner::new();
+                services(&layout2, &runner, &home.join(".local/bin/cmux-tui"))
+                    .lock()
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })
+            .join()
+            .unwrap();
+            assert!(other.unwrap_err().contains("another"), "{platform:?}");
+        }
+        svc.install(false).unwrap();
+    }
+}
+
+/// Old write handles on both the unit and the ownership record (Codex r28):
+/// through them another account can write any unit bytes and a record hash
+/// that matches them. What the manager may read at the stop must still be
+/// text cmux renders, never those bytes.
+#[cfg(unix)]
+#[test]
+fn uninstall_stops_through_cmuxs_own_text_even_with_a_forged_record() {
+    use std::io::Write as _;
+    use std::sync::{Arc, Mutex};
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        // Installed by an older binary path: its unit is cmux's by the record.
+        services(&layout, &runner, &tmp.path().join("a/cmux-tui")).install(false).unwrap();
+        let svc = services(&layout, &runner, &tmp.path().join("b/cmux-tui"));
+        let (path, rendered) = svc.unit_files().unwrap().remove(0);
+        let record = cmux_server::fsx::local(&layout.state).join("service-units.json");
+        let mut unit = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let mut forged = std::fs::OpenOptions::new().write(true).open(&record).unwrap();
+        let evil = b"[Service]\nExecStop=/tmp/evil\n";
+        unit.set_len(0).unwrap();
+        unit.write_all(evil).unwrap();
+        let json = serde_json::json!({ path.display().to_string(): sha_hex(evil) });
+        forged.set_len(0).unwrap();
+        forged.write_all(json.to_string().as_bytes()).unwrap();
+        let seen = Arc::new(Mutex::new(None::<String>));
+        let (at, saw) = (path.clone(), seen.clone());
+        runner.on_run(stop_step(platform), move || {
+            *saw.lock().unwrap() = std::fs::read_to_string(&at).ok();
+        });
+        svc.uninstall().unwrap();
+        assert_eq!(
+            seen.lock().unwrap().as_deref(),
+            Some(rendered.as_str()),
+            "{platform:?}: the manager could read forged bytes at the stop"
+        );
+        assert!(!path.exists(), "{platform:?}: the unit is left");
+    }
+}
+
+/// Uninstall checks every unit file before it renews any (Codex r28): one
+/// that is no longer cmux's leaves all of them as they were.
+#[cfg(unix)]
+#[test]
+fn uninstall_renews_no_unit_when_one_is_no_longer_cmuxs() {
+    use std::os::unix::fs::MetadataExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = system_layout(tmp.path(), &tmp.path().join("state").display().to_string());
+    let runner = RecordingRunner::new();
+    runner.answer_always("--property=LoadState", not_found());
+    runner.answer_always("list-units", shows(""));
+    let svc = system_services(&layout, &runner);
+    let units = svc.unit_files().unwrap();
+    assert!(units.len() > 2);
+    for (path, text) in &units {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let first = std::fs::metadata(&units[0].0).unwrap().ino();
+    // A later unit is edited after the ownership check, before the renewal.
+    let (late, text) = units[2].clone();
+    let edit = late.clone();
+    runner.on_run("--property=LoadState", move || {
+        std::fs::write(&edit, format!("{text}\n# edited\n")).unwrap();
+    });
+    let before = runner.lines().len();
+    let err = svc.uninstall().unwrap_err();
+    assert!(err.to_string().contains(&late.display().to_string()), "{err}");
+    assert_eq!(std::fs::metadata(&units[0].0).unwrap().ino(), first, "renewed a unit");
+    let after = runner.lines()[before..].to_vec();
+    assert!(
+        !after.iter().any(|l| l.contains(" kill ") || l.contains("disable --now")),
+        "stopped something: {after:?}"
+    );
+}
+
+/// Another account can open a folder it may read (`/etc/systemd/system`,
+/// most `~/.config/systemd/user`) and hold a `flock` on it (Codex r28b):
+/// that must not stop cmux's service commands. The lock is a file of this
+/// account's that no one else can open, kept while a unit is installed and
+/// removed with the last one.
+#[cfg(unix)]
+#[test]
+fn the_service_lock_is_a_private_file_no_other_account_can_hold() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    for platform in [Platform::Linux, Platform::MacOs] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let runner = RecordingRunner::new();
+        runner.answer_always("--property=LoadState", not_found());
+        runner.answer_always("launchctl print", not_loaded());
+        let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+        let dir = svc.unit_path().unwrap().parent().unwrap().to_path_buf();
+        std::fs::create_dir_all(&dir).unwrap();
+        // What any account that can read the folder could do.
+        let folder = std::fs::File::open(&dir).unwrap();
+        folder.try_lock().unwrap();
+        svc.install(false).unwrap();
+        let lock = dir.join(".cmux-server.lock");
+        let mode = std::fs::metadata(&lock).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{platform:?}");
+        svc.uninstall().unwrap();
+        assert!(!lock.exists(), "{platform:?}: the lock file outlived the last unit");
+        folder.unlock().unwrap();
+    }
+}
+
+/// macOS: a folder ACL entry that passes read on to new files (Codex r28c)
+/// would let another account open the lock file and hold a shared lock on
+/// it, even if the entry were taken away right after the file was made. The
+/// command refuses, leaves no such lock file and says how to fix the folder;
+/// once the folder passes nothing on, it works.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_service_lock_file_others_could_open_is_refused_and_removed() {
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    let dir = svc.unit_path().unwrap().parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(&dir).unwrap();
+    add_acl(&dir, "group:everyone allow read,file_inherit");
+    let err = svc.install(false).unwrap_err().to_string();
+    assert!(err.contains("chmod -N"), "{err}");
+    assert!(!dir.join(".cmux-server.lock").exists(), "left a lock file others can open");
+    assert!(!svc.unit_path().unwrap().exists(), "installed anyway");
+    let status = std::process::Command::new("/bin/chmod").arg("-N").arg(&dir).status().unwrap();
+    assert!(status.success());
+    svc.install(false).unwrap();
+    let listed = std::process::Command::new("/bin/ls")
+        .arg("-le")
+        .arg(dir.join(".cmux-server.lock"))
+        .output()
+        .unwrap();
+    let listed = String::from_utf8_lossy(&listed.stdout);
+    assert!(!listed.contains(" allow "), "{listed}");
+}
+
+/// macOS: a lock file with an ACL entry is removed only while cmux holds it
+/// itself and it is still the file at the name (Codex r28e): one that
+/// another descriptor holds stays, and the command says to remove it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_held_service_lock_file_with_an_acl_entry_is_left_for_the_user() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if skip_as_root() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let layout = layout_at(tmp.path(), Platform::MacOs);
+    let runner = RecordingRunner::new();
+    runner.answer_always("launchctl print", not_loaded());
+    let svc = services(&layout, &runner, &tmp.path().join(".local/bin/cmux-tui"));
+    let dir = svc.unit_path().unwrap().parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = dir.join(".cmux-server.lock");
+    std::fs::write(&lock, b"").unwrap();
+    std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o600)).unwrap();
+    add_acl(&lock, "group:everyone allow read");
+    // What another account that opened it could hold.
+    let other = std::fs::File::open(&lock).unwrap();
+    other.lock_shared().unwrap();
+    let err = svc.install(false).unwrap_err().to_string();
+    assert!(err.contains(&format!("rm {}", lock.display())), "{err}");
+    assert!(lock.exists(), "removed a lock file another descriptor holds");
+    other.unlock().unwrap();
+    let err = svc.install(false).unwrap_err().to_string();
+    assert!(err.contains("chmod -N") && !err.contains("`rm "), "{err}");
+    assert!(!lock.exists(), "kept a lock file others can open");
+    svc.install(false).unwrap();
 }

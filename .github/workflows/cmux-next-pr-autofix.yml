@@ -112,7 +112,7 @@ concurrency:
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
-  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/0d5b239cfa47036c6f7d49b4933d124f87138eff/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
@@ -131,6 +131,8 @@ jobs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
+      # Whether the repair job has anything to repair (any autofix-areas.sh key on).
+      repairs: ${{ steps.areas.outputs.repairs }}
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
       # takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
@@ -230,16 +232,26 @@ jobs:
           # The base's copy, or the pull request's while the base has no actions area yet.
           areas="$RUNNER_TEMP/autofix/scripts/cmux-next/autofix-areas.sh"
           grep -q '^area actions ' "$areas" || areas=scripts/cmux-next/autofix-areas.sh
-          if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
+          # repairs: whether the repair job has work (any autofix-areas.sh key on). An autofix head repairs
+          # nothing (repair's own check). A base without the actions area leaves it unset: repair runs.
+          if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then
+            printf 'actions=false\nsettings=false\nrepairs=false\n' | tee -a "$GITHUB_OUTPUT"
+          elif ! grep -q '^area actions ' "$areas"; then
             printf 'actions=false\nsettings=false\n' | tee -a "$GITHUB_OUTPUT"
-          elif [ "$CHANGED_FILES" -ge 3000 ]; then
-            "$areas" --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
-            if [ "$LISTED" != true ]; then
-              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
-                --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+            if [ "$CHANGED_FILES" -ge 3000 ]; then
+              "$areas" --all > "$RUNNER_TEMP/areas.txt"
+            else
+              if [ "$LISTED" != true ]; then
+                gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+                  --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+              fi
+              "$areas" < "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/areas.txt"
             fi
-            "$areas" < "$RUNNER_TEMP/changed.txt" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+            grep -E '^(actions|settings)=' "$RUNNER_TEMP/areas.txt" | tee -a "$GITHUB_OUTPUT"
+            # One awk, not grep | grep -q: under pipefail an early -q exit can SIGPIPE the first grep.
+            awk -F= '$2 == "true" { on = 1 }
+              END { print "repairs=" (on ? "true" : "false") }' "$RUNNER_TEMP/areas.txt" | tee -a "$GITHUB_OUTPUT"
           fi
 
       # Where the Mac exports run: the owned gui label only while one of its runners is idle now
@@ -629,7 +641,11 @@ jobs:
     # The action exports come first: the docs shortcuts are rewritten from them.
     # The other repairs still run when the Mac job fails or is skipped.
     needs: [action-areas, generated-exports, action-exports]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
+    # A head with nothing to repair (action-areas' repairs: no autofix-areas.sh key on)
+    # takes no runner: on 11-21 10:00-17:00Z, 109 of 282 merged commits needed no repair, and the job's full
+    # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
+    # (a failed action-areas, an old base) runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # clippy compiles the changed crates (cached below).
     timeout-minutes: 40
