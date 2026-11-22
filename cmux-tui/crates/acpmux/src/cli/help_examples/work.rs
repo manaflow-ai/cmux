@@ -500,6 +500,28 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("share-host on", &[("Turn sharing this Mac's screen on", "acpmux share-host on")]),
     ("share-host off", &[("Turn sharing this Mac's screen off", "acpmux share-host off")]),
     (
+        "share-host screens",
+        &[("List the live screen shares this machine hosts or views", "acpmux share-host screens")],
+    ),
+    (
+        "share-host start",
+        &[
+            (
+                "Share this machine's screen to your other Mac",
+                "acpmux share-host start --to studio",
+            ),
+            ("Share it view-only", "acpmux share-host start --to studio --view-only"),
+        ],
+    ),
+    ("share-host stop", &[("End a share this machine hosts", "acpmux share-host stop 3f2a")]),
+    (
+        "share-host move",
+        &[
+            ("Hand a live share to another viewer", "acpmux share-host move 3f2a --to iphone"),
+            ("Show the viewer another host's screen", "acpmux share-host move 3f2a --host studio"),
+        ],
+    ),
+    (
         "share-host link",
         &[
             ("Print the link that opens this Mac's screen, view-only", "acpmux share-host link"),
