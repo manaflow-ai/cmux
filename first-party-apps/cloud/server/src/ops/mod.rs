@@ -8,6 +8,7 @@ mod environment;
 mod machine;
 mod machine_projection;
 mod migration;
+mod pause_all;
 mod plan;
 mod snapshot;
 pub(crate) mod start_retry;
@@ -45,6 +46,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.rename", Kind::Mutation),
     ("cloud.machine.start", Kind::Mutation),
     ("cloud.machine.pause", Kind::Mutation),
+    ("cloud.machine.pause_all", Kind::Mutation),
     ("cloud.machine.resize", Kind::UserOnly),
     ("cloud.machine.delete", Kind::UserOnly),
     ("cloud.machine.idle_policy.set", Kind::Mutation),
@@ -199,6 +201,9 @@ pub(crate) fn admit(request: &Request) -> Result<Admitted, CloudError> {
         CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
     })?;
     let kind = kind_of(name);
+    if name == "cloud.machine.pause_all" && request.origin == Origin::Agent {
+        return Err(CloudError::new(codes::ORIGIN_REFUSED, "pausing machines needs a person"));
+    }
     let args = relay_args(&request.op, name, &request.args);
     let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
     if kind == Kind::UserOnly && request.origin != Origin::User {
@@ -461,6 +466,13 @@ impl<C: ControlPlane> Server<C> {
             return self.run(name, &args, request, Some(&upstream));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            if name == "cloud.machine.pause_all" && pause_all::retryable(&done) {
+                let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, Some(key))
+                    .with_origin(request.origin);
+                let result = pause_all::retry(&mut ctx, done)?;
+                self.ledger.succeed(key, result.clone());
+                return Ok(result);
+            }
             // The host's open token is never cached: a replay of an op that
             // needs one answers only a request that carries one.
             if TOKEN_OPS.contains(&name) {

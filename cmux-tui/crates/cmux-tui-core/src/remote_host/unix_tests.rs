@@ -357,3 +357,21 @@ fn fault_a_restart_while_the_quit_host_drains_starts_it_again() {
     assert!(!paths.state.join("stop-intent.json").exists(), "the restart clears the stop intent");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn saved_switches_read_back_and_a_bad_file_reads_as_the_defaults() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let root =
+        std::env::temp_dir().join(format!("cmux-rh-read-config-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("config.json");
+    assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "no file");
+    std::fs::write(&path, br#"{"computer_use": true}"#).unwrap();
+    let on = super::read_config(&path);
+    assert!(on.computer_use && !on.screen_sharing && on.headless, "{on:?}");
+    std::fs::write(&path, b"{not json").unwrap();
+    assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "corrupt");
+    let _ = std::fs::remove_dir_all(&root);
+}

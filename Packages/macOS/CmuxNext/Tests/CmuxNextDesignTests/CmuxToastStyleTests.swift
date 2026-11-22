@@ -126,7 +126,7 @@ struct CmuxToastStyleTests {
             #expect(view.fittingSize.width > 80 && view.fittingSize.height >= 20, "\(style) \(toast.id) drew nothing")
             #expect((view.actionButton != nil) == (toast.action != nil))
             #expect((view.secondaryButton != nil) == (toast.secondaryAction != nil))
-            #expect((view.iconView != nil) == style.look.showsIcon)
+            #expect((view.iconView != nil) == (style.look.showsIcon || (style.look.marksTone && toast.tone != .neutral)))
             #expect((view.countdownRing != nil) == (style.look.showsCountdown && toast.duration != CmuxToast.untilClosed))
             if toast.action != nil { #expect(view.actionButton?.isFilled == style.look.fillsAction) }
         }
@@ -144,6 +144,34 @@ struct CmuxToastStyleTests {
         standard.layoutSubtreeIfNeeded()
         #expect(standard.cornerRadius == standard.geometry.outerRadius)
         #expect(standard.cornerRadius < standard.bounds.height / 2, "a card, not a capsule")
+    }
+
+    /// The Toast Playground's Corner row draws the one-line Undo at a corner on the rectangle scale (Leo,
+    /// 2026-11-22: "also the toast is this awkward pill glass. im not sure if it should be that rounded."): a
+    /// rounded toast takes the corner it is given, its buttons stay concentric (the corner less the padding,
+    /// at least 0), and a capsule keeps its round ends whatever corner it is passed. The default is unchanged.
+    @Test(arguments: [CGFloat(12), 8])
+    func aRoundedToastTakesTheCornerItIsGiven(points: CGFloat) {
+        let undo = CmuxToast(id: "undo", message: "Closed “Background tasks”", action: .undo())
+        let view = CmuxToastView(toast: undo, reduceTransparency: .alwaysOpaque, style: .standard, corner: .points(points))
+        view.setFrameSize(view.fittingSize)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.cornerRadius == Metrics.scale(points))
+        #expect(view.geometry.childRadius == max(0, view.cornerRadius - view.geometry.padding))
+        #expect(view.cornerRadius < view.bounds.height / 2 - 2, "\(view.cornerRadius) on \(view.bounds.height): reads as a pill")
+        let capsule = CmuxToastView(toast: undo, reduceTransparency: .alwaysOpaque, style: .capsule, corner: .points(points))
+        capsule.setFrameSize(capsule.fittingSize)
+        capsule.layoutSubtreeIfNeeded()
+        #expect(abs(capsule.cornerRadius - capsule.bounds.height / 2) < 0.5)
+        #expect(CmuxToastStyle.standard.look.corner == .concentric)
+    }
+
+    /// Every Corner row variant draws, light and dark, with the samples it names.
+    @Test func theCornerRowDrawsEveryVariant() {
+        let corners = CmuxToastPlaygroundCorners(themes: CmuxToastPlaygroundThemes(colors: [:]), tuning: CmuxToastTuning())
+        #expect(CmuxToastPlaygroundCorners.variants.count >= 3)
+        #expect(corners.sheets.count == CmuxToastPlaygroundCorners.variants.count * 2)
+        #expect(corners.sheets.allSatisfy { $0.toasts.count == CmuxToastPlaygroundCorners.samples.count })
     }
 
     /// The error tone shows as an error wherever a style marks the tone (the icon), and a refusal is an

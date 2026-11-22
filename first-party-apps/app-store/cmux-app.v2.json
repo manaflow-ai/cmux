@@ -5,8 +5,12 @@
   "name": { "en": "App Store", "ja": "App Store" },
   "version": "1.0.0",
   "description": {
-    "en": "Find, install, hide and remove cmux apps, and review what each app may do.",
-    "ja": "cmux アプリを探して、インストール、非表示、削除し、各アプリにできることを確認します。"
+    "en": "Browse apps for cmux, install the ones you want, and hide or remove the ones you don't. Before you install, see what each app can see and do.",
+    "ja": "cmux のアプリを探して、欲しいものをインストールし、いらないものは非表示にしたり削除したりできます。インストールの前に、各アプリが見られること、できることを確認できます。"
+  },
+  "tagline": {
+    "en": "Find, install and manage apps for cmux",
+    "ja": "cmux のアプリを探して、インストールし、管理します"
   },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",

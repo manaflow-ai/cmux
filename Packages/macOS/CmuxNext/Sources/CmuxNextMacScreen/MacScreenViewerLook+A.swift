@@ -34,10 +34,14 @@ enum MacScreenLookA {
     static let toolbarHeight: CGFloat = 28
     /// How long a live, idle toolbar stays before it fades out.
     static let idleDelay = Duration.milliseconds(2500)
-    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing).
-    static let outageMarkDelay = Duration.milliseconds(1000)
+    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing): the pill's own
+    /// hold, ``MacScreenPictureMark/reconnectingDelay``.
+    static let outageMarkDelay = MacScreenPictureMark.reconnectingDelay
     /// The pane's top band that brings the toolbar back, at least.
     static let revealHeight: CGFloat = 40
+    /// While this Mac controls the picture, only the pane's top edge brings the toolbar back (as a full-screen Mac's
+    /// menu bar comes back), so the remote menu bar under the toolbar takes the pointer and its clicks.
+    static let controlRevealHeight: CGFloat = 4
     static let edgeWidth: CGFloat = 2
 
     /// The chrome glass behind a floating toolbar or a pill: transient neutral glass, not interactive.
@@ -83,20 +87,22 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private let model: MacScreenPaneModel
     /// Follows the model (``ObservationStream``); ends once the view is gone.
     private var watch: Task<Void, Never>?
-    private let toolbar: NSView
+    private let toolbar: MacScreenToolbarView
     private let edge = CALayer()
     private let pill = MacScreenPictureMark()
     private let hideTimer = DemandTimer(owner: "mac-screen.toolbar-hide")
     private let outageTimer = DemandTimer(owner: "mac-screen.outage-mark")
     private var tracking: NSTrackingArea?
-    private var revealZone = CGRect.zero
+    private(set) var revealZone = CGRect.zero
+    private var toolbarRect = CGRect.zero
+    private var paneBounds = CGRect.zero
     private var picture = CGRect.zero
     private var pointerAtTop = false
     private var toolbarShown = true
     private var outageMarkDue = false
     private var mark = Mark.none
 
-    init(model: MacScreenPaneModel, toolbar: NSView) {
+    init(model: MacScreenPaneModel, toolbar: MacScreenToolbarView) {
         self.model = model
         self.toolbar = toolbar
         super.init(frame: .zero)
@@ -116,12 +122,25 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     /// The pane lays the overlay over itself: the picture's rect (for the marks) and the toolbar's (for its reveal band).
     func place(picture: CGRect, toolbar: CGRect, in bounds: CGRect) {
         if frame != bounds { frame = bounds }
-        let zone = CGRect(x: 0, y: 0, width: bounds.width, height: max(MacScreenLookA.revealHeight, toolbar.maxY + Metrics.space4))
-        guard picture != self.picture || zone != revealZone else { return }
+        toolbarRect = toolbar
+        paneBounds = bounds
+        let zoneChanged = syncRevealZone()
+        guard picture != self.picture || zoneChanged else { return }
         self.picture = picture
+        needsLayout = true
+    }
+
+    /// The band that brings the toolbar back: the toolbar's rows and a margin, or only the top edge while this Mac
+    /// controls a live picture (the remote Mac's menu bar is under the toolbar). True when it changed.
+    @discardableResult
+    private func syncRevealZone() -> Bool {
+        let controlling = model.isLive && model.hasFrame && !model.viewOnly
+        let height = controlling ? MacScreenLookA.controlRevealHeight : max(MacScreenLookA.revealHeight, toolbarRect.maxY + Metrics.space4)
+        let zone = CGRect(x: 0, y: 0, width: paneBounds.width, height: height)
+        guard zone != revealZone else { return false }
         revealZone = zone
         updateTrackingAreas()
-        needsLayout = true
+        return true
     }
 
     override func colorsChanged() {
@@ -177,8 +196,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
                 _ = model.capturesKeyboard
             }) {
                 guard let self else { return }
-                // The look may have turned auto-hide on or off.
-                updateTrackingAreas()
+                // The look may have turned auto-hide on or off; taking or giving up control moves the reveal band.
+                if !syncRevealZone() { updateTrackingAreas() }
                 sync()
             }
         }
@@ -234,9 +253,11 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         }
     }
 
+    /// The pointer is in the reveal band, or on the shown toolbar (the control band is only the top edge).
     private var pointerInZone: Bool {
         guard let window else { return false }
-        return revealZone.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return revealZone.contains(point) || (toolbarShown && toolbarRect.contains(point))
     }
 
     /// Fades the toolbar (alpha only, no layout change); a faded one is hidden so clicks reach the picture.
@@ -245,12 +266,12 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         toolbarShown = shown
         let toolbar = toolbar
         if shown {
-            toolbar.isHidden = false
+            toolbar.autoHidden = false
             Motion.overlays.animate(.fadeIn, in: toolbar, { toolbar.animator().alphaValue = 1 })
         } else {
             Motion.overlays.animate(.fadeOut, in: toolbar, { toolbar.animator().alphaValue = 0 }, completion: { [weak self] in
                 guard let self, !toolbarShown else { return }
-                self.toolbar.isHidden = true
+                self.toolbar.autoHidden = true
             })
         }
     }
