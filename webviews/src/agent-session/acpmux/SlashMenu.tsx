@@ -6,6 +6,8 @@ import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
 import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { experimentArm } from "../../experiments/experiment";
+import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -17,8 +19,8 @@ import {
 /**
  * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
  * per command: its name (its typed letters bold) and, dim at its end, where it comes from (cmux, a
- * skill, a prompt, an extension) when the list holds more than one source. The highlighted row also
- * shows its arguments and what it does; every other row says what it does to a screen reader only.
+ * skill, a prompt, an extension) when the list holds more than one source. The current arm keeps
+ * the highlighted row's detail, while the outcome-hints arm gives every row its one-line result.
  * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx
  * ComposerListLayer) stands it beside the box on the side with room, in the box's corners; in the
  * host's native panel past the window's edge, where a pane is too short for a few rows, a row reads
@@ -41,6 +43,8 @@ export function SlashMenu({
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
+  const outcomeArm = experimentArm(composerOutcomeHints);
+  const showOutcomeHints = outcomeArm === "outcomes";
   const list = useRef<HTMLDivElement>(null);
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
@@ -189,16 +193,31 @@ export function SlashMenu({
                 {sourceTag(match)}
               </span>
             )}
-            {highlighted && (
+            {showOutcomeHints ? (
               <span className="acpmux-slash-description" data-popup-detail>
                 {describe(match)}
               </span>
+            ) : highlighted ? (
+              <span className="acpmux-slash-description" data-popup-detail>
+                {describe(match)}
+              </span>
+            ) : null}
+            {showOutcomeHints && highlighted && (
+              <kbd className="acpmux-slash-keycap" data-popup-skip>
+                {slashKeycap(match.command)}
+              </kbd>
             )}
           </>
         );
       }}
     />
   );
+}
+
+function slashKeycap(command: SlashCommand): string {
+  if (command.source === "skill" || command.source === "prompt" || command.source === "extension") return "Insert";
+  if (command.source === "cmux") return "Run";
+  return "↩";
 }
 
 function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {

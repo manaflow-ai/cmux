@@ -249,6 +249,7 @@
 .acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
 /* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
 .acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-slash-keycap{flex:none;order:2;margin-left:var(--ds-space-2,8px);padding:var(--grid-half-step) var(--ds-space-1);border-radius:max(0px,calc(var(--ds-radius-control,8px) - var(--ds-space-1,4px)));background:var(--ds-surface-inset);color:var(--agent-soft);font:inherit;font-size:var(--text-detail);line-height:1;text-align:center}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}

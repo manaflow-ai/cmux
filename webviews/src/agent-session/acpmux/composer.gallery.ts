@@ -2747,6 +2747,52 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
       },
     },
+    "composer-outcome-hints-now": {
+      note: "Current arm: the composer keeps its existing placeholder and menu rows.",
+      experiments: { "composer-outcome-hints": "now" },
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+    },
+    "composer-outcome-hints-agent": {
+      note: "Agent-only arm: the empty composer names Claude Code.",
+      experiments: { "composer-outcome-hints": "agent" },
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+    },
+    "composer-outcome-hints-modes": {
+      note: "Agent + modes arm: the empty composer names Claude Code and shows / and @.",
+      experiments: { "composer-outcome-hints": "modes" },
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+        ],
+      }),
+    },
+    "composer-outcome-hints-outcomes": {
+      note: "Outcome arm: type / to see every command's description and the highlighted row's Return action.",
+      experiments: { "composer-outcome-hints": "outcomes" },
+      snapshot: chat(finished, {
+        commands: [
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "review", description: "Review a pull request" },
+          { name: "skill-review", description: "Insert a review workflow", source: "skill" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
     // Leo 2026-10-22 (relayed by claude-sr2): "Match theirs: icon, plain name, a sentence saying what
     // selecting it does in the current state." Claude Code's `/fast` row as ChatGPT's Fast row.
     "slash-menu-fast-on": {

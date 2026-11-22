@@ -7,6 +7,8 @@ import { Listbox } from "../../ui/Listbox";
 import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
+import { experimentArm } from "../../experiments/experiment";
+import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
 /// The picker under the prompt, styled as the slash menu: other chats, folders, then files
 /// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
@@ -26,6 +28,7 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
+  const showOutcomeHints = experimentArm(composerOutcomeHints) === "outcomes";
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
@@ -66,7 +69,7 @@ export function MentionMenu({
             </output>
           ) : undefined
         }
-        renderItem={(item) => (
+        renderItem={(item, index) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
               <Icon name={item.kind === "session" || item.kind === "harness" ? "agent.chat" : item.kind} size={14} />
@@ -79,7 +82,12 @@ export function MentionMenu({
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (
-              item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>
+              <span className="acpmux-slash-description">{item.dir.length > 0 ? runs(item.dir) : item.path}</span>
+            )}
+            {showOutcomeHints && index === active && (
+              <kbd className="acpmux-slash-keycap" data-popup-skip>
+                Tab
+              </kbd>
             )}
           </>
         )}

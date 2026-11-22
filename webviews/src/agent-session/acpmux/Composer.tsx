@@ -163,6 +163,8 @@ import type { RepickMachine } from "./cloudRepick";
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
+import { agentName } from "./agents";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
 import { composerShellLook } from "./composer/shellLook.experiment";
 import { composerFooterControls } from "./composer/footerControls.experiment";
@@ -2036,10 +2038,25 @@ function ComposerFrame({
           : onOpenInWindow || steersAlways
             ? COMPOSER_LABELS.placeholderSteerQuick
             : COMPOSER_LABELS.placeholder;
+  const outcomeArm = experimentArm(composerOutcomeHints);
+  const harness = snapshot.summary?.harness ?? snapshot.summary?.family;
+  const responder = harness
+    ? agentName(harness, snapshot.catalog.find((entry) => entry.id === harness || entry.family === harness)?.name)
+    : undefined;
+  const outcomePlaceholder =
+    responder && outcomeArm !== "now"
+      ? t(outcomeArm === "agent" ? "composer.placeholderAgent" : "composer.placeholderAgentModes", {
+          agent: responder,
+        })
+      : undefined;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+    placeholder && placeholderKey === COMPOSER_LABELS.placeholder
+      ? placeholder
+      : outcomePlaceholder && placeholderKey === COMPOSER_LABELS.placeholder
+        ? outcomePlaceholder
+        : t(placeholderKey);
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
