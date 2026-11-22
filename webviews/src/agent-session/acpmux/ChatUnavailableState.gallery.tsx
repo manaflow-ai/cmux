@@ -60,6 +60,33 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
         error: "The machine did not reconnect. Try resuming it again.",
       },
     },
+    "open-waking": {
+      note: "Opening a chat whose machine is paused wakes it with no click (cloudOpenWakes): past 1.5 s it says Waking the machine with the spinner, and no Resume machine button.",
+      props: {
+        ...base,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+        waking: true,
+      },
+    },
+    "open-waking-line": {
+      note: "The same wake over the chat's last-read rows: one quiet line under the header, no button.",
+      props: {
+        ...base,
+        line: true,
+        unavailable: { reason: "paused", machine: "Demo machine" },
+        resuming: true,
+        waking: true,
+      },
+    },
+    "open-wake-refused": {
+      note: "The platform refused the opening wake (a plan or machine cap stop): the paused card and its Resume machine are the fallback; that click runs the person's own resume, which says why.",
+      props: { ...base, unavailable: { reason: "paused", machine: "Demo machine" } },
+    },
+    "open-resumed": {
+      note: "The machine is back: nothing is drawn here (the loading layout) for the instant before the transcript paints in its place.",
+      props: { ...base, unavailable: { reason: "connecting" } },
+    },
     deleted: {
       note: "Deletion is explicit; saved transcript recovery remains available.",
       props: { ...base, unavailable: { reason: "machineDeleted", machine: "Demo machine" } },

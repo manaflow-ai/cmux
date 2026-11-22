@@ -19,13 +19,22 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState(false);
   const [readRevision, setReadRevision] = useState(0);
+  /// The resume in flight is the passive one opening the chat ran (`wake`), not a person's attach.
+  const [waking, setWaking] = useState(false);
+  /// The platform refused that passive wake (a plan or machine cap stop, a list not loaded): the
+  /// paused card shows Resume machine, the person's own attach, which says why.
+  const [wakeRefused, setWakeRefused] = useState(false);
   const resumeAttempt = useRef(0);
   const resumeInFlight = useRef(false);
+  const wakingNow = useRef(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
     resumeAttempt.current += 1;
     resumeInFlight.current = false;
+    wakingNow.current = false;
     setResuming(false);
+    setWaking(false);
+    setWakeRefused(false);
     setError(false);
     return () => {
       resumeAttempt.current += 1;
@@ -35,12 +44,17 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     if (!active) {
       resumeAttempt.current += 1;
       resumeInFlight.current = false;
+      wakingNow.current = false;
       setResuming(false);
+      setWaking(false);
       setState(undefined);
     }
   }, [active]);
   useEffect(() => {
-    if (!resuming) resumeInFlight.current = false;
+    if (resuming) return;
+    resumeInFlight.current = false;
+    wakingNow.current = false;
+    setWaking(false);
   }, [resuming]);
   useEffect(() => {
     let disposed = false;
@@ -101,9 +115,14 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     };
   }, [identity, session, active, resuming, recheck, readRevision]);
 
+  // A person's resume (the card's button, a keystroke, a Send) during the passive wake still posts
+  // the attach with its gesture: the attach owns the resume from then on, and its failure says so.
   const resume = () => {
-    if (!cloud || resuming || resumeInFlight.current) return;
+    if (!cloud || ((resuming || resumeInFlight.current) && !wakingNow.current)) return;
     resumeInFlight.current = true;
+    wakingNow.current = false;
+    setWaking(false);
+    setWakeRefused(false);
     setError(false);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
@@ -119,9 +138,36 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       }
     });
   };
+  // Opening the chat (cloudWake.ts `cloudOpenWakes`): the same resume and reconnect, through the
+  // passive `cloudMachine.prewarm`, which takes no gesture. A refusal ends it quietly: no error
+  // line, the paused card and its Resume machine are the fallback.
+  const wake = () => {
+    if (!cloud || resuming || resumeInFlight.current) return;
+    resumeInFlight.current = true;
+    wakingNow.current = true;
+    setWakeRefused(false);
+    setError(false);
+    const attempt = ++resumeAttempt.current;
+    const action = postNative("cloudMachine.prewarm", { id: cloud.id });
+    setResuming(true);
+    setWaking(true);
+    void action.catch(() => {
+      if (resumeAttempt.current === attempt) {
+        resumeAttempt.current += 1;
+        resumeInFlight.current = false;
+        wakingNow.current = false;
+        setResuming(false);
+        setWaking(false);
+        setWakeRefused(true);
+      }
+    });
+  };
   return {
     state: active ? state : undefined,
     resume,
+    wake,
+    waking,
+    wakeRefused,
     refresh: () => setReadRevision((value) => value + 1),
     resuming,
     error: error ? t("unavailable.resumeFailed") : undefined,
