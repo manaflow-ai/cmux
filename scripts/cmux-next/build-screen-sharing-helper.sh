@@ -50,12 +50,13 @@ crate="$repo_root/cmux-tui/crates/cmux-rd-host"
 # routes a pull request to the app scheme compile. The Xcode phase "Bundle Screen Sharing helper"
 # lists the same crates; scripts/cmux-next/tests/test_screen_sharing_helper_inputs.py checks both
 # against Cargo.toml.
-inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-encode
+inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-computer-use cmux-tui/crates/cmux-encode
+  cmux-tui/crates/cmux-file-lock
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
   cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
-features="link"
+features="link computer-use"
 key_material="${size_profile[*]} features=$features"$'\n'
 for input in "${inputs[@]}"; do
   key_material+="$(git -C "$repo_root" rev-parse "HEAD:$input" 2>/dev/null || echo "missing:$input")"$'\n'

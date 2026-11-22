@@ -126,16 +126,16 @@ public final class SessionLinkGate {
 
 /// The `cmux://session/<id>` question's text (Resources/Localizable.xcstrings).
 nonisolated enum SessionLinkStrings {
-    static var title: String { String(localized: "dialog.sessionLink.title", defaultValue: "Open Agent Session in a New Tab?", bundle: .module) }
+    static var title: String { String(localized: "dialog.sessionLink.title", defaultValue: "Open Agent Session in a New Tab?", bundle: .localizedModule) }
     static func message(_ name: String) -> String {
-        String(format: String(localized: "dialog.sessionLink.message", defaultValue: "A link wants to open the session “%@” in a new tab.", bundle: .module), name)
+        String(format: String(localized: "dialog.sessionLink.message", defaultValue: "A link wants to open the session “%@” in a new tab.", bundle: .localizedModule), name)
     }
     static var warning: String {
-        String(localized: "dialog.sessionLink.warning", defaultValue: "cmux cannot tell which page or app opened the link. Only continue if you opened it yourself.", bundle: .module)
+        String(localized: "dialog.sessionLink.warning", defaultValue: "cmux cannot tell which page or app opened the link. Only continue if you opened it yourself.", bundle: .localizedModule)
     }
-    static func agent(_ harness: String) -> String { String(format: String(localized: "dialog.sessionLink.agent", defaultValue: "Agent: %@", bundle: .module), harness) }
-    static func machine(_ host: String) -> String { String(format: String(localized: "dialog.sessionLink.machine", defaultValue: "Machine: %@", bundle: .module), host) }
-    static func session(_ id: String) -> String { String(format: String(localized: "dialog.sessionLink.session", defaultValue: "Session: %@", bundle: .module), id) }
-    static var thisMac: String { String(localized: "dialog.sessionLink.thisMac", defaultValue: "This Mac", bundle: .module) }
-    static var open: String { String(localized: "dialog.sessionLink.open", defaultValue: "Open", bundle: .module) }
+    static func agent(_ harness: String) -> String { String(format: String(localized: "dialog.sessionLink.agent", defaultValue: "Agent: %@", bundle: .localizedModule), harness) }
+    static func machine(_ host: String) -> String { String(format: String(localized: "dialog.sessionLink.machine", defaultValue: "Machine: %@", bundle: .localizedModule), host) }
+    static func session(_ id: String) -> String { String(format: String(localized: "dialog.sessionLink.session", defaultValue: "Session: %@", bundle: .localizedModule), id) }
+    static var thisMac: String { String(localized: "dialog.sessionLink.thisMac", defaultValue: "This Mac", bundle: .localizedModule) }
+    static var open: String { String(localized: "dialog.sessionLink.open", defaultValue: "Open", bundle: .localizedModule) }
 }
