@@ -42,4 +42,20 @@ if PATH="$tmp/bin:$PATH" "$CHECKER" "$tmp/with-table"; then
   exit 1
 fi
 
+# cmux NEXT's code is CmuxNextApp.framework behind a stub executable (CMUX-629):
+# given the executable, the guard reads the framework too.
+app="$tmp/cmux.app/Contents"
+mkdir -p "$app/MacOS" "$app/Frameworks/CmuxNextApp.framework/Versions/A"
+printf 'stub\n' > "$app/MacOS/cmux"
+printf 'SELECT a11, a102 FROM nssPrivate\n' > "$app/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+if PATH="$tmp/bin:$PATH" "$CHECKER" "$app/MacOS/cmux"; then
+  echo "FAIL: the Firefox NSS table literal in CmuxNextApp.framework must fail the guard" >&2
+  exit 1
+fi
+printf 'code\n' > "$app/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+if ! PATH="$tmp/bin:$PATH" "$CHECKER" "$app/MacOS/cmux"; then
+  echo "FAIL: a clean stub and framework must pass the guard" >&2
+  exit 1
+fi
+
 echo "PASS: password-import reader guard distinguishes debug filenames from code"

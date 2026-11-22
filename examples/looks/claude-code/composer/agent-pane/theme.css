@@ -1,0 +1,14 @@
+/* The composer's paint. `:root .acpmux-shell` outranks the pane's own `.acpmux-shell` tokens and its
+   `appearance.borders` none rule, so the 1 pt edge the app draws stays. */
+:root .acpmux-shell,
+:root[data-borders] .acpmux-shell {
+  --acpmux-composer-bg: #303030;
+  --acpmux-composer-edge: #404040;
+  --acpmux-composer-hover: #353535;
+  --acpmux-composer-placeholder: #a6a6a6;
+  --acpmux-composer-dim: #9c9c9c;
+}
+:root .acpmux-composer-box {
+  --acpmux-composer-radius: 12px;
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}

@@ -65,11 +65,14 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
     /// Whether this density is a built-in preset.
     public var isBuiltIn: Bool { DensityPreset(rawValue: id) != nil }
 
-    /// A metric's value at this density: `tokens[token]` when set, else the level's point between
-    /// `compact` and `comfortable`, rounded to a whole point. Level 0 returns `compact` exactly
-    /// and level 1 returns `comfortable` exactly.
+    /// Presets and copies resolve missing sizes from Default before scaling. Other custom densities interpolate.
+    var uniformScale: CGFloat? { tokens["densityScale"].map { CGFloat($0) } }
+    var usesDefaultRowFill: Bool { uniformScale != nil || id == DensityPreset.cozy.rawValue }
+
+    /// Exact tokens win. Presets scale Default; other densities interpolate the legacy pair.
     public func resolve(compact: CGFloat, comfortable: CGFloat, token: String? = nil) -> CGFloat {
         if let token, let exact = tokens[token] { return CGFloat(exact) }
+        if let uniformScale { return Self.half(DensityPreset.referenceTokens.resolve(compact: compact, comfortable: comfortable) * uniformScale) }
         if level == 0 { return compact }
         if level == 1 { return comfortable }
         return (compact + (comfortable - compact) * CGFloat(level)).rounded()
@@ -79,13 +82,13 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
     /// artwork is 24 or larger").
     public static let iconScale: [CGFloat] = [12, 14, 16, 20, 24]
 
-    /// An icon metric at this density: `resolve`, then the nearest `iconScale` step, so a level
-    /// between two densities never draws a 13, 15 or 18 pt glyph next to its rows (Leo 2026-11-04:
-    /// "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever ui scaling
-    /// modes too"). A tie goes to the family's side: down below level 0.5, up from it, so Cozy's
-    /// glyphs are Comfortable's as its `family` is. `tokens[token]` stays exact.
+    /// Presets scale Default's glyphs. Other densities snap to the icon grid; exact tokens win.
     public func resolveGlyph(compact: CGFloat, comfortable: CGFloat, token: String? = nil) -> CGFloat {
         if let token, tokens[token] != nil { return resolve(compact: compact, comfortable: comfortable, token: token) }
+        if let uniformScale {
+            let reference = DensityPreset.referenceTokens
+            return Self.half(reference.resolveGlyph(compact: compact, comfortable: comfortable) * uniformScale)
+        }
         let value = (compact + (comfortable - compact) * CGFloat(level)).rounded()
         return Self.iconScale.min { a, b in
             let da = abs(a - value), db = abs(b - value)
@@ -100,17 +103,20 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
     /// The body text size this density draws: `fontSize`, else the level's.
     public var bodySize: CGFloat { fontSize.map { CGFloat($0) } ?? levelBodySize }
 
-    /// A text style's size at this density, from its compact and comfortable sizes: the level's
-    /// point between them (half-point steps), scaled by `fontSize` over the level's body size
-    /// when `fontSize` is set. Compact without `fontSize` returns `compact` exactly.
+    /// Presets scale Default's text. Other densities interpolate, then apply their body size.
     public func textSize(compact: CGFloat, comfortable: CGFloat) -> CGFloat {
+        if let uniformScale {
+            let reference = DensityPreset.referenceTokens
+            let referenceBody = reference.bodySize * uniformScale
+            let adjustment = fontSize.map { CGFloat($0) / referenceBody } ?? 1
+            return reference.textSize(compact: compact, comfortable: comfortable) * uniformScale * adjustment
+        }
         let atLevel = Self.textAtLevel(compact, comfortable, level)
         guard let fontSize else { return atLevel }
         return Self.half(atLevel * CGFloat(fontSize) / levelBodySize)
     }
 
-    /// A padding value at this density's `spacing`, in half-point steps; `spacing` 1 returns
-    /// `value` exactly.
+    /// Padding and insets use half-point steps.
     public func space(_ value: CGFloat) -> CGFloat {
         spacing == 1 ? value : Self.half(value * CGFloat(spacing))
     }
@@ -121,7 +127,7 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
         return half(compact + (comfortable - compact) * CGFloat(level))
     }
 
-    private static func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
+    static func half(_ value: CGFloat) -> CGFloat { (value * 2).rounded() / 2 }
 
     // MARK: Built-ins
 

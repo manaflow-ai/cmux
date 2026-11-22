@@ -9,8 +9,13 @@ one comment with what it looks like.
 
     hot-verify-ci.py verdict PLAN_OUTPUT            the engine's `plan` output -> GITHUB_OUTPUT lines
     hot-verify-ci.py hq-ref VERSION_JSON            the controller's /v1/version -> the HQ main commit, or nothing
+    hot-verify-ci.py queue-bound STATUS_JSON        the controller's /v1/status -> seconds a look waits for a Mac
     hot-verify-ci.py pack --pr N --head SHA --nonce NONCE [--video]
                                                     the fleet step's inputs as z-chunks, one per line
+    hot-verify-ci.py nightly-commit FEED_XML        the NEXT feed -> the CMUXCommit of the nightly a look copies, or nothing
+    LOOK_RESULT=JSON hot-verify-ci.py result --pr N --head SHA
+                                                    the build fleet controller's look_result -> state, step, url
+                                                    (the signed out.tar link, or empty) and reason lines
     hot-verify-ci.py unpack OUT_TAR DIR             the step's out.tar into DIR (data only: no links, no ..)
     hot-verify-ci.py stage DIR --pr N --head SHA --stage STAGE --text TEXT
                                                     check the receipt names HEAD; copy the media into STAGE under
@@ -32,7 +37,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -178,6 +185,17 @@ def read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def worker_stop(step: dict) -> str:
+    """Why the worker stopped with no receipt, from its step.json (cmuxterm-hq hot_verify_run.py: worker, error,
+    phases), so the run log names the cause, not only that the receipt has no marker (runs 43779426587 and
+    43758485104, 2026-11-16, each a different cause)."""
+    phases = step.get("phases") if isinstance(step.get("phases"), dict) else {}
+    spent = ", ".join(f"{name} {secs}s" for name, secs in phases.items() if isinstance(secs, (int, float)))
+    error = " ".join(str(step.get("error")).split())[:500]
+    return (f"the look stopped on {str(step.get('worker') or 'the worker')[:80]} with no receipt: {error}"
+            + (f" (phases: {spent})" if spent else ""))
+
+
 def check_marker(receipt: dict, head: str) -> re.Match:
     marker = str(receipt.get("marker") or "")
     found = MARKER.fullmatch(marker)
@@ -225,6 +243,8 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     step = read_json(out / "step.json")
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
+    if not receipt.get("marker") and step.get("error"):
+        raise Refused(worker_stop(step))
     check_marker(receipt, head)
     if step and str(step.get("head") or head) != head:
         raise Refused("step.json names another head")
@@ -359,11 +379,40 @@ def render(out: Path, pr: int, head: str, repo: str = REPO, uploaded: list[str] 
 # ---------------------------------------------------------------- posting
 
 
+# A look that finished is posted even when the job's token is out of quota (run 43790108433, cmux#44086,
+# 2026-11-16: "API rate limit exceeded for installation" threw the finished look away): a call refused for its
+# rate limit waits for the reset GitHub's rate_limit endpoint names (which costs no quota) and is tried again, for
+# at most QUOTA_WAIT_SECONDS in all (the publish job's timeout-minutes leaves room for it).
+QUOTA_WAIT_SECONDS = 1800
+QUOTA_RETRY_SECONDS = 60  # a secondary limit, or the reset unreadable: try again after this
+RATE_LIMITED = re.compile(r"rate limit", re.IGNORECASE)
+
+
+def quota_wait() -> float:
+    """Seconds until the core quota resets, plus 5; QUOTA_RETRY_SECONDS when quota remains (a secondary limit)."""
+    done = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core | \"\\(.remaining) \\(.reset)\""],
+                          capture_output=True, text=True, timeout=60)
+    try:
+        remaining, reset = (int(part) for part in done.stdout.split())
+    except ValueError:
+        return QUOTA_RETRY_SECONDS
+    return max(5.0, reset - time.time() + 5) if remaining == 0 else QUOTA_RETRY_SECONDS
+
+
 def gh(*args: str, body: str | None = None) -> str:
-    done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
-    if done.returncode != 0:
-        raise Refused(f"gh {args[0]} {args[1] if len(args) > 1 else ''} failed: {(done.stderr or '').strip()[:300]}")
-    return done.stdout
+    waited = 0.0
+    while True:
+        done = subprocess.run(["gh", *args], input=body, capture_output=True, text=True, timeout=120)
+        if done.returncode == 0:
+            return done.stdout
+        why = (done.stderr or "").strip()[:300]
+        what = f"gh {args[0]} {args[1] if len(args) > 1 else ''}"
+        wait = quota_wait() if RATE_LIMITED.search(why) else None
+        if wait is None or waited + wait > QUOTA_WAIT_SECONDS:
+            raise Refused(f"{what} failed: {why}" + (f" (after {int(waited)}s waiting for quota)" if waited else ""))
+        print(f"hot-verify-ci: {what} is out of quota; trying again in {int(wait)}s", file=sys.stderr)
+        time.sleep(wait)
+        waited += wait
 
 
 def our_comment(listing: str, login: str = BOT) -> int | None:
@@ -397,8 +446,11 @@ def comment_listing(pr: int, repo: str = REPO) -> str:
 
 
 def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
-    live = gh("api", f"repos/{repo}/pulls/{pr}", "--jq", ".head.sha").strip()
-    if live != head:
+    # A look at a merged PR's merge commit (cmux-next-hot-verify.yml after the merge) posts too: the PR names that
+    # commit as its merge_commit_sha. Any other head the PR is not at is an older look's.
+    live, _, merge = gh("api", f"repos/{repo}/pulls/{pr}", "--jq",
+                        '.head.sha + " " + (if .merged_at then (.merge_commit_sha // "") else "" end)').strip().partition(" ")
+    if head not in (live, merge.strip()):
         return f"#{pr} moved to {live[:12]}; its own run comments"
     listing = comment_listing(pr, repo)
     existing = our_comment(listing)
@@ -413,12 +465,83 @@ def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
 # ---------------------------------------------------------------- main
 
 
+QUEUE_FLOOR, QUEUE_CAP = 1800, 10800
+
+
+def queue_bound(text: str, step_class: str = "light") -> int:
+    """How long a look waits for a Mac: the controller's reported p90 queue wait for the class (/v1/status
+    `step_queue_wait_p90_seconds`), rounded up, between 30 min and 3 h; 30 min when it reports none."""
+    try:
+        data = json.loads(text)
+        value = float(data["step_queue_wait_p90_seconds"][step_class])
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return QUEUE_FLOOR
+    if not value >= QUEUE_FLOOR:  # NaN, -inf and short waits
+        return QUEUE_FLOOR
+    return int(max(QUEUE_FLOOR, min(QUEUE_CAP, -(-value // 1))))  # clamped before int(): inf stays out of it
+
+
+# ---------------------------------------------------------------- the nightly and the controller's result
+
+PICKER = Path(__file__).resolve().parents[1] / "ci" / "nightly_next_launch_smoke.py"
+SOURCE_COMMIT = re.compile(r"<cmux:sourceCommit>\s*([0-9a-f]{40})\s*</cmux:sourceCommit>")
+
+
+def nightly_commit(feed: str, picker: Path = PICKER) -> str:
+    """The CMUXCommit of the nightly a fleet look copies: the NEXT feed's item cmux's own pick() chooses (the item
+    the worker's hot_verify_run.py takes), its cmux:sourceCommit; "" when the feed or the item names none."""
+    try:
+        spec = importlib.util.spec_from_file_location("hot_verify_nightly_pick", picker)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        build = module.pick(feed)[0]
+    except (OSError, ValueError, AttributeError, ImportError, SyntaxError):
+        return ""
+    for item in module.ITEM.findall(feed):
+        version = module.VERSION.search(item)
+        if version and int(version.group(1)) == build:
+            found = SOURCE_COMMIT.search(item)
+            return found.group(1) if found else ""
+    return ""
+
+
+RESULT_STATES = ("done", "failed", "cancelled", "unsubmitted")
+
+
+def look_result(text: str, pr: int, head: str) -> dict:
+    """The controller's look_result (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go) for PR at HEAD:
+    {state, step, url (the signed out.tar GET, or ""), reason}. Refused when it names another PR or head."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise Refused("look_result is not JSON") from None
+    if not isinstance(data, dict) or data.get("pr") != pr or data.get("head") != head:
+        raise Refused("look_result names another pull request or head")
+    state = data.get("state")
+    if state not in RESULT_STATES:
+        raise Refused(f"look_result has no known state: {str(state)[:40]!r}")
+    url = str(data.get("artifact_url") or "")
+    if url and not url.startswith("https://"):
+        raise Refused("look_result's out.tar link is not https")
+    step = str(data.get("step_id") or "")
+    step = step if re.fullmatch(r"[0-9a-f]{1,64}", step) else ""
+    code = data.get("exit_code")
+    reason = " ".join(str(data.get("error") or "").split())[:300]
+    waited = data.get("queued_s")
+    return {"state": state, "step": step, "url": url,
+            "reason": f"step {step or 'none'} {state}" + (f" (exit {code})" if isinstance(code, int) else "")
+                      + (f" after {waited} s in the queue" if isinstance(waited, int) and waited > 0 else "")
+                      + (f": {reason}" if reason else "")}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     sub = ap.add_subparsers(dest="command", required=True)
     p = sub.add_parser("verdict")
     p.add_argument("plan", type=Path)
+    p = sub.add_parser("queue-bound")
+    p.add_argument("status", type=Path)
     p = sub.add_parser("hq-ref")
     p.add_argument("version", type=Path)
     p = sub.add_parser("pack")
@@ -429,6 +552,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("unpack")
     p.add_argument("tar", type=Path)
     p.add_argument("dir", type=Path)
+    p = sub.add_parser("nightly-commit")
+    p.add_argument("feed", type=Path)
+    p = sub.add_parser("result")
+    p.add_argument("--pr", type=int, required=True)
+    p.add_argument("--head", required=True)
     for name in ("stage", "render", "post"):
         p = sub.add_parser(name)
         p.add_argument("path", type=Path)
@@ -449,12 +577,19 @@ def main(argv: list[str] | None = None) -> int:
         if a.command == "verdict":
             text = a.plan.read_text(errors="replace") if a.plan.is_file() else ""
             print(output_lines(verdict(text)), end="")
+        elif a.command == "queue-bound":
+            print(queue_bound(a.status.read_text(errors="replace") if a.status.is_file() else ""))
         elif a.command == "hq-ref":
             print(hq_ref(a.version.read_text(errors="replace") if a.version.is_file() else ""))
         elif a.command == "pack":
             print("\n".join(pack(step_inputs(a.pr, a.head, a.nonce, a.video))))
         elif a.command == "unpack":
             print(unpack(a.tar, a.dir))
+        elif a.command == "nightly-commit":
+            print(nightly_commit(a.feed.read_text(errors="replace") if a.feed.is_file() else ""))
+        elif a.command == "result":
+            found = look_result(os.environ.get("LOOK_RESULT", ""), a.pr, a.head)
+            print("".join(f"{key}={found[key]}\n" for key in ("state", "step", "url", "reason")), end="")
         elif a.command == "stage":
             print(json.dumps(stage(a.path, a.pr, a.head, a.stage, a.text)))
         elif a.command == "render":

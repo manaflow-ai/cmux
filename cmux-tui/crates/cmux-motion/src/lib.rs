@@ -45,6 +45,7 @@
 mod clock;
 mod color;
 mod fade;
+mod flight;
 pub mod hover;
 mod marquee;
 mod policy;
@@ -62,6 +63,7 @@ mod system;
 pub use clock::*;
 pub use color::*;
 pub use fade::*;
+pub use flight::*;
 pub use marquee::*;
 pub use policy::*;
 #[cfg(feature = "settings")]

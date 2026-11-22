@@ -38,6 +38,7 @@ mod mirror_gates;
 #[cfg(test)]
 mod mirror_tests;
 mod origins;
+mod relay;
 pub use acpmux_book::index::MirrorMark;
 #[cfg(test)]
 mod peer_tests;
@@ -48,6 +49,10 @@ pub use mirror::{
     TakeoverTurns, UnitChange,
 };
 pub use origins::{MAX_ORIGINS, Source, refused_held_rows};
+pub use relay::{
+    PageRelay, RELAY_BUSY, RELAY_FAILED, RELAY_IN_FLIGHT, RELAY_PAGE_DEADLINE, RelayAnswer,
+    RelayError, RelayFailed, RelayFuture, Relayed, RelayedPage,
+};
 
 pub use crate::wire::{DeltaFrame, Window};
 
@@ -107,6 +112,8 @@ struct Pending {
     controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
     /// Origins whose unit failed its append and waits in the writer's retry.
     retrying: std::collections::HashSet<Arc<str>>,
+    /// The origin whose unit the last turn took last: the next turn's units start after it.
+    turn_after: Option<UpdateKey>,
 }
 
 impl Pending {
@@ -220,32 +227,56 @@ impl UpdateQueue {
 
     /// At most `limit` updates, and units of at most `unit_changes` changes
     /// together (one unit at least): an origin's unit past that count waits in
-    /// its slot, with what queued behind it, for the next turn.
+    /// its slot, with what queued behind it, for the next turn. Origin records
+    /// go first; the origins' slots start after the one whose unit the last
+    /// turn took last, so a unit the cap passed over is taken before any unit
+    /// queued after it (decision 279), and once the cap passes over a unit no
+    /// later unit is taken in that turn.
     fn take_batch_limit(
         &self,
         limit: usize,
         unit_changes: usize,
     ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
+        let pending = &mut *pending;
         let mut batch = Vec::new();
         let mut changes = 0;
-        let mut waiting = Vec::new();
-        while batch.len() < limit {
-            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
-            if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
-                if changes > 0 && changes + unit.changes.len() > unit_changes {
-                    waiting.push((key, updates));
-                    continue;
+        let mut passed_over = false;
+        let mut last = None;
+        // The controls hold at most 512 keys (`enqueue`), so the order costs one pass of them.
+        let (mut sources, records): (Vec<UpdateKey>, Vec<UpdateKey>) =
+            pending.controls.keys().cloned().partition(|key| matches!(key, UpdateKey::Source(_)));
+        let split = pending
+            .turn_after
+            .as_ref()
+            .map_or(0, |after| sources.partition_point(|key| key <= after));
+        // `partition_point` is at most the length, so the rotation stays in bounds.
+        sources.rotate_left(split);
+        let order = records.into_iter().chain(sources);
+        for key in order {
+            if batch.len() >= limit {
+                break;
+            }
+            let Some(updates) = pending.controls.get_mut(&key) else { continue };
+            while batch.len() < limit {
+                if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                    if passed_over || (changes > 0 && changes + unit.changes.len() > unit_changes) {
+                        passed_over = true;
+                        break;
+                    }
+                    changes += unit.changes.len();
+                    last = Some(key.clone());
                 }
-                changes += unit.changes.len();
+                let Some(update) = updates.pop_front() else { break };
+                batch.push((key.clone(), update));
             }
-            let Some(update) = updates.pop_front() else { continue };
-            if !updates.is_empty() {
-                pending.controls.insert(key.clone(), updates);
+            if updates.is_empty() {
+                pending.controls.remove(&key);
             }
-            batch.push((key, update));
         }
-        pending.controls.extend(waiting);
+        if last.is_some() {
+            pending.turn_after = last;
+        }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
             pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
@@ -509,6 +540,8 @@ pub struct Hub {
     peer_history: Arc<Mutex<Option<PeerHistory>>>,
     folder_state: Arc<Mutex<folders::FolderState>>,
     page_provider: Arc<Mutex<Option<Arc<dyn PageProvider>>>>,
+    /// The relay a local page that names another origin asks (row 8b).
+    relay: Arc<relay::RelayState>,
     sources: Arc<ArcSwap<HashMap<String, Source>>>,
     rebuild_requested: Arc<AtomicBool>,
     rebuild_count: Arc<AtomicU64>,
@@ -523,6 +556,16 @@ pub struct Hub {
 /// Supplies rows that are outside the hot summary index for a bounded keyed page.
 pub trait PageProvider: Send + Sync {
     fn row(&self, key: &RowKey) -> std::io::Result<Option<Arc<Summary>>>;
+    /// A page of view `all` filtered by `origin`, another machine, read from outside the
+    /// index when the relay does not take that origin (decision 265), in the list's order.
+    /// `None`: this provider has no such read, and the index answers as before.
+    fn view_page(
+        &self,
+        _origin: &str,
+        _request: &crate::wire::Page,
+    ) -> std::io::Result<Option<crate::wire::PageResult<Arc<Summary>>>> {
+        Ok(None)
+    }
 }
 
 /// Explicit name for the published summary hub used by later actors.
@@ -791,6 +834,7 @@ impl Hub {
             peer_history: peer_history.clone(),
             folder_state: folder_state.clone(),
             page_provider: Arc::new(Mutex::new(None)),
+            relay: Arc::default(),
             sources: sources.clone(),
             rebuild_requested: rebuild_requested.clone(),
             rebuild_count: rebuild_count.clone(),
@@ -1571,6 +1615,9 @@ impl Hub {
             None if request.before.is_none() && request.after.is_none() => (None, ReadSide::After),
             _ => return Err(HubError::InvalidPage),
         };
+        if let Some(frame) = self.provider_view_page(request)? {
+            return Ok(frame);
+        }
         let index = self.snapshot();
         let page = if matches!(request.view, Some(crate::wire::ListView::Live)) {
             index
@@ -1613,6 +1660,35 @@ impl Hub {
             return Err(HubError::InvalidPage);
         }
         Ok(frame)
+    }
+
+    /// A view page of another origin the provider answers (decision 265), framed for `request`.
+    fn provider_view_page(&self, request: &crate::wire::Page) -> Result<Option<Frame>, HubError> {
+        let Some(origin) = relay::relayed_view_origin(request) else { return Ok(None) };
+        let Some(provider) = self.page_provider.lock().ok().and_then(|slot| slot.clone()) else {
+            return Ok(None);
+        };
+        let Some(page) = provider.view_page(origin, request).map_err(HubError::page_error)? else {
+            return Ok(None);
+        };
+        let reply = crate::wire::PageResult {
+            sid: request.sid.clone(),
+            rows: page.rows.iter().map(Arc::as_ref).collect::<Vec<_>>(),
+            has_before: page.has_before,
+            has_after: page.has_after,
+            cold_unread: page.cold_unread,
+            deeper: page.deeper,
+            before_key: page.before_key,
+            after_key: page.after_key,
+            missing: Vec::new(),
+            unknown: Vec::new(),
+            rest: Vec::new(),
+        };
+        let frame = Frame::json(FrameKind::Page, &reply)?;
+        if frame.encoded_len() > request.max_bytes as usize {
+            return Err(HubError::InvalidPage);
+        }
+        Ok(Some(frame))
     }
 
     fn page_error(&self, error: std::io::Error) -> HubError {

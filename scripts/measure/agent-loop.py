@@ -142,6 +142,7 @@ class Loop:
 
     # The fresh home: this run's overlay, settings file and Debug Settings with the overlay toggle on.
     def prepare(self, env: dict) -> None:
+        smoke.login_keychain(env)  # a person's home has one: no Safe Storage Keychain dialog (cmuxterm-hq#11994)
         home = Path(env["HOME"])
         config = home / ".config" / "cmux" / "cmux-next.json"
         overlay = home / "Library" / "Application Support" / "cmux-next" / "web-overlay"
