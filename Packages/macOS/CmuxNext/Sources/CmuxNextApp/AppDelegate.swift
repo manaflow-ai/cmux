@@ -163,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, peerApprover: PeerApprovalsApp.approver())
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        services.windows.relaunchCoverShow.preload() // the relaunch cover's pictures decode off main while the launch runs
         services.home.ensure.ensuresAtLaunch = true // before the restore asks: the launch waits for Home, which may start after the first frame
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)

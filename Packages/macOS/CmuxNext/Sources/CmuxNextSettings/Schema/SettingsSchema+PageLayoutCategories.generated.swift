@@ -370,6 +370,8 @@ extension SettingsPageLayout {
         groups: [
             // Debug commands in the Command Palette (DEV and NIGHTLY).
             GroupSpec(group: "settings.group.internalDeveloperMode"),
+            // How a relaunch swaps each window's saved picture for live content, for comparing the swaps.
+            GroupSpec(group: "settings.group.relaunchCover"),
             GroupSpec(group: "settings.group.macScreen"),
             GroupSpec(group: "settings.group.deviceHub"),
         ],

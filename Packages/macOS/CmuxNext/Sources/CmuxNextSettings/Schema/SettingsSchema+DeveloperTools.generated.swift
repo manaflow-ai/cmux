@@ -13,6 +13,12 @@ extension InternalDeveloperModeSetting {
     public nonisolated static let fallback = false
 }
 
+extension RelaunchCoverSwapSetting {
+    /// `launch.relaunchCoverSwap`: How an app relaunch (an update, or `cmux app quit --keep-sessions`) swaps each window's saved picture (the relaunch cover) for its live content. off: no picture is shown (the behavior before relaunch covers). instant: each window's picture is removed in one frame once all its panes are ready. crossfade (the default): the window's picture fades out over 120 ms at that moment. progressive: each pane's region of the picture fades out over 80 ms as that pane becomes ready. A comparison setting for judging the swap: a row in Settings > Development and the Command Palette in DEV and NIGHTLY; the CLI and MCP set it in every build.
+    public nonisolated static let configPath = ["launch", "relaunchCoverSwap"]
+    public nonisolated static let fallback: RelaunchCoverSwap = .crossfade
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum DeveloperToolsSettingsSchema {
     /// Settings > Advanced > Developer Tools (Lawrence 2026-11-07: "make it possible to open chrome devtools in chat ui itself").
@@ -45,6 +51,28 @@ nonisolated enum DeveloperToolsSettingsSchema {
                 kind: .toggle,
                 default: .bool(InternalDeveloperModeSetting.fallback),
                 keywords: ["developer", "internal", "debug", "developer mode", "playground", "command palette", "diagnostics"]
+            ),
+        ]
+    }
+
+    /// Settings > Development (DEV and NIGHTLY only) > App Relaunch: how a relaunch swaps each window's saved picture for its live content, for comparing the swaps.
+    static var relaunchCover: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.relaunchCover", "App Relaunch")
+        return [
+            SettingDescriptor(
+                RelaunchCoverSwapSetting.configPath,
+                section: .development,
+                group: group,
+                title: SettingsText.keyed("settings.launch.relaunchCoverSwap", "Relaunch Cover Swap"),
+                help: SettingsText.keyed("settings.launch.relaunchCoverSwap.help", "How a relaunched window swaps its saved picture for live content."),
+                kind: .choice([
+                    SettingChoice(RelaunchCoverSwap.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(RelaunchCoverSwap.instant.rawValue, SettingsText.keyed("settings.choice.instant", "Instant")),
+                    SettingChoice(RelaunchCoverSwap.crossfade.rawValue, SettingsText.keyed("settings.choice.crossfade", "Crossfade")),
+                    SettingChoice(RelaunchCoverSwap.progressive.rawValue, SettingsText.keyed("settings.choice.progressive", "Progressive")),
+                ]),
+                default: .string(RelaunchCoverSwapSetting.fallback.rawValue),
+                keywords: ["relaunch", "restart", "update", "launch", "cover", "snapshot", "picture", "screenshot", "crossfade", "fade", "swap", "restore", "debug"]
             ),
         ]
     }

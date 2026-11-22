@@ -1,6 +1,7 @@
 import CmuxNextHibernation
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -11,6 +12,8 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextLayout
+import CmuxNextRelaunchCover
+import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxNextWindowRules
 import Observation
@@ -118,6 +121,10 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    /// The relaunch cover (CmuxNextRelaunchCover): an update's relaunch or a keep quit captures each window, the
+    /// next launch shows the pictures until the windows are ready (the extension below).
+    private(set) lazy var relaunchCover = RelaunchCoverSnapshot(folder: relaunchCoverFolder)
+    private(set) lazy var relaunchCoverShow = RelaunchCoverPresenter(folder: relaunchCoverFolder, whenPainted: Self.whenPainted)
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -230,6 +237,7 @@ final class WindowManager {
     /// becoming the frontmost. Creates a workspace only for an empty tree.
     func restoreWhenLoaded() {
         registry.isLaunching = !restored
+        beginRelaunchCover(shows: controllers.isEmpty && !restored && ordersWindowsIn)
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
@@ -467,6 +475,7 @@ final class WindowManager {
                 waiter.body()
             }
         }
+        relaunchCoverShown(controller)
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
@@ -487,6 +496,7 @@ final class WindowManager {
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present); DebugTimings.markLaunch("window.ordered_front")
             keepsOrder = kept
         }
+        relaunchCoverShown(controller)
         onPresent?(controller)
         enterRestoredFullScreens()
     }
@@ -587,5 +597,42 @@ final class WindowManager {
     /// Workspace `id` hibernated: every window unmounts its parked content.
     func releaseParked(_ id: String) {
         for window in controllers { window.releaseParked(id) }
+    }
+}
+
+// The relaunch cover's glue (CmuxNextRelaunchCover holds the logic).
+extension WindowManager {
+    /// The cover folder beside the launch record; nil in a test window placement or a build without one.
+    var relaunchCoverFolder: URL? {
+        guard services.environment.testWindow == nil, let file = services.environment.sidebarSnapshotFile else { return nil }
+        return RelaunchCoverStore.folder(beside: file.url.deletingLastPathComponent())
+    }
+
+    var relaunchCoverSwap: RelaunchCoverSwap { services.settings?.snapshot.relaunchCoverSwap ?? RelaunchCoverSwapSetting.fallback }
+
+    /// Every window on screen, front first, but incognito ones (a picture of them must not reach the disk).
+    func captureRelaunchCover(_ cause: RelaunchCoverCause) {
+        let value = registry.value
+        let sources = value.recency.filter { !value.isIncognito($0) }.compactMap { id in
+            controller(for: id).flatMap { controller in controller.window.map { RelaunchCoverSource(id: id, window: $0, panes: Self.coverPanes(controller)) } }
+        }
+        relaunchCover.capture(cause, swap: relaunchCoverSwap, windows: sources)
+    }
+
+    func beginRelaunchCover(shows: Bool) {
+        let saved = services.daemon.launchSnapshotWindows?.windows.filter { !$0.isClosed }.map(\.id) ?? []
+        relaunchCoverShow.begin(shows: shows, swap: relaunchCoverSwap, restoring: saved) { DebugTimings.markLaunch($0) }
+    }
+
+    func relaunchCoverShown(_ controller: WindowController) {
+        guard let window = controller.window, controller.content != nil else { return }
+        relaunchCoverShow.windowShown(id: controller.state.id, window: window, panes: Self.coverPanes(controller))
+    }
+
+    /// A pane is ready once its pages painted (a terminal's last frame shows from its first layout).
+    static func whenPainted(_ view: NSView, _ done: @escaping @MainActor () -> Void) { UnpaintedPages(in: view).whenPainted(done) }
+
+    private static func coverPanes(_ controller: WindowController) -> [String: NSView] {
+        Dictionary(uniqueKeysWithValues: (controller.content?.panes ?? [:]).map { ($0.key.rawValue, $0.value.view as NSView) })
     }
 }

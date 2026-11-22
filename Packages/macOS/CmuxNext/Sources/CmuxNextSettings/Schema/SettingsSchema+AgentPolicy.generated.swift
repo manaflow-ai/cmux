@@ -54,6 +54,8 @@ extension SettingsSchema {
         "app.showMenuBarIcon",
         // The language cmux's own text is in; ends no work.
         "app.language",
+        // How a relaunch swaps each window's saved picture for live content (looks only); ends no work.
+        "launch.relaunchCoverSwap",
         "tabs.overflow", "tabs.shellIconTheme",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",

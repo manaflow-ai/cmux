@@ -400,7 +400,7 @@ struct AgentPaneRelaunchWakeTests {
     /// its write still end inside the keep quit's deadline (the quit waits for it past its own limit).
     @Test func theComposerAskFitsTheKeepQuitDeadline() throws {
         let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
-                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
+                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {}, relaunchCover: {})
         let before = try #require(steps.steps.firstIndex { $0.name == "agent_composers" })
         let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit) { $0 + $1.limit }
         let write: Duration = .milliseconds(300)
