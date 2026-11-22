@@ -226,3 +226,10 @@ export const AppsOps = {
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
 export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;
+/** Settings > Customize (the Customize cmux… card): `openSettings` on its checklist card, a
+ * page-only category the host routes by card (WindowHandlers `pageOnlyCardRoute`). */
+export const CUSTOMIZE_ACTION = {
+  op: "cmux.app.action.run",
+  action: "openSettings",
+  args: { setting: "card.customizeChecklist" },
+} as const;
