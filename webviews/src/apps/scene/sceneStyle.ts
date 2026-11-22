@@ -24,6 +24,15 @@ const COLORS: Record<string, string> = {
   clear: "transparent",
 };
 
+/** The glass levels a node's `glass` prop names, as the native renderer's (CmuxNextDesign GlassLevel). */
+export const SCENE_GLASS_LEVELS = ["chrome", "popover", "menu", "chip"] as const;
+export type SceneGlassLevel = (typeof SCENE_GLASS_LEVELS)[number];
+
+/** A node's `glass` level, or undefined for none or an unknown one (which draws no glass). */
+export function sceneGlass(value: unknown): SceneGlassLevel | undefined {
+  return SCENE_GLASS_LEVELS.find((level) => level === value);
+}
+
 /** App colors are semantic tokens or hex, never arbitrary CSS. */
 export function sceneColor(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -124,8 +133,10 @@ export function sceneStyle(props: SceneProps): SceneStyle {
     dx || dy ? `translate(${dx}px, ${dy}px)` : "",
   ].filter(Boolean);
   if (transforms.length) style.transform = transforms.join(" ");
-  style.backgroundImage = sceneGradient(props.background);
-  style.backgroundColor = style.backgroundImage ? undefined : sceneColor(props.background);
+  // Glass replaces the fill, a gradient one too, as it does in the native renderer.
+  const glass = sceneGlass(props.glass) !== undefined;
+  style.backgroundImage = glass ? undefined : sceneGradient(props.background);
+  style.backgroundColor = glass || style.backgroundImage ? undefined : sceneColor(props.background);
   style.color = sceneColor(props.color);
   style.borderRadius = sceneNumber(props.cornerRadius);
   if (sceneColor(props.borderColor)) {

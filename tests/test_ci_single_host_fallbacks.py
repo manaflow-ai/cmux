@@ -8,7 +8,7 @@ reads this repository's workflows live. So a pull request here that added a runs
 merged green and turned that repository red afterwards: cmux#40221 added vars.CI_NIGHTLY_MINI_SIGNER
 and vars.CI_NIGHTLY_MINI_PUBLISHER to nightly.yml, and only the policy test there caught it, after
 the merge. The declaration now lives here and the build-fleet test reads this file. The pre-push hook
-refuses a push that adds an undeclared name; CI only warns (no new CI gate, Lawrence 2026-10-23).
+refuses a push that adds an undeclared name; CI only warns (no new CI gate, Lawrence 2026-10-23, lifted 2026-11-18).
 This test is not in CI (tests/test-execution.d/ci.toml: manual); run it yourself.
 
 The scan is scripts/cmux-next/check-single-host-fallbacks.py (strict by default; CI passes --advisory, which

@@ -421,6 +421,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.pause_all": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.rename": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -2242,6 +2246,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
