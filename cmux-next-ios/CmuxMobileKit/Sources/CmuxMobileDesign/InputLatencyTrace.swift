@@ -61,6 +61,11 @@ public final class InputLatencyTrace {
     private var hitches8 = 0
     private var iterations4 = 0
     private var maxIterationMs = 0.0
+    /// Kinds to sample the current iteration as, whole (`tagIteration`).
+    private var iterationTags: [String] = []
+    /// Tags waiting for the turn's end after Core Animation's commit, with when they were set.
+    private var turnTags: [(kind: String, start: CFTimeInterval)] = []
+    private var lateObserver: CFRunLoopObserver?
 
     private init() {
         let url = Self.fileURL
@@ -87,6 +92,46 @@ public final class InputLatencyTrace {
         Self.signposter.emitEvent("sample", "\(kind, privacy: .public) \(ms, format: .fixed(precision: 1))ms")
         write(#"{"type":"sample","kind":"\#(kind)","ms":\#(Self.f(ms)),"t":\#(Self.f(CACurrentMediaTime() * 1000))}"#)
         InputLatencyBoard.shared?.update(summary)
+    }
+
+    /// A sample that leaves the board alone (`PushApplyTrace`): the board's
+    /// summary is main-thread work of its own; the next `sample` shows it.
+    public func quietSample(_ kind: String, ms: Double) {
+        var list = samples[kind, default: []]
+        list.append(ms)
+        if list.count > 512 { list.removeFirst(list.count - 512) }
+        samples[kind] = list
+        write(#"{"type":"sample","kind":"\#(kind)","ms":\#(Self.f(ms)),"t":\#(Self.f(CACurrentMediaTime() * 1000))}"#)
+    }
+
+    /// `quietSample` from `start` to the next frame presented.
+    public func quietSampleAtNextFrame(_ kind: String, since start: CFTimeInterval) {
+        NextFrame.after { [weak self] in self?.quietSample(kind, ms: (CACurrentMediaTime() - start) * 1000) }
+    }
+
+    /// The run-loop iteration running now is sampled as `kind` when it ends:
+    /// `KIND_iteration`, the whole iteration up to its before-waiting (this trace's
+    /// observer runs first, ahead of Core Animation's commit), and `KIND_turn`,
+    /// from now to after the commit (an observer ordered last: the SwiftUI
+    /// updates and layout the push queued in this turn).
+    public func tagIteration(_ kind: String) {
+        if !iterationTags.contains(kind) { iterationTags.append(kind) }
+        if !turnTags.contains(where: { $0.kind == kind }) { turnTags.append((kind, CACurrentMediaTime())) }
+        if lateObserver == nil {
+            let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, true, CFIndex.max) { _, _ in
+                let now = CACurrentMediaTime()
+                MainActor.assumeIsolated { InputLatencyTrace.shared?.turnEnded(at: now) }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            lateObserver = observer
+        }
+    }
+
+    private func turnEnded(at now: CFTimeInterval) {
+        guard !turnTags.isEmpty else { return }
+        let tags = turnTags
+        turnTags.removeAll()
+        for tag in tags { quietSample("\(tag.kind)_turn", ms: (now - tag.start) * 1000) }
     }
 
     /// A sample from `start` (`CACurrentMediaTime`) to now.
@@ -120,6 +165,11 @@ public final class InputLatencyTrace {
 
     private func iterationEnded(_ iteration: MainThreadWatch.Iteration) {
         let ms = (iteration.end - iteration.start) * 1000
+        let tags = iterationTags
+        if !tags.isEmpty {
+            iterationTags.removeAll()
+            for tag in tags { quietSample("\(tag)_iteration", ms: ms) }
+        }
         guard ms >= Self.recordMs else { return }
         iterations4 += 1
         if ms >= 8 { hitches8 += 1 }
@@ -128,7 +178,7 @@ public final class InputLatencyTrace {
         for index in windows.indices where windows[index].contains(iteration.start) || windows[index].contains(iteration.end) {
             windows[index].add(iteration)
         }
-        let label = labels.map(\.name).joined(separator: ",")
+        let label = (labels.map(\.name) + tags).joined(separator: ",")
         let start = iteration.start
         let stacks = iteration.stacks
         Self.signposter.emitEvent("hitch", "\(ms, format: .fixed(precision: 1))ms \(label, privacy: .public)")

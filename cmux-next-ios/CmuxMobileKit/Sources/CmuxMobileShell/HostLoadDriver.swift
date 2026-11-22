@@ -26,9 +26,23 @@ enum HostLoadDriver {
             try? await Task.sleep(for: .milliseconds(50))
             // Once a second, a slow Mac's backlog: ten pushes in one turn.
             let burst = tick % 20 == 19 ? 10 : 1
-            for _ in 0..<burst {
-                tick += 1
-                push(tick: tick, store: store)
+            // PushApplyTrace: the turn's sync cost, its whole run-loop iteration and
+            // its commit, and (a burst) its start to the next presented frame.
+            if burst > 1 {
+                PushApplyTrace.tagIteration("push_burst")
+                PushApplyTrace.toNextFrame("push_burst_to_frame")
+                PushApplyTrace.measure("push_burst_sync") {
+                    for _ in 0..<burst {
+                        tick += 1
+                        push(tick: tick, store: store)
+                    }
+                }
+            } else {
+                PushApplyTrace.tagIteration("push_tick")
+                PushApplyTrace.measure("push_tick_sync") {
+                    tick += 1
+                    push(tick: tick, store: store)
+                }
             }
         }
     }
@@ -45,7 +59,7 @@ enum HostLoadDriver {
                     row.lastActivityAt = now
                     return row
                 }
-                store.replaceWorkspaces(macID: macID, with: rows)
+                PushApplyTrace.measure("push_apply_tree") { store.replaceWorkspaces(macID: macID, with: rows) }
             }
         } else {
             // Eight rows' metadata (a Mac's `onRows`), round robin.
@@ -57,9 +71,15 @@ enum HostLoadDriver {
                 row.isWorking = tick % 2 == 0
                 byMac[row.macID, default: []].append(row)
             }
-            for (macID, rows) in byMac { store.updateWorkspaces(macID: macID, rows: rows) }
+            for (macID, rows) in byMac {
+                PushApplyTrace.measure("push_apply_rows") { store.updateWorkspaces(macID: macID, rows: rows) }
+            }
         }
-        NotificationCenter.default.post(name: HostLoadSim.tick, object: tick)
+        // The mock terminal's status line (`push_apply_status`) and chat status
+        // (`push_apply_chat`, applied later by the chat store's task) hang off this.
+        PushApplyTrace.measure("push_apply_tick_post") {
+            NotificationCenter.default.post(name: HostLoadSim.tick, object: tick)
+        }
     }
 }
 #endif

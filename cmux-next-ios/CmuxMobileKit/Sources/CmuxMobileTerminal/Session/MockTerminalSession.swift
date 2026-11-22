@@ -299,7 +299,9 @@ public final class MockTerminalSession: TerminalSession {
 
     private func hostLoadTick(_ tick: Int) {
         guard case .shell = program else { return }
-        write("\u{1B}7\u{1B}[1;1H\u{1B}[2K   Compiling cmux-mobile-host step \(tick) of 4000\u{1B}8")
+        PushApplyTrace.measure("push_apply_status") {
+            write("\u{1B}7\u{1B}[1;1H\u{1B}[2K   Compiling cmux-mobile-host step \(tick) of 4000\u{1B}8")
+        }
     }
 
     // MARK: Output

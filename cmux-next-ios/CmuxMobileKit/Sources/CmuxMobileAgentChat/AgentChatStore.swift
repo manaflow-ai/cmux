@@ -401,6 +401,12 @@ public final class AgentChatStore {
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
+                #if DEBUG
+                if case .status = event, HostLoadSim.mode == .heavy {
+                    PushApplyTrace.measure("push_apply_chat") { self.receive(event) }
+                    continue
+                }
+                #endif
                 self.receive(event)
             }
         }
