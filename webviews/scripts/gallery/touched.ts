@@ -78,8 +78,35 @@ export function hostStylesheets(
   return host === "agent-pane" ? [...reached, ...paneStylesheets()] : reached;
 }
 
+/**
+ * The imports already parsed for a `read` made by `memoRead`. A run asks for the imports of the same file once
+ * per entry that reaches it (hundreds of entries over a closure of thousands of files): 106 s on a CI runner
+ * (2026-11-22, gallery health, 16 shards each) when every ask read and parsed the file again.
+ */
+const parsedImports = new WeakMap<object, Map<string, string[]>>();
+
+/** `read` that reads each file once, and whose `importsOf` is answered from memory after the first ask. */
+function memoRead(read: (file: string) => string | undefined): (file: string) => string | undefined {
+  const texts = new Map<string, string | undefined>();
+  const memo = (file: string) => {
+    if (!texts.has(file)) texts.set(file, read(file));
+    return texts.get(file);
+  };
+  parsedImports.set(memo, new Map());
+  return memo;
+}
+
 /** The relative imports of one source file, resolved to files that exist. */
 export function importsOf(file: string, read: (file: string) => string | undefined = readSource): string[] {
+  const cache = parsedImports.get(read);
+  const cached = cache?.get(file);
+  if (cached) return cached;
+  const out = parseImports(file, read);
+  cache?.set(file, out);
+  return out;
+}
+
+function parseImports(file: string, read: (file: string) => string | undefined): string[] {
   const text = read(file);
   if (text === undefined) return [];
   const out: string[] = [];
@@ -179,7 +206,7 @@ export function touchedEntries(
 ): TouchedEntries {
   const src = options.src ?? SRC;
   const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
-  const read = options.read ?? readSource;
+  const read = memoRead(options.read ?? readSource);
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
   const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));

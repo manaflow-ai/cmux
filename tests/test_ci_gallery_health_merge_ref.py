@@ -224,11 +224,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
                 out = subprocess.run(["bash", "-euc", block], env=env, capture_output=True, text=True, check=True).stdout
                 self.assertEqual("BUILT" in out, built, out)
 
-    def test_the_two_base_renders_run_side_by_side_each_one_case_at_a_time(self) -> None:
-        # One after the other they were ~55 s each for ten red cases, most of it waiting out a play's timeout.
+    def test_the_two_base_renders_run_side_by_side_four_cases_at_a_time(self) -> None:
+        # One after the other they were ~55 s each for ten red cases, most of it waiting out a play's timeout;
+        # one case at a time, 84 red cases took 9 minutes of a shard's 30 (2026-11-22).
         run = step("Judge the red states against the base")["run"]
         replay = run[run.index("for pass in 1 2"):]
-        self.assertIn("--concurrency 1", replay)
+        self.assertIn("--concurrency 4", replay)
         self.assertIn(") &", replay)
         self.assertLess(replay.index(") &"), replay.index("\nwait\n"))
         # Both verdicts are read only after both renders ended.
@@ -277,17 +278,19 @@ class GalleryHealthPushBase(unittest.TestCase):
         self.assertEqual(values["base_sha"], values["previous"])
         self.assertEqual(values["head_sha"], values["tip"])
 
-    def test_a_push_fetches_the_history_its_before_is_in(self) -> None:
-        """A push compares with `before`, which may be any depth back, so it fetches full history. GitHub's
-        `cond && a || b` gives b whenever a is falsy, and 0 is falsy: `push && 0 || 2` fetched depth 2 on
-        every push, and a multi-commit push lost its base (review of cmux#40994)."""
+    def test_a_push_fetches_the_one_commit_its_before_is_and_no_history(self) -> None:
+        """A push compares with `before`, which may be any depth back. Full history (`fetch-depth: 0`) fetched
+        every branch and took ~80-100 s of every shard (2026-11-22), so the checkout is one commit deep and the
+        resolve step fetches `before` alone. GitHub's `cond && a || b` gives b whenever a is falsy, and 0 is
+        falsy, so the pull request's depth is the one named in the condition (review of cmux#40994)."""
         depth = str(step("Checkout")["with"]["fetch-depth"])
-        match = re.fullmatch(r"\$\{\{ github\.event_name == 'push' && (\S+) \|\| (\S+) \}\}", depth)
+        match = re.fullmatch(r"\$\{\{ github\.event_name == 'pull_request' && (\S+) \|\| (\S+) \}\}", depth)
         self.assertIsNotNone(match, depth)
-        when_push, otherwise = match.group(1), match.group(2)
-        self.assertNotIn(when_push, {"0", "false", "''", "null"}, "a falsy value here makes `||` take the right side")
-        self.assertEqual(int(when_push.strip("'")), 0)
-        self.assertEqual(int(otherwise.strip("'")), 2)
+        self.assertEqual(int(match.group(1).strip("'")), 2)
+        self.assertEqual(int(match.group(2).strip("'")), 1)
+        resolve = step("Resolve the head and the merge")["run"]
+        self.assertIn('git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE"', resolve)
+        self.assertLess(resolve.index("git fetch"), resolve.index("git cat-file -e"))
 
     def test_a_new_tip_or_the_nightly_has_no_base(self) -> None:
         self.assertEqual(self.resolve("push", "0" * 40)["base_sha"], "")
