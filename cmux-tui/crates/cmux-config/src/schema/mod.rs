@@ -162,6 +162,10 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.transcriptTokens`: an object of transcript look
+    /// tokens, each in its range (`crate::transcript_look`; Swift
+    /// `TranscriptTokensSetting.accepts` checks the shape only).
+    TranscriptTokens,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
@@ -431,6 +435,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

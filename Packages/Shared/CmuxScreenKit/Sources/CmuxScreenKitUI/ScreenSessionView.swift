@@ -500,10 +500,11 @@ public struct ScreenSessionView: View {
             // `ScreenSession.reconnectNoticeDelay`: a blip recovers silently.
             // Past it, a reconnect is a small chip at the top over the kept frame, never a
             // sentence card across it (Leo, 2026-11-21: "a symbol or short thing, not a
-            // sentence"); the first connect has no frame to keep, so it keeps the card.
+            // sentence"). A first connect has no frame to keep, so it keeps the card, after
+            // `ScreenSession.connectNoticeDelay`: a quick one never flashes.
             if session.isReconnecting {
                 if session.reconnectNoticeDue { reconnectChip }
-            } else {
+            } else if session.connectNoticeDue {
                 card {
                     CmuxSpinner()
                     Text("Connecting to \(session.title)…").font(.headline)
