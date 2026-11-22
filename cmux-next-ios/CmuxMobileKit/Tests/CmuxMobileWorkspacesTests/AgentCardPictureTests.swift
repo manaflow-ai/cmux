@@ -239,5 +239,78 @@ import CmuxTabsKit
         #expect(source.rasterizer.lastKey.map { $0.page == CGSize(width: 402, height: 874) } ?? true,
                 "the card's picture key: \(String(describing: source.rasterizer.lastKey?.page))")
     }
+
+    /// Pixels of `image` in the yellow of the mark `ImageRenderer` draws in place of a view it
+    /// cannot draw (a UIKit-backed one): a yellow square with a red prohibition sign.
+    static func markYellowPixels(_ image: UIImage) throws -> Int {
+        let cg = try #require(image.cgImage)
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        try #require(drawn)
+        var count = 0
+        for pixel in 0 ..< width * height {
+            let r = bytes[pixel * 4], g = bytes[pixel * 4 + 1], b = bytes[pixel * 4 + 2]
+            if r > 200, g > 180, b < 90 { count += 1 }
+        }
+        return count
+    }
+
+    /// A 4:3 blue JPEG the size of a phone photo's upload (no crop in its bubble).
+    static func bluePhotoJPEG() throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 900), format: format).image { context in
+            UIColor(red: 0, green: 0, blue: 1, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1200, height: 900))
+        }
+        return try #require(image.jpegData(compressionQuality: 0.8))
+    }
+
+    static func picture(of turn: AgentTurn) async throws -> UIImage {
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        var key = Self.key(feed, turns: [turn])
+        for _ in 0 ..< 200 where !key.isDrawable {
+            try await Task.sleep(for: .milliseconds(10))
+            key = Self.key(feed, turns: [turn])
+        }
+        try #require(key.isDrawable)
+        return try #require(AgentCardRasterizer.render(feed, key))
+    }
+
+    /// Leo, 2026-11-22, on yellow squares with a red prohibition sign in the tab grid's cards:
+    /// "isn't this literally apple telling you theres nothing there?" It is: `ImageRenderer`
+    /// draws that mark for any UIKit-backed view. A paragraph with math was typeset by a web
+    /// view, in a card's picture too. No row of a card's picture may draw the mark.
+    @Test(arguments: [
+        "Inline math: the mass is $E = mc^2$ and the root is $x = \\frac{-b}{2a}$.",
+        "A block:\n\n$$\n\\int_0^1 x^2 \\, dx = \\frac{1}{3}\n$$\n\nand text after it.",
+    ])
+    func aCardPictureOfMathHoldsNoSystemCannotDrawMark(markdown: String) async throws {
+        var turn = AgentTurn(id: "math-\(markdown.count)", prompt: "Show me", promptAt: Date(timeIntervalSince1970: 0))
+        turn.items = [.message(id: "m", markdown: markdown)]
+        turn.status = .completed
+        let yellow = try Self.markYellowPixels(try await Self.picture(of: turn))
+        #expect(yellow == 0, "the card's picture holds the system's cannot-draw mark: \(yellow) yellow pixels")
+    }
+
+    /// The same for a sent photo: a 4:3 JPEG is not cropped in its bubble, and its thumbnail
+    /// was the decoder's own image, not a plain bitmap. The picture shows the photo.
+    @Test func aCardPictureOfAPhotoShowsItAndNoSystemCannotDrawMark() async throws {
+        var turn = AgentTurn(id: "photo", prompt: "Look at this", promptAt: Date(timeIntervalSince1970: 0))
+        turn.attachments = [AgentAttachment(id: "photo-\(UUID().uuidString)", kind: .image, name: "photo.jpg", data: try Self.bluePhotoJPEG())]
+        turn.status = .completed
+        let image = try await Self.picture(of: turn)
+        #expect(try Self.markYellowPixels(image) == 0)
+        let thumbnail = SentAttachments.thumbnail(of: try #require(UIImage(data: try Self.bluePhotoJPEG())), side: 200)
+        let cg = try #require(thumbnail.cgImage)
+        #expect(cg.bitsPerComponent == 8 && cg.bitsPerPixel == 32, "a plain bitmap: \(cg.bitsPerComponent) bits, \(cg.bitsPerPixel) per pixel")
+    }
 }
 #endif
