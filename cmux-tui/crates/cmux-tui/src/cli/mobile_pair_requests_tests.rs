@@ -151,7 +151,7 @@ fn an_older_hostd_without_the_local_op_says_to_update() {
     let answer = local_answer(old);
     assert_eq!(answer["error"], "local_unsupported");
     let (_, text) = explain("local_unsupported", "op is machines, open or traffic", "this Mac", "");
-    assert!(text.contains("Update cmux on this Mac"), "{text}");
+    assert!(text.contains("Click Allow") && text.contains("--mac"), "{text}");
     // Any other answer, a refusal of the service included, is passed on as is.
     let refusal = json!({"error": "bad_request", "message": "expected deviceId and fingerprint"});
     assert_eq!(local_answer(refusal.clone()), refusal);

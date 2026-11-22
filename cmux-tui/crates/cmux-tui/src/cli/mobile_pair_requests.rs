@@ -159,8 +159,8 @@ pub(super) fn explain(code: &str, reason: &str, mac: &str, flag: &str) -> (Strin
             format!("{mac} is busy with other pairing checks ({reason}); try again in a moment")
         }
         "local_unsupported" => format!(
-            "the cmux running on {mac} is older than answering its pairing requests from the CLI ({reason}). \
-             Update cmux on {mac}, or click Allow in its prompt"
+            "the cmux link on {mac} has no local pair-requests answer ({reason}). Click Allow in its prompt, \
+             or from another of your paired Macs run `cmux mobile pair-requests list --mac <this Mac's name>`"
         ),
         "bad_request" => format!("{mac} refused the request: {reason}"),
         _ => format!("{mac} refused ({code}): {reason}"),
