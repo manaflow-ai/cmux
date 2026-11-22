@@ -432,7 +432,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
-| `sidebar.showAutomaticSessions` | boolean | `false` |  | Show Automatic Sessions. Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
 | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
@@ -717,6 +716,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.scrollToBottomOnSend` | boolean | `true` |  | Scroll to Bottom When I Send. When off, sending while you are reading up keeps your place and shows new messages below. |
 | `agentPane.showMachineLoadWarnings` | boolean | `true` |  | Show Machine Load Warnings. Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu. |
 | `agentPane.newChatsIn` | string | `"local"` | `local`, `cloud` | Start New Chats In. Cloud copies your project to your Cloud machine. A chat's composer can change it. |
+| `agentPane.sessionWorktrees` | string | `"off"` | `off`, `shared`, `project` | Session Worktrees. Choose where to keep worktrees for local chats and forks. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |

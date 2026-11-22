@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -462,7 +472,6 @@
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
               "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
@@ -1312,6 +1321,7 @@
             "key" : "settings.group.agentChat",
             "rows" : [
               "agentPane.newChatsIn",
+              "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
               "agents.promptCache",
               "agents.modelRouter.model",
@@ -1598,6 +1608,18 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
             }
           },
           {
@@ -2438,7 +2460,7 @@
         "zh-Hant"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -2662,7 +2684,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -2674,9 +2696,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -24192,7 +24216,7 @@
         "30d"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -24295,7 +24319,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -24307,9 +24331,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -29149,7 +29175,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -29219,14 +29245,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -30617,7 +30643,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -30687,14 +30713,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -32101,7 +32127,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -32171,14 +32197,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -33404,7 +33430,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -33474,14 +33500,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -39477,7 +39503,7 @@
         "plumAmber"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -39626,7 +39652,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -39638,9 +39664,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -69450,146 +69478,6 @@
       "title" : {
         "key" : "settings.sidebar.settleFinished",
         "text" : "Settle Finished Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.showAutomaticSessions.help",
-        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showAutomaticSessions",
-      "keywords" : [
-        "sidebar",
-        "automatic",
-        "auto",
-        "script",
-        "automation",
-        "background",
-        "hidden",
-        "hide",
-        "fold",
-        "sessions",
-        "tidy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showAutomaticSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:sidebar.showAutomaticSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.sidebar.showAutomaticSessions",
-        "text" : "Show Automatic Sessions"
       },
       "validation" : "portable"
     },
@@ -106018,7 +105906,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -106098,7 +105986,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -106110,9 +105998,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -106170,7 +106060,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -106250,7 +106140,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -106262,9 +106152,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -106321,7 +106213,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -106394,7 +106286,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -106406,9 +106298,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -107827,7 +107721,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -107896,7 +107790,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -107908,9 +107802,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -107967,7 +107863,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -108033,7 +107929,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -108045,9 +107941,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -110766,6 +110664,163 @@
       "title" : {
         "key" : "settings.agentPane.newChatsIn",
         "text" : "Start New Chats In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionWorktreesShared",
+            "text" : "Shared Worktree Folder"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionWorktreesProject",
+            "text" : "Inside Project"
+          },
+          "value" : "project"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.sessionWorktrees.help",
+        "text" : "Choose where to keep worktrees for local chats and forks."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.sessionWorktrees",
+      "keywords" : [
+        "git",
+        "worktree",
+        "fork",
+        "folder"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "sessionWorktrees"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.sessionWorktrees"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.sessionWorktrees",
+        "text" : "Session Worktrees"
       },
       "validation" : "portable"
     },
