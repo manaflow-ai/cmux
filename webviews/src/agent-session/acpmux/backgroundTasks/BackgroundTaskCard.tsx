@@ -128,7 +128,7 @@ export function BackgroundTaskCard({
           type="button"
           className="acpmux-bg-card__toggle"
           aria-expanded={open}
-          title={command}
+          aria-description={command}
           onClick={() => setOpen(!open)}
         >
           <span className="acpmux-bg-card__disclosure" aria-hidden="true">
