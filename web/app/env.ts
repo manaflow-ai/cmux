@@ -310,6 +310,7 @@ export const env = createEnv({
     ),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
     // cmux NEXT Cloud plans. Unset means that plan is not for sale yet.
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: z.string().min(1).optional(),
     STRIPE_PRICE_NEXT_PRO_MONTHLY: z.string().min(1).optional(),
     STRIPE_PRICE_NEXT_MAX_MONTHLY: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
@@ -557,8 +558,9 @@ export const env = createEnv({
     STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
     STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
-    STRIPE_PRICE_NEXT_PRO_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY),
-    STRIPE_PRICE_NEXT_MAX_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY),
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY) || undefined,
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),
