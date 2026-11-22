@@ -250,7 +250,7 @@ final class TerminalDemoDriver {
     /// cursor keys). The UI test pans with one finger for 10 s; this
     /// measures while a finger is down (and 0.6 s after, for a fling):
     /// `tuipan-VARIANT done frames=N p50=MS p95=MS hitches=N stalls=N
-    /// bytes=N draws=N appScrolls=N fetches=N` (`bytes`: what the phone sent
+    /// bytes=N appScrolls=N fetches=N touches=N` (`bytes`: what the phone sent
     /// the "Mac"; `appScrolls`: wheel reports and cursor keys the app took).
     private func tuiPan(_ variant: String) async {
         model.composerText = variant == "primary" ? "claudecli 1500 80" : "claudefull 1500 \(variant)"
@@ -262,20 +262,20 @@ final class TerminalDemoDriver {
             return
         }
         let meter = TerminalPanMeter(window: window)
-        let bytes = session.bytesFromPhone, fetches = session.historyFetches, draws = controller.surface.draws
+        let bytes = session.bytesFromPhone, fetches = session.historyFetches
         let scrolls = session.appScrolls
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
-        // Until the pans are over: 1.5 s with no finger after the first,
-        // within 45 s.
+        // Until the pans are over: 4 s with no finger after the first (the
+        // UI test's next drag can wait seconds for the app to idle), within 45 s.
         let deadline = Date().addingTimeInterval(45)
         while Date() < deadline {
             await wait(0.25)
-            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 1.5 { break }
+            if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
         }
         meter.stop()
-        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) draws=\(controller.surface.draws - draws)"
-            + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) isTUI=\(model.isTUI)"
+        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes)"
+            + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
     }
@@ -634,6 +634,8 @@ final class TerminalPanMeter: NSObject {
     }
 
     private(set) var touchesDown = 0
+    /// Fingers that landed while measuring.
+    private(set) var touches = 0
     private(set) var lastTouchUp: CFTimeInterval?
     private var intervals: [Double] = []
     private var lastFrame: CFTimeInterval?
@@ -647,6 +649,7 @@ final class TerminalPanMeter: NSObject {
         super.init()
         watcher.changed = { [weak self] down, time in
             guard let self else { return }
+            if down > touchesDown { touches += down - touchesDown }
             touchesDown = down
             if down == 0 { lastTouchUp = time }
         }

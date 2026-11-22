@@ -79,7 +79,7 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         XCTAssertTrue(demo.hasPrefix("tuipan-\(variant) done"), "the phase finished: \(demo)")
 
         let values = Self.values(demo)
-        XCTAssertEqual(values["isTUI"] == nil, false, "the readout names the screen: \(demo)")
+        XCTAssertTrue(demo.contains(variant == "primary" ? "isTUI=false" : "isTUI=true"), "the mock is on the screen it emulates: \(demo)")
         XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
         XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan sent the Mac nothing: \(demo)")
         XCTAssertEqual(values["appScrolls"] ?? -1, 0, "the app was never scrolled by a one-finger pan: \(demo)")
