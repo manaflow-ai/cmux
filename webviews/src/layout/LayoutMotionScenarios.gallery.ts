@@ -11,6 +11,7 @@ import { agentPaneEntry } from "../gallery/format";
 import { activity, assistant, chat, noChat, summary, tool, user } from "../gallery/fixtures/acpmux";
 import type { PlayContext } from "../gallery/play";
 import type { AcpmuxRow } from "../agent-session/acpmux/model";
+import type { LoadToolsOptions } from "../agent-session/acpmux/loadDebug";
 
 function turn(index: number, minutes: number): AcpmuxRow[] {
   const id = `motion-${index}`;
@@ -49,7 +50,9 @@ const atLatest = async (ctx: PlayContext) => {
 type Debug = {
   loadSeed(turns: number, options?: { light?: boolean }): Promise<{ session?: string }>;
   selectSession(sessionId: string): Record<string, unknown>;
-  loadTools(options?: { count?: number; gap_ms?: number; keep_open?: boolean }): Promise<Record<string, unknown>>;
+  // The debug hook's own options type, never a copy of its shape: a hand-copied one drifted the moment
+  // `reply` was added to it (loadDebug.ts), and the gallery saw a type error instead of the option.
+  loadTools(options?: LoadToolsOptions): Promise<Record<string, unknown>>;
 };
 const debugOf = async (ctx: PlayContext): Promise<Debug> => {
   const view = ctx.document.defaultView as unknown as { cmuxAcpmuxDebug?: Debug };

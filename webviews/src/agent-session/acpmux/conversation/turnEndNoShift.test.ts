@@ -6,8 +6,10 @@
 //
 // The rows only an ended turn used to draw — its edits card, its walkthrough, its tagged next-step
 // card, its task lines — were appended at the live→ended swap at their full measured height, with no
-// space kept for them. The reader's bottom is pinned, so every row above the append rose by its
-// height; a reader scrolled up was pushed down by the same amount. `shapeTurn` already had the cure
+// space kept for them. A reader following the end has their bottom pinned, so every row above the
+// append rose by its height (measured in a real scroller, test/turn-end-no-shift.browser.test.ts: 82px
+// in Chromium and WebKit, 0 after). A reader parked up in the earlier turns was *not* pushed --
+// `anchorPass` pins a row for them -- so the jump is the followed reader's. `shapeTurn` already had the cure
 // for the families that mark a final answer: the provisional-summary path (turns.ts) shapes the ended
 // tail while the turn is still live. These tests pin the three parts of closing it:
 //   1. the ended turn draws no row the live turn had not already drawn (nothing arrives at the swap);
@@ -101,8 +103,8 @@ for (const agentFamily of ["codex", "claude"])
   });
 
 // A row appended below the reader is the push itself: if the end adds height under the rows that were
-// already drawn, a pinned bottom lifts every one of them (`anchorPass` pins one row, and nothing
-// below it may change height) and a reader scrolled up is shoved down by the same amount.
+// already drawn, the followed reader's pinned bottom lifts every one of them. This is the number the
+// browser test turns into on-screen motion; here it is the height alone, which is what causes it.
 test("a turn's end adds no height under the rows that were already drawn", () => {
   const options = { now: 60_000, agentFamily: "codex" };
   const live = turnView([...earlier, ...ending], new Set(), { ...options, working: true });
