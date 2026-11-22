@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "8da04e14e689511173941d70426970b94b40cd7582ecf7fd45f0b27cf087d292",
+  "catalog_sha256": "457f717f9c9bd09b7e4654d86c1063e0badcaf02399f9d11085e0276fa5326a7",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -471,6 +471,9 @@
     },
     "keybindings.set": {
       "class": "mutation"
+    },
+    "language_packs.ensure": {
+      "class": "read"
     },
     "layout.bulk": {
       "class": "mutation"
