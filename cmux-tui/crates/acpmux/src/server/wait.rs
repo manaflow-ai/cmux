@@ -335,7 +335,7 @@ fn holds_for_retry(
 
 /// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
-    let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
+    let row = ev.remote.as_ref().and_then(|r| r.summary.session_id());
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
 }
 

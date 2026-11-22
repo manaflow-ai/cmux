@@ -2,8 +2,10 @@
 //! (`agent_tools.rs`). Leo, 2026-10-27: "also when it comes to hibernation...can't you hibernate
 //! the agent but not hibernate the bg tasks?" A `run_in_background` shell ends when the agent
 //! hibernates (Claude Code's exit cleanup), so when the chat has the `acpmux` server's
-//! `bg_start` (`acpmux_mcp_bg.rs`), the hook turns such a call away and gives the exact call
-//! that runs the same command under the daemon, where it outlives the agent.
+//! `bg_start` (`acpmux_mcp_bg.rs`), the hook rewrites such a call into this binary's
+//! `process start` with the same command ([`decide`]), which starts it under the daemon, where it
+//! outlives the agent, and answers at once with its id. (It used to turn the call away with the
+//! `bg_start` call to make instead, which cost the agent a turn each time.)
 //!
 //! It never strands the agent: when the chat's MCP config (`agent_tools::mcp_config_path`) has
 //! no `acpmux` server, plain or behind the `cmux` server's code mode, or anything cannot be read,
@@ -21,6 +23,17 @@
 //! so does a command with [`FOREGROUND_OK`] or a trailing `&`. Any other
 //! command still in the foreground after a minute goes to the background on its own
 //! (`hub/auto_background.rs`), since no list knows a person's own scripts.
+//!
+//! A CI wait (`glaeda-gh wait`, `lane-gh call ci_wait`, `gh run watch`) in the foreground is
+//! rewritten too, a subagent's included, so no wait runs as a shell under the harness. Before,
+//! a background subagent's foreground `glaeda-gh wait` (with a 90-minute Bash `timeout`, so
+//! neither `hub/auto_background.rs` nor Claude Code moved it) kept its chat's idle harness up:
+//! the lead's turn had ended, no turn, queue or command ran, and the idle census saw a bash
+//! under the harness (`hub/idle_census.rs`). A Ctrl-B or a Bash `timeout` cannot hand a running
+//! shell to the daemon; only the hook, before it starts, can. A wait whose own bound is short
+//! (`--timeout 60`, [`QUICK_WAIT_SECS`]) is a read and runs as asked. Leo, on 60 such chats of
+//! about 190 awake on the fleet: "thats extremely dumb. simply clear th bullshit. theres noway
+//! tere's >100 of actually needed stuff much less >400".
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -93,6 +106,8 @@ const SLOW: &[(&str, Option<&str>, Option<&str>, &str)] = &[
     ("xcodebuild", None, None, "an Xcode build"),
     ("gh", Some("run"), Some("watch"), "a CI wait"),
     ("gh", Some("pr"), Some("--watch"), "a CI wait"),
+    ("glaeda-gh", Some("wait"), None, "a CI wait"),
+    ("lane-gh", Some("call"), Some("ci_wait"), "a CI wait"),
     ("tail", None, Some("-f"), "a follow that never ends on its own"),
     ("tail", None, Some("-F"), "a follow that never ends on its own"),
     ("tail", None, Some("--follow"), "a follow that never ends on its own"),
@@ -187,6 +202,17 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
             {
                 continue;
             }
+            // `tail -f --pid=N` ends with process N: a bounded wait, not a follow that never
+            // ends. 418 of the 479 tail refusals on one lane host in 24 h (2026-11-20) were this
+            // form, and 463 of the 479 were sent again unchanged (from #47746).
+            if program == "tail" && rest.iter().any(|w| w.starts_with("--pid")) {
+                continue;
+            }
+            // `glaeda-gh wait ... --timeout 60 --json` reads the state now: a wait whose own
+            // bound is short holds the turn no longer than a read.
+            if program == "glaeda-gh" && short_bound(rest) {
+                continue;
+            }
             if !rest.iter().any(|w| QUICK.contains(w)) {
                 found = Some(*why);
                 return;
@@ -196,55 +222,132 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
     found
 }
 
-/// The hook's answer to one PreToolUse `input`, or None to let the call run: a background
-/// shell goes to `bg_start` when the chat has it, and a known-slow command
-/// ([`slow_reason`]) in the foreground goes to the background.
-pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
+/// The longest own bound (`--timeout S` or `--max S`) of a wait that is a read, not a wait.
+const QUICK_WAIT_SECS: u64 = 120;
+
+/// Whether a wait's words set its own bound to at most [`QUICK_WAIT_SECS`].
+fn short_bound(rest: &[&str]) -> bool {
+    let mut words = rest.iter();
+    while let Some(w) = words.next() {
+        let value = match w.split_once('=') {
+            Some(("--timeout" | "--max", v)) => Some(v),
+            None if matches!(*w, "--timeout" | "--max") => words.next().copied(),
+            _ => None,
+        };
+        if value.and_then(seconds).is_some_and(|v| v <= QUICK_WAIT_SECS as f64) {
+            return true;
+        }
+    }
+    false
+}
+
+/// A wait's bound in seconds: `90`, `90s`, `2m`, `1h`.
+fn seconds(value: &str) -> Option<f64> {
+    let (number, unit) = match value.char_indices().last()? {
+        (at, 's') => (&value[..at], 1.0),
+        (at, 'm') => (&value[..at], 60.0),
+        (at, 'h') => (&value[..at], 3600.0),
+        _ => (value, 1.0),
+    };
+    number.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * unit)
+}
+
+/// How the hook names this binary's `process start` in a rewritten call ([`decide`]): the CLI's
+/// words (its executable and prefix, `self_command.rs`), and the chat's denied-calls file
+/// ([`denied_path`]) with the call's key there, so a task that started forgets the key
+/// ([`forget`]) and a start that failed leaves it, which lets the same call again run as asked.
+#[derive(Debug, Clone)]
+pub struct TaskCli {
+    pub words: Vec<String>,
+    pub denied: std::path::PathBuf,
+    pub key: String,
+}
+
+/// The `--route` word of `process start` for each [`Route`], and back: the CLI's answer names
+/// the chat's own tool that reads the task's output ([`read_call`]).
+pub fn route_word(route: &Route) -> &'static str {
+    match route {
+        Route::Direct => "direct",
+        Route::Listed => "listed",
+        Route::CodeMode => "code-mode",
+    }
+}
+
+pub fn route_of_word(word: &str) -> Option<Route> {
+    match word {
+        "direct" => Some(Route::Direct),
+        "listed" => Some(Route::Listed),
+        "code-mode" => Some(Route::CodeMode),
+        _ => None,
+    }
+}
+
+/// The call that reads task `id`'s output through the chat's own route to acpmux's MCP server.
+pub fn read_call(route: Option<&Route>, id: &str) -> String {
+    let args = json!({"id": id});
+    match route {
+        Some(Route::Direct) => format!("mcp__acpmux__bg_output {args}"),
+        Some(Route::Listed) => format!("mcp__cmux__acpmux_bg_output {args}"),
+        Some(Route::CodeMode) => {
+            format!("cmux_exec with: return await cmux.acpmux_bg_output({args});")
+        }
+        None => format!("bg_output {args}"),
+    }
+}
+
+/// The hook's answer to one PreToolUse `input`, or None to let the call run.
+///
+/// When the chat reaches `bg_start` (`route`), a background shell, and a known-slow command
+/// ([`slow_reason`]) in the foreground, run as a background task the daemon owns: the call is
+/// rewritten (`updatedInput`, no permission decision, so it is asked or allowed as before) into
+/// this binary's `process start` with the same command, in the foreground, which starts the task
+/// and answers at once with its id and how to read it. Before, the hook turned such a call away
+/// with the `bg_start` call to make instead, and agents lost a turn on it: on one agent host over
+/// 24 h (53,061 Claude tool calls) the two were the top refusals of every guard, 245 and 221.
+/// Leo: "our processes deserve more eyes on it. stuff like the stale guards/intsructions/bad
+/// interruptions/not useful enough tools are big".
+///
+/// With no route, a known-slow foreground command is still turned away towards
+/// `run_in_background: true`, and a background shell runs as asked.
+pub fn decide(input: &Value, route: Option<Route>, cli: &TaskCli) -> Option<Value> {
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
     }
     let command = input.pointer("/tool_input/command")?.as_str()?;
     let background = input.pointer("/tool_input/run_in_background") == Some(&json!(true));
     let slow = if background { None } else { Some(slow_reason(command)?) };
-    let call = route.map(|route| {
-        let mut args = json!({"command": command});
-        if let Some(cwd) = input.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()) {
-            args.set("cwd", json!(cwd));
-        }
-        match route {
-            Route::Direct => format!("mcp__acpmux__bg_start {args}"),
-            Route::Listed => format!("mcp__cmux__{FOLDED_TOOL} {args}"),
-            Route::CodeMode => {
-                format!("cmux_exec with: return await cmux.acpmux_bg_start({args});")
-            }
-        }
-    });
-    let reason = match (slow, call) {
-        (None, None) => return None,
-        (None, Some(call)) => format!(
-            "Not run: in this chat a run_in_background shell ends when the agent hibernates \
-after 2 idle minutes. Run the same command as a background task the daemon owns, which keeps \
-running; it answers with the task's id, and bg_output reads its output: {call} If that tool is \
-not available, send this same Bash call again and it runs as asked."
-        ),
-        (Some(why), Some(call)) => format!(
-            "Not run: this is {why}, and a shell in the foreground holds the whole turn until it \
-ends. Run the same command as a background task the daemon owns; it answers with the task's id, \
-and bg_output reads its output, so keep working meanwhile: {call} If that tool is not \
-available, send this Bash call with run_in_background: true. If it must run in the foreground, \
-send this same call again and it runs as asked."
-        ),
-        (Some(why), None) => format!(
+    let Some(route) = route else {
+        let why = slow?;
+        let reason = format!(
             "Not run: this is {why}, and a shell in the foreground holds the whole turn until it \
 ends. Send the same Bash call again with run_in_background: true; you are told when it ends, so \
 keep working meanwhile. If it must run in the foreground, send this same call again and it runs \
 as asked."
-        ),
+        );
+        return Some(json!({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }}));
     };
+    let mut words = cli.words.clone();
+    words.extend(["process", "start", "--route", route_word(&route)].map(str::to_owned));
+    words.extend(["--hook-denied".to_owned(), cli.denied.to_string_lossy().into_owned()]);
+    words.extend(["--hook-key".to_owned(), cli.key.clone()]);
+    let description = input.pointer("/tool_input/description").and_then(Value::as_str);
+    if let Some(d) = description.filter(|d| !d.trim().is_empty()) {
+        words.extend(["--description".to_owned(), d.to_owned()]);
+    }
+    if let Some(why) = slow {
+        words.extend(["--slow".to_owned(), why.to_owned()]);
+    }
+    words.extend(["--".to_owned(), command.to_owned()]);
+    let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    tool_input.set("command", json!(crate::agent_tools::quoted(&words)));
+    tool_input.set("run_in_background", json!(false));
     Some(json!({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": reason,
+        "updatedInput": tool_input,
     }}))
 }
 
@@ -536,15 +639,32 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let route = std::fs::read(&config)
         .ok()
         .and_then(|raw| serde_json::from_slice(&raw).ok())
+        .map(|c: Value| crate::mcp_gateway::stdio_view(&home, &session, c))
         .and_then(|c: Value| route(&c));
-    if let Some(answer) = decide(&input, route) {
-        // The same call turned away just before runs as asked (the replacement may be unusable).
-        // Keyed by what the call runs, not its per-call ids.
-        let what = json!([input.get("cwd"), input.get("tool_input")]);
-        let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
+    // Keyed by what the call runs, not its per-call ids.
+    let what = json!([input.get("cwd"), input.get("tool_input")]);
+    let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
+    let this = crate::self_command::SelfCommand::current()
+        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
+    let mut words = vec![this.exe.to_string_lossy().into_owned()];
+    words.extend(this.args_lossy::<&str>(&[]));
+    let cli = TaskCli { words, denied: denied_path(&config), key };
+    if let Some(answer) = decide(&input, route, &cli) {
+        // The same call turned away, or rewritten into a task that did not start, just before
+        // runs as asked (the replacement may be unusable). A task that started forgets the key
+        // (`process start`, [`forget`]), so the same call later is rewritten again.
         // Unrecorded, a repeat could not get through: then the call runs.
-        if first_time(&denied_path(&config), &key).unwrap_or(false) {
-            println!("{answer}");
+        if first_time(&cli.denied, &cli.key).unwrap_or(false) {
+            // A subagent's rewritten call still carries its mark: `process start` names it.
+            let marked = answer
+                .pointer("/hookSpecificOutput/updatedInput")
+                .map(|updated| {
+                    let mut call = input.clone();
+                    call.set("tool_input", updated.clone());
+                    call
+                })
+                .and_then(|call| subagent_mark(&call));
+            println!("{}", marked.unwrap_or(answer));
             return Ok(());
         }
     }
@@ -557,8 +677,37 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
 /// Whether `key` is new to the chat's denied calls: then it is added (true); a repeat is taken
 /// out (false). Under an exclusive lock on the file, so parallel hooks of one chat never drop
 /// each other's entries.
-#[cfg(unix)]
 fn first_time(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
+    edit_keys(path, |keys| match keys.iter().position(|k| k == key) {
+        Some(at) => {
+            keys.remove(at);
+            false
+        }
+        None => {
+            keys.push(key.to_owned());
+            true
+        }
+    })
+}
+
+/// Takes `key` out of the chat's denied calls (`process start`, once its task started), so the
+/// same call later is rewritten again instead of running as asked. Whether it was there.
+pub fn forget(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
+    edit_keys(path, |keys| {
+        let before = keys.len();
+        keys.retain(|k| k != key);
+        keys.len() != before
+    })
+}
+
+/// Runs `edit` on the keys of the chat's denied-calls file and writes back the newest
+/// [`PENDING`]. Under an exclusive lock on the file, so parallel hooks of one chat never drop
+/// each other's entries.
+#[cfg(unix)]
+fn edit_keys<R>(
+    path: &std::path::Path,
+    edit: impl FnOnce(&mut Vec<String>) -> R,
+) -> std::io::Result<R> {
     use std::io::{Read, Seek, Write};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
@@ -576,26 +725,20 @@ fn first_time(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
     }
     let mut text = String::new();
     file.read_to_string(&mut text)?;
-    let mut keys: Vec<&str> = text.lines().filter(|k| !k.is_empty()).collect();
-    let new = match keys.iter().position(|k| *k == key) {
-        Some(at) => {
-            keys.remove(at);
-            false
-        }
-        None => {
-            keys.push(key);
-            true
-        }
-    };
+    let mut keys: Vec<String> = text.lines().filter(|k| !k.is_empty()).map(str::to_owned).collect();
+    let answer = edit(&mut keys);
     let keep = keys.get(keys.len().saturating_sub(PENDING)..).unwrap_or_default();
     file.set_len(0)?;
     file.rewind()?;
     file.write_all(keep.iter().map(|k| format!("{k}\n")).collect::<String>().as_bytes())?;
-    Ok(new)
+    Ok(answer)
 }
 #[cfg(not(unix))]
-fn first_time(_path: &std::path::Path, _key: &str) -> std::io::Result<bool> {
-    Ok(false)
+fn edit_keys<R>(
+    _path: &std::path::Path,
+    _edit: impl FnOnce(&mut Vec<String>) -> R,
+) -> std::io::Result<R> {
+    Err(std::io::Error::other("no denied-calls file off unix"))
 }
 
 #[cfg(test)]
@@ -608,26 +751,182 @@ mod tests {
             "tool_input": {"command": "npm run dev", "run_in_background": background}})
     }
 
-    fn reason(route: Route) -> String {
-        let deny = decide(&call(true), Some(route)).unwrap();
-        assert_eq!(deny["hookSpecificOutput"]["permissionDecision"], "deny");
-        deny["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap().to_owned()
+    /// A stand-in for this binary: a shell that prints each argument it gets on a line.
+    fn cli() -> TaskCli {
+        let words = ["sh", "-c", "printf '%s\\n' \"$@\"", "acpmux"].map(str::to_owned).to_vec();
+        TaskCli { words, denied: "/h/chat's mcp.json.bg-denied".into(), key: "k1".to_owned() }
+    }
+
+    /// The rewritten call's input, or a panic when the hook did not rewrite it.
+    fn rewritten(input: &Value, route: Route) -> Value {
+        let answer = decide(input, Some(route), &cli()).expect("rewritten");
+        let out = &answer["hookSpecificOutput"];
+        assert_eq!(out["hookEventName"], "PreToolUse");
+        assert!(out.get("permissionDecision").is_none(), "asked or allowed as before: {out}");
+        out["updatedInput"].clone()
+    }
+
+    /// The words the rewritten command hands this binary, as the shell splits them.
+    #[cfg(unix)]
+    fn argv(updated: &Value) -> Vec<String> {
+        let out = std::process::Command::new("sh")
+            .args(["-c", updated["command"].as_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let text = String::from_utf8(out.stdout).unwrap();
+        text.strip_suffix('\n').unwrap().split('\n').map(str::to_owned).collect()
     }
 
     #[test]
-    fn a_background_shell_is_turned_to_bg_start_with_the_same_command_and_folder() {
-        let args = r#"{"command":"npm run dev","cwd":"/work/app"}"#;
-        assert!(reason(Route::Direct).contains(&format!("mcp__acpmux__bg_start {args} ")));
-        assert!(reason(Route::Listed).contains(&format!("mcp__cmux__acpmux_bg_start {args} ")));
-        assert!(reason(Route::CodeMode).contains(&format!("cmux.acpmux_bg_start({args})")));
+    fn a_tail_bounded_by_a_process_is_not_a_follow_that_never_ends() {
+        assert_eq!(slow_reason("tail -f --pid=1234 /dev/null"), None);
+        assert_eq!(slow_reason("timeout 200 tail -f --pid 99 log"), None);
+        assert!(slow_reason("tail -f log").is_some());
+    }
+
+    /// The top refusal of every guard on one agent host (245 in 24 h): a background shell
+    /// was turned away with the `bg_start` call to make instead. Now the same call runs, in the
+    /// foreground, as this binary's `process start` with the same command, which starts the
+    /// daemon-owned task and answers at once; the rest of the call stays.
+    #[cfg(unix)]
+    #[test]
+    fn a_background_shell_is_rewritten_into_a_daemon_task_start() {
+        let command = "cd 'my app' && npm run dev -- --port \"$PORT\" 2>&1 | tee log";
+        let input = json!({"tool_name": "Bash", "cwd": "/work/app", "tool_input": {
+            "command": command, "run_in_background": true, "description": "dev server",
+            "timeout": 5000}});
+        for (route, word) in
+            [(Route::Direct, "direct"), (Route::Listed, "listed"), (Route::CodeMode, "code-mode")]
+        {
+            let updated = rewritten(&input, route);
+            assert_eq!(updated["run_in_background"], false, "{updated}");
+            assert_eq!(updated["description"], "dev server");
+            assert_eq!(updated["timeout"], 5000);
+            let expected = [
+                "process",
+                "start",
+                "--route",
+                word,
+                "--hook-denied",
+                "/h/chat's mcp.json.bg-denied",
+                "--hook-key",
+                "k1",
+                "--description",
+                "dev server",
+                "--",
+                command,
+            ];
+            assert_eq!(argv(&updated), expected, "{updated}");
+        }
+    }
+
+    /// The second refusal (221 in 24 h): a follow that never ends, in the foreground. It is
+    /// rewritten too, with why, so `process start` can say it.
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_foreground_command_is_rewritten_into_a_daemon_task_start() {
+        let updated = rewritten(&foreground("tail -f /var/log/app.log"), Route::CodeMode);
+        assert_eq!(updated["run_in_background"], false);
+        let words = argv(&updated);
+        let slow = words.iter().position(|w| w == "--slow").expect("--slow");
+        assert_eq!(words[slow + 1], "a follow that never ends on its own");
+        assert_eq!(words.last().unwrap(), "tail -f /var/log/app.log");
+    }
+
+    /// The two chats that would not hibernate (2026-11-22): a background subagent blocked in a
+    /// foreground `glaeda-gh wait` for 40 and 90 minutes, a bash under an idle harness. The wait
+    /// now starts as a daemon task, still marked as that subagent's, so its end reaches it or its
+    /// lead and the harness can hibernate meanwhile.
+    #[cfg(unix)]
+    #[test]
+    fn a_subagents_foreground_ci_wait_is_rewritten_into_a_daemon_task_start() {
+        for command in [
+            "timeout 5500 glaeda-gh wait pr o/r#45270 --until done --sha 641e4a7 --timeout 5400 \
+--max 5400 2>&1 | grep -v 'WARNING: the daemon' | tail -25",
+            "timeout 2500 glaeda-gh wait pr o/r#17815 --until merged --timeout 2400 2>&1 | tail -15",
+            "glaeda-gh wait run o/r/7",
+            "lane-gh call ci_wait o/r '{\"id\":3}'",
+        ] {
+            let mut input = foreground(command);
+            input["tool_input"]["timeout"] = json!(5_600_000);
+            input["agent_id"] = json!("aaa3e4dce28a52538");
+            input["agent_type"] = json!("claude");
+            let updated = rewritten(&input, Route::Direct);
+            let words = argv(&updated);
+            let slow = words.iter().position(|w| w == "--slow").expect("--slow");
+            assert_eq!(words[slow + 1], "a CI wait", "{command}");
+            assert_eq!(words.last().unwrap(), command);
+            // `main` marks the rewritten call as the subagent's, so `process start` names it.
+            let mut call = input.clone();
+            call["tool_input"] = updated;
+            let marked = subagent_mark(&call).expect("marked");
+            let text = marked["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+            assert!(
+                text.starts_with("export ACPMUX_CALLER_SUBAGENT=claude:aaa3e4dce28a52538\n"),
+                "{text}"
+            );
+        }
+    }
+
+    /// A wait with a short bound of its own reads the state now: it runs as asked.
+    #[test]
+    fn a_wait_with_a_short_bound_is_a_read() {
+        for command in [
+            "timeout 300 glaeda-gh wait pr o/r#1 --until done --sha abc --timeout 60 --json",
+            "glaeda-gh wait pr o/r#1 --max=30",
+            "glaeda-gh wait run o/r/7 --timeout 2m",
+            "glaeda-gh wait --help",
+        ] {
+            assert_eq!(slow_reason(command), None, "{command}");
+        }
+        for command in [
+            "glaeda-gh wait pr o/r#1",
+            "glaeda-gh wait pr o/r#1 --timeout 600",
+            "glaeda-gh wait run o/r/7 --timeout 30m",
+            "glaeda-gh status",
+        ] {
+            assert_eq!(slow_reason(command).is_some(), command.contains(" wait "), "{command}");
+        }
     }
 
     #[test]
     fn without_the_acpmux_server_or_in_the_foreground_the_shell_runs() {
-        assert_eq!(decide(&call(true), None), None);
-        assert_eq!(decide(&foreground("ls -la"), Some(Route::Direct)), None);
+        assert_eq!(decide(&call(true), None, &cli()), None);
+        assert_eq!(decide(&foreground("ls -la"), Some(Route::Direct), &cli()), None);
         let read = json!({"tool_name": "Read", "tool_input": {"run_in_background": true}});
-        assert_eq!(decide(&read, Some(Route::Direct)), None);
+        assert_eq!(decide(&read, Some(Route::Direct), &cli()), None);
+    }
+
+    /// A rewritten call is recorded like a refusal was: the same call again runs as asked (the
+    /// task may not have started), unless `process start` started it and forgot the key, when
+    /// the same call later is rewritten again.
+    #[cfg(unix)]
+    #[test]
+    fn a_started_task_forgets_its_key_and_a_failed_one_lets_the_repeat_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("mcp.json.bg-denied");
+        assert!(first_time(&file, "a").unwrap(), "rewritten");
+        assert!(!first_time(&file, "a").unwrap(), "a repeat after a failed start runs");
+        assert!(first_time(&file, "a").unwrap(), "and the next is rewritten again");
+        assert!(forget(&file, "a").unwrap(), "a started task forgets it");
+        assert!(!forget(&file, "a").unwrap());
+        assert!(first_time(&file, "a").unwrap(), "so the same call later is rewritten again");
+        assert!(first_time(&file, "b").unwrap());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "a\nb\n");
+    }
+
+    #[test]
+    fn the_read_call_follows_the_chats_route() {
+        assert_eq!(read_call(Some(&Route::Direct), "t1"), r#"mcp__acpmux__bg_output {"id":"t1"}"#);
+        assert_eq!(
+            read_call(Some(&Route::Listed), "t1"),
+            r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#
+        );
+        assert!(read_call(Some(&Route::CodeMode), "t1").contains("cmux.acpmux_bg_output("));
+        for route in [Route::Direct, Route::Listed, Route::CodeMode] {
+            assert_eq!(route_of_word(route_word(&route)), Some(route));
+        }
     }
 
     /// The route is the one the chat's cmux server really offers: code mode, every tool, or a
@@ -845,18 +1144,18 @@ mod tests {
 
     #[test]
     fn a_slow_foreground_shell_goes_to_the_background() {
-        let deny = decide(&foreground("cargo test"), None).unwrap();
+        // With no bg_start in the chat, still a refusal towards the harness's own background.
+        let deny = decide(&foreground("cargo test"), None, &cli()).unwrap();
+        assert_eq!(deny["hookSpecificOutput"]["permissionDecision"], "deny");
         let reason = deny["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
         assert!(reason.contains("a Rust test run"), "{reason}");
         assert!(reason.contains("run_in_background: true"), "{reason}");
-        let deny = decide(&foreground("cargo test"), Some(Route::Direct)).unwrap();
-        let reason = deny["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
-        assert!(
-            reason.contains(r#"mcp__acpmux__bg_start {"command":"cargo test","cwd":"/work/app"}"#),
-            "{reason}"
-        );
-        assert_eq!(decide(&foreground("git status"), None), None);
-        assert_eq!(decide(&foreground("git status"), Some(Route::Direct)), None);
+        let updated = rewritten(&foreground("cargo test"), Route::Direct);
+        let command = updated["command"].as_str().unwrap();
+        assert!(command.contains("'start' '--route' 'direct'"), "{command}");
+        assert!(command.ends_with("'--slow' 'a Rust test run' '--' 'cargo test'"), "{command}");
+        assert_eq!(decide(&foreground("git status"), None, &cli()), None);
+        assert_eq!(decide(&foreground("git status"), Some(Route::Direct), &cli()), None);
     }
 
     /// The plugin's Bash hook starts this binary for every call [`main`] may answer (a
@@ -913,7 +1212,7 @@ mod tests {
             call["tool_input"]["run_in_background"] = json!(false);
             assert!(!starts(&call), "{command}");
             call["tool_input"]["run_in_background"] = json!(true);
-            assert!(decide(&call, Some(Route::Direct)).is_some());
+            assert!(decide(&call, Some(Route::Direct), &cli()).is_some());
             assert!(starts(&call), "a background shell did not start the hook: {command}");
             let mut call = foreground(command);
             call["agent_id"] = json!("a0");

@@ -2,7 +2,13 @@
 //!
 //!   coord-sim drive --coordinators N --rate X --target acpmux --out RUN_DIR
 //!                   [--scripts DIR] [--acpmux BIN] [--readers R] [--duration S]
-//!                   [--synth-seconds S] [--seed N] [--shape FILE]
+//!                   [--synth-seconds S] [--seed N] [--shape FILE] [--drain S]
+//!
+//! Drain: after the script's last op is due, the run waits up to `--drain` seconds (default 120)
+//! for every turn to end (its prompt answered, so the agent's updates before it are stored) and
+//! every driver-made `turn`/`send` to be stored as a `mux:user_message`, with the store's tag
+//! count still for 3 s. `run.json` says `drained` and `drain_s`. A run that did not drain counts
+//! its unstored events as `cut_off`, not `lost_in_daemon` (`summary.json`).
 //!
 //! What it does: starts its own acpmux daemon (`drive/daemon.rs`: scratch HOME and ACPMUX_HOME
 //! under RUN_DIR/scratch, its own socket, cleared environment, never the host's daemon) with one
@@ -112,6 +118,7 @@ struct Args {
     acpmux: PathBuf,
     readers: u32,
     duration_s: u64,
+    drain_s: u64,
     synth_s: u64,
     seed: u64,
     shape: Option<String>,
@@ -136,6 +143,7 @@ fn args(a: &[String]) -> Result<Args, String> {
         acpmux,
         readers: flag_or(a, "--readers", 4)?,
         duration_s: flag_or(a, "--duration", 600)?,
+        drain_s: flag_or(a, "--drain", 120)?,
         synth_s: flag_or(a, "--synth-seconds", 60)?,
         seed: flag_or(a, "--seed", 1)?,
         shape: flag(a, "--shape").map(String::from),
@@ -241,7 +249,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
         (Some(a), Some(b)) => Some(((b - a) * 100.0).round() / 100.0),
         _ => None,
     };
-    let (sessions, followers, ops) = result?;
+    let (sessions, followers, ops, drain) = result?;
     // Every follower's totals, then the join.
     let seen: Vec<(Tag, u64)> = followers
         .iter()
@@ -258,7 +266,7 @@ pub fn run(argv: &[String]) -> Result<(), String> {
     let rows = join(&emits, &store, &seen);
     write_ndjson(&out.join("events.ndjson"), &rows)?;
     let run = json!({"schema": "coord-sim-drive.v1", "coordinators": a.n, "rate": a.rate, "readers": a.readers,
-        "run_s": run_s, "daemon_cpu_s": cpu_s, "daemon_wall_s": (wall_s * 100.0).round() / 100.0, "scripts": script_files, "sessions": sessions, "acpmux": a.acpmux,
+        "run_s": run_s, "drained": drain.drained, "drain_s": drain.secs, "drain_cap_s": a.drain_s, "daemon_cpu_s": cpu_s, "daemon_wall_s": (wall_s * 100.0).round() / 100.0, "scripts": script_files, "sessions": sessions, "acpmux": a.acpmux,
         "socket": socket, "acpmux_home": acpmux_home});
     std::fs::write(out.join("run.json"), run.to_string()).map_err(|e| e.to_string())?;
     let summary = summarize(&out)?;
@@ -289,7 +297,7 @@ fn drive<'s>(
     scripts: &[Vec<SimEvent>],
     run_s: u64,
     stop: &Arc<AtomicBool>,
-) -> Result<(Vec<String>, Followers, Ops), String> {
+) -> Result<(Vec<String>, Followers, Ops, Drain), String> {
     let f = std::fs::File::create(out.join("ops.ndjson")).map_err(|e| e.to_string())?;
     let ops = Ops(Arc::new(Mutex::new(std::io::BufWriter::new(f))));
     let control = Conn::connect(s, &d.socket, Box::new(|_, _| {}))?;
@@ -332,6 +340,8 @@ fn drive<'s>(
         .collect();
     let t0 = now_us() + 1_000_000;
     let deadline = t0 + run_s * 1_000_000;
+    // Turns still running at the deadline may end until here; then the store must catch up.
+    let drain_end = deadline + a.drain_s * 1_000_000;
     eprintln!(
         "coord-sim drive: {} coordinators at {}x, {} readers, up to {run_s} s",
         a.n, a.rate, a.readers
@@ -349,6 +359,7 @@ fn drive<'s>(
             a.rate,
             t0,
             deadline,
+            drain_end,
             ops.clone(),
         )?);
         let targets = sessions.clone();
@@ -357,6 +368,8 @@ fn drive<'s>(
     for t in threads {
         let _ = t.join();
     }
+    let drain = wait_drained(&d.acpmux_home, drain_end);
+    eprintln!("coord-sim drive: drained={} after {:.1} s", drain.drained, drain.secs);
     for sid in &sessions {
         let t = now_us();
         let r = control
@@ -375,7 +388,102 @@ fn drive<'s>(
     for (_, f) in &followers {
         f.conn.close();
     }
-    Ok((sessions, followers, ops))
+    Ok((sessions, followers, ops, drain))
+}
+
+/// How the run's drain ended (`run.json` `drained`, `drain_s`).
+struct Drain {
+    drained: bool,
+    secs: f64,
+}
+
+/// After every turn thread ended: waits until each driver-made turn and send is stored as a
+/// `mux:user_message` and the store's tag count has not moved for 3 s, or until `end`.
+fn wait_drained(home: &Path, end: u64) -> Drain {
+    let started = now_us();
+    let mut tail = StoreTail::default();
+    let mut last = (usize::MAX, started);
+    loop {
+        tail.poll(home);
+        let now = now_us();
+        if tail.lines != last.0 {
+            last = (tail.lines, now);
+        }
+        let want: Vec<(u32, u64, u32)> = DRIVER_EMITS
+            .lock()
+            .map(|e| e.iter().map(|r| (r.c, r.seq, r.k)).collect())
+            .unwrap_or_default();
+        let pending = want.iter().filter(|id| !tail.delivered.contains(id)).count();
+        let still = now.saturating_sub(last.1) >= 3_000_000;
+        if (pending == 0 && still) || now >= end {
+            let secs = (now.saturating_sub(started) as f64 / 1e5).round() / 10.0;
+            return Drain { drained: pending == 0 && still, secs };
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Reads the daemon's session logs as they grow: each file from where the last poll stopped,
+/// whole lines only.
+#[derive(Default)]
+struct StoreTail {
+    offsets: HashMap<PathBuf, u64>,
+    /// Lines holding a tag so far.
+    lines: usize,
+    /// Tags stored in a `mux:user_message` (a turn's or a send's delivery).
+    delivered: std::collections::HashSet<(u32, u64, u32)>,
+}
+
+impl StoreTail {
+    fn poll(&mut self, root: &Path) {
+        use std::io::{Read, Seek, SeekFrom};
+        for p in store_files(root) {
+            let from = self.offsets.get(&p).copied().unwrap_or(0);
+            let Ok(mut f) = std::fs::File::open(&p) else { continue };
+            if f.seek(SeekFrom::Start(from)).is_err() {
+                continue;
+            }
+            let mut buf = Vec::new();
+            if f.read_to_end(&mut buf).is_err() {
+                continue;
+            }
+            let Some(end) = buf.iter().rposition(|b| *b == b'\n') else { continue };
+            let whole = buf.get(..=end).unwrap_or_default();
+            self.offsets.insert(p, from + whole.len() as u64);
+            for line in String::from_utf8_lossy(whole).lines() {
+                if !line.contains("[[cs:") {
+                    continue;
+                }
+                self.lines += 1;
+                if line.contains("\"user_message\"") && line.contains("\"dir\":\"mux\"") {
+                    for (c, seq, k, _) in find_tags(line) {
+                        self.delivered.insert((c, seq, k));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Every `<root>/**/events/*.ndjson`.
+fn store_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let in_events = p.parent().and_then(Path::file_name).is_some_and(|n| n == "events");
+            if in_events && p.extension().is_some_and(|x| x == "ndjson") {
+                out.push(p);
+            }
+        }
+    }
+    out
 }
 
 fn sleep_until(due: u64) {
@@ -400,6 +508,7 @@ fn turns<'s>(
     rate: f64,
     t0: u64,
     deadline: u64,
+    end: u64,
     ops: Ops,
 ) -> Result<std::thread::ScopedJoinHandle<'s, ()>, String> {
     let conn = Conn::connect(s, socket, Box::new(|_, _| {}))?;
@@ -428,7 +537,7 @@ fn turns<'s>(
                     emit_us,
                 });
             }
-            let left = Duration::from_micros(deadline.saturating_sub(now_us()).max(1_000_000));
+            let left = Duration::from_micros(end.saturating_sub(now_us()).max(1_000_000));
             let r = conn.call(
                 "session/prompt",
                 json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]}),
@@ -545,30 +654,17 @@ type StoreHit = (String, String, u64);
 /// Every tag in the daemon's session logs (`<ACPMUX_HOME>/**/events/*.ndjson`).
 fn scan_store(root: &Path) -> HashMap<(u32, u64, u32), Vec<StoreHit>> {
     let mut out: HashMap<(u32, u64, u32), Vec<StoreHit>> = HashMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
+    for p in store_files(root) {
+        let Ok(f) = std::fs::File::open(&p) else { continue };
+        for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+            if !line.contains("[[cs:") {
                 continue;
             }
-            let in_events = p.parent().and_then(Path::file_name).is_some_and(|n| n == "events");
-            if !in_events || !p.extension().is_some_and(|x| x == "ndjson") {
-                continue;
-            }
-            let Ok(f) = std::fs::File::open(&p) else { continue };
-            for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
-                if !line.contains("[[cs:") {
-                    continue;
-                }
-                let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-                let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
-                let at = v.get("at").and_then(Value::as_u64).unwrap_or(0);
-                for (c, seq, k, _) in find_tags(&line) {
-                    out.entry((c, seq, k)).or_default().push((s("dir"), s("kind"), at));
-                }
+            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let at = v.get("at").and_then(Value::as_u64).unwrap_or(0);
+            for (c, seq, k, _) in find_tags(&line) {
+                out.entry((c, seq, k)).or_default().push((s("dir"), s("kind"), at));
             }
         }
     }
@@ -642,6 +738,12 @@ pub fn summarize(run: &Path) -> Result<Value, String> {
     let events = lines(&run.join("events.ndjson"));
     let ops = lines(&run.join("ops.ndjson"));
     let procs = lines(&run.join("proc.ndjson"));
+    let info = std::fs::read_to_string(run.join("run.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .unwrap_or(Value::Null);
+    // A run that did not drain cut its last events off: not counted as the daemon's loss.
+    let drained = info["drained"].as_bool().unwrap_or(true);
     let u = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64);
     let mut by_src = serde_json::Map::new();
     for src in ["agent", "turn", "send"] {
@@ -665,7 +767,8 @@ pub fn summarize(run: &Path) -> Result<Value, String> {
             src.into(),
             json!({
                 "emitted": es.len(),
-                "lost_in_daemon": count(&|e| u(e, "daemon_n") == Some(0)),
+                "lost_in_daemon": if drained { count(&|e| u(e, "daemon_n") == Some(0)) } else { 0 },
+                "cut_off": if drained { 0 } else { count(&|e| u(e, "daemon_n") == Some(0)) },
                 "dup_in_daemon": count(&|e| u(e, "daemon_n").unwrap_or(0) > 1),
                 "unseen_by_readers": count(&|e| u(e, "reader_n") == Some(0)),
                 "dup_at_readers": count(&|e| u(e, "reader_n").unwrap_or(0) > 1),
@@ -696,20 +799,18 @@ pub fn summarize(run: &Path) -> Result<Value, String> {
         ops.iter().filter(|o| o["op"] == "follower").filter_map(|o| u(o, "lagged")).sum();
     let peak = |k: &str| procs.iter().filter_map(|p| p[k].as_f64()).fold(0.0, f64::max);
     let status_ms: Vec<f64> = procs.iter().filter_map(|p| p["status_ms"].as_f64()).collect();
-    let run = std::fs::read_to_string(run.join("run.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .unwrap_or(Value::Null);
-    let mean_cpu = match (run["daemon_cpu_s"].as_f64(), run["daemon_wall_s"].as_f64()) {
+    let mean_cpu = match (info["daemon_cpu_s"].as_f64(), info["daemon_wall_s"].as_f64()) {
         (Some(cpu), Some(wall)) if wall > 0.0 => Some((cpu / wall * 1000.0).round() / 10.0),
         _ => None,
     };
     Ok(json!({
+        "drained": drained,
+        "drain_s": info["drain_s"],
         "events": by_src,
         "ops": by_op,
         "follower_lagged_notes": lagged,
         "daemon": {"peak_rss_mb": (peak("rss_kb") / 1024.0).round(), "peak_queued_mb": (peak("queued_bytes") / 1048576.0 * 10.0).round() / 10.0,
-            "cpu_s": run["daemon_cpu_s"], "mean_cpu_pct": mean_cpu, "status_call_ms": dist(status_ms)},
+            "cpu_s": info["daemon_cpu_s"], "mean_cpu_pct": mean_cpu, "status_call_ms": dist(status_ms)},
     }))
 }
 

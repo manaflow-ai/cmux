@@ -37,6 +37,11 @@ public final class StreamedBrowserDirectory {
 
     private var models: [String: StreamedBrowserModel] = [:]
     private var lastWarm: ContinuousClock.Instant?
+    /// How long a tab may stay missing from the Macs' lists before its model closes.
+    public var missingGrace: Duration = .seconds(10)
+    private var missingSince: [String: ContinuousClock.Instant] = [:]
+    private var lastRetained: Set<String> = []
+    private var recheck: Task<Void, Never>?
     private var appActive = true
 
     public init() {}
@@ -167,9 +172,36 @@ public final class StreamedBrowserDirectory {
     /// a redial never opens it again (transport-verify-20261019.md defect 7).
     public func retain(tabs: Set<String>) {
         tabsRetained?(tabs)
-        for key in models.keys where !tabs.contains(Self.parts(key).tab) {
-            log.notice("browser drop \(key, privacy: .public)")
-            models.removeValue(forKey: key)?.close()
+        lastRetained = tabs
+        // A reconnect can publish a workspace with tabs missing for a few seconds (the Mac's
+        // list comes back in pieces): closing the model then drops its select-menu sheet and JS
+        // alert. A tab goes only once it stays missing for ``missingGrace``.
+        let now = ContinuousClock.now
+        var held = false
+        for key in models.keys {
+            if tabs.contains(Self.parts(key).tab) {
+                missingSince[key] = nil
+                continue
+            }
+            let since = missingSince[key] ?? now
+            missingSince[key] = since
+            if now - since >= missingGrace {
+                log.notice("browser drop \(key, privacy: .public)")
+                missingSince[key] = nil
+                models.removeValue(forKey: key)?.close()
+            } else {
+                held = true
+            }
+        }
+        missingSince = missingSince.filter { models[$0.key] != nil }
+        recheck?.cancel()
+        recheck = nil
+        // Nothing else publishes when the tab really closed: look again when the grace ends.
+        guard held else { return }
+        recheck = Task { [weak self] in
+            try? await Task.sleep(for: self?.missingGrace ?? .seconds(10))
+            guard !Task.isCancelled, let self else { return }
+            retain(tabs: lastRetained)
         }
     }
 
@@ -200,6 +232,9 @@ public final class StreamedBrowserDirectory {
     public func reset() {
         for model in models.values { model.close() }
         models = [:]
+        missingSince = [:]
+        recheck?.cancel()
+        recheck = nil
         // No link: nothing to forward `localhost` pages to until it comes back.
         localhost.suspend()
     }
