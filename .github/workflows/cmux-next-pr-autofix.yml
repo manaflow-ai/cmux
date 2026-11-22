@@ -506,7 +506,7 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-411
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-412
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
         if: contains(runner.name, '-glaeda')

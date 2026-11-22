@@ -983,7 +983,7 @@ class SeedRoot(unittest.TestCase):
             self.assertIn("steps.spm-root.outputs.root || github.workspace", block(name).split("working-directory:", 1)[-1].split("\n", 1)[0], name)
 
     def test_pr_autofix_mac_exports_build_in_a_shared_root(self):
-        """note-411: the PR autofix's Mac exports job takes a shared root (no seed) after Select Xcode, and
+        """note-412: the PR autofix's Mac exports job takes a shared root (no seed) after Select Xcode, and
         bun, the web bundles and both regenerators run there, building plain only when a root was taken.
         The workspace's .git is still discarded at the end."""
         text = (ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text()
