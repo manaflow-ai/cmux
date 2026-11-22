@@ -1,0 +1,57 @@
+/* Hairline's chat: flat and quiet. Cards and your prompt are one-pixel outlines on an almost
+   invisible fill with the theme file's pane radius (inner parts 2 and 4 px tighter, from the host's --cmux-button-radius), secondary text in the muted
+   gray, links underlined in the text color, code on a faint fill. Nothing casts a shadow and nothing
+   is glass. Paint only, on :root, so nothing in the transcript moves when this applies or reloads.
+   Every color is mixed from the theme's own (--agent-text, --agent-page-bg), so it reads over every
+   Hairline palette, light and dark. */
+:root {
+  --hl-r: calc(var(--cmux-button-radius, 6px) + 2px);
+  --ds-radius-card: var(--hl-r);
+  --ds-radius-composer: var(--hl-r);
+  --ds-radius-popup: var(--hl-r);
+  --ds-radius-lg: var(--hl-r);
+  --ds-radius-md: var(--cmux-button-radius, 6px);
+  --ds-radius-sm: calc(var(--cmux-button-radius, 6px) - 2px);
+
+  --cv-bubble: color-mix(in srgb, var(--agent-text) 5%, var(--agent-page-bg));
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-code-bg: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  --cv-codeblock-bg: color-mix(in srgb, var(--agent-text) 3%, var(--agent-page-bg));
+  --cv-codeblock-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-media-radius: var(--cmux-button-radius, 6px);
+  --cv-user-attachment-radius: var(--cmux-button-radius, 6px);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 64%, var(--agent-page-bg));
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 52%, var(--agent-page-bg));
+  --cv-link: var(--agent-text);
+  --agent-link: var(--agent-text);
+  --cv-rule: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cv-faint-rule: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-strong-rule: color-mix(in srgb, var(--agent-text) 20%, transparent);
+}
+.cv-user__bubble {
+  border-radius: var(--hl-r);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-shell {
+  --acpmux-composer-bg: var(--agent-page-bg);
+  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: var(--hl-r);
+}
+/* The composer's glass rim and drop shadow are variables every composer box-shadow rule reads
+   (composerStates.css), set by rules up to (0,5,0). Clearing them at (0,6,0) leaves only the card
+   ring, and the focus ring rides in the rim's place, so the queue and Reduce Transparency forms
+   get it too. */
+:root:root:root:root .acpmux-composer > .acpmux-composer-box {
+  --acpmux-composer-rim: 0 0 0 0 transparent;
+  --acpmux-composer-shadow: 0 0 transparent;
+}
+:root:root:root:root .acpmux-composer > .acpmux-composer-box:focus-within {
+  --acpmux-composer-rim: 0 0 0 2px color-mix(in srgb, var(--agent-text) 28%, transparent);
+}
+a {
+  text-decoration-color: color-mix(in srgb, var(--agent-text) 36%, transparent);
+  text-underline-offset: 3px;
+}

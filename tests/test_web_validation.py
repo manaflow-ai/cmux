@@ -34,7 +34,13 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
         self.text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text()
 
     def test_every_feat_cmux_next_push_runs_it(self):
-        self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
+        # Since 2026-11-21 the post-merge batch tier's `web` suite runs ci-web.yml on the base after merges;
+        # cmux-next-web.yml runs only when dispatched (next_batch.py's web lane).
+        self.assertRegex(self.text, r"\non:\n  workflow_dispatch:\n")
+        self.assertNotRegex(self.text, r"\n  push:\n")
+        batch = (ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text()
+        self.assertIn("  web:\n    needs: plan\n    if: contains(needs.plan.outputs.suites, ' web ')\n", batch)
+        self.assertIn("    uses: ./.github/workflows/ci-web.yml\n", batch)
         self.assertNotIn("pull_request", self.text)
         self.assertNotIn("paths:", self.text)
 
@@ -247,7 +253,8 @@ class WebValidationTests(unittest.TestCase):
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
         long pole from ask to merge for a webview fix, so they were eight. At eight the split
         balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
-        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        they were twelve (about 690 s each). Twelve paid twelve setups and cold Vite warm-ups, about 9%
+        more runner-minutes than eight (2026-11-22), so they are eight again. The base replay (react-apps-base-check) is one
         job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
@@ -257,7 +264,7 @@ class WebValidationTests(unittest.TestCase):
         # and the shards holding a touched test on a pull request.
         self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
-        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         base_start = workflow.index("  react-apps-base-check:")
@@ -284,8 +291,17 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("${{ !cancelled() && steps.engines.outcome != 'failure' && ", step("Test webviews"))
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        # A pull request's shard whose gate check failed is red whatever its tests say: it skips them (11-21:
+        # 50 of 52 shard 1 jobs red on one gate, then 40 min of tests). A push still runs every test.
+        tests = " ".join(step("Test webviews").split())
+        self.assertIn("!(github.event_name == 'pull_request' && (", tests)
+        for gate_id in ("source-build", "bundles", "merge-driver", "post-edit-format", "webviews-check",
+                        "pr-scoped-rules"):
+            with self.subTest(gate=gate_id):
+                self.assertIn(f"steps.{gate_id}.outcome == 'failure'", tests)
+                self.assertIn(f"id: {gate_id}", block)
         gate = step("Fail on the gate checks")
         self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
         self.assertIn('"ENGINES|Install headless engines"', gate)
@@ -319,16 +335,6 @@ class WebValidationTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "check"],
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
                  "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
-
-    def test_failed_or_skipped_optional_placement_does_not_fail_selected_web_results(self):
-        needs = {"changes": {"result": "success", "outputs": {"required": "true"}},
-                 "build": {"result": "success"}, "tests": {"result": "success"},
-                 "database": {"result": "success"}}
-        for result in ("failure", "skipped"):
-            with self.subTest(result=result):
-                placed = {**needs, "portable-placement": {"result": result}}
-                self.assertEqual(gate.failures(placed), {})
-                self.assertEqual(self.check_results(placed, "merge_group"), 0)
 
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},

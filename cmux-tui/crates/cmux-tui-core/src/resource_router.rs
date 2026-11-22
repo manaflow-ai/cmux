@@ -8,6 +8,7 @@ use cmux_json::JsonSet as _;
 mod auxiliary;
 mod browser_engine;
 pub(crate) mod browser_import;
+mod chat_column;
 mod chats;
 mod close_value;
 mod config;
@@ -272,6 +273,11 @@ fn dispatch_resource_request(
     browser_engine::route_to_frontend(mux, &mut request)?;
     browser_engine::refuse_without_provider(mux, &request)?;
     crate::debug_spans::mark("router.provider_checked");
+    // A terminal for a workspace that holds only an agent chat: a new
+    // column on the chat's right, never a tab among the chat's own.
+    if let Some(created) = chat_column::dispatch(mux, &request)? {
+        return Ok(created);
+    }
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),

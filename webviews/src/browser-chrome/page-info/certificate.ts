@@ -3,6 +3,7 @@
 // Dates format in the page's language; `timeZone` is for tests.
 import type { Strings } from "../../pages/shared/i18n";
 import type { CertificateInfo } from "./windows";
+import { intl } from "../../ui/intl";
 
 export type CertificateField = { id: string; label: string; value: string };
 
@@ -23,11 +24,13 @@ function formatDate(
   options: CertificateFormatOptions,
 ): string | undefined {
   if (milliseconds === null) return undefined;
-  return new Intl.DateTimeFormat(strings.language, {
-    dateStyle,
-    timeStyle: "long",
-    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
-  }).format(new Date(milliseconds));
+  return intl
+    .DateTimeFormat(strings.language, {
+      dateStyle,
+      timeStyle: "long",
+      ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+    })
+    .format(new Date(milliseconds));
 }
 
 /** The name a certificate goes by in the hierarchy: its CN, else its O, else its serial number. */

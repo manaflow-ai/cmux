@@ -25,6 +25,7 @@ Behaviour per prompt text:
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   "plan-json: <entries>" -> a plan update with the JSON list of entries, then "planned" and end_turn
+  "wrap-up: <json>" -> a reply, then a completed mcp__acpmux__wrap_up call with <json> as its input
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
                  held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
@@ -666,6 +667,19 @@ def handle_prompt(rid, params):
     if sid in rate_failures and rate_failures[sid][0] > 0:
         rate_failures[sid][0] -= 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
+    # "fail: X" fails the prompt with X and no output; "work-then-fail: X" calls a tool and says
+    # something first (cmux#48917: only a conversation whose agent did work stays unstored-awake).
+    # "echo-fail: X" streams X as its reply, then fails with X, as a harness that streams its error.
+    if text.startswith(("fail: ", "work-then-fail: ", "echo-fail: ")):
+        head, error = text.split(": ", 1)
+        if head == "work-then-fail":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "work-1", "title": "Read file",
+                         "kind": "read", "status": "completed"})
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Read it."}})
+        if head == "echo-fail":
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": error}})
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": error}})
         return
     if text.startswith("recover-once: ") and sid not in failed_once:
         failed_once.add(sid)
@@ -1325,6 +1339,22 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "quit-after: X" answers the turn, then, idle, prints X on stderr and exits 0 on its own, as
+    # a CLI that quits after its account's 429 does between turns.
+    if text.startswith("quit-after:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        line = text[len("quit-after:"):].strip()
+
+        def quit_later():
+            time.sleep(0.5)
+            sys.stderr.write(line + "\n")
+            sys.stderr.flush()
+            time.sleep(0.2)
+            os._exit(0)
+
+        threading.Thread(target=quit_later, daemon=True).start()
+        return
     # "overloaded: X": the provider's overload with no HTTP status in the text.
     # "surfaces-tour": one turn that draws every content surface of the chat (design/chat-surfaces.md,
     # scripts/cmux-next/chat-surfaces-shots.py): a plan, a shell call with its output, a new 55-line
@@ -1384,6 +1414,15 @@ def handle_prompt(rid, params):
     # "harness-title: X" titles the session itself, as Codex does.
     if text.startswith("harness-title:"):
         update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "wrap-up: JSON" replies, then ends the turn on a completed acpmux wrap_up call whose
+    # arguments are JSON ({"recap": ..., "ask": ..., "actions": [...]}), as an agent's last step.
+    if text.startswith("wrap-up:"):
+        args = json.loads(text[8:].strip())
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Done with the step."}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wrap-1", "title": "mcp__acpmux__wrap_up", "kind": "other", "status": "in_progress", "rawInput": args})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wrap-1", "status": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "suggest: TEXT" ends the turn with TEXT as the predicted next prompt.
@@ -1753,6 +1792,25 @@ def handle_prompt(rid, params):
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
+        return
+    # "tagged:N:MS" streams N rounds of a reply chunk, a thought, a tool call and its end and a
+    # plan, every MS ms. Each update carries one tag [[t:ROUND:KIND]] that names it alone, so a
+    # client that follows the chat can count each update it got (tests/follower_once.rs).
+    if text.startswith("tagged:"):
+        n, ms = (int(v) for v in text[len("tagged:"):].split(":"))
+        for i in range(n):
+            tag = lambda k: f"[[t:{i}:{k}]]"
+            send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}} for u in [
+                {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{tag('m')} said "}},
+                {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": f"{tag('th')} thought "}},
+                {"sessionUpdate": "tool_call", "toolCallId": f"tg-{i}", "title": tag("tc"), "kind": "execute",
+                 "status": "in_progress", "rawInput": {"command": f"echo {tag('tc')}"}},
+                {"sessionUpdate": "tool_call_update", "toolCallId": f"tg-{i}", "status": "completed",
+                 "content": [{"type": "content", "content": {"type": "text", "text": f"{tag('tu')} out"}}]},
+                {"sessionUpdate": "plan", "entries": [{"content": f"{tag('p')} step", "priority": "medium", "status": "in_progress"}]},
+            ]])
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
     # each sign well inside the stall limit (`hub/stalled_turn.rs`).

@@ -53,6 +53,27 @@ export function RowReplyButton({ text }: { text: string }) {
 }
 
 /// The chip over the selection's end. Mounted once per pane (App.tsx), on the document's body.
+/// Calls `place` whenever the transcript under `root` or one of its rows changes size, rows the
+/// transcript mounts later included; the returned function stops watching.
+function watchTranscriptRows(view: Window & typeof globalThis, root: Element, place: () => void): () => void {
+  const sizes = new view.ResizeObserver(place);
+  const watched = new WeakSet<Element>();
+  const watchRows = () => {
+    for (const element of [root, ...Array.from(root.querySelectorAll("[data-row-id]"))]) {
+      if (watched.has(element)) continue;
+      watched.add(element);
+      sizes.observe(element);
+    }
+  };
+  watchRows();
+  const mounts = view.MutationObserver ? new view.MutationObserver(watchRows) : undefined;
+  mounts?.observe(root.querySelector(".acpmux-thread") ?? root, { childList: true });
+  return () => {
+    sizes.disconnect();
+    mounts?.disconnect();
+  };
+}
+
 export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const t = useT();
   const current = useSelectionReplyLook();
@@ -118,22 +139,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
         const next = selectionReplyTarget(doc);
         return previous && next && sameReplyTarget(previous, next) ? previous : next;
       });
-    const sizes = new view.ResizeObserver(place);
-    const watched = new WeakSet<Element>();
-    const watchRows = () => {
-      for (const element of [root, ...Array.from(root.querySelectorAll("[data-row-id]"))]) {
-        if (watched.has(element)) continue;
-        watched.add(element);
-        sizes.observe(element);
-      }
-    };
-    watchRows();
-    const mounts = view.MutationObserver ? new view.MutationObserver(watchRows) : undefined;
-    mounts?.observe(root.querySelector(".acpmux-thread") ?? root, { childList: true });
-    return () => {
-      sizes.disconnect();
-      mounts?.disconnect();
-    };
+    return watchTranscriptRows(view, root, place);
   }, [doc, enabled, showing]);
 
   // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
@@ -175,6 +181,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       data-hidden={hidden ? "true" : undefined}
       aria-hidden={hidden ? true : undefined}
       aria-label={label}
+      // tooltip-allow: only the icon look has a tooltip; the chip look shows its words and has none.
       title={current === "icon" ? label : undefined}
       style={
         placed

@@ -2433,6 +2433,45 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "turn-end-tool-only": {
+      note: "A finished turn that only ran a command ends on its footer row at rest: Copy copies the command's line and its output (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-end-api-error": {
+      note: "A turn that ran a command and then ended in an API error: the error card, then its footer row with Copy and the failed mark (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, {
+          status: "failed",
+          durationMs: 41_000,
+          toolCount: 1,
+          error: "API Error: Request rejected (429) · This request would exceed your account's rate limit.",
+        }),
+      ]),
+    },
     "dense-live-run": {
       note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
@@ -3329,8 +3368,7 @@ export default agentPaneEntry({
         summary(5.5, { status: "completed" }),
         user("Why does the dashboard look like this on the staging build?", 1, {
           failed: true,
-          error:
-            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          error: "Not sent: too large. Remove dashboard-recording.png with Edit, or send it separately.",
           delivery: {
             state: "failed",
             promptId: "p1",

@@ -232,13 +232,14 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.prepare_start", "daemon.binary_resolved", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
-        "launch_snapshot_applied", "launch_snapshot_shown", "dfl.windows", "did_finish_launching_end",
-        "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
+        "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
+        "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
         "cef.ready", "agent_pane.view_created", "agent_pane.transport_open",
-        "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
+        "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
     ]
 }
 
@@ -247,7 +248,8 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
 /// you havent already to properly measure each part of startup times." The launch harnesses compute the same stages
 /// from the same marks (scripts/ci/launch_stages.py, scripts/measure/launch-ready.swift); a test keeps the three
 /// tables equal.
-public nonisolated enum LaunchStages {
+public nonisolated struct LaunchStages {
+    public nonisolated init() {}
     /// (stage, its marks), in launch order. A stage is the earliest of its marks that came.
     public static let table: [(stage: String, marks: [String])] = [
         ("premain", ["main_start"]), // exec, dyld, static initializers
