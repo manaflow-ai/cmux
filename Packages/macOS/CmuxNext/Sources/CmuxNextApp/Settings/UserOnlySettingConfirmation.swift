@@ -13,7 +13,12 @@ enum UserOnlySettingConfirmation {
             let prompt = DestructiveConfirmation.Prompt(
                 title: ConfirmationStrings.userOnlySettingTitle(key), body: Self.body(key: key, value: value),
                 button: ConfirmationStrings.userOnlySettingButton)
-            return await ask(prompt, services: services)
+            let confirmed = await ask(prompt, services: services)
+            // SECURITY: Computer Use may act in cmux itself, so a confirm of a computerUse.* key counts
+            // only when the person's own HID click or key answered the sheet (``PersonInputLedger``),
+            // never a click an agent posted to it.
+            guard confirmed, CmuxConfigFile.keyPath(from: key).first == ComputerUseSettings.modePath.first else { return confirmed }
+            return services.personInput.backs(ProcessInfo.processInfo.systemUptime)
         }
     }
 

@@ -160,11 +160,15 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
+            try requirePersonForComputerUse(descriptor, context)
             return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset":
             let descriptor = try descriptor(params)
+            try requirePersonForComputerUse(descriptor, context)
             return try await mutation(params) { try await self.write(descriptor, nil, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset_all":
+            // Reset All rewrites computerUse.* too (the deny list the person added to).
+            try requirePersonGesture(context)
             return try await mutation(params) {
                 let before = self.settings.snapshot.root
                 do {
@@ -310,6 +314,7 @@ final class SettingsPageProvider: PageProvider {
             // the gesture's end writes it with cmux.settings.set, or preview.end restores.
             let descriptor = try descriptor(params)
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            try requirePersonForComputerUse(descriptor, context)
             if let source = settings.managedSource(for: descriptor) {
                 throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
@@ -468,6 +473,23 @@ final class SettingsPageProvider: PageProvider {
     /// their origin and are refused. Any other page writes as a page.
     static func writer(_ context: PageCallContext) -> SettingWriter {
         context.page == PageDescriptor.settings.id ? .user : .caller("page")
+    }
+
+    /// SECURITY: Settings > Computer Use (`computerUse.*`: the mode, the deny list, foreground input)
+    /// changes only with the person's own click or key in this page, the HID system's input
+    /// (``PersonInputLedger``), never a click or key another process posted. Computer Use may act in
+    /// cmux itself (Leo, 2026-11-22: "why not. it should be able to"), so an agent driving this page
+    /// must not widen what it may do. An accessibility press reaches the page with no event, so these
+    /// rows refuse it too (the person changes them with a click or a key).
+    func requirePersonForComputerUse(_ descriptor: SettingDescriptor, _ context: PageCallContext) throws {
+        guard descriptor.path.first == ComputerUseSettings.modePath.first else { return }
+        try requirePersonGesture(context)
+    }
+
+    /// The person's own HID click or key backs this page call (``requirePersonForComputerUse(_:_:)``).
+    func requirePersonGesture(_ context: PageCallContext) throws {
+        guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+              personBacksGesture?(event) == true else { throw Self.personOnly }
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
