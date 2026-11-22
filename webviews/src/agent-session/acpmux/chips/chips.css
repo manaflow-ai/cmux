@@ -202,6 +202,10 @@
   max-width: min(100%, 480px);
   max-height: 320px;
   border-radius: var(--cv-media-radius, 8px);
+}
+/* Video sits on black (letterbox), inline and in the compare viewer's frames. */
+.cv-media video,
+.cv-compare__frame {
   background: #000;
 }
 .cv-media.is-video:not(:has(video)) {
@@ -428,7 +432,7 @@
 }
 /* In the reserved box the site is a caption over Load, never wider than the box. */
 .cv-media.is-video[data-reserve] .cv-media__host {
-  font-size: 12px;
+  font-size: var(--text-detail);
   opacity: 0.7;
 }
 
@@ -574,12 +578,12 @@ button.cv-thumb:focus-visible {
 .cv-compare__controls {
   display: flex;
   justify-content: center;
-  padding: 0 16px 14px;
+  padding: 0 var(--ds-space-4) var(--ds-space-3);
 }
 .cv-playback {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   max-width: min(100%, 960px);
   flex: 1;
   justify-content: center;
@@ -591,8 +595,8 @@ button.cv-thumb:focus-visible {
   margin: 0;
   border: 0;
   display: inline-flex;
-  padding: 2px;
-  gap: 2px;
+  padding: var(--grid-half-step);
+  gap: var(--grid-half-step);
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);
 }
@@ -604,7 +608,7 @@ button.cv-thumb:focus-visible {
   height: 24px;
   padding: 0 8px;
   border: 0;
-  border-radius: calc(var(--ds-radius-control) - 2px);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -658,7 +662,7 @@ button.cv-thumb:focus-visible {
 .cv-compare__clip {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--ds-space-1);
   min-width: 0;
   min-height: 0;
   margin: 0;
@@ -669,7 +673,6 @@ button.cv-thumb:focus-visible {
   display: grid;
   place-items: center;
   border-radius: var(--cv-media-radius, 8px);
-  background: #000;
   overflow: hidden;
 }
 .cv-compare__frame video {
@@ -679,14 +682,14 @@ button.cv-thumb:focus-visible {
   object-fit: contain;
 }
 .cv-compare__note {
-  color: #fff;
+  color: var(--cmux-tone-light); /* theme-fixed: on the frame's black */
   opacity: 0.7;
 }
 .cv-compare__caption {
   text-align: center;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: var(--text-detail--line-height);
 }
 /* Compare on a row of two videos (Markdown.tsx Thumbs): under the pair, at its start. */
 .cv-thumbs__compare {
@@ -694,7 +697,7 @@ button.cv-thumb:focus-visible {
   grid-column: 1 / -1;
   justify-self: start;
   height: 24px;
-  padding: 0 10px;
+  padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--cv-fg, currentColor) 7%, transparent);

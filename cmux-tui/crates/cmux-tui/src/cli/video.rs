@@ -102,14 +102,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if scope != "video" {
         return None;
     }
-    if rest.first().is_none_or(|verb| verb == "help")
-        || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"))
-    {
+    let asks_help = rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    let Some((verb, after)) = rest.split_first().filter(|(verb, _)| *verb != "help" && !asks_help)
+    else {
         print!("{USAGE}");
         return Some(0);
-    }
-    if rest[0] != "open" {
-        let message = format!("unknown video verb `{}`; run `cmux video --help`", rest[0]);
+    };
+    if verb != "open" {
+        let message = format!("unknown video verb `{verb}`; run `cmux video --help`");
         return Some(failure(&global, "usage.invalid", &message, 2));
     }
     if global.machine.is_some() {
@@ -117,7 +117,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(failure(&global, "usage.invalid", message, 2));
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let open = match parse_open(&rest[1..], &cwd) {
+    let open = match parse_open(after, &cwd) {
         Ok(open) => open,
         Err(message) => return Some(failure(&global, "usage.invalid", &message, 2)),
     };
@@ -195,8 +195,8 @@ pub(super) fn parse_open(args: &[String], cwd: &Path) -> Result<Open, String> {
             "--rate" => open.rate = parse_rate(&value()?)?,
             "--name" => open.name = Some(value()?),
             "--engine" => return Err("a video always opens in WebKit; drop --engine".into()),
-            _ if PLACES.contains(&&flag[2..]) => {
-                let selector = flag[2..].to_owned();
+            _ if PLACES.contains(&flag.strip_prefix("--").unwrap_or(flag)) => {
+                let selector = flag.strip_prefix("--").unwrap_or(flag).to_owned();
                 if open.place.iter().any(|(known, _)| *known == selector) {
                     return Err(format!("{flag} given twice"));
                 }
@@ -289,7 +289,7 @@ pub(super) fn folder_name(identities: &[String]) -> String {
         hash.update(identity.as_bytes());
         hash.update(b"\0");
     }
-    hash.finalize()[..16].iter().map(|byte| format!("{byte:02x}")).collect()
+    hash.finalize().iter().take(16).map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn is_folder_name(name: &str) -> bool {
@@ -298,7 +298,7 @@ fn is_folder_name(name: &str) -> bool {
 
 /// The media file's name in the folder: `a.mp4`, `b.webm`.
 pub(super) fn media_name(index: usize, source: &Source) -> String {
-    format!("{}.{}", ["a", "b"][index.min(1)], source.extension())
+    format!("{}.{}", if index == 0 { "a" } else { "b" }, source.extension())
 }
 
 /// The clips' labels: Before and After when the names say so, else the names.
@@ -332,8 +332,9 @@ pub(super) fn render(open: &Open) -> String {
         .sources
         .iter()
         .enumerate()
-        .map(|(index, source)| {
-            json!({"src": media_name(index, source), "name": names[index], "label": labels[index]})
+        .zip(names.iter().zip(&labels))
+        .map(|((index, source), (name, label))| {
+            json!({"src": media_name(index, source), "name": name, "label": label})
         })
         .collect();
     let config = json!({"sources": sources, "loop": open.looping, "rate": open.rate});
@@ -390,15 +391,15 @@ fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    while index < bytes.len() {
+    while let Some(&byte) = bytes.get(index) {
         let hex = |at: usize| bytes.get(at).and_then(|byte| (*byte as char).to_digit(16));
-        if bytes[index] == b'%'
+        if byte == b'%'
             && let (Some(high), Some(low)) = (hex(index + 1), hex(index + 2))
         {
             out.push((high * 16 + low) as u8);
             index += 3;
         } else {
-            out.push(bytes[index]);
+            out.push(byte);
             index += 1;
         }
     }
