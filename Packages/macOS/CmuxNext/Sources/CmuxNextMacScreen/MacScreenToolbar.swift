@@ -374,6 +374,15 @@ final class MacScreenToolbarView: MacScreenThemedView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         guard let session = model.session else { return menu }
+        // The whole stats line first, codec and frame size included: the bar's label drops them when it is short of
+        // room and shows no tooltip (a control that shows text has none), so its own control says them (Chief,
+        // 2026-11-21: what the cut tooltip said shows somewhere visible).
+        if session.phase == .connected {
+            let stats = NSMenuItem(title: Self.statsLines(session).full, action: nil, keyEquivalent: "")
+            stats.isEnabled = false
+            menu.addItem(stats)
+            menu.addItem(.separator())
+        }
         for quality in ScreenQuality.allCases {
             menu.addItem(NSMenuItem.macScreen(Self.qualityTitle(quality), checked: session.preferences.quality == quality) { [weak self] in
                 self?.actions.setQuality(quality)
@@ -383,7 +392,34 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.addItem(NSMenuItem.macScreen(L.t("macScreen.toolbar.showStats", "Show Stats"), checked: session.preferences.showStats) { [weak self] in
             self?.actions.toggleStats()
         })
+        addCustomize(to: menu, session.preferences)
         return menu
+    }
+
+    /// The Quality menu's Customize part: a bitrate cap and the cursor in the stream. Each
+    /// change starts a new session, as a quality or display change does.
+    private func addCustomize(to menu: NSMenu, _ preferences: ScreenPreferences) {
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: L.t("macScreen.customize.title", "Customize")))
+        let bitrate = NSMenuItem(title: L.t("macScreen.customize.bitrate", "Bitrate Cap"), action: nil, keyEquivalent: "")
+        let caps = NSMenu()
+        caps.autoenablesItems = false
+        for kbps in ScreenPreferences.maxKbpsChoices {
+            caps.addItem(NSMenuItem.macScreen(Self.bitrateTitle(kbps), checked: preferences.maxKbps == kbps) { [weak self] in
+                self?.actions.setMaxKbps(kbps)
+            })
+        }
+        bitrate.submenu = caps
+        menu.addItem(bitrate)
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.customize.showCursor", "Show Cursor in Stream"),
+                                          checked: preferences.showCursorInStream) { [weak self] in
+            self?.actions.toggleStreamCursor()
+        })
+    }
+
+    static func bitrateTitle(_ kbps: Int?) -> String {
+        guard let kbps else { return L.t("macScreen.customize.bitrateAuto", "Auto") }
+        return String(format: L.t("macScreen.customize.bitrateMbps", "%d Mbps"), kbps / 1000)
     }
 
     func sendKeysMenu() -> NSMenu {
@@ -542,10 +578,6 @@ final class MacScreenToolbarView: MacScreenThemedView {
             let fits = Self.textWidth(lines.full, font: MacScreenType.stats) + gap + Self.textWidth(name) <= headerRight - x
             let text = fits ? lines.full : lines.short
             if stats.stringValue != text { stats.stringValue = text }
-            let tip = fits ? nil : lines.full
-            if stats.toolTip != tip { stats.toolTip = tip }
-        } else if stats.toolTip != nil {
-            stats.toolTip = nil
         }
         // The name keeps its whole width up to half the header; the stats take the rest.
         let nameFloor = min(Self.textWidth(name), max(0, (headerRight - x) / 2))

@@ -14,10 +14,9 @@ fn display_escapes_every_control_character_a_pack_supplies() {
         message: format!("unknown key{hostile}"),
         value: Some(format!("\"{hostile}\"")),
     };
-    for text in [
-        diagnostic.display(),
-        PackDiagnostic { section: String::new(), ..diagnostic.clone() }.display(),
-    ] {
+    for text in
+        [diagnostic.display(), PackDiagnostic { section: String::new(), ..diagnostic }.display()]
+    {
         assert!(!text.chars().any(char::is_control), "control character left in {text:?}");
         assert!(text.contains("\\u{1b}]52;c;cHduZWQ="), "escaped text stays readable: {text:?}");
         assert!(text.contains("\\r\\n"), "{text:?}");

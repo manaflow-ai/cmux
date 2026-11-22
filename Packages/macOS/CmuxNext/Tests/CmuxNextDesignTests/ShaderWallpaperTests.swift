@@ -43,6 +43,22 @@ import Testing
         #expect(MemoryLayout<BackdropShaderUniforms>.offset(of: \.rings) == 32)
     }
 
+    /// Slow dark gradients band in an 8-bit drawable; every shader's last step is the 1-step
+    /// triangular dither (reading note motion-backgrounds-color, "Banding and dithering").
+    @Test func everyShaderEndsInTheDither() {
+        let source = BackdropShaderSource.source
+        for shader in BackdropShader.allCases {
+            let start = source.range(of: "fragment float4 \(shader.fragmentName)(")
+            #expect(start != nil, "\(shader) has no fragment")
+            guard let start else { continue }
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    fragment ")?.lowerBound ?? rest.endIndex
+            let returns = rest[..<end].components(separatedBy: "return float4(").dropFirst()
+            #expect(!returns.isEmpty && returns.allSatisfy { $0.hasPrefix("dither(") },
+                    "\(shader) returns a color that skips the dither: it bands in dark gradients")
+        }
+    }
+
     @Test func everyShaderCompilesAndDrawsAStillThatIsNotFlat() throws {
         guard let renderer = BackdropShaderRenderer() else { return } // a host without Metal
         for shader in BackdropShader.allCases {

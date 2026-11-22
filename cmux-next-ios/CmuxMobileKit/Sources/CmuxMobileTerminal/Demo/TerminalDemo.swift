@@ -153,6 +153,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("historyfling") { await historyFling() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -217,6 +218,28 @@ final class TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
+    /// down from ios". A Mac terminal attaches with its latest rows first; a
+    /// reader's first fling up slows into the top of them and asks for the
+    /// older rows, which come back as a reset and a replay of the whole
+    /// window. The fling runs to its end and the older rows come after it:
+    /// `historyfling done stopped=N fetches=N top=ROW`.
+    private func historyFling() async {
+        model.composerText = "historywindow 150 2000 60"
+        model.send()
+        await wait(3)
+        model.scrollToBottom()
+        await wait(1.5)
+        let before = model.controller?.flingsStoppedByReset ?? 0
+        mark("fling up into the top of the rows held")
+        model.controller?.flingToNearTop()
+        await wait(6)
+        let stopped = (model.controller?.flingsStoppedByReset ?? 0) - before
+        let fetches = (model.session as? MockTerminalSession)?.historyFetches ?? 0
+        model.demoNote = "historyfling done stopped=\(stopped) fetches=\(fetches) state=\(model.controller?.debugState ?? "-")"
+        mark(model.demoNote)
+    }
+
     private func keyboard() async {
         mark("keyboard show (composer)")
         model.toggleKeyboard()
@@ -275,8 +298,9 @@ final class TerminalDemoDriver {
         // terminal shows it; the key hides it), `system` (shown by the key,
         // hidden from outside our code: the terminal resigns, as a swipe or
         // the system does, so only will-hide claims the rows), `reverse`
-        // (shown, then hidden 80 ms later, before the Mac answers) and
-        // `double` (shown, hidden and shown again 100 ms apart).
+        // (shown, then hidden 80 ms later, before the Mac answers),
+        // `double` (shown, hidden and shown again 100 ms apart) and `send`
+        // (the composer shows it, a message is sent from it, the key hides it).
         let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
         for round in 0..<5 {
             switch mode {
@@ -284,6 +308,18 @@ final class TerminalDemoDriver {
                 note("show\(round)")
                 model.controller?.debugTapTerminal()
                 await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "send":
+                // Leo's flow (ask-b8451d6e4b): the composer takes the keyboard,
+                // a message goes from it to the app, and the keyboard key
+                // then puts the keyboard away.
+                note("show\(round)")
+                model.focusComposer()
+                await wait(1.5)
+                await type("jj")
+                model.send()
+                await wait(0.6)
                 note("hide\(round)")
                 model.toggleKeyboard()
             case "system":

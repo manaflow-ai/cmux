@@ -26,6 +26,11 @@ pub(super) const WANTED_FOR: Duration = Duration::from_secs(60);
 /// more to listen again (huge-blue's updates, 2026-10-30).
 pub(super) const RESTART_WANTED_FOR: Duration = Duration::from_secs(180);
 
+/// How long into an outage a client's ask still shortens the reconnect wait
+/// (`Peer::asks_shorten`): a restart's window, so a daemon that takes minutes to listen again
+/// is still re-dialed within a second while chats wait on it.
+pub(super) const WANTED_OUTAGE_FOR: Duration = RESTART_WANTED_FOR;
+
 /// How long one message keeps the peer marked to wake: a paused VM resumes and its daemon
 /// answers within this on the routes that wake one (about a minute, machines/lane-vms.md).
 pub(super) const WAKE_FOR: Duration = Duration::from_secs(180);
@@ -205,6 +210,18 @@ impl Peer {
             .is_some_and(|until| until > Instant::now())
     }
 
+    /// Whether a client's ask still shortens the wait between attempts at `now` (ms): for the
+    /// first [`WANTED_OUTAGE_FOR`] of an outage, and whenever a message wakes the peer. Past
+    /// that, a peer whose link is still down is a machine that is gone or off, and reads that keep
+    /// asking about it (a list, a history refresh) would otherwise re-dial ssh about once a
+    /// second for as long as they last: each one a login, its key exchange and the user and
+    /// service lookups behind it. The plain backoff (up to `Backoff::CAP`) still runs, and a
+    /// network change still tries at once.
+    pub(super) fn asks_shorten(&self, now: u64) -> bool {
+        let young = |at: u64| now.saturating_sub(at) < WANTED_OUTAGE_FOR.as_millis() as u64;
+        self.waking() || self.link().down_since.is_none_or(young)
+    }
+
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted
     /// (read again at each ask and each clock check, so an ask mid-wait cuts it). A wait that
     /// this computer slept through ends at the wake, with the backoff started over: the delay
@@ -222,7 +239,9 @@ impl Peer {
             let asked = self.wanted.asked.notified();
             tokio::pin!(asked);
             asked.as_mut().enable();
-            let deadline = started + if heed_asks && self.is_wanted() { wanted } else { delay };
+            // Read each turn: a message mid-wait (`Peer::wake`) makes asks count again.
+            let heed = heed_asks && self.asks_shorten(crate::store::now_ms());
+            let deadline = started + if heed && self.is_wanted() { wanted } else { delay };
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
@@ -235,6 +254,9 @@ impl Peer {
                     }
                 }
                 () = &mut asked, if heed_asks => {
+                    if !self.asks_shorten(crate::store::now_ms()) {
+                        continue;
+                    }
                     // A client asks now: the next attempt goes at once, at most once per
                     // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
                     // per cap, not one per ask.
@@ -266,6 +288,41 @@ mod tests {
     fn peer() -> std::sync::Arc<Peer> {
         let (tx, _notices) = mpsc::channel(64);
         Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx)
+    }
+
+    /// cosmic-gray, 2026-11-21: reads that kept asking about swarm VMs long gone re-dialed each
+    /// one's ssh about once a second. Past `WANTED_OUTAGE_FOR` an ask no longer cuts the wait;
+    /// a message still does.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_about_a_peer_down_for_minutes_waits_its_backoff_but_a_message_cuts_it() {
+        let peer = peer();
+        let long_ago = crate::store::now_ms() - 2 * WANTED_OUTAGE_FOR.as_millis() as u64;
+        peer.with_link(|l| {
+            l.down(long_ago, Duration::from_secs(60));
+        });
+        assert!(!peer.asks_shorten(crate::store::now_ms()));
+        let delay = Duration::from_secs(20);
+        let waiting = peer.clone();
+        let started = Instant::now();
+        let wait = tokio::spawn(async move { waiting.wait_backoff(delay).await });
+        for _ in 0..30 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            peer.want();
+        }
+        assert!(!wait.is_finished(), "asks every half second for 15 s cut nothing");
+        assert!(started.elapsed() < delay);
+        peer.wake();
+        assert_eq!(wait.await.unwrap(), BackoffWait::Done);
+        assert!(started.elapsed() < delay, "a message cuts it: {:?}", started.elapsed());
+
+        let young = self::peer();
+        young.with_link(|l| {
+            l.down(crate::store::now_ms(), Duration::from_secs(60));
+        });
+        assert!(
+            young.asks_shorten(crate::store::now_ms()),
+            "an outage just begun still heeds asks"
+        );
     }
 
     #[tokio::test(start_paused = true)]

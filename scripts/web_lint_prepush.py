@@ -1971,6 +1971,11 @@ def main(argv: list[str] | None = None) -> int:
     heads: dict[str | None, list[str]] = {}
     if args.base:
         heads[None if args.fix else args.head] = changed_files(repo, args.base, args.head)
+    elif args.all and not args.pre_push:
+        # Every package is checked, whatever changed (below), so no push range is needed: in CI's shallow checkout
+        # of a commit no remote ref names, that range cannot be told, and asking for it refused the whole run
+        # (cmux-ci test, run 44991179215: "nothing was linted").
+        heads[None if args.fix else args.head] = []
     else:
         push_range = load_push_range(args.trusted_scripts_dir.resolve() if args.trusted_scripts_dir else None)
         try:

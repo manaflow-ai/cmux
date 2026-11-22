@@ -50,9 +50,9 @@ public struct SidebarArchiveSettledAction {
         text("archive.refusal.noSettledChats",
              "There are no settled chats to archive. Unread answers, failed turns and lost agents stay until you look at them.")
     }
-    static var noWindow: String { String(localized: "reveal.refusal.noWindow", defaultValue: "no window is open", table: "SidebarReveal", bundle: .module) }
+    static var noWindow: String { String(localized: "reveal.refusal.noWindow", defaultValue: "no window is open", table: "SidebarReveal", bundle: .localizedModule) }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .module)
+        String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .localizedModule)
     }
 }

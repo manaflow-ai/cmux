@@ -175,6 +175,12 @@ impl Endpoint {
         self.keep_awake_us = every_us.filter(|us| *us > 0);
     }
 
+    /// Ends the established link once nothing from the peer arrived on any
+    /// path for `after_us` ([`Link::set_peer_lost`]).
+    pub fn set_peer_lost(&mut self, after_us: Option<u64>) {
+        self.link.set_peer_lost(after_us);
+    }
+
     /// When the next keep-awake packet is due: established, a path is
     /// current, and the session was not idle for [`KEEP_AWAKE_IDLE_US`].
     fn keep_awake_at(&self) -> Option<u64> {

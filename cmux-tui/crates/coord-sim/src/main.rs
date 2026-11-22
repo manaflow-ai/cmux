@@ -14,6 +14,7 @@ mod agent;
 mod degen;
 mod drive;
 mod event;
+mod fanin;
 mod generate;
 mod metrics;
 mod rng;
@@ -28,6 +29,7 @@ fn main() -> std::process::ExitCode {
     let result = match cmd {
         "gen" => generate::run(rest),
         "agent" => agent::run(rest),
+        "fanin" => fanin::run(rest),
         "drive" => drive::run(rest),
         "degen" => degen::run(rest),
         "report" => metrics::run(rest),

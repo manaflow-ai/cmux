@@ -176,6 +176,26 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_500_000,
     ownPart: true,
   },
+  // A fast fling and clicks along the prompt rail in a 1,500-turn paged chat, with 200, 500 and 1,000 listed sessions
+  // and a busy daemon (Leo 2026-11-22: "lags on scrolling in general when he's scrolling really fast"). perf-cron.py's
+  // web-ui-scroll part runs it (`--only chat-fast-scroll`).
+  {
+    name: "chat-fast-scroll",
+    file: "chat-fast-scroll.bench.ts",
+    args: ["--sizes", "200,500,1000", "--turns", "1500", "--seconds", "4", "--clicks", "16"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
+  // The sidebar chats page flung at 300 and 1,500 px a frame and jumped along its track at 200 to 10,000 Earlier
+  // rows, with every row mounted (the app's host today), a same-frame slice host and a one-frame-late one: work per
+  // frame and blank frames (the same ask). The web-ui-scroll part runs it too (`--only sidebar-chats-fling`).
+  {
+    name: "sidebar-chats-fling",
+    file: "sidebar-chats-fling.bench.ts",
+    args: ["200", "500", "1000", "10000"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {

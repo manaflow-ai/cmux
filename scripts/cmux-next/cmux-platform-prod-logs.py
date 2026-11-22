@@ -141,6 +141,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.record.unknown",
     "cloud.room.failed",
     "cloud.spare.claimed",
+    "cloud.spare.gateway_read",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.restarting",
@@ -292,7 +293,11 @@ INT, TOKEN, ID = base.INT, base.TOKEN, base.ID
 PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm": ID, "vmId": ID, "user": ID,
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
-                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN}
+                 "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
+                 "mode": TOKEN}
+# Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
+PUBLIC_BOOLS = ("lacks", "shared", "host")
 
 
 def public_log(j):
@@ -308,6 +313,12 @@ def public_log(j):
             v = base.typed(kind, j[k])
             if v is not None:
                 out[k] = v
+    for k in PUBLIC_BOOLS:
+        if isinstance(j.get(k), bool):
+            out[k] = j[k]
+    # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
+    if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
+        out["mode"] = "null"
     if "error" in j:
         out["error"] = True
     return out, None

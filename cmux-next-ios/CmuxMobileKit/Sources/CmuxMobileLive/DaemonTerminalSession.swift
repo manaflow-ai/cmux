@@ -506,10 +506,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 enqueue(.size(columns: size.columns, rows: size.rows))
             }
             settleReclaimHold()
+            armLiveness()
         } else {
             reclaimDeadline?.cancel()
             reclaimDeadline = nil
             stopLeaseRefresh()
+            stopLiveness()
             if attached, sizeClaimed {
                 log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
                 releaseNow()
@@ -559,6 +561,11 @@ public final class DaemonTerminalSession: TerminalSession {
         pasteNotSent.removeAll()
         tailProbe?.cancel()
         tailProbe = nil
+        autoReattach?.cancel()
+        autoReattach = nil
+        autoReattaching = false
+        stopLiveness()
+        inputUnansweredSince = nil
     }
 
     /// Attaches again after a dropped link. A no-op while attached or
@@ -701,6 +708,9 @@ public final class DaemonTerminalSession: TerminalSession {
 
     private func attach() async {
         guard !attaching else { return }
+        // Whoever attaches now (a new link, Retry, a key) supersedes a pending self-reattach.
+        autoReattach?.cancel()
+        autoReattach = nil
         attaching = true
         defer { attaching = false }
         do {
@@ -935,9 +945,11 @@ public final class DaemonTerminalSession: TerminalSession {
                     await old.close()
                 }
             }
+            autoReattaching = false
             drain()
             drainInput()
             openInputLane(for: client)
+            armLiveness()
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)
@@ -953,6 +965,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 markInputDetached()
                 draining = false
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
+            }
+            if autoReattaching, (error as? LinkError)?.code == "no-link" {
+                // A self-reattach found no link: the link is down, and its
+                // return reattaches every session. Wait for it as before,
+                // "Reattaching…", never into the retries' "Can't reach".
+                autoReattaching = false
+                attachRetries = 0
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                if handler != nil, !ended { handler?(.connection(connectionState)) }
+                return
             }
             if attachRetries < reattachBackoff.count, handler != nil, !ended {
                 // Keep the last frame and try again (bounded backoff). A first
@@ -987,8 +1009,9 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The channel ended. After `detached` that is the end; otherwise the link
-    /// dropped and the session waits for ``reconnect()``.
+    /// The channel ended. After `detached` that is the end; otherwise the
+    /// session attaches again by itself (``scheduleAutoReattach(_:)``), or
+    /// when a new link calls ``reconnect()``, whichever comes first.
     private func channelEnded(_ client: DaemonClient) {
         guard self.client === client else { return }
         self.client = nil
@@ -997,6 +1020,7 @@ public final class DaemonTerminalSession: TerminalSession {
         stopLeaseRefresh()
         markInputDetached()
         draining = false
+        stopLiveness()
         guard handler != nil, !ended else { return }
         if resyncAfterClose {
             // An agent CLI frame failed: attach again at once, for a keyframe or bytes.
@@ -1005,7 +1029,9 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         handler?(.connection(connectionState))
-        log.info("surface \(self.surface): link dropped, waiting to reattach")
+        // Not only when a new link comes: the link may be fine (the daemon
+        // closed this channel), and then nothing else would ever reattach.
+        scheduleAutoReattach("attach channel ended")
     }
 
     /// One event line from the daemon channel, decoded on the main actor
@@ -1288,7 +1314,9 @@ public final class DaemonTerminalSession: TerminalSession {
                 if self.client === client {
                     self.client = nil
                     attached = false
+                    stopLiveness()
                     handler?(.connection(connectionState))
+                    scheduleAutoReattach("a size request failed on the attach channel")
                 }
                 outbox.insert(next, at: 0)
                 draining = false
@@ -1415,6 +1443,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
                 written = true
                 inputWriting = false
+                if inputUnansweredSince == nil { inputUnansweredSince = .now }
                 inputProgress += 1
                 armTailProbe()
                 drainInput()
@@ -1453,10 +1482,14 @@ public final class DaemonTerminalSession: TerminalSession {
                     self.client = nil
                     inputClient = nil
                     attached = false
+                    stopLiveness()
                     // Fails this channel's other unanswered sends, which
                     // otherwise wait on a channel nobody reads.
                     Task { await target.close() }
                     handler?(.connection(connectionState))
+                    // The keys it held are never sent again (above); the
+                    // terminal comes back by itself, not at the next link.
+                    scheduleAutoReattach("a send failed on the attach channel")
                 }
             }
             inputSettled()
@@ -1491,6 +1524,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func inputSettled() {
         inputInFlight -= 1
         inputProgress += 1
+        inputUnansweredSince = inputInFlight == 0 ? nil : .now
         guard inputInFlight == 0 else {
             armTailProbe()
             return drainInput()
@@ -1634,6 +1668,112 @@ public final class DaemonTerminalSession: TerminalSession {
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
 
+    // MARK: Self-recovery
+
+    /// Leo, 2026-11-21: "i noticed intermittent 30s lag/disconnects on ios app
+    /// on terminal." A channel that ended (or went silent) while the link
+    /// stayed up waited for the whole link to die (20-35 s) or for ever.
+    /// Now the session attaches again by itself, through the reattach backoff.
+    private var autoReattach: Task<Void, Never>?
+    /// The running reattach was started by ``scheduleAutoReattach(_:)``: a
+    /// failure because there is no link stops it quietly (the new link
+    /// reattaches every session), never into "Can't reach this terminal".
+    private var autoReattaching = false
+    /// Asks the link to prove itself now (its quick probe), so a link that
+    /// really died is redialed at once instead of after its heartbeat.
+    public var onLinkSuspect: (@MainActor () -> Void)?
+
+    /// The liveness check of the attach channel while it is on screen: a
+    /// `send` unanswered for ``livenessSendWait`` or no frame at all for
+    /// ``livenessQuietWait`` sends a `ping`; no frame within
+    /// ``livenessPingTimeout`` after it closes the channel and reattaches.
+    /// The link's heartbeat only proves the Mac-to-phone direction (any frame
+    /// skips its probe), so a broken uplink under streaming output stalled
+    /// keys for 10-35 s.
+    private var liveness: Task<Void, Never>?
+    var livenessSendWait: Duration = .seconds(2)
+    var livenessQuietWait: Duration = .seconds(3)
+    var livenessPingTimeout: Duration = .seconds(2)
+    static let livenessTick: Duration = .milliseconds(250)
+    /// The oldest `send` written and not answered since (the last answer
+    /// moves it), nil with none in flight.
+    private var inputUnansweredSince: ContinuousClock.Instant?
+    /// The liveness check is running (tests).
+    var livenessArmed: Bool { liveness != nil }
+
+    /// The channel died under an attached session (it ended, a write failed,
+    /// or it went silent): attach again after the backoff's first delay,
+    /// without waiting for a new link. A no-op once stopped or ended, while
+    /// attached or attaching, and while the Mac is offline (its link
+    /// reattaches every session when it comes back).
+    private func scheduleAutoReattach(_ why: String) {
+        guard handler != nil, !ended, !attached, !attaching, autoReattach == nil else { return }
+        let delay = reattachBackoff.first ?? 0.25
+        log.notice("surface \(self.surface, privacy: .public): \(why, privacy: .public); reattaching in \(delay, privacy: .public) s")
+        onLinkSuspect?()
+        autoReattach = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.autoReattach = nil
+            guard !self.macOffline, !self.gaveUp else { return }
+            self.autoReattaching = true
+            self.reconnect()
+        }
+    }
+
+    /// Starts (or restarts, for a new channel) the liveness check: only
+    /// attached and on screen (``setClaimsSize(_:)``); it stops by itself
+    /// when the channel changes, is hidden or the session stops.
+    private func armLiveness() {
+        liveness?.cancel()
+        liveness = nil
+        guard attached, claimsSize, handler != nil, let client else { return }
+        let tick = Self.livenessTick
+        liveness = Task { [weak self] in
+            var position: UInt64 = 0
+            // The last proof the channel is alive: a frame from the Mac, or an answered ping.
+            var provenAt = ContinuousClock.now
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: tick) } catch { return }
+                let seen = await client.receivedPosition
+                guard let self, !Task.isCancelled, self.attached, self.claimsSize, self.client === client else { return }
+                let at = ContinuousClock.now
+                // The screen is behind and holds the Mac back: silence is ours, not the link's.
+                if self.outputPaused { provenAt = at; position = seen; continue }
+                if seen != position {
+                    position = seen
+                    // Output proves the Mac-to-phone direction only: a key still
+                    // unanswered keeps its own clock (a broken uplink under a
+                    // streaming terminal).
+                    if self.inputUnansweredSince == nil { provenAt = at }
+                }
+                let stalled = self.inputUnansweredSince.map { at - max($0, provenAt) >= self.livenessSendWait } ?? false
+                let quiet = self.inputUnansweredSince == nil && at - provenAt >= self.livenessQuietWait
+                guard stalled || quiet else { continue }
+                let timeout = self.livenessPingTimeout
+                let answered = (try? await Self.within(timeout) {
+                    try await client.request("ping", deadline: timeout)
+                }) != nil
+                guard !Task.isCancelled, self.client === client else { return }
+                if answered {
+                    provenAt = .now
+                    position = await client.receivedPosition
+                    continue
+                }
+                log.error("surface \(self.surface, privacy: .public): attach channel silent (\(stalled ? "send unanswered" : "no frame", privacy: .public), ping unanswered for \(timeout, privacy: .public)); reattaching")
+                self.liveness = nil
+                self.channelEnded(client)
+                Task { await client.close() }
+                return
+            }
+        }
+    }
+
+    private func stopLiveness() {
+        liveness?.cancel()
+        liveness = nil
+    }
+
     /// The size the attach already carried (no separate resize needed).
     private var attachedWithSize: (columns: Int, rows: Int)?
 
@@ -1692,9 +1832,19 @@ public final class DaemonTerminalSession: TerminalSession {
         defaults.bool(forKey: agentCLIHybridDefaultsKey)
     }
 
-    /// What `set-client-info` declares: the hybrid stream only with the setting on.
+    /// A plain shell's terminal as the same lean frames (its lines and cursor), PTY bytes only
+    /// while it runs a full-screen program (cmux-tui `terminal-shell-lines-v1`).
+    nonisolated static let shellLinesCapability = "terminal-shell-lines-v1"
+    /// `output` at most once per display frame for a terminal that stays on PTY bytes (cmux-tui
+    /// `attach-output-coalesce-v1`, #43373): fewer events, the first bytes after idle at once.
+    nonisolated static let outputCoalesceCapability = "attach-output-coalesce-v1"
+
+    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, coalesced PTY
+    /// bytes for everything else) only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability] : clientCapabilities
+        agentCLIHybrid
+            ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
+            : clientCapabilities
     }
 
     /// While the size is claimed and the daemon leases it: the same size

@@ -59,6 +59,11 @@ export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run
  *  `afterSeq` (acpmux hub/row_log.rs). */
 export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
 
+/** The `initialize` capability of an acpmux that answers `_acpmux/usage`: every listed chat's
+ *  `usageStats` and nothing else, `unchanged` while the digest the client holds is current
+ *  (acpmux hub/usage_answer.rs). */
+export const USAGE_CAPABILITY = "session-usage-v1";
+
 /** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
 type Cursor = { epoch: string; seq: number };
 
@@ -192,6 +197,10 @@ export class SessionPager<S extends Summary> {
    * notice below it is older than the row held (`fresh`).
    */
   follows = false;
+  /** This connection's acpmux has `USAGE_CAPABILITY`: `usage` asks it alone, not every page. */
+  usageAlone = false;
+  /** The last `_acpmux/usage` answer and its digest, which the next ask sends (`usage`). */
+  private usageHeld?: { digest: string; usage: Map<string, unknown> };
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
@@ -574,6 +583,12 @@ export class SessionPager<S extends Summary> {
    * `MAX_PAGES` ends it with what came.
    */
   async usage(): Promise<Map<string, unknown>> {
+    if (this.usageAlone) return this.usageByDigest();
+    return this.usagePages();
+  }
+
+  /** `usage` read from every page of the list. */
+  private async usagePages(): Promise<Map<string, unknown>> {
     const found = new Map<string, unknown>();
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -588,6 +603,33 @@ export class SessionPager<S extends Summary> {
       if (cursor !== undefined) seen.add(cursor);
     } while (cursor !== undefined);
     return found;
+  }
+
+  /**
+   * `usage` from an acpmux with `USAGE_CAPABILITY`: one `_acpmux/usage`, its cost the chats that
+   * report usage, not the list. It sends the digest of the answer held, and an `unchanged` reply
+   * keeps that answer, so Session Info shown again reads no stats while none changed. A refusal (a
+   * host whose pane policy predates the method) reads the pages from then on; a failed request
+   * (a timeout, a dropped link) or a reply without stats (stats past a reply page) reads them this
+   * time only.
+   */
+  private async usageByDigest(): Promise<Map<string, unknown>> {
+    const held = this.usageHeld;
+    let refused = false;
+    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch((error) => {
+      refused = methodRefused(error);
+      return undefined;
+    });
+    const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
+    if (digest && held && reply.unchanged === true && held.digest === digest) return held.usage;
+    if (digest && reply.usage && typeof reply.usage === "object") {
+      const usage = new Map<string, unknown>(Object.entries(reply.usage));
+      this.usageHeld = { digest, usage };
+      return usage;
+    }
+    this.usageHeld = undefined;
+    if (refused) this.usageAlone = false;
+    return this.usagePages();
   }
 
   /** Ends the pages in flight. */
@@ -624,4 +666,11 @@ export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<strin
     return { ...session, usageStats: stats };
   });
   return changed ? next : list;
+}
+
+/** A host or acpmux without the method: acpmux's unknown method, the host's allowlist, or a
+ *  remote chat's wire without the relay (as `cloudAgentLogin.ts` `methodMissing`). */
+function methodRefused(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === -32601 || code === "transport.method_refused" || code === "remote.unsupported";
 }

@@ -10,6 +10,9 @@ on:
       - main
       - feat-cmux-next
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -40,6 +43,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -91,7 +96,11 @@ on:
       - "Resources/theme-files/classic-desktop.json"
       - "Resources/theme-files/claude-desktop.json"
       - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/lily-pond.json"
+      - "Resources/theme-files/meadow.json"
+      - "Resources/theme-files/moss.json"
       - "Resources/theme-files/phosphor.json"
+      - "Resources/theme-files/teal.json"
       - "Resources/sidebar-looks/claude.json"
       - "Resources/sidebar-looks/codex.json"
       - "Resources/sidebar-looks/studio.json"
@@ -100,6 +109,7 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -129,6 +139,7 @@ on:
       - "schemas/settings/source/trust.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -173,6 +184,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
@@ -180,6 +192,9 @@ on:
       - "skills/cmux-customization/templates/my-prs/main.js"
   pull_request:
     paths:
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "schemas/settings/source/general.json"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -210,6 +225,8 @@ on:
       - "tests/test_tui_publish_workflow_security.py"
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
+      # The link profiles the ignored terminal_restart_settled test reads (cmux-tui tests).
+      - "webviews/bench/link-profiles.json"
       - "scripts/ci/adopt_cmux_tui_commit.py"
       - "scripts/ci/cmux_tui_manifest_sweep.py"
       - "scripts/ci/cmux_tui_tree_handoff.py"
@@ -261,7 +278,11 @@ on:
       - "Resources/theme-files/classic-desktop.json"
       - "Resources/theme-files/claude-desktop.json"
       - "Resources/theme-files/harbor.json"
+      - "Resources/theme-files/lily-pond.json"
+      - "Resources/theme-files/meadow.json"
+      - "Resources/theme-files/moss.json"
       - "Resources/theme-files/phosphor.json"
+      - "Resources/theme-files/teal.json"
       - "Resources/sidebar-looks/claude.json"
       - "Resources/sidebar-looks/codex.json"
       - "Resources/sidebar-looks/studio.json"
@@ -270,6 +291,7 @@ on:
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
       - "docs/cmux-next/sidebar-customization/**"
       - "docs/remote-agents-and-cloud.md"
       - "examples/extensions/web-pane/**"
@@ -299,6 +321,7 @@ on:
       - "schemas/settings/source/trust.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -343,6 +366,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
+      - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
@@ -364,8 +388,8 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   contract:

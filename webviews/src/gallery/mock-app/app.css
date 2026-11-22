@@ -139,6 +139,20 @@ body {
 .app-mark-unread {
   background: var(--app-accent);
 }
+/* A look's nav row (sidebar.nav): a plain label, no fill at rest, above the chats. */
+.app-sidebar-nav {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--app-text-2);
+}
+/* The Settled (N) fold (sidebar.settleFinished) at the end of the list. */
+.app-sidebar-settled {
+  padding: 12px 8px 4px;
+  font-size: var(--text-caption);
+  color: var(--app-text-3);
+}
 .app-sidebar-empty {
   padding: 12px 8px;
   color: var(--app-text-3);
