@@ -247,6 +247,26 @@ import Testing
         #expect(!hosting.holdsFirstFrame() && !hosting.isDetached && hosting.firstFrameHold == .none)
     }
 
+    /// Cmd-T's parked New Tab page shows in the key's turn twice over: un-hidden in its parking spot (the first-frame
+    /// hold detaches it), then installed in the pane, which moves its view to the pane's window. The move attached the
+    /// page at once, so the key's turn made two fork calls (a 1 ms sample of 30 Cmd-T presses, cmux19: 20 samples each)
+    /// and the order-in the hold defers came back before the first frame. A window change in the hold keeps it: the
+    /// page shows its first frame in the new window, attaches after that frame and is granted after the order-in.
+    @Test func aPageShownThenMovedToAnotherWindowKeepsItsFirstFrameHold() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        hosting.windowDidChange()
+        #expect(calls == ["4:detach"], "the window change attached the page in the key's turn: \(calls)")
+        #expect(hosting.isDetached && hosting.holdsFirstFrame())
+        commit()
+        #expect(calls == ["4:detach"], "the key's commit alone does not attach")
+        frame()
+        #expect(calls == ["4:detach", "4:attach"])
+        commit()
+        #expect(grants == 1 && !hosting.holdsFirstFrame() && !hosting.isDetached && hosting.firstFrameHold == .none)
+    }
+
     /// A page whose window is already in the window (a tab switch inside its pane) is left alone.
     @Test func aPageShownWithItsWindowInIsLeftAlone() {
         let (hosting, commit, frame) = shownPage()
