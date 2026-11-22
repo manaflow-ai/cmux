@@ -21853,7 +21853,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "origin and mutation_id are either both present or both absent.",
-        "At most 4096 live workspaces may exist; tombstoned keys cannot be reused."
+        "At most 8192 live workspaces may exist; tombstoned keys cannot be reused."
       ],
       "fields": {
         "expected_generation": {
