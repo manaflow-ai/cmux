@@ -48,6 +48,7 @@ use session_reset::*;
 
 pub(crate) use open::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
+    truncate_wal_after_delete,
 };
 use std::borrow::Cow;
 #[cfg(test)]
