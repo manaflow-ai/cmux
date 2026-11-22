@@ -12064,3 +12064,113 @@ CmuxNextHome	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	extension	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockMode+Enabled.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
+CmuxNextCloudUI	func	envLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envSymbol	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envIconLabel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envV	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envH	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envSpacer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envDivider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envSized	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envMaxWidth	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envScroll	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envHScroll	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envGrid	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envGridDivider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvKit.swift	AppKit view builder: playground layout helper
+CmuxNextCloudUI	func	envAlpha	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envKindBadge	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envHostChip	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envNote	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envScopeTag	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envProvenance	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envKindMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envAuditTable	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envRequestScopePicker	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	func	envRadioRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground part
+CmuxNextCloudUI	struct	EnvInk	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: playground colours
+CmuxNextCloudUI	enum	EnvNoteTone	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSecretsParts.swift	AppKit view builder: callout tone
+CmuxNextCloudUI	func	envPad	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvBox.swift	AppKit view builder: padding insets
+CmuxNextCloudUI	func	envPad	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvBox.swift	AppKit view builder: padding insets
+CmuxNextCloudUI	class	EnvMenuAction	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvMenuAction.swift	AppKit view builder: menu item closure target
+CmuxNextDesign	func	themedBezelPath	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedBezelButtonCell.swift	AppKit view builder: bezel shape
+MessagesLabHome	enum	TapbackMenuRows	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/PaneInteractions.swift	AppKit view builder: fixed tapback menu rows
+MessagesLabSidebar	enum	SidebarMotion	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift	AppKit view builder: layer animations
+CmuxScreenKitUI	struct	ScreenKeyboardProbe	0	PLATFORM	0	0	Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/ScreenTrackpadOverlay.swift	AppKit view builder: UIViewRepresentable wrapper
+CmuxScreenKitUI	struct	ScreenTrackpadPad	0	PLATFORM	0	0	Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/ScreenTrackpadOverlay.swift	AppKit view builder: UIViewRepresentable wrapper
+CmuxSpinner	extension	CmuxSpinner	0	PLATFORM	0	0	Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinner.swift	AppKit view builder: representable host of the spinner view
+CmuxSpinner	extension	CmuxSpinner	1	PLATFORM	0	0	Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinner.swift	AppKit view builder: representable host of the spinner view
+CmuxNextAgentPane	enum	AgentPaneMenuTimeHeader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneMenuTimeHeader.swift	AppKit view builder: menu header label
+CmuxNextCloudUI	struct	EnvInspectorDirection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvInspectorDirection.swift	AppKit view builder: playground page from sample data
+CmuxNextCloudUI	struct	EnvLedgerDirection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvLedgerDirection.swift	AppKit view builder: playground page from sample data
+CmuxNextCloudUI	struct	EnvSentencesDirection	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSentencesDirection.swift	AppKit view builder: playground page from sample data
+CmuxNextCloudUI	struct	EnvTerminalFrames	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvTerminalFrames.swift	AppKit view builder: sample terminal frames
+CmuxNextDesign	extension	Glass	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/HostGlassSurface.swift	AppKit view builder: glass surface factory
+CmuxNextDesign	struct	TransientMaterialGallery	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/TransientMaterialGallery.swift	AppKit view builder: material gallery cells
+CmuxNextDesign	extension	Glass	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuMaterial.swift	AppKit view builder: menu glass and veil
+CmuxNextDesign	struct	CmuxToastMotion	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/CmuxToastMotion.swift	AppKit view builder: toast layer animations
+CmuxNextDesign	extension	Glass	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipGlass.swift	AppKit view builder: tooltip glass surface
+CmuxNextMacScreen	enum	MacScreenViewerLookC	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenViewerLook+C.swift	AppKit view builder: pill glass surface and width
+CmuxNextMacScreen	struct	MacScreenViewerStyle	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenViewerLook.swift	AppKit view builder: viewer style metrics
+CmuxNextTabs	extension	TabCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell+CountPill.swift	AppKit view builder: count pill layer
+CmuxNextTabs	extension	TabCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell+NeedsYouGlow.swift	AppKit view builder: glow layer and animation
+MessagesLabHome	class	ComposeInlineRemoveButton	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/ComposeInlineRemoveHover.swift	AppKit view subclass (NSImageView)
+MessagesLabHome	class	HomePictureScrollView	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomePictureScrollView.swift	AppKit view subclass (NSScrollView)
+MessagesLabHome	class	HomePictureClipView	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomePictureViewer.swift	AppKit view subclass (NSClipView)
+MessagesLabHome	class	MenuAction	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/MenuGlyphs.swift	AppKit view subclass (NSMenuItem)
+MessagesLabHome	class	HomeCompareSyncedScroll	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/Playground/HomeCompareSyncedScroll.swift	AppKit view subclass (NSScrollView)
+MessagesLabSidebar	class	CmuxSidebarRowCloseButton	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/CmuxSidebarRowClose.swift	AppKit view subclass (NSButton)
+MessagesLabSidebar	class	CmuxSidebarMenuItem	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Cmux/CmuxSidebarView.swift	AppKit view subclass (NSMenuItem)
+MessagesLabSidebar	class	SidebarMenuItem	0	PLATFORM	0	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarModel.swift	AppKit view subclass (NSMenuItem)
+CmuxScreenKitUI	class	KeyInputView	0	PLATFORM	0	0	Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/KeyInputView.swift	AppKit view subclass (UIView)
+CmuxScreenKitUI	class	ScreenKeyboardProbeView	0	PLATFORM	0	0	Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/ScreenTrackpadOverlay.swift	AppKit view subclass (UIView)
+CmuxScreenKitUI	class	ScreenTrackpadPadView	0	PLATFORM	0	0	Packages/Shared/CmuxScreenKit/Sources/CmuxScreenKitUI/ScreenTrackpadOverlay.swift	AppKit view subclass (UIView)
+CmuxSpinner	class	CmuxSpinnerView	0	PLATFORM	0	0	Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinnerView.swift	AppKit view subclass (UIView)
+CmuxSpinner	class	CmuxSpinnerView	1	PLATFORM	0	0	Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinnerView.swift	AppKit view subclass (UIView)
+CmuxVNCWebRTC	class	ScreenVideoView	0	PLATFORM	0	0	Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenVideoView.swift	AppKit view subclass (UIView)
+CmuxVNCWebRTC	class	ScreenVideoView	1	PLATFORM	0	0	Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenVideoView.swift	AppKit view subclass (UIView)
+CmuxNextAgentPane	class	AgentPaneActAsMeCardView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift	NSView subclass via CmuxDialogHostView (NSView)
+CmuxNextApps	class	AppSceneBadgeNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneBadgeNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneButtonNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneButtonNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneDividerNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneDividerNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneEmptyStateNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneEmptyStateNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneIconNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneIconNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneImageNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneImageNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneMenuNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneMenuNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppScenePanelNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppScenePanelNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneProgressNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneProgressNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneReorderableNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneReorderableNSView.swift	NSView subclass via AppSceneStackNSView (NSView)
+CmuxNextApps	class	AppSceneRowNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneRowNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneShapeNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneShapeNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	TrackingSlider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneSliderNSView.swift	AppKit view subclass (NSSlider)
+CmuxNextApps	class	AppSceneSliderNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneSliderNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneSpacerNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneSpacerNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneStackNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneStackNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneTextFieldNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneTextFieldNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneTextNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneTextNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	DisplayOnlySwitch	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneToggleNSView.swift	AppKit view subclass (NSSwitch)
+CmuxNextApps	class	AppSceneToggleNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneToggleNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextApps	class	AppSceneZStackNSView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApps/NativeRender/AppSceneZStackNSView.swift	NSView subclass via AppSceneNodeNSView (NSView)
+CmuxNextBrowser	class	PageInfoIconButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/PageInfo/UI/PageInfoIconButton.swift	AppKit view subclass (NSButton)
+CmuxNextBrowser	class	VerificationSuggestionPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/VerificationSuggestionPanel.swift	NSView subclass via NativePopupPanel (NSPanel)
+CmuxNextCloudUI	class	EnvButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvButton.swift	AppKit view subclass (NSButton)
+CmuxNextCloudUI	class	EnvSegmented	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/EnvSecretsPlayground/EnvSegmented.swift	AppKit view subclass (NSSegmentedControl)
+CmuxNextDesign	class	CmuxDialogQRView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogView+ReadOnlyFields.swift	AppKit view subclass (NSImageView)
+CmuxNextDesign	class	GlassMenuStepperRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassMenu/GlassMenuStepperRowView.swift	NSView subclass via PopupRowView (NSView)
+CmuxNextDesign	class	InkCenteredGlyphView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/InkCenteredGlyphView.swift	AppKit view subclass (NSImageView)
+CmuxNextDesign	class	NativePopupColumnView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Overlay/NativePopupContent+Columns.swift	NSView subclass via OverlayScrollView (NSScrollView)
+CmuxNextDesign	class	OwnInkButtonCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OwnInkButtonCell.swift	AppKit view subclass (NSButtonCell)
+CmuxNextDesign	class	PlusButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PlusButton.swift	NSView subclass via ClickableButton (NSButton)
+CmuxNextDesign	class	OverlayScrollView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	AppKit view subclass (NSScrollView)
+CmuxNextDesign	class	NamedPartsScroller	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift	AppKit view subclass (NSScroller)
+CmuxNextDesign	class	ThemedBezelButtonCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedBezelButtonCell.swift	NSView subclass via OwnInkButtonCell (NSButtonCell)
+CmuxNextFileGrid	class	FileGridScrollView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift	AppKit view subclass (NSScrollView)
+CmuxNextHome	class	HomeChatListButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeChatListButton.swift	NSView subclass via ClickableButton (NSButton)
+CmuxNextMacScreen	class	MacScreenScopeSegment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenViewerLook+AControls.swift	AppKit view subclass (NSButton)
+CmuxNextMacScreen	class	MacScreenStatusStripBody	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenViewerLook+BBody.swift	NSView subclass via MacScreenThemedView (NSView)
+CmuxNextMacScreen	class	MacScreenStatusStripBar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenViewerLook+BStrip.swift	NSView subclass via MacScreenThemedView (NSView)
+CmuxNextSettingsWindow	class	DensityOverlayButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayButton.swift	NSView subclass via ClickableButton (NSButton)
+CmuxNextSettingsWindow	class	FlippedClipView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/DensityOverlayView.swift	AppKit view subclass (NSClipView)
+CmuxNextSidebar	class	AgentDriveIndicatorView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/AgentDriveIndicatorView.swift	NSView subclass via ClickableButton (NSButton)
+CmuxNextSidebar	class	GroupEditorPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift	NSView subclass via ActiveAppKeyPanel (NSPanel)
+CmuxNextSidebar	class	ListHeaderRowView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ListHeaderRowView.swift	NSView subclass via SidebarRowView (NSView)
+CmuxNextTerminal	class	TerminalSizedForChipButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSizedForChipButton.swift	AppKit view subclass (NSButton)
