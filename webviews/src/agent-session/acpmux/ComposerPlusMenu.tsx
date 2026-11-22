@@ -7,8 +7,8 @@
 // recent ones, then one "Commands and skills…" row that opens the slash list, which searches them
 // all (composerPlusRegistry.ts, recentCommands.ts).
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { Picker, PlusIcon, type Section } from "./ComposerPickers";
-import { isComposerCommand, runComposerPlusAction, type ComposerPlusEntry } from "./composerPlusRegistry";
+import { PaperclipIcon, Picker, PlusIcon, type Section } from "./ComposerPickers";
+import { runComposerPlusAction, type ComposerPlusEntry, isComposerCommand } from "./composerPlusRegistry";
 import type { SlashCommand } from "./slashCommands";
 import { useT } from "./i18n";
 
@@ -19,7 +19,7 @@ import { Tooltip } from "../../ui/Tooltip";
 import { Button } from "../../ui/Button";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { toolbarButtonsFrom, type ToolbarButton } from "./composer/toolbarButtons";
-import { composerActionIcon, composerPlusMenuSections } from "./composerPlusMenuModel";
+import { composerPlusMenuSections, composerActionIcon } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
 import { memo, useEffect } from "react";
@@ -34,6 +34,8 @@ export type ComposerPlusMenuProps = {
   client?: PageClient | null;
   /** The trigger's extra classes (New Tab's `acpmux-newtab-plus`). */
   className?: string;
+  /** The trigger's glyph: + (the default), or Studio's attach paperclip at the row's right end, its menu opening leftward. */
+  glyph?: "plus" | "paperclip";
   /** Plan is on: its row draws the Build glyph, as its title says Build. */
   planning?: boolean;
   /** A composer action (`composer.attachFiles`, `composer.planMode`, ...). */
@@ -57,6 +59,7 @@ export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 const MemoPlusMenu = memo(function PlusMenu({
   entries,
   className,
+  glyph = "plus",
   client,
   planning = false,
   onCommand,
@@ -107,8 +110,8 @@ const MemoPlusMenu = memo(function PlusMenu({
       tooltip={t("composer.addTooltip")}
       shortcut={addShortcut}
       className={className ? `acpmux-composer-plus ${className}` : "acpmux-composer-plus"}
-      button={<PlusIcon />}
-      align="start"
+      button={glyph === "paperclip" ? <PaperclipIcon /> : <PlusIcon />}
+      align={glyph === "paperclip" ? "end" : "start"}
       sections={sections}
       {...(onOpen ? { onOpen } : {})}
     />
