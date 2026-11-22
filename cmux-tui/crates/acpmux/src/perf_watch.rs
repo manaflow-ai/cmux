@@ -202,18 +202,24 @@ impl Meter {
         self.count += 1;
         self.largest = self.largest.max(bytes);
         let slot = (second % 60) as usize;
-        if self.stamps[slot] != second {
-            self.stamps[slot] = second;
-            self.buckets[slot] = 0;
+        let (Some(stamp), Some(bucket)) = (self.stamps.get_mut(slot), self.buckets.get_mut(slot))
+        else {
+            return;
+        };
+        if *stamp != second {
+            *stamp = second;
+            *bucket = 0;
         }
-        self.buckets[slot] = self.buckets[slot].saturating_add(bytes);
+        *bucket = bucket.saturating_add(bytes);
     }
 
     /// Bytes in the last minute up to `second`.
     fn minute(&self, second: u64) -> u64 {
-        (0..60)
-            .filter(|&i| self.stamps[i] != u64::MAX && second.saturating_sub(self.stamps[i]) < 60)
-            .map(|i| self.buckets[i])
+        self.stamps
+            .iter()
+            .zip(self.buckets.iter())
+            .filter(|&(&stamp, _)| stamp != u64::MAX && second.saturating_sub(stamp) < 60)
+            .map(|(_, &bucket)| bucket)
             .sum()
     }
 }
@@ -722,8 +728,11 @@ impl Watch {
             tokio::pin!(notified);
             notified.as_mut().enable();
             let read = self.read(after, limit);
-            let has = read["events"].as_array().is_some_and(|events| !events.is_empty());
-            if has || read["on"] == json!(false) {
+            let has = read
+                .get("events")
+                .and_then(Value::as_array)
+                .is_some_and(|events| !events.is_empty());
+            if has || read.get("on") == Some(&Value::Bool(false)) {
                 return read;
             }
             if tokio::time::timeout_at(deadline.into(), notified).await.is_err() {
@@ -976,7 +985,7 @@ pub async fn handle(params: &Value) -> Result<Value, crate::rpc::RpcError> {
             watch.report(&page, params);
             Ok(json!({"on": true}))
         }
-        "budgets" => Ok(watch.snapshot()["budgets"].clone()),
+        "budgets" => Ok(watch.snapshot().get("budgets").cloned().unwrap_or(Value::Null)),
         other => Err(crate::rpc::RpcError::invalid_params(format!(
             "_acpmux/perf: unknown op {other:?} (on, off, status, read, snapshot, report, budgets)"
         ))),

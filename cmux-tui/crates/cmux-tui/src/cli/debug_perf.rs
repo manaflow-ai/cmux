@@ -102,9 +102,9 @@ fn print(value: &Value, json_out: bool, text: fn(&Value) -> String) {
 }
 
 fn status_text(value: &Value) -> String {
-    if value["on"] == json!(true) {
-        let file = value["file"].as_str().unwrap_or("(none)");
-        format!("perf watch: on (events {}; tail {file})", value["seq"])
+    if at(value, "on").as_bool() == Some(true) {
+        let file = at(value, "file").as_str().unwrap_or("(none)");
+        format!("perf watch: on (events {}; tail {file})", at(value, "seq"))
     } else {
         "perf watch: off (cmux debug perf on)".to_owned()
     }
@@ -115,11 +115,11 @@ fn budgets_text(value: &Value) -> String {
     for budget in value.as_array().into_iter().flatten() {
         out.push_str(&format!(
             "{:<28} {:>12} {:<8} {}  ({})\n",
-            budget["key"].as_str().unwrap_or("?"),
-            budget["limit"],
-            budget["unit"].as_str().unwrap_or(""),
-            budget["what"].as_str().unwrap_or(""),
-            budget["source"].as_str().unwrap_or(""),
+            at(budget, "key").as_str().unwrap_or("?"),
+            at(budget, "limit"),
+            at(budget, "unit").as_str().unwrap_or(""),
+            at(budget, "what").as_str().unwrap_or(""),
+            at(budget, "source").as_str().unwrap_or(""),
         ));
     }
     out.trim_end().to_owned()
@@ -139,10 +139,10 @@ fn follow(socket: Option<&Path>, json_out: bool) -> Result<(), String> {
             }
         };
         let status = request(json!({"op": "status"})).await?;
-        let mut after = status["seq"].as_u64().unwrap_or(0);
-        if status["on"] != json!(true) {
+        let mut after = at(&status, "seq").as_u64().unwrap_or(0);
+        if at(&status, "on").as_bool() != Some(true) {
             let turned = request(json!({"op": "on"})).await?;
-            after = turned["seq"].as_u64().unwrap_or(0);
+            after = at(&turned, "seq").as_u64().unwrap_or(0);
             if !json_out {
                 eprintln!("perf watch: turned on (cmux debug perf off to stop)");
             }
@@ -150,14 +150,14 @@ fn follow(socket: Option<&Path>, json_out: bool) -> Result<(), String> {
         loop {
             let read =
                 request(json!({"op": "read", "after": after, "waitMs": FOLLOW_WAIT_MS})).await?;
-            if read["on"] != json!(true) {
+            if at(&read, "on").as_bool() != Some(true) {
                 if !json_out {
                     eprintln!("perf watch: turned off");
                 }
                 return Ok(());
             }
-            for event in read["events"].as_array().into_iter().flatten() {
-                after = after.max(event["seq"].as_u64().unwrap_or(after));
+            for event in at(&read, "events").as_array().into_iter().flatten() {
+                after = after.max(at(event, "seq").as_u64().unwrap_or(after));
                 if json_out {
                     println!("{event}");
                 } else {
@@ -165,7 +165,7 @@ fn follow(socket: Option<&Path>, json_out: bool) -> Result<(), String> {
                 }
             }
             // A daemon restarted under us starts its seq again.
-            let seq = read["seq"].as_u64().unwrap_or(after);
+            let seq = at(&read, "seq").as_u64().unwrap_or(after);
             if seq < after {
                 after = 0;
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -176,37 +176,44 @@ fn follow(socket: Option<&Path>, json_out: bool) -> Result<(), String> {
 
 /// One event as one line for a person.
 pub(super) fn event_text(event: &Value) -> String {
-    let at = event["at"].as_u64().unwrap_or(0);
-    let clock = format!("{:02}:{:02}:{:02}", at / 3_600_000 % 24, at / 60_000 % 60, at / 1000 % 60);
-    match event["kind"].as_str().unwrap_or("") {
-        "note" => format!("{clock} note  {}", event["text"].as_str().unwrap_or("")),
+    let at_ms = at(event, "at").as_u64().unwrap_or(0);
+    let clock = format!(
+        "{:02}:{:02}:{:02}",
+        at_ms / 3_600_000 % 24,
+        at_ms / 60_000 % 60,
+        at_ms / 1000 % 60
+    );
+    match at(event, "kind").as_str().unwrap_or("") {
+        "note" => format!("{clock} note  {}", at(event, "text").as_str().unwrap_or("")),
         "span" => {
-            let parts: Vec<String> = event["parts"]
+            let parts: Vec<String> = at(event, "parts")
                 .as_array()
                 .into_iter()
                 .flatten()
                 .map(|p| {
                     format!(
                         "{} {}",
-                        p["name"].as_str().unwrap_or("?"),
-                        ms(p["ms"].as_f64().unwrap_or(0.0))
+                        at(p, "name").as_str().unwrap_or("?"),
+                        ms(at(p, "ms").as_f64().unwrap_or(0.0))
                     )
                 })
                 .collect();
-            let budget = match event["budgetMs"].as_f64() {
-                Some(limit) if event["over"] == json!(true) => format!(" (over {})", ms(limit)),
+            let budget = match at(event, "budgetMs").as_f64() {
+                Some(limit) if at(event, "over").as_bool() == Some(true) => {
+                    format!(" (over {})", ms(limit))
+                }
                 Some(limit) => format!(" (under {})", ms(limit)),
                 None => String::new(),
             };
             format!(
                 "{clock} span  {} {}{budget}: {}",
-                event["name"].as_str().unwrap_or("?"),
-                ms(event["ms"].as_f64().unwrap_or(0.0)),
+                at(event, "name").as_str().unwrap_or("?"),
+                ms(at(event, "ms").as_f64().unwrap_or(0.0)),
                 parts.join(" | ")
             )
         }
         "meter" => {
-            let top: Vec<String> = event["top"]
+            let top: Vec<String> = at(event, "top")
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -214,9 +221,9 @@ pub(super) fn event_text(event: &Value) -> String {
                 .map(|z| {
                     format!(
                         "{} [{}] {}/min",
-                        z["label"].as_str().unwrap_or("?"),
-                        z["channel"].as_str().unwrap_or("?"),
-                        size(z["bytesPerMinute"].as_u64().unwrap_or(0))
+                        at(z, "label").as_str().unwrap_or("?"),
+                        at(z, "channel").as_str().unwrap_or("?"),
+                        size(at(z, "bytesPerMinute").as_u64().unwrap_or(0))
                     )
                 })
                 .collect();
@@ -239,6 +246,12 @@ fn size(bytes: u64) -> String {
     } else {
         format!("{bytes} B")
     }
+}
+
+/// `value[key]` without the panicking `Index` (the panic ratchet counts it): `Null` when absent.
+fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
+    static NULL: Value = Value::Null;
+    value.get(key).unwrap_or(&NULL)
 }
 
 #[cfg(test)]
