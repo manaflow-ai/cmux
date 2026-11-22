@@ -118,7 +118,6 @@ extension ScreenContentView {
     /// structural snap (a split, a close, a zoom) does not wait for programs: its grid goes when it shows.
     func heldSnapAwaitsContent() -> Bool {
         guard frameInput.snapWaitsForContent, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
-        if zoomDim.holdsFrame(of: self) { return true } // a zoom's dim comes first; its panes hear their sizes when its fade is spent
         frameInput.snapRefreshesWaited += 1
         let waited = frameInput.snapRefreshesWaited
         if waited <= Self.commitBound, frameInput.commitAwaited.contains(where: { frameInput.commitSurfaces[$0] != nil }) { return true }
@@ -134,7 +133,6 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         (frameInput.snapWaitsForContent, frameInput.snapAwaitsPrograms) = (false, false)
-        zoomDim.changeShows() // the dim that came before a zoom leaves in the commit that shows the zoom
         // The snap waited for its content (bounded): each terminal it places shows at its new size in this commit, with
         // its program's redraw or the size only, never its old size in the new pane (RESIZE P0 21).
         for pane in paneFrames.keys {
@@ -193,7 +191,7 @@ extension ScreenContentView {
         }
         guard !frameInput.snapDeparted.isEmpty else { return }
         frameInput.snapDeparted = []
-        guard context.hideRetiredShown(of: screenID) else { return }
+        guard zoomDim.hidesDeparted(of: self) else { return }
         context.afterCommit { [weak self] in self?.releaseDeparted() }
     }
 
@@ -207,13 +205,7 @@ extension ScreenContentView {
     /// zoom's covered panes at the unzoom) show, at their places. Returns whether any did.
     func showSnapReturning() -> Bool {
         guard !frameInput.snapReturning.isEmpty else { return false }
-        var shown = false
-        for pane in frameInput.snapReturning {
-            guard paneFrames[pane] != nil, let host = context.hosts[pane], host.superview === self, host.isHidden else { continue }
-            host.isHidden = false
-            shown = true
-        }
-        frameInput.snapReturning = []
-        return shown
+        defer { frameInput.snapReturning = [] }
+        return context.showReturning(frameInput.snapReturning.filter { paneFrames[$0] != nil }, on: self)
     }
 }
