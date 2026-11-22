@@ -27,6 +27,12 @@ class APIReadError < PolicyError
   end
 end
 
+# The pull request's own identity, read live from the protected repository.
+# None of these messages carry candidate bytes: they name GitHub-computed
+# metadata, so the annotation can say which one did not hold instead of
+# leaving a maintainer to reproduce the whole validation to find out.
+class MetadataError < PolicyError; end
+
 # One shared retry budget leaves three minutes of the ten-minute job for
 # checkout, token minting, git reads and static policy checks.
 API_RETRY_BUDGET_SECONDS = 420
@@ -652,6 +658,10 @@ def fail!(message)
   raise PolicyError, message
 end
 
+def refuse_metadata!(message)
+  raise MetadataError, message
+end
+
 def required_env(name, pattern = nil)
   value = ENV[name].to_s
   fail!("#{name} is missing") if value.empty?
@@ -1129,6 +1139,61 @@ def effective_head_policy(base:, head:, landed_parent:, landed:)
   end
 end
 
+# Cases over the live pull-request metadata. The base sha moving is the one
+# that bit a real pull request: manaflow-ai/cmux#50878's guard refused it
+# because main had landed commits since its run was queued.
+def run_pull_request_metadata_regression_matrix!
+  base_sha = "a" * 40
+  advanced_base_sha = "b" * 40
+  head_sha = "c" * 40
+  repository = "manaflow-ai/cmux"
+  repository_id = 4242
+  live = lambda do |overrides = {}|
+    {
+      "number" => 50_878,
+      "state" => "open",
+      "base" => {
+        "ref" => "main", "sha" => base_sha,
+        "repo" => { "full_name" => repository, "id" => repository_id }
+      },
+      "head" => {
+        "ref" => "fast-checks-provide-pytest", "sha" => head_sha,
+        "repo" => { "full_name" => "contributor/cmux", "id" => 99 }
+      }
+    }.merge(overrides)
+  end
+  advanced = lambda do |sha|
+    live.call("base" => live.call["base"].merge("sha" => sha))
+  end
+  cases = [
+    ["base unmoved", live.call, base_sha],
+    ["base advanced while the guard ran", advanced.call(advanced_base_sha), advanced_base_sha],
+    ["base rewound to another revision", advanced.call("d" * 40), "d" * 40],
+    ["base sha malformed", advanced.call("not-a-sha"), nil],
+    ["base is not main", live.call("base" => live.call["base"].merge("ref" => "feat-cmux-next")), nil],
+    ["base in another repository",
+     live.call("base" => live.call["base"].merge("repo" => { "full_name" => "fork/cmux", "id" => 7 })), nil],
+    ["head moved", live.call("head" => live.call["head"].merge("sha" => "e" * 40)), nil],
+    ["pull request closed", live.call("state" => "closed"), nil],
+    ["another pull request", live.call("number" => 1), nil],
+    ["base equals head", advanced.call(head_sha), nil],
+    ["metadata malformed", nil, nil]
+  ]
+  failures = cases.each_with_object([]) do |(name, payload, expected), errors|
+    actual = begin
+      validated_base_sha(
+        payload, pr_number: "50878", repository: repository,
+        repository_id: repository_id, head_sha: head_sha, expected_base_sha: base_sha
+      )
+    rescue MetadataError
+      nil
+    end
+    errors << "#{name}: expected #{expected.inspect}, got #{actual.inspect}" unless actual == expected
+  end
+  fail!("pull request metadata regression matrix failed: #{failures.join('; ')}") unless failures.empty?
+  puts "PASS: pull request metadata regression matrix (#{cases.length} cases)"
+end
+
 def run_test_merge_regression_matrix!
   older = { CLA_WORKFLOW_PATH => "older main policy" }
   newer = { CLA_WORKFLOW_PATH => "newer main policy" }
@@ -1339,6 +1404,35 @@ def git_snapshots(repository, shas, paths)
       paths.to_h { |path| [path, blobs[path] && contents.fetch(blobs[path])] }
     end
   end
+end
+
+# The base revision to validate against, from the live pull request.
+def validated_base_sha(live_pr, pr_number:, repository:, repository_id:, head_sha:, expected_base_sha:)
+  refuse_metadata!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
+  base = live_pr["base"]
+  head = live_pr["head"]
+  base_repo = base.is_a?(Hash) ? base["repo"] : nil
+  head_repo = head.is_a?(Hash) ? head["repo"] : nil
+  refuse_metadata!("pull request metadata changed while validating") unless
+    live_pr["number"].to_s == pr_number &&
+    live_pr["state"] == "open" &&
+    base.is_a?(Hash) &&
+    base["ref"] == "main" &&
+    base["sha"] == expected_base_sha &&
+    base_repo.is_a?(Hash) &&
+    base_repo["full_name"].to_s.downcase == repository.downcase &&
+    base_repo["id"] == repository_id &&
+    head.is_a?(Hash) &&
+    head["sha"] == head_sha &&
+    head["ref"].is_a?(String) &&
+    !head["ref"].empty? &&
+    head_repo.is_a?(Hash) &&
+    head_repo["full_name"].is_a?(String) &&
+    !head_repo["full_name"].empty? &&
+    head_repo["id"].is_a?(Integer) &&
+    head_repo["id"].positive?
+  refuse_metadata!("base and head revisions are identical") if base["sha"] == head_sha
+  base["sha"]
 end
 
 # The guard and policy files of each revision ({ sha => repository its files
@@ -3776,6 +3870,7 @@ begin
   run_document_contract_regression_matrix!
   run_trusted_review_regression_matrix!
   run_test_merge_regression_matrix!
+  run_pull_request_metadata_regression_matrix!
   repository = required_env("GH_REPO", REPOSITORY)
   pr_number = required_env("PR_NUMBER", /\A[1-9][0-9]*\z/)
   base_sha = required_env("BASE_SHA", SHA)
@@ -3790,35 +3885,16 @@ begin
   end
   assert_positive_integer(repository_id, "base repository ID")
   live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
-  fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
-  live_base = live_pr["base"]
-  live_head = live_pr["head"]
-  live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil
-  live_head_repo = live_head.is_a?(Hash) ? live_head["repo"] : nil
+  base_sha = validated_base_sha(
+    live_pr, pr_number: pr_number, repository: repository,
+    repository_id: repository_id, head_sha: head_sha, expected_base_sha: base_sha
+  )
   live_author = live_pr["user"]
-  fail!("pull request metadata changed while validating") unless
-    live_pr["number"].to_s == pr_number &&
-    live_pr["state"] == "open" &&
-    live_base.is_a?(Hash) &&
-    live_base["ref"] == "main" &&
-    live_base["sha"] == base_sha &&
-    live_base_repo.is_a?(Hash) &&
-    live_base_repo["full_name"].to_s.downcase == repository.downcase &&
-    live_base_repo["id"] == repository_id &&
-    live_head.is_a?(Hash) &&
-    live_head["sha"] == head_sha &&
-    live_head["ref"].is_a?(String) &&
-    !live_head["ref"].empty? &&
-    live_head_repo.is_a?(Hash) &&
-    live_head_repo["full_name"].is_a?(String) &&
-    !live_head_repo["full_name"].empty? &&
-    live_head_repo["id"].is_a?(Integer) &&
-    live_head_repo["id"].positive?
-  fail!("pull request author metadata is malformed") unless
+  refuse_metadata!("pull request author metadata is malformed") unless
     live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
   pr_author_id = live_author["id"]
-  head_repository = live_head_repo["full_name"].to_s
-  fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
+  head_repository = live_pr.dig("head", "repo", "full_name").to_s
+  refuse_metadata!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
   # Each revision's files are read at its own sha: the base's from the base
   # sha, never from the head. A fork pull request stores the head commit in
@@ -3961,6 +4037,12 @@ begin
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
 rescue APIReadError => error
   warn "::error::#{error.message}"
+  exit 1
+rescue MetadataError => error
+  # The pull request's own GitHub-computed metadata: naming which assertion
+  # failed leaks no candidate bytes and saves a maintainer from reproducing the
+  # whole validation to learn why it was refused.
+  warn "::error::CLA policy validation stopped: #{error.message}"
   exit 1
 rescue PolicyError
   # Candidate-controlled API, YAML, and shell diagnostics must not be copied
