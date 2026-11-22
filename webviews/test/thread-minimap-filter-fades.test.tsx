@@ -201,6 +201,18 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
       await scrolled();
       await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
     });
+    console.log(
+      "DBG rail",
+      JSON.stringify({
+        scrollTop: scroller.scrollTop,
+        ticks: ticks().map((t) => [t.dataset.tick, t.getAttribute("aria-label")]),
+        rows: [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((el) => [
+          el.dataset.rowId,
+          el.style.top,
+          el.style.marginTop,
+        ]),
+      }),
+    );
     // The third prompt, the first other agent's message.
     expect(reading()).toBe(2);
   } finally {

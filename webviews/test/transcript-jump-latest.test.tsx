@@ -177,6 +177,22 @@ test("a parked reader's processed or non-upward input does not double-apply a ro
         draw(short);
       });
       const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((el) => el.dataset.rowId === id)!;
+      console.log(
+        "DBG jump",
+        JSON.stringify({
+          lapse,
+          click,
+          parked,
+          shrink,
+          id,
+          seen,
+          scrollTop: scroller.scrollTop,
+          rows: [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].map((el) => [
+            el.dataset.rowId,
+            el.style.top,
+          ]),
+        }),
+      );
       // The scroller keeps whole pixels while the shrink is fractional: at most a pixel of rounding.
       expect(Math.abs(parseFloat(row.style.top) - scroller.scrollTop - seen)).toBeLessThanOrEqual(1);
     } finally {
