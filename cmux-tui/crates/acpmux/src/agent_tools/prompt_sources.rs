@@ -52,7 +52,7 @@ fn source(id: String, kind: &str, label: String, channel: &str) -> ContextPart {
 fn with_text(mut part: ContextPart, text: &str, included: bool) -> ContextPart {
     part.tokens = estimated_tokens(text);
     part.source_bytes = Some(text.len() as u64);
-    part.text = Some(text.to_owned());
+    part.text = Some(text.into());
     part.measurement = "estimated".into();
     part.included = included;
     part
@@ -202,6 +202,7 @@ mod tests {
             user_plugin_dir: None,
             displays: None,
             project_servers: Default::default(),
+            http: Default::default(),
         }
     }
 
@@ -229,7 +230,8 @@ mod tests {
         let mut allowed = tools();
         allowed.servers[0].env.push((MCP_TOOLS_ENV.into(), "agents_snapshot".into()));
         let base = allowed.context_parts(false).remove(0);
-        assert_eq!(base.text, Some(format!("{BASE_INSTRUCTIONS} {ASKING_RULE}")));
+        let expected = format!("{BASE_INSTRUCTIONS} {ASKING_RULE}");
+        assert_eq!(base.text.as_deref(), Some(expected.as_str()));
         assert!(base.label.contains("filtered tool listing"));
     }
 

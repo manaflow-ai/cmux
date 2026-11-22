@@ -145,7 +145,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH]",
+                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--no-focus]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -573,6 +573,14 @@ SECRETS (stored in this Mac's Keychain)
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set reads the value from a hidden prompt or stdin, never a command argument.
 
+MODEL CONNECTIONS (what a Cloud session runs on; secrets go into this Mac's Keychain)
+  cmux cloud connections
+  cmux cloud connect claude [--label L]
+  cmux cloud connect api-key --provider anthropic|openai [--label L]
+  cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
+claude runs `claude setup-token` and captures its token without showing it; api-key reads
+the key from a hidden prompt or stdin; chatgpt prints a link to open in a browser on this Mac.
+
 TEAM KEYS (one shared key per agent for the team; owners and admins)
   cmux cloud team-keys status --team TEAM_ID --json
   cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
@@ -601,6 +609,14 @@ DEV と nightly は切り替え可能です。Release と RC は既定で prod �
   cmux cloud secret rm NAME [--repo OWNER/NAME]
 set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
 
+モデル接続（Cloud セッションが使うもの。シークレットはこの Mac のキーチェーンに保存）
+  cmux cloud connections
+  cmux cloud connect claude [--label L]
+  cmux cloud connect api-key --provider anthropic|openai [--label L]
+  cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
+claude は `claude setup-token` を実行し、トークンを表示せずに取り込みます。api-key はキーを
+非表示の入力プロンプトまたは標準入力から読み取ります。chatgpt はこの Mac のブラウザで開くリンクを表示します。
+
 チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
   cmux cloud team-keys status --team TEAM_ID --json
   cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
@@ -624,7 +640,8 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
                              [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
                              [--environment ENV]
                              [--name VM | --target vm:VM_ID]
-                             [--wait] [--timeout SECONDS] [--make-room] [--json]
+                             [--wait] [--timeout SECONDS] [--make-room]
+                             [--no-focus] [--json]
 
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
@@ -672,14 +689,23 @@ older name; both run the same start.
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)
+  --timings          Where the start's time went, as a table on stderr
   --make-room        At a machine cap, free the machine the refusal offers
                      (a leftover it names is deleted; else the paused one
                      used longest ago is archived and deleted) and start again
+  --no-focus         Start without changing what the app shows: its workspace,
+                     tab, window and focus stay as they are (for an agent or a
+                     script; the chat's tab still opens in the machine's
+                     workspace)
 
 Answers machine_id, machine_name, session_id, workspace_id and tab_id,
 plus reply with --wait, or sent: false, ready_ms and daemon_tab (the
 chat tab's number on the machine's daemon, when start-session names one)
 with no prompt, and new_machine: true when this run made the machine.
+stages: the milliseconds from the command's start to each mark it reached
+(created, connect, session_start, session_ready, send, sent, first_text,
+reply) and total, by the names scripts/cmux-next/cloud-journey.ts uses;
+stages_ms: every step it ran.
 
 EXAMPLES
   cmux cloud start-chat --prompt 'Summarize README.md' --wait --json

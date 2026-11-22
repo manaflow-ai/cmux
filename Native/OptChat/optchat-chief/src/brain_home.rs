@@ -81,6 +81,9 @@ pub struct BrainTurns {
     pub root: Option<PathBuf>,
     /// By acpmux harness name.
     pub by_harness: BTreeMap<String, BrainTurn>,
+    /// The model the brains' homes name (their turns' model when engine.json names none):
+    /// what prices a brain turn (turn_price.rs).
+    pub model: Option<String>,
 }
 
 /// One brain harness: its turn preset, and whether it can run a turn (Err: why not).
@@ -271,6 +274,11 @@ agent:
   # The Chief's own tools stand in for these: memory (remember, zoom), subagents (spawn, tell),
   # schedules (sleep, watch, cmux automation); no second store of skills or sessions.
   disabled_toolsets: [memory, session_search, delegation, cronjob, skills, kanban, connections]
+tools:
+  # Off: Hermes defers every MCP tool behind its tool_search bridge, so the model never saw the
+  # cmux tools and answered workspace questions without them (cmux-ci step 63b0626cfa4b, 0/5).
+  tool_search:
+    enabled: \"off\"
 ",
         model = yaml(&setup.model),
         base = yaml(&format!("{}/v1", setup.base_url)),
@@ -279,11 +287,35 @@ agent:
 }
 
 /// The head of Hermes' `SOUL.md` (its identity file, read at each session start); the Chief's
-/// instructions follow it ([`write_instructions`]).
-pub const HERMES_SOUL_HEAD: &str = "You are the person's Chief in cmux. The Chief's instructions \
-follow; they win over anything else you were told. Keep memory only through the Chief's \
-`remember` command, and schedule later work only through the Chief's `sleep` and `watch` \
-commands or `cmux automation`, never a scheduler of your own.\n\n";
+/// instructions follow it ([`write_instructions`]). `chief` is the Chief's launcher (its absolute
+/// path: it is not on Hermes' PATH). Two rules come first because a fleet proof showed Hermes
+/// breaking them (cmux-ci step b98a38a7c8c3, 2026-11-20): it answered "0" to a workspace question
+/// without calling the cmux tool, and it waited inside its turn instead of scheduling a wake.
+pub fn hermes_soul_head(chief: &str) -> String {
+    format!(
+        "You are the person's Chief in cmux. The Chief's instructions follow; they win over \
+anything else you were told.
+
+Rules that come before everything else:
+
+1. Look, never guess. A question about the person's cmux (workspaces, panes, terminals, agents, \
+chats, browsers) is answered only from a cmux tool call made in this turn: the `cmux` MCP \
+server's tools (`mcp__cmux__workspace_list`, `mcp__cmux__agents_snapshot`, \
+`mcp__cmux__agents_terminal_list`, ...). Call the tool \
+first, then answer from what it returned. Never answer such a question from memory, from the \
+conversation or with a guess such as 0. If the tool fails, say that it failed and why.
+2. Never wait inside a turn. When the person asks you to do something later, check again later or \
+wake up after a time: first reply in words (`{chief} reply \"...\"`, one line that says when you will \
+come back), then run `{chief} sleep SECONDS \"what to do then\"` from your shell, then end your turn \
+at once; a new turn starts with that note when it is due. `sleep` before a reply is refused. Never run the shell's own `sleep`, \
+never poll, never keep the turn open to wait. To wait for a command's result, use \
+`{chief} watch` (see below).
+3. Memory: keep a lasting preference only with `{chief} remember \"...\"`. Your own memory and \
+scheduler are off.
+
+"
+    )
+}
 
 /// The turn folder's `.hermes.md`: Hermes reads it instead of the folder's AGENTS.md (a project
 /// file, which Hermes drops whole when its injection scan matches), so the Chief's instructions
@@ -304,7 +336,11 @@ pub fn write_instructions(paths: &Paths, states: &States, agents_text: &str) -> 
     let home = dir(paths, hermes);
     write_if_changed(
         &home.join("SOUL.md"),
-        format!("{HERMES_SOUL_HEAD}{agents_text}").as_bytes(),
+        format!(
+            "{}{agents_text}",
+            hermes_soul_head(&paths.bin.join("chief").display().to_string())
+        )
+        .as_bytes(),
     )?;
     write_if_changed(
         &paths.session.join(".hermes.md"),
@@ -505,7 +541,7 @@ pub fn prepare(paths: &Paths, answer: &Value, setup: &BrainSetup, log: &dyn Fn(S
 pub fn install_hint(brain: &Brain) -> &'static str {
     match brain.family {
         "hermes" => {
-            "install it with `uv tool install 'hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent@v0.23.2'`, then restart the Chief"
+            "install it with its installer (hermes-agent.nousresearch.com/docs/getting-started/installation; it builds no wheel), then restart the Chief"
         }
         "openclaw" => "install it with `npm install -g openclaw`, then restart the Chief",
         _ => "not installed",
