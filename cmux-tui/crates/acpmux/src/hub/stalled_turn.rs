@@ -215,11 +215,22 @@ impl Hub {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
+        let period = stalled.as_nanos() as u64;
+        // Only a pass that has a turn to judge checks the clocks: every check of a parked watch
+        // starts its tick (`resume.rs`), and the idle reaper runs this on each of its passes, so
+        // 1,000 chats hibernating woke the daemon about 100 times a second (CMUX-571).
+        let now = self.clock_now();
+        let due = self
+            .live_session_handles()
+            .iter()
+            .any(|s| Self::counted_turn(s).is_some() && Self::stalled_due(s, period) <= now);
+        if !due {
+            return;
+        }
         // A deadline that passed while this daemon did not run is no stall: the gap starts every
         // count again first (`resume.rs`), whichever timer fired first after it.
         self.check_resume();
         let now = self.clock_now();
-        let period = stalled.as_nanos() as u64;
         for session in self.live_session_handles() {
             // Read first: anything that moves the count after it bumps it (`stalled_gen`).
             let generation = session.stalled_gen.load(Ordering::SeqCst);
@@ -405,6 +416,35 @@ mod loop_episode_tests {
             hub.watch_stalled_turn(&session, None);
             assert_eq!(session.state_seq.load(Ordering::SeqCst), before_reset + 1);
         }
+        hub.shutdown_all().await;
+    }
+}
+
+#[cfg(test)]
+mod idle_pass_tests {
+    use super::*;
+
+    /// The idle reaper settles stalled turns on each of its passes, and 1,000 chats hibernating
+    /// run it about 20 times a second. A pass with no turn to judge leaves the parked resume watch
+    /// parked: a check would start its tick, and each tick woke two threads (CMUX-571: about 100
+    /// wakeups a second while the chats hibernated).
+    #[tokio::test]
+    async fn a_pass_with_no_turn_due_leaves_the_resume_watch_parked() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "idle-pass", "name": "idle-pass",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        let _session = hub.make_session(meta);
+        hub.park_resume_watch_after_sleep(std::time::Duration::ZERO);
+        for _ in 0..100 {
+            hub.settle_stalled_turns(std::time::Duration::from_secs(600));
+        }
+        assert!(hub.resume_watch_parked(), "a pass with no turn to judge checked the clocks");
         hub.shutdown_all().await;
     }
 }

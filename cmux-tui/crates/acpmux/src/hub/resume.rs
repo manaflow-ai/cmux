@@ -65,6 +65,12 @@ impl Hub {
         }
     }
 
+    /// Tests: whether the watch is parked (no tick runs).
+    #[cfg(test)]
+    pub(super) fn resume_watch_parked(&self) -> bool {
+        self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner()).parked()
+    }
+
     /// Tests: the watch as an idle daemon leaves it: parked, the wall clock `lead` ahead of the
     /// monotonic one (the computer slept that long while no turn ran).
     #[doc(hidden)]
