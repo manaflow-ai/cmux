@@ -988,6 +988,9 @@ pub mod method {
     pub const MUX_VAULT_STATUS: &str = "_acpmux/vault_status";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A text chunk as a delta of the chat's last chunk event, to a client that asked
+    /// (`initialize` `_meta.acpmux.chunkDeltas`, `server/chunk_deltas.rs`).
+    pub const MUX_CHUNK: &str = "_acpmux/chunk";
     /// A followed chat's row changes since the last, `{sessionId, version, lastSeq, patches}`
     /// (`rows/`).
     pub const MUX_ROWS_PATCH: &str = "_acpmux/rows_patch";
@@ -998,6 +1001,9 @@ pub mod method {
     /// incoming and outgoing bubbles without decoding the generic event stream.
     pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
+    /// A chat's row change as only what changed, to a connection that asked for it
+    /// (`server/session_patch.rs`).
+    pub const MUX_SESSION_PATCH: &str = "_acpmux/session_patch";
     /// One peer's burst of row changes, to a watcher that asked for batches (`hub/list_guard.rs`
     /// `send_remote_batch`).
     pub const MUX_PEER_ROWS_CHANGED: &str = "_acpmux/peer_rows_changed";

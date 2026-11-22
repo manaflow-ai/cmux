@@ -40,6 +40,12 @@ pub const INFO_ROWS: &str = "info-rows-v1";
 /// `_acpmux/session_changed`, as before.
 pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
 
+/// A client that sends `initialize` with `_meta.acpmux.chunkDeltas: true` hears a text chunk on
+/// its event stream as `_acpmux/chunk`, a delta of the chat's last chunk event, which carries
+/// `chunkRef` (`server/chunk_deltas.rs`). Every other client hears each chunk's `_acpmux/event`,
+/// as before.
+pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
+
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
@@ -137,6 +143,17 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
+    },
+    Capability {
+        id: CHUNK_DELTAS,
+        wire: &[method::INITIALIZE, method::MUX_ATTACH, method::MUX_EVENT, method::MUX_CHUNK],
+    },
+    // A client that sends `initialize` with `_meta.acpmux.sessionChangedDelta: true` hears each
+    // chat's row change after the first as `_acpmux/session_patch`, only what changed
+    // (`server/session_patch.rs`); every other client hears the whole row in `session_changed`.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which

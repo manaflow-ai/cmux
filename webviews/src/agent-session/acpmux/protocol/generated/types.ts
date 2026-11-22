@@ -13,6 +13,7 @@ export interface AcpmuxRequestMeta {
   callerProtocol?: unknown;
   callerSession?: unknown;
   cancelToken?: unknown;
+  chunkDeltas?: unknown;
   class?: unknown;
   cliHost?: unknown;
   compression?: unknown;
@@ -67,6 +68,7 @@ export interface AcpmuxRequestMeta {
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
   senderToken?: unknown;
+  sessionChangedDelta?: unknown;
   sessionCreatedAt?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
@@ -316,6 +318,22 @@ export interface ChatRouteSetParams {
   sessionId?: unknown;
   when?: unknown;
 }
+
+/**
+ * `_acpmux/chunk` (`chunk-deltas-v1`, `server/chunk_deltas.rs`): an `agent_message_chunk`
+ * record, to a client whose `initialize` sent `_meta.acpmux.chunkDeltas: true`, as a delta of the
+ * last `_acpmux/event` it got that carried this `chunkRef`. The event it stands for is that one's
+ * params with this `seq`, `at` that frame's plus `dt` (the previous `_acpmux/chunk` of the same
+ * `ref` counts as that frame), and `msg.params.update.content.text` this `text`. A `ref` the
+ * client does not hold: it reads again from its cursor (`_acpmux/attach {afterSeq}`).
+ */
+export type ChunkDelta = {
+  /** Unix ms since the frame before it of this `ref`. */
+  dt: number;
+  ref: number;
+  seq: number;
+  text: string;
+} & Record<string, unknown>;
 
 export type CoverageLabel = "acp_requests_only";
 
@@ -1513,6 +1531,12 @@ export type SessionChanged = {
   /** The peer a remote session runs on. */
   peer?: (string | null);
   recordKind: string;
+  /**
+   * To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+   * this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+   * chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+   */
+  rowSeq?: (number | null);
   seq: number;
   session: ChangedSession;
   sessionId: string;
@@ -1868,6 +1892,29 @@ export interface SessionNewParams {
   cwd?: unknown;
   mcpServers?: unknown;
 }
+
+/**
+ * To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+ * place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+ * (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+ * of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+ * an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+ */
+export type SessionPatch = {
+  baseRowSeq: number;
+  /** As `session_changed`'s. */
+  kind: string;
+  listSeq: number;
+  patch: unknown;
+  /** The peer a remote session runs on. */
+  peer?: (string | null);
+  /** A peer's chat: the id its row has here. */
+  qualifiedSessionId?: (string | null);
+  recordKind: string;
+  rowSeq: number;
+  seq: number;
+  sessionId: string;
+} & Record<string, unknown>;
 
 export interface SessionPromptParams {
   _meta?: RequestMeta;

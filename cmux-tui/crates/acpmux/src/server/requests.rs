@@ -4205,6 +4205,14 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
     let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
+    // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
+    // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
+    let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
+    conn.chunk_deltas.set_enabled(deltas == Some(true) && conn.raw_text);
+    // Opt-in too: a client that does not ask hears each change as the whole row, as before.
+    let delta = params.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool);
+    conn.session_delta.store(delta == Some(true), Ordering::SeqCst);
+    *conn.sent_rows.lock_or_recover() = Default::default();
 }
 
 /// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an
