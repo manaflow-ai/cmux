@@ -603,8 +603,10 @@ class Route:
         self.reasons.append(reason)
 
     def macos(self) -> bool:
-        """Any tier that needs a Mac: the placement job places these runs."""
-        return self.native or self.webview or self.swift or self.generated or self.daemon
+        """Any tier that needs a Mac: the placement job places these runs. The Mac fast tier is one: a change
+        only it reads (its registry, runner or job action, outside every Swift compile's inputs since #48937)
+        must still place it."""
+        return self.native or self.webview or self.swift or self.generated or self.daemon or self.fast_tier()
 
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its

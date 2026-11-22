@@ -272,6 +272,51 @@ pub(super) const GUIDES: &[Guide] = &[
         acts on an element by what it is, refused when two match. The reply's results list \
         every step (done, failed or not_run) and stopped_at says which step stopped it.",
     },
+    Guide {
+        topic: "Build on cmux: which primitive to use",
+        keywords: &[
+            "primitive",
+            "primitives",
+            "api",
+            "sdk",
+            "surface",
+            "extend",
+            "extension",
+            "integrate",
+            "integration",
+            "automate",
+            "automation",
+            "automations",
+            "event",
+            "events",
+            "trigger",
+            "cron",
+            "action",
+            "actions",
+            "resource",
+            "resources",
+            "protocol",
+        ],
+        text: "cmux is built from five primitives; use the smallest one that does the job. \
+        Resources and operations: every noun (workspace, pane, tab, terminal, browser, \
+        notification) has a stable prefixed id (ws_, pane_, tab_, term_) and typed verbs named \
+        noun_verb, such as workspace_create, workspace_list, workspace_run, tab_create_terminal, \
+        tab_create_browser and tab_update. Each one returns a typed result or a coded error. \
+        The same operations are `cmux <noun> <verb>` on the CLI and cmux.protocol/2 for SDKs, so \
+        a script, an agent and an app all call one API. \
+        Events: agents_events long-polls what changed (tabs, workspaces, notifications, dialogs, \
+        agent states). Pass its next_after cursor on the next call to get no gaps or \
+        duplicates, and pass until/match to wait for one event. Never poll a list. \
+        Actions: a menu item, palette item or shortcut is an app action. Each action the app \
+        offers outside the GUI is one app_* tool (app_agent_open) and `cmux action run ID`. Use \
+        one only when no operation does the job. \
+        Automations: when (an event such as agent-idle, a schedule, or a watch command) + if (a \
+        shell condition) + do (a prompt or a command), with a record of each run. \
+        automation_events lists the events, automation_create makes an automation, \
+        automation_test checks it and automation_runs reads what ran. \
+        Composition: one cmux_exec script calls any of these in a single turn, with the same \
+        rights as a direct call and no more.",
+    },
 ];
 
 /// The guides for `query` (see [`Guide`]).
@@ -543,6 +588,32 @@ mod tests {
             assert!(guide.text.contains(words), "{words}");
         }
         assert_eq!(guides("status").len(), 1);
+    }
+
+    /// An agent or developer asking how to build on cmux finds the primitives
+    /// guide, and it names only operations that exist.
+    #[test]
+    fn building_on_cmux_finds_the_primitives_guide() {
+        let topic = "Build on cmux: which primitive to use";
+        for query in ["primitives", "which api do I use", "automate on an event", "sdk"] {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        let operations = catalog()["operations"].as_object().unwrap();
+        for op in [
+            "workspace.create",
+            "workspace.list",
+            "workspace.run",
+            "tab.create_terminal",
+            "tab.create_browser",
+            "tab.update",
+        ] {
+            assert!(operations.contains_key(op), "{op}");
+            assert!(guide.text.contains(&op.replace('.', "_")), "{op}");
+        }
+        for tool in ["agents_events", "automation_create", "automation_test", "cmux_exec"] {
+            assert!(guide.text.contains(tool), "{tool}");
+        }
     }
 
     #[test]

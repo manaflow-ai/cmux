@@ -166,10 +166,15 @@ def test_the_router_keeps_guard_references_linux_only() -> None:
     assert module.job_is_plainly_linux(router)
     references = module.macos_job_test_references("\njobs:\n  " + router)
     assert references is not None and references[0] == frozenset(), references
-    # A runner read from another job's outputs is not known to be Linux.
-    unknown = router.replace("fromJSON(vars.RUNNER_POOLS).linux_8", "needs.placement.outputs.runner")
-    assert unknown != router
-    assert not module.job_is_plainly_linux(unknown), unknown
+    # One cmux-linux label, no placement job (hq decisions/junctions.md 2026-11-20); a Mac label or a
+    # needs expression in its place is no longer plainly Linux.
+    assert "'cmux-linux'" in router, router
+    for unknown in (
+        router.replace("'cmux-linux'", "'macos-26'"),
+        router.replace("'cmux-linux'", "needs.place.outputs.runner"),
+    ):
+        assert unknown != router
+        assert not module.job_is_plainly_linux(unknown), unknown
 
 
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
@@ -2061,6 +2066,8 @@ def run_guard_status(
     *,
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
     route_inputs.setdefault(
@@ -2081,6 +2088,8 @@ def run_guard_status(
         "GUARD_NEEDS": json.dumps(
             {name: {"result": result} for name, result in job_results.items()}
         ),
+        "GUARD_EVENT": event,
+        "GUARD_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],

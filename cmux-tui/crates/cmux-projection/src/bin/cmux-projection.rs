@@ -4,6 +4,7 @@
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
 //!                           [--name NAME] [--ready-file FILE]
 //! cmux-projection git-unmount --at PATH
+//! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
 //! ```
 //!
 //! `git-mount` mounts commit REV of the bare repo MIRROR at PATH and serves it until PATH is
@@ -14,6 +15,11 @@
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
 //! and writes it to `--ready-file`.
+//!
+//! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
+//! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
+//! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
+//! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -41,10 +47,13 @@ mod linux {
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
     use cmux_projection::mount;
     use cmux_projection::overlay::Overlay;
+    use cmux_projection::peers::{self, Chain, SeedLimits};
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
-                         cmux-projection git-unmount --at PATH";
+                         cmux-projection git-unmount --at PATH\n       \
+                         cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] \
+                         [--conns N]";
 
     #[derive(Default)]
     struct Args {
@@ -54,6 +63,9 @@ mod linux {
         keep: Option<PathBuf>,
         name: Option<String>,
         ready_file: Option<PathBuf>,
+        listen: Option<String>,
+        rate: Option<u64>,
+        conns: Option<usize>,
         fresh: bool,
     }
 
@@ -76,6 +88,9 @@ mod linux {
                 "--keep" => parsed.keep = Some(value.into()),
                 "--name" => parsed.name = Some(value.clone()),
                 "--ready-file" => parsed.ready_file = Some(value.into()),
+                "--listen" => parsed.listen = Some(value.clone()),
+                "--rate" => parsed.rate = Some(value.parse()?),
+                "--conns" => parsed.conns = Some(value.parse()?),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -86,6 +101,9 @@ mod linux {
     pub fn run(args: Vec<String>) -> anyhow::Result<()> {
         let (command, rest) = args.split_first().ok_or_else(|| anyhow::anyhow!(USAGE))?;
         let args = parse(rest)?;
+        if command == "seed" {
+            return seed(&args);
+        }
         let at = args.at.clone().ok_or_else(|| anyhow::anyhow!("--at is required\n{USAGE}"))?;
         match command.as_str() {
             "git-mount" => git_mount(&args, &at),
@@ -97,6 +115,30 @@ mod linux {
             }
             _ => anyhow::bail!(USAGE),
         }
+    }
+
+    fn seed(args: &Args) -> anyhow::Result<()> {
+        let git_dir = args
+            .git_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--git-dir is required\n{USAGE}"))?;
+        let listen =
+            args.listen.clone().ok_or_else(|| anyhow::anyhow!("--listen is required\n{USAGE}"))?;
+        let addr: std::net::SocketAddr = listen
+            .parse()
+            .map_err(|_| anyhow::anyhow!("--listen takes IP:PORT, got {listen}\n{USAGE}"))?;
+        anyhow::ensure!(
+            !addr.ip().is_unspecified(),
+            "--listen takes the tailnet or VPC address, never every interface (0.0.0.0, 0, [::])"
+        );
+        let mut limits = SeedLimits::default();
+        if let Some(rate) = args.rate {
+            limits.rate = rate;
+        }
+        if let Some(conns) = args.conns {
+            limits.conns = conns;
+        }
+        peers::serve(&git_dir.canonicalize()?, &listen, limits)
     }
 
     /// FNV-1a: a short stable name for a mount path.
@@ -133,7 +175,26 @@ mod linux {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let missing = git::missing(&git_dir, &commit)?;
-        git::fetch_missing(&git_dir, &missing)?;
+        let rest = match Chain::from_env() {
+            Some(chain) => {
+                let (rest, filled) =
+                    chain.fill(&missing, &|oid, bytes| peers::write_loose(&git_dir, oid, bytes));
+                eprintln!(
+                    "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
+                     {} from R2, {} rejected answers, {} sources dropped, {} left for git",
+                    missing.len(),
+                    filled.peer,
+                    filled.ssd,
+                    filled.r2,
+                    filled.rejected,
+                    filled.dropped,
+                    rest.len()
+                );
+                rest
+            }
+            None => missing.clone(),
+        };
+        git::fetch_missing(&git_dir, &rest)?;
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
