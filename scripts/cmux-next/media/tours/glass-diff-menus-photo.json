@@ -11,6 +11,17 @@
       "wait": 3
     },
     {
+      "title": "End Meet Chief",
+      "rpc": {
+        "method": "debug.onboarding",
+        "params": {
+          "action": "meet_chief_end"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
       "title": "New workspace",
       "cmux": [
         "workspace",
