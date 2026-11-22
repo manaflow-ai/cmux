@@ -291,7 +291,12 @@ final class CEFLayerHosting {
     func windowDidChange() {
         let wasInMotion = inResizeMotion
         inLiveResize = view?.window?.inLiveResize ?? false
-        if isDetached {
+        if isDetached, firstFrameHold == .detached, !inResizeMotion {
+            // Shown and moved in one turn (Cmd-T's parked New Tab page: un-hidden in its parking spot, then installed in
+            // the pane): the hold stays, and its frame wait moves to the new window, whose first frame it waits for. An
+            // attach here made a second fork call in the key's turn and brought back the order-in the hold defers.
+            runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
+        } else if isDetached {
             // The old window never ends a live resize or a drag for a view that left it, and a detached page takes no
             // input: it attaches at once, at its new place, and stays attached for the rest of the motion.
             attach()
