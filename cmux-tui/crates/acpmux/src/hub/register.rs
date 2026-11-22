@@ -400,8 +400,8 @@ impl Hub {
             "bridged": watched,
             "token": if token_kept { "registered" } else { "none" },
         });
-        if renewed.is_some() {
-            out["renewed"] = json!(true);
+        if let (Some(_), Some(obj)) = (&renewed, out.as_object_mut()) {
+            obj.insert("renewed".into(), json!(true));
         }
         Ok(out)
     }
