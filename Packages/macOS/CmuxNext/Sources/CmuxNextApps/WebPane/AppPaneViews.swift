@@ -10,17 +10,24 @@ public final class AppPaneViews {
     private let client: AppsClient
     private var mounts: [String: AppMount] = [:]
     private var pages: [String: AppWebPaneHost] = [:]
+    private var embeds: [String: AppEmbedPaneHost] = [:]
 
     public init(client: AppsClient) {
         self.client = client
     }
 
-    /// The pane `app` shows in tab `key`: its scene when it has one, else its web page.
+    /// The pane `app` shows in tab `key`: its scene when it has one, else its web page, else its
+    /// embedded web app on the app's own browser profile.
     public func makeView(_ app: AppRecord, key: String) -> NSView {
         if let pane = app.manifest.scenePane {
             let mount = client.mount(app.id, implementation: pane, surface: "pane")
             mounts[key] = mount
             return mount.makeView()
+        }
+        if app.webPane == nil, let embed = app.embedPane {
+            let host = AppEmbedPaneHost(page: embed)
+            embeds[key] = host
+            return host.view
         }
         guard let web = app.webPane, let host = AppWebPaneHost(app: app, page: web, client: client) else { return NSView() }
         pages[key] = host
@@ -30,11 +37,14 @@ public final class AppPaneViews {
     /// Tab `key` closed: its mount ends, or its page closes (its bridge and its calls end).
     public func close(_ key: String) {
         pages.removeValue(forKey: key)?.close()
+        embeds.removeValue(forKey: key)?.close()
         if let mount = mounts.removeValue(forKey: key) { client.unmount(mount) }
     }
 
     /// The web page shown in tab `key`, if that tab shows one (tests and probes).
     public func webPage(_ key: String) -> PageWebView? { pages[key]?.view }
+    /// The embedded web app shown in tab `key`, if that tab shows one (tests and probes).
+    public func embedPage(_ key: String) -> AppEmbedPaneHost? { embeds[key] }
     /// How often the web page in tab `key` reloaded for a save of its app's files.
     public func webPageReloads(_ key: String) -> Int? { pages[key]?.reloads }
 }
