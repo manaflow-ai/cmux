@@ -127,6 +127,21 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// This process (or, on Linux, this thread) at nice 0 when it runs below it: an agent host or a
+/// harness the daemon starts, which inherits a negative nice the daemon took
+/// (`daemon_priority.rs`). Raising a nice needs no privilege. Async-signal-safe: it runs between
+/// fork and exec (`cpu_class::start_at_normal`).
+#[cfg(unix)]
+pub fn at_least_default_nice() {
+    // SAFETY: plain syscalls on the calling process. -1 is also getpriority's error answer, and
+    // raising -1 to 0 is right either way.
+    unsafe {
+        if libc::getpriority(libc::PRIO_PROCESS, 0) < 0 {
+            libc::setpriority(libc::PRIO_PROCESS, 0, 0);
+        }
+    }
+}
+
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
 /// the default disk tier (lead rule 2026-11-04: a reply the person waits for never waits on a
 /// throttled sync) and only its background threads yield ([`background_thread`]). Nothing to
@@ -150,6 +165,11 @@ pub fn background_thread() {
 pub fn enter(role: Role) {
     if !enabled() {
         return;
+    }
+    // Never above the default: the daemon may run at a negative nice (`daemon_priority.rs`).
+    #[cfg(unix)]
+    if matches!(tier(role), Tier::Agent | Tier::AgentStart) {
+        at_least_default_nice();
     }
     match tier(role) {
         // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
