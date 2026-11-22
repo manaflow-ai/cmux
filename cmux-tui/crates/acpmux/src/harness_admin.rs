@@ -59,7 +59,7 @@ impl AdminError {
             AdminError::NotRemovable(_) => Some("harness.not_removable"),
             AdminError::SecretInline(_) => Some("harness.secret_inline"),
             AdminError::NotFound(_) => Some("harness.not_found"),
-            AdminError::Refused(reason, _) => Some(reason),
+            AdminError::Refused(reason, _) => Some(*reason),
             AdminError::Invalid(_) | AdminError::Failed(_) => None,
         }
     }

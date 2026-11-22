@@ -1755,11 +1755,11 @@ async fn byo_endpoint_cmux_models_add_signs_with_the_cmux_token_of_the_signed_in
     let cmux = PathBuf::from("/Applications/cmux DEV.app/Contents/Resources/bin/cmux");
     let mut p = params("anthropic-endpoint", "cmux-models", PROD_MODELS, "kimi-k2", None);
     // A DEV app's token is staging's: the add follows the issuer, not the URL the page sent.
-    let asked = Arc::new(std::sync::Mutex::new(None));
+    let asked: Arc<std::sync::Mutex<Option<PathBuf>>> = Arc::new(std::sync::Mutex::new(None));
     let seen = asked.clone();
-    admin::resolve_cmux_models(&mut p, false, Some(cmux.clone()), |at| async move {
+    admin::resolve_cmux_models(&mut p, false, Some(cmux.clone()), move |at: PathBuf| async move {
         *seen.lock().unwrap() = Some(at);
-        Ok(STAGING.to_owned())
+        Ok::<_, String>(STAGING.to_owned())
     })
     .await
     .unwrap();
@@ -1786,7 +1786,7 @@ async fn byo_endpoint_cmux_models_add_signs_with_the_cmux_token_of_the_signed_in
     // Any other endpoint: untouched, the platform never asked.
     let mut other = params("anthropic-endpoint", "gw", "https://llm.example.com", "m", None);
     admin::resolve_cmux_models(&mut other, false, Some(cmux), |_| async {
-        panic!("asked the platform for another endpoint")
+        Err::<String, String>("asked the platform for another endpoint".into())
     })
     .await
     .unwrap();
@@ -1797,7 +1797,7 @@ async fn byo_endpoint_cmux_models_add_signs_with_the_cmux_token_of_the_signed_in
 #[tokio::test]
 async fn byo_endpoint_cmux_models_refuse_a_key_a_missing_sign_in_and_another_route() {
     let cmux = || Some(PathBuf::from("/usr/local/bin/cmux"));
-    let fine = |_| async { Ok(STAGING.to_owned()) };
+    let fine = |_: PathBuf| async { Ok::<_, String>(STAGING.to_owned()) };
     let cmux_params = || params("anthropic-endpoint", "cmux-models", PROD_MODELS, "m", None);
     // A key, or a Keychain item: the cmux sign-in signs, never a key.
     let e = admin::resolve_cmux_models(&mut cmux_params(), true, cmux(), fine).await.unwrap_err();
@@ -1812,7 +1812,7 @@ async fn byo_endpoint_cmux_models_refuse_a_key_a_missing_sign_in_and_another_rou
     assert!(admin::resolve_cmux_models(&mut cmux_params(), false, None, fine).await.is_err());
     // Not signed in: the reason the app maps to its own sentence, and the CLI's text kept.
     let e = admin::resolve_cmux_models(&mut cmux_params(), false, cmux(), |_| async {
-        Err("Sign in to cmux first.".to_owned())
+        Err::<String, String>("Sign in to cmux first.".to_owned())
     })
     .await
     .unwrap_err();
@@ -1834,7 +1834,7 @@ fn byo_endpoint_cmux_models_states_have_reasons_and_fixes_name_the_router() {
         assert!(state.reason().starts_with("harness.cmux_models_"));
     }
     assert_eq!(CmuxModels::of_message("the endpoint lists no models: type the model ids"), None);
-    let fix = |p, d| cmux_models_fix(p, d);
+    let fix = |p: Problem, d: &str| cmux_models_fix(p, d);
     let forbidden = "API Error: 403 {\"error\":{\"code\":\"auth.forbidden\",\"message\":\"this team cannot use the model router here yet\"}}";
     assert!(fix(Problem::Key, forbidden).contains("not open to this team"));
     assert!(fix(Problem::Other, "API Error: 429 rate_limited").contains("busy"));
