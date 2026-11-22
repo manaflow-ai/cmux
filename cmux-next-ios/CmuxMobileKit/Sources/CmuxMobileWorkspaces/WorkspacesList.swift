@@ -49,6 +49,9 @@ public struct WorkspacesList: View {
     @State private var unfolded: Set<String> = []
     /// A refresh has taken long enough to say so.
     @State private var showsUpdating = false
+    /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
+    /// over from them at once.
+    @State private var placeholdersShown = false
     /// The offline workspace whose tap is being explained.
     @State private var unavailable: Workspace?
     @State private var renaming: Workspace?
@@ -169,6 +172,12 @@ public struct WorkspacesList: View {
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).
     private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
 
+    /// The page shows placeholder rows over everything: the team's first load, or no Mac line yet.
+    private var pageShowsPlaceholder: Bool {
+        if case .firstLoad = launchState { return true }
+        return listShowsPlaceholder
+    }
+
     public var body: some View {
         groupDialogs(page)
     }
@@ -185,6 +194,11 @@ public struct WorkspacesList: View {
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
                 if let id { linking?.link(id) }
+            }
+            // Set when the page's placeholders show; kept while this load lasts, so the list's
+            // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
+            .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
+                placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
             }
             .task(id: isRefreshing) {
                 // Say "Updating…" only when a refresh is slow, not on every one.
@@ -585,7 +599,10 @@ public struct WorkspacesList: View {
             // The line's "Last seen 4m ago" reads the minute clock in its own view: a tick redraws this line only.
             AnyView(OnMinute { now in foldLine(line.fold, now: now) })
         case .loading:
-            AnyView(SkeletonList(rows: 4, leadingSquare: nil)
+            // Its show delay keeps a quick load from flashing rows. Taking over from the page's
+            // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            AnyView(SkeletonList(rows: 4, leadingSquare: nil,
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading"))
         }
