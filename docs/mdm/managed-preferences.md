@@ -318,7 +318,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
-| `agentPane.display.width` | real | `800` | 480 to 4000 | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. |
+| `agentPane.display.width` | string | `800` | `narrow`, `medium`, `wide` | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile. |
 | `agentPane.display.fullWidth` | boolean | `false` |  | Chat Full Width. The chat fills the whole pane instead of the text width. |
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge. Click or drag it to scroll. |
 | `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
