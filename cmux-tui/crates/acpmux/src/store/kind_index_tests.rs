@@ -900,6 +900,63 @@ fn an_indexed_read_back_makes_the_copies_a_chat_that_ran_on_lacks() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// A scan for the indexed kinds past `after` (a restore point's seq, `hub/restore_point.rs`)
+/// reads the copies of the segments from the one that holds `after + 1` on, not every copy: each
+/// fold of a restored chat's log load (its transfer authority, its open turn, its queue, its
+/// message copies) read every segment's copy from the log's first, so a load from a restore point
+/// still cost the chat's whole history in opens and copies (infinite chats, Leo 2026-11-19).
+#[test]
+fn a_kind_scan_past_a_seq_reads_only_the_copies_past_it() {
+    if !cfg!(target_os = "linux") {
+        return; // A thread's reads are counted on Linux only.
+    }
+    let root = root();
+    let (store, log) = store_with_log(&root, 200);
+    let kinds = ["queued", "turn_started", "turn_result"];
+    // The copies, as a log load makes them.
+    let all = scanned(&store, &kinds);
+    let segments = store.segments("c").unwrap().len();
+    assert!(segments > 40, "{segments} segments");
+    let whole = read_bytes();
+    assert_eq!(scanned(&store, &kinds), all);
+    let whole = read_bytes() - whole;
+    let after = log[log.len() - 48].seq;
+    let expected: Vec<EventRecord> = all.iter().filter(|r| r.seq > after).cloned().collect();
+    for strict in [false, true] {
+        let mut got = Vec::new();
+        let tail = read_bytes();
+        let mut visit = |r: EventRecord| {
+            got.push(r);
+            true
+        };
+        if strict {
+            store.scan_kinds_after_strict("c", after, &kinds, &mut visit).unwrap();
+        } else {
+            store.scan_kinds_after("c", after, &kinds, &mut visit).unwrap();
+        }
+        let tail = read_bytes() - tail;
+        eprintln!(
+            "kind scan past {after} (strict {strict}): read {tail} bytes; whole scan {whole}"
+        );
+        assert_eq!(got, expected, "strict: {strict}");
+        assert!(
+            tail * 10 < whole,
+            "strict {strict}: past {after} read {tail} bytes, the whole {whole}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A scan past `after` (a log load past its restore point) reads no segment before the one that
 /// holds `after + 1`, neither its copy nor its bytes: a strict one past a damaged first segment
 /// reads, where one of the whole log fails, and both return exactly the records past `after`

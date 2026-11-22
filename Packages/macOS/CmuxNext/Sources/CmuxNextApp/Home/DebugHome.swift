@@ -5,9 +5,10 @@ import CmuxNextSettings
 
 /// `debug.home`: the local conversation projection (plans/cmux-next/home.md) and whether Home is
 /// classic (`classic`, the MessagesLab GUI checks need it), for automation on a never-key test window.
+/// No paths unless `{"paths": true}` (`chief_owner.home`, `.cache`): a capture's privacy check refuses them.
 @MainActor
 enum DebugHome {
-    static func report(services: AppServices) -> CmuxNextSettings.JSONValue {
+    static func report(services: AppServices, paths: Bool = false) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let conversations: [CmuxNextSettings.JSONValue] = home.conversations.map { summary in
             var row: [String: CmuxNextSettings.JSONValue] = [
@@ -62,17 +63,16 @@ enum DebugHome {
             "local_conversations": .bool(home.chief.supports(DaemonCapability.localConversations.rawValue)),
         ])
         let chief = home.chief
-        let owner: CmuxNextSettings.JSONValue = .object([
-            "home": .string(chief.home.root.path),
+        var owner: [String: CmuxNextSettings.JSONValue] = [
             "isolated": .bool(chief.home.isolated),
             "session": .string(chief.home.session),
             "connected": .bool(chief.connection != nil),
             "daemon_pid": chief.identity.map { .number(Double($0.pid)) } ?? .null,
             "error": chief.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "store_online": .bool(home.homeStore.isOnline),
-            "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
-        ])
-        return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
+        ]
+        if paths { owner["home"] = .string(chief.home.root.path); owner["cache"] = home.homeStore.cache.map { .string($0.url.path) } ?? .null }
+        return .object(["available": .bool(home.isAvailable), "chief_owner": .object(owner), "home_workspace": setup,
                         "chief_names": chiefNames(home, tabs: tabs),
                         "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
                         "dock": dock(services: services), "hosted_chief": hosted(home),

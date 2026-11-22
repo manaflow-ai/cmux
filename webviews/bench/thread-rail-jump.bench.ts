@@ -662,39 +662,6 @@ async function main() {
       // a rail click restyles, and the invalidations behind them (Chromium's invalidation tracking).
       // RAIL_BENCH_RESTYLE=TEXT first deletes every :has() rule whose selector contains TEXT, to find
       // which rule a whole-pane recalc comes from (handbook: pane-level-has-restyles-every-row).
-      if (process.env.RAIL_BENCH_CAPCHECK) {
-        const field = page.locator(".acpmux-composer .acpmux-md-field [contenteditable]").first();
-        await field.click();
-        await page.keyboard.insertText(Array.from({ length: 40 }, (_, i) => "line " + i).join("\n"));
-        await page.waitForTimeout(800);
-        const read = () =>
-          page.evaluate(() => {
-            const box = document.querySelector(".acpmux-composer-box")!;
-            const field = document.querySelector(".acpmux-composer .acpmux-md-field")!;
-            return {
-              capped: field.hasAttribute("data-fade-top") || field.hasAttribute("data-fade-bottom"),
-              grid: box.hasAttribute("data-composer-grid"),
-              kids: [...document.querySelectorAll(".acpmux-composer-inner > *")].map((k) => {
-                const c = getComputedStyle(k);
-                return [k.className, c.alignSelf, c.margin, c.gridRow, JSON.stringify(k.getBoundingClientRect())];
-              }),
-            };
-          });
-        console.log("CAP default", JSON.stringify(await read()));
-        await page.evaluate(() =>
-          document.querySelector(".acpmux-composer")!.setAttribute("data-composer-look", "codex"),
-        );
-        await page.waitForTimeout(300);
-        console.log("CAP codex", JSON.stringify(await read()));
-        await page.keyboard.press("Control+A");
-        await page.keyboard.press("Backspace");
-        await page.waitForTimeout(500);
-        console.log("CAP codex-empty", JSON.stringify(await read()));
-        await page.evaluate(() => document.querySelector(".acpmux-composer")!.removeAttribute("data-composer-look"));
-        await page.waitForTimeout(300);
-        console.log("CAP default-empty", JSON.stringify(await read()));
-        process.exit(0);
-      }
       const restyle = process.env.RAIL_BENCH_RESTYLE;
       if (restyle) {
         if (restyle !== "1")

@@ -16,6 +16,19 @@ here="$root/scripts/measure/dev-loop"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 cd "$root"
+# A fleet step checks out no submodules (only their empty gitlink directories), and every loop builds the app:
+# reload.sh needs Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
+# 2026-11-21 step 8c4a9182f450ab59d9b0a93c: "ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh".
+for sub in ghostty ghostty-next; do
+  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub" || { echo "dev-loop-ceiling: submodule $sub failed" >&2; exit 1; }
+done
+if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+  rm -rf GhosttyKit.xcframework
+  if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+    export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+  fi
+  ./scripts/download-prebuilt-ghosttykit.sh || { echo "dev-loop-ceiling: GhosttyKit download failed" >&2; exit 1; }
+fi
 IFS=, read -ra list <<<"$loops"
 for loop in "${list[@]}"; do
   script="$here/$loop.sh"
@@ -28,7 +41,8 @@ for loop in "${list[@]}"; do
   echo "dev-loop-ceiling: $loop (n=$n)"
   if ! "$script" "$out" "$n" >"$out/$loop.log" 2>&1; then
     echo "dev-loop-ceiling: $loop failed after $(( $(date +%s) - start )) s; last lines:" >&2
-    tail -20 "$out/$loop.log" >&2
+    # Without cleanup's "ending pid" lines, which filled the whole tail on 2026-11-22 step a8b4d181c32ad2c06b3a0126.
+    grep -v '] ending pid ' "$out/$loop.log" | tail -20 >&2
     [[ -s "$out/$loop.json" ]] || printf '{"schema":"dev-loop-ceiling/loop/v1","loop":"%s","error":"exited nonzero with no json"}\n' "$loop" >"$out/$loop.json"
   else
     echo "dev-loop-ceiling: $loop done in $(( $(date +%s) - start )) s"

@@ -7,6 +7,7 @@ import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./c
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
+import { lookRowInBox } from "./composerLook";
 import { useComposerLookWithV2, useComposerV2 } from "./composerV2";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
@@ -156,7 +157,7 @@ export function ComposerBox({
   // an agent chat doesn't do anything right now"). The row moves on a look switch while the prompt
   // stays mounted, so the draft and caret stay.
   const { plainFooter, attachmentView } = useComposerSettings();
-  const rowInBox = useComposerLookWithV2() === "codex";
+  const rowInBox = lookRowInBox(useComposerLookWithV2());
   // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
   // words, as attributes composerV2.css reads; both absent while it is off.
   const composerV2 = useComposerV2();

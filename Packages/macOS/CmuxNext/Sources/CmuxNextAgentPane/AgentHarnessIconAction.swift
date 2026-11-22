@@ -76,6 +76,6 @@ public struct AgentHarnessIconAction {
     }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, bundle: .module)
+        String(localized: key, defaultValue: english, bundle: .localizedModule)
     }
 }

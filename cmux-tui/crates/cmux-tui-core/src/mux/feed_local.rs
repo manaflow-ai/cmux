@@ -79,12 +79,15 @@ pub(crate) fn refused_json(refused: &[FeedError]) -> Value {
 pub(super) struct PendingFeedPost<'a> {
     feed: MutexGuard<'a, Feed>,
     next: Feed,
+    /// The item that took the notice when it now shows the notice's own text (not an echo
+    /// folded into an agent's item): the Feed texts the announcement keeps go on it too.
+    shown_by: Option<String>,
 }
 
 impl PendingFeedPost<'_> {
     /// The copy replaces the live feed.
     fn install(self) {
-        let Self { mut feed, next } = self;
+        let Self { mut feed, next, .. } = self;
         *feed = next;
     }
 }
@@ -141,7 +144,7 @@ impl Mux {
                 return Err(error);
             }
         };
-        let ring = self.install_feed_post(post, notification, numeric_id);
+        let (ring, shown_by) = self.install_feed_post(post, notification, numeric_id);
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
         drop(registry);
         let session = notification
@@ -153,7 +156,7 @@ impl Mux {
                     .get(terminal)
                     .and_then(|record| record.agent_session_id.clone())
             });
-        self.announce_notification(notification, numeric_id, ring, session);
+        self.announce_notification(notification, numeric_id, ring, session, shown_by.as_deref());
         Ok(revision)
     }
 
@@ -175,9 +178,15 @@ impl Mux {
         // into); the folded set records it so the ledger pass never posts
         // the notice again.
         let mut folded_into = None;
+        // Whether this notice's text is what the item now shows (an echo folded into an agent's
+        // item leaves the agent's, `cmux_feed_core` `is_terminal_echo`).
+        let mut shows_notice = false;
+        let (notice_source, notice_title) = (notice.source.clone(), notice.title.clone());
         let changes = match next.post(notice) {
             Ok((outcome, changes)) => {
-                folded_into = Some(outcome.item().id.clone());
+                let item = outcome.item();
+                shows_notice = item.source == notice_source && item.title == notice_title;
+                folded_into = Some(item.id.clone());
                 changes
             }
             Err(error) => {
@@ -194,6 +203,9 @@ impl Mux {
         // The feed rows ride the receipt's transaction (a journal writer
         // SAVEPOINT, or one request-side transaction when the writer is not
         // running), so they commit together or not at all.
+        // The item that took it, for the Feed texts the announcement keeps (the write takes
+        // `folded_into`).
+        let shown_by = folded_into.clone().filter(|_| shows_notice);
         let notification_id = notification.id.as_str().to_string();
         let created_at_ms = notification.created_at_ms;
         let write: crate::workspace_registry::OwnedTransactionWrite =
@@ -206,24 +218,25 @@ impl Mux {
                     None => Ok(()),
                 }
             });
-        (PendingFeedPost { feed, next }, write)
+        (PendingFeedPost { feed, next, shown_by }, write)
     }
 
     /// The copy of a committed post replaces the live feed, and the ring goes
     /// up with the item, under the feed lock: a read or a tab ack holds this
     /// lock while it clears rings, so it sees both the ring and the unread
-    /// item, or neither. True when a ring went up.
+    /// item, or neither. True when a ring went up, with the item that now shows the notice's
+    /// own text (`PendingFeedPost::shown_by`).
     pub(super) fn install_feed_post(
         &self,
         post: PendingFeedPost<'_>,
         notification: &ResourceNotification,
         numeric_id: u64,
-    ) -> bool {
-        let PendingFeedPost { mut feed, next } = post;
+    ) -> (bool, Option<String>) {
+        let PendingFeedPost { mut feed, next, shown_by } = post;
         *feed = next;
         let ring = self.raise_notification_ring(notification, numeric_id);
         drop(feed);
-        ring
+        (ring, shown_by)
     }
 
     /// The `notification` event of a committed notification, then the tree
@@ -236,6 +249,7 @@ impl Mux {
         numeric_id: u64,
         ring: bool,
         session: Option<String>,
+        shown_by: Option<&str>,
     ) {
         // An agent's banner takes the reply its hook kept beside the event (memory only): the
         // banner its folded 200-character preview, the phone's Feed the whole message and the
@@ -255,6 +269,33 @@ impl Mux {
         // agent waits (`list-notifications`).
         let question = agent_terminal
             .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
+        // An approval hook's notification takes its approval the same way (the phone's Allow /
+        // Deny card, `list-notifications` `approval`).
+        if let Some(terminal) = agent_terminal {
+            self.take_agent_approval(terminal, notification.id.as_str());
+        }
+        // What the agent said stays for a Feed that reads later (memory only, `FeedTexts`):
+        // the ledger row and the feed item that took it show it.
+        let detail = question
+            .as_deref()
+            .and_then(crate::agent_hook_question::question_text)
+            .or_else(|| message.clone());
+        if let Some(detail) = detail {
+            let mut keys = vec![notification.id.as_str()];
+            keys.extend(shown_by);
+            self.keep_agent_feed_texts(
+                &keys,
+                agent_prompts::FeedTexts {
+                    message: message.as_deref().map(Arc::from),
+                    prompt: prompt.as_deref().map(Arc::from),
+                    detail: Arc::from(detail),
+                },
+            );
+        } else if let Some(item) = shown_by {
+            // The item now shows this notice, which said nothing more: an earlier notice's
+            // texts no longer belong to it.
+            self.forget_agent_feed_texts(item);
+        }
         self.emit(MuxEvent::Notification(NotificationEvent {
             id: Some(notification.id.as_str().to_owned()),
             message,

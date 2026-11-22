@@ -6,12 +6,11 @@
 // down and it replayed an animation". The remount starts a new reveal from the whole text it holds
 // (RM:71 `initial: displayText`): the words show at once, with no fade and no catch-up.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act, StrictMode } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
 import { revealFrames } from "./revealedMarkdownModel";
-import { StreamReveal, wordEdge } from "../streamReveal";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;

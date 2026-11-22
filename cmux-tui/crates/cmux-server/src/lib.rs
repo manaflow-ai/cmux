@@ -22,6 +22,7 @@
 //! manager, and `pg_ctl -w` waits on Postgres's own readiness.
 
 pub mod access;
+pub mod acl;
 pub mod cli;
 pub mod cloud_http;
 pub mod config;

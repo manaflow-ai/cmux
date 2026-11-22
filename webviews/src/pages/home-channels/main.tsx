@@ -13,7 +13,8 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
-import { createStrings, type StringTable, type Strings } from "../shared/i18n";
+import type { StringTable, Strings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "./paneStrings";
@@ -49,12 +50,15 @@ export function mountHomeChannelsPage(
   client: PageClient | null = defaultClient(),
 ): HomeChannelsStore {
   const store = new HomeChannelsStore(client);
-  const strings = createStrings(table);
-  document.title = strings.t("page.title");
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <HomeChannelsPage store={store} strings={strings} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <HomeChannelsPage store={store} strings={strings} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
   return store;
 }
@@ -70,8 +74,6 @@ export function mountDaemonHomeChannelsPage(
   source: DaemonSource,
   client: PageClient | null = null,
 ): void {
-  const strings = createStrings(table);
-  document.title = strings.t("page.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
@@ -86,18 +88,23 @@ export function mountDaemonHomeChannelsPage(
   const restart = client
     ? () => void client.call(APP_ACTION_RUN, { action: RESTART_SERVER }).catch(() => undefined)
     : undefined;
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <ComposerEdit.Provider value={edit}>
-        <DaemonGate source={source} strings={strings} restart={restart}>
-          {(daemon, _pages, owner) => (
-            <div className="hc-daemon">
-              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
-            </div>
-          )}
-        </DaemonGate>
-      </ComposerEdit.Provider>
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+        <ComposerEdit.Provider value={edit}>
+          <DaemonGate source={source} strings={strings} restart={restart}>
+            {(daemon, _pages, owner) => (
+              <div className="hc-daemon">
+                <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+              </div>
+            )}
+          </DaemonGate>
+        </ComposerEdit.Provider>
+      </UiProvider>
+    ),
+    (strings) => strings.t("page.title"),
   );
 }
 

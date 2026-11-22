@@ -165,11 +165,14 @@ def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> 
     assert module.job_is_plainly_linux(router)
     references = module.macos_job_test_references("\njobs:\n  " + router)
     assert references is not None and references[0] == frozenset(), references
+    # One cmux-linux label, no placement job (hq decisions/junctions.md 2026-11-20); a Mac label or a
+    # needs expression in its place is no longer plainly Linux.
+    assert "'cmux-linux'" in router, router
     for unknown in (
-        router.replace("outputs.linux_runner", "outputs.mini_runner"),
-        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
-        router.replace("' changes '", "' other-job '"),
+        router.replace("'cmux-linux'", "'macos-26'"),
+        router.replace("'cmux-linux'", "needs.place.outputs.runner"),
     ):
+        assert unknown != router
         assert not module.job_is_plainly_linux(unknown), unknown
 
 
@@ -2062,6 +2065,8 @@ def run_guard_status(
     *,
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
     route_inputs.setdefault(
@@ -2082,6 +2087,8 @@ def run_guard_status(
         "GUARD_NEEDS": json.dumps(
             {name: {"result": result} for name, result in job_results.items()}
         ),
+        "GUARD_EVENT": event,
+        "GUARD_BASE_REF": base_ref,
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -3301,8 +3308,9 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     assert 'required_jobs.append("react-apps-base-check")' in block
     # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
     assert 'else:\n              required_jobs.append("react-doctor")' in block
-    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
-    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one. A post-merge batch probe
+    # (inputs.only set) runs no aggregate: its probed shards answer for themselves.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
