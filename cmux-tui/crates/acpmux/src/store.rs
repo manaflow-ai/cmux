@@ -2420,6 +2420,7 @@ impl Store for LocalStore {
     /// for, or a line whose head does not read.
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, true);
         for (_, path) in self.segments(id)? {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
@@ -2428,6 +2429,7 @@ impl Store for LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2892,6 +2894,7 @@ impl LocalStore {
         }
         let segments = self.segments(id)?;
         let mut line = Vec::new();
+        let mut pass = crate::perf_watch::LogPass::start(id, after == 0);
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
@@ -2903,6 +2906,7 @@ impl LocalStore {
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
+                crate::perf_watch::LogPass::line(&mut pass, line.len());
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }

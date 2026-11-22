@@ -314,3 +314,99 @@ fn a_silent_spawn_turn_under_the_guard_gets_no_note_until_the_person_writes() {
         "and no [no text] turn after it"
     );
 }
+
+/// The guard's refusal can come after the turn ended: a send the owner held
+/// back (`agent_rate`) answers "queued", so the silent spawn turn queues its
+/// `[no text]` note, and the outbox retry is refused (`agent_budget`) while
+/// that note still waits for its turn. The note is dropped and its ids wait
+/// for the person, like a note the hold kept from being queued.
+#[test]
+fn a_no_text_note_already_queued_when_the_guard_refuses_is_held_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let settings = optchat_chief::brain::Settings {
+        // Long enough that the retry comes after the turn ended.
+        agent_gap: Duration::from_millis(400),
+        ..common::settings(dir.path())
+    };
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(
+        dir,
+        script("done", ""),
+        owner,
+        settings,
+        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
+    );
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "start the fix");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let sp = spawner(&h);
+    let started = run(&mut h, move || {
+        sp.spawn(vec!["Title: Fix it\n\nSUB-TASK fix it".into()], None)
+    });
+    assert!(started.is_ok(), "{started:?}");
+    {
+        let mut owner = h.owner.lock().unwrap();
+        owner.rejects.clear();
+        owner.rejects.push_back(Some("agent_rate".into()));
+        owner
+            .rejects
+            .extend(std::iter::repeat_n(Some("agent_budget".to_owned()), 50));
+    }
+    let sp = spawner(&h);
+    let queued = run(&mut h, move || sp.send(send("Started a1 on the fix.")))
+        .expect("held back, not refused yet");
+    assert!(queued.starts_with("outcome: queued"), "{queued}");
+    h.agents.hold(false);
+    h.agents.release();
+    // Step only until the turn ended and queued its note: the note's turn
+    // has not started when the retry is refused.
+    let noted = |lines: &std::sync::Mutex<Vec<String>>| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains(NO_TEXT_TAG) && l.contains("queuing"))
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !noted(&lines) {
+        assert!(
+            Instant::now() < deadline,
+            "no note: {:?}",
+            lines.lock().unwrap()
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(5)) {
+            h.brain.step(input);
+        }
+    }
+    let at = h.brain.next_timer().expect("the outbox retry is armed");
+    std::thread::sleep(at.saturating_duration_since(Instant::now()));
+    h.brain.on_timer();
+    settle_until(&mut h, |_| false);
+    let p = chief_prompts(&h);
+    assert!(
+        !p.iter().any(|t| t.contains(NO_TEXT_TAG)),
+        "the queued [no text] note was dropped under the guard: {p:?}"
+    );
+    open_guard(&h);
+    h.say("user_local", "anything new?");
+    settle_until(&mut h, |h| {
+        chief_prompts(h).iter().any(|p| p.contains("anything new?"))
+    });
+    let p = chief_prompts(&h);
+    let turn = p
+        .iter()
+        .find(|t| t.contains("anything new?"))
+        .expect("the person's turn");
+    assert!(
+        turn.contains("loop guard") && turn.contains("a1"),
+        "the person's turn names the unannounced start: {turn}"
+    );
+}

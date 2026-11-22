@@ -12,7 +12,8 @@
 //! So a refusal with `agent_budget` in the Chief's conversation sets
 //! `HostState::budget_hold`. While it holds, `stop` and `sleep` go through,
 //! the `[untold]` checks wait (kept, not dropped) and a silent spawn turn's
-//! ids wait in `held_spawns` instead of a `[no text]` note. The person's next
+//! ids wait in `held_spawns` instead of a `[no text]` note (an `[untold]` or
+//! `[no text]` note already queued when the hold starts is dropped the same way). The person's next
 //! message ends the hold, and its turn carries a `<held-news>` block naming
 //! what is owed, so that answer tells it. A Chief message the owner takes
 //! ends the hold too (the guard let it through), and the nags come back.
@@ -39,6 +40,22 @@ impl Brain {
         self.queue.retain(|q| {
             !(matches!(q.source, Source::Note) && q.text.starts_with(super::UNTOLD_TAG))
         });
+        // A `[no text]` note still queued (the turn's send waited in the
+        // outbox and was refused after it ended): its ids wait the same way.
+        let mut held = Vec::new();
+        self.queue.retain(|q| {
+            let ids = matches!(q.source, Source::Note)
+                .then(|| super::spawn_text::no_text_ids(&q.text))
+                .flatten();
+            let keep = ids.is_none();
+            held.extend(ids.into_iter().flatten());
+            keep
+        });
+        for id in held {
+            if !self.state.held_spawns.contains(&id) {
+                self.state.held_spawns.push(id);
+            }
+        }
         self.save();
         (self.log)(
             "the loop guard refuses the Chief's messages: untold and no-text notes wait for the person's next message",
