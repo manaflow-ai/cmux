@@ -1,0 +1,345 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "table-among-rows-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 760
+    },
+    {
+      "name": "table-among-rows-normal",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows",
+      "widthName": "normal",
+      "width": 760,
+      "height": 760
+    },
+    {
+      "name": "table-among-rows-live-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows-live",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 760
+    },
+    {
+      "name": "table-among-rows-live-normal",
+      "entry": "agent-pane.table-block",
+      "variant": "among-rows-live",
+      "widthName": "normal",
+      "width": 760,
+      "height": 760
+    },
+    {
+      "name": "table-status-narrow",
+      "entry": "agent-pane.table-block",
+      "variant": "status",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 700
+    },
+    {
+      "name": "toolrow-grouped",
+      "entry": "agent-pane.tool-row-visual-preview",
+      "variant": "grouped",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "toolrow-running",
+      "entry": "agent-pane.tool-row-visual-preview",
+      "variant": "running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "toolrow-capture",
+      "entry": "agent-pane.tool-row-visual-preview",
+      "variant": "capture",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "thinking-claude",
+      "entry": "agent-pane.thinking-look",
+      "variant": "claude",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 480
+    },
+    {
+      "name": "thinking-default-20-rows",
+      "entry": "agent-pane.thinking-look",
+      "variant": "default-20-rows",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 480
+    },
+    {
+      "name": "plan-running",
+      "entry": "agent-pane.plan-list",
+      "variant": "running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "plan-pinned",
+      "entry": "agent-pane.plan-list",
+      "variant": "pinned",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "plan-finished-folded",
+      "entry": "agent-pane.plan-list",
+      "variant": "finished-folded",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "plan-finished-stopped",
+      "entry": "agent-pane.plan-list",
+      "variant": "finished-stopped",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "recap-card",
+      "entry": "agent-pane.recap-note",
+      "variant": "card",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "recap-one-per-chat",
+      "entry": "agent-pane.recap-note",
+      "variant": "one-per-chat",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "subsession-recorded",
+      "entry": "agent-pane.subsession-cards",
+      "variant": "recorded",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "subsession-started",
+      "entry": "agent-pane.subsession-cards",
+      "variant": "started",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "subsession-pending",
+      "entry": "agent-pane.subsession-cards",
+      "variant": "pending",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "subsession-summary",
+      "entry": "agent-pane.subsession-cards",
+      "variant": "summary",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "agentcall-report-closed",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "report-closed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "agentcall-report-running",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "report-running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "agentcall-report-failed",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "report-failed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "agentcall-stacked-open",
+      "entry": "agent-pane.agent-call-card",
+      "variant": "stacked-open",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "wrapup-box-choices",
+      "entry": "agent-pane.next-step-wrap-up",
+      "variant": "box-choices",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "wrapup-box-answered",
+      "entry": "agent-pane.next-step-wrap-up",
+      "variant": "box-answered",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 420
+    },
+    {
+      "name": "live-thinking",
+      "entry": "agent-pane.live-line-every-phase",
+      "variant": "thinking",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "live-call-running",
+      "entry": "agent-pane.live-line-every-phase",
+      "variant": "call-running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "live-between-calls",
+      "entry": "agent-pane.live-line-every-phase",
+      "variant": "between-calls",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "live-reply-streaming",
+      "entry": "agent-pane.live-line-every-phase",
+      "variant": "reply-streaming",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "align-mix-narrow",
+      "entry": "agent-pane.transcript-row-alignment",
+      "variant": "mix",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 1120
+    },
+    {
+      "name": "align-finished-work-narrow",
+      "entry": "agent-pane.transcript-row-alignment",
+      "variant": "finished-work",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 1120
+    },
+    {
+      "name": "align-mix-normal",
+      "entry": "agent-pane.transcript-row-alignment",
+      "variant": "mix",
+      "widthName": "normal",
+      "width": 760,
+      "height": 1120
+    },
+    {
+      "name": "liveturn-running",
+      "entry": "agent-pane.live-turn-work",
+      "variant": "running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "liveturn-with-reply",
+      "entry": "agent-pane.live-turn-work",
+      "variant": "with-reply",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 560
+    },
+    {
+      "name": "grammar-chip",
+      "entry": "agent-pane.transcript-row-grammar",
+      "variant": "chip",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "grammar-open",
+      "entry": "agent-pane.transcript-row-grammar",
+      "variant": "open",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 640
+    },
+    {
+      "name": "anatomy-running-one",
+      "entry": "agent-pane.subagent-row-anatomy",
+      "variant": "running-one",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "anatomy-mixed",
+      "entry": "agent-pane.subagent-row-anatomy",
+      "variant": "mixed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "anatomy-long-name",
+      "entry": "agent-pane.subagent-row-anatomy",
+      "variant": "long-name",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 520
+    },
+    {
+      "name": "agentruns-card-running",
+      "entry": "agent-pane.agent-runs",
+      "variant": "card-running",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 620
+    },
+    {
+      "name": "agentruns-card-failed",
+      "entry": "agent-pane.agent-runs",
+      "variant": "card-failed",
+      "widthName": "narrow",
+      "width": 420,
+      "height": 620
+    }
+  ]
+}
