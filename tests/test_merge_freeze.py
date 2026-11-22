@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -203,6 +204,18 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
+# The open-freeze list is one GraphQL query; FakeGh names it apart from the lastEditedAt query.
+FREEZE_LIST = "graphql:freezes"
+
+
+def freeze_list(issues, has_next=False):
+    """The GraphQL answer listing `issues` (REST-shaped, as issue() makes them)."""
+    nodes = [{"number": i["number"], "title": i.get("title"), "body": i.get("body"), "createdAt": i["created_at"],
+              "author": i.get("user"), "labels": {"nodes": i.get("labels", [])}} for i in issues]
+    return {"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": has_next, "endCursor": "next"},
+                                               "nodes": nodes}}}}
+
+
 class FakeGh:
     """subprocess.run for `gh`: answers from `responses` by endpoint prefix and records each call
     with the token it was made with."""
@@ -213,6 +226,8 @@ class FakeGh:
     def __call__(self, args, check=False, capture_output=False, text=False, env=None):
         token = (env or os.environ).get("GH_TOKEN")
         endpoint = next((a for a in args if a.startswith("repos/") or a == "graphql"), "")
+        if endpoint == "graphql" and any("issues(states:OPEN" in a for a in args):
+            endpoint = FREEZE_LIST
         self.calls.append((endpoint, token))
         if self.refuse_token is not None and token == self.refuse_token:
             raise subprocess.CalledProcessError(1, args, "", "gh: API rate limit exceeded for installation (HTTP 403)")
@@ -226,7 +241,7 @@ class CheckApiCalls(unittest.TestCase):
     """`check` from the merge-freeze workflow reads GitHub only as far as a freeze could block."""
 
     REPO = "manaflow-ai/cmux"
-    ISSUES = f"repos/{REPO}/issues?state=open&labels=merge-freeze"
+    ISSUES = FREEZE_LIST
 
     def run_check(self, fake, *extra, env=None):
         with mock.patch.object(freeze.subprocess, "run", fake), mock.patch.dict(os.environ, env or {}), \
@@ -235,31 +250,31 @@ class CheckApiCalls(unittest.TestCase):
         return status, out.getvalue(), [endpoint for endpoint, _ in fake.calls]
 
     def test_no_open_freeze_reads_only_the_freeze_list(self):
-        fake = FakeGh({self.ISSUES: []})
+        fake = FakeGh({self.ISSUES: freeze_list([])})
         status, _, calls = self.run_check(fake, "--changed-files", "3")
         self.assertEqual(status, 0)
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])  # was: + pulls/42/files and pulls/42
+        self.assertEqual(calls, [self.ISSUES])  # was: + pulls/42/files and pulls/42
 
     def test_a_freeze_on_another_branch_reads_no_pull_request(self):
         frozen = {**issue(body=body(extra="branch: main")), "state": "open"}
-        fake = FakeGh({self.ISSUES: [frozen], f"repos/{self.REPO}/issues/7/events": [labeled("lawrence", "merge-freeze")],
+        fake = FakeGh({self.ISSUES: freeze_list([frozen]), f"repos/{self.REPO}/issues/7/events": [labeled("lawrence", "merge-freeze")],
                        f"repos/{self.REPO}/collaborators/": {"role_name": "admin"},
                        "graphql": {"data": {"repository": {"issue": {"lastEditedAt": None}}}}})
         status, _, calls = self.run_check(fake)
         self.assertEqual(status, 0)
         self.assertFalse([c for c in calls if "/pulls/" in c or "/issues/42/" in c], calls)
         # A freeze that cannot apply to this base costs no authority reads either (GITHUB_TOKEN budget).
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])
+        self.assertEqual(calls, [self.ISSUES])
 
     def test_a_lapsed_freeze_reads_only_the_freeze_list(self):
         lapsed = {**issue(body=body(expires="2020-01-01T00:00Z")), "state": "open"}
-        status, _, calls = self.run_check(FakeGh({self.ISSUES: [lapsed]}))
+        status, _, calls = self.run_check(FakeGh({self.ISSUES: freeze_list([lapsed])}))
         self.assertEqual(status, 0)
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])
+        self.assertEqual(calls, [self.ISSUES])
 
     def applicable(self, files):
         return FakeGh({
-            self.ISSUES: [issue(body=body())],
+            self.ISSUES: freeze_list([issue(body=body())]),
             f"repos/{self.REPO}/issues/7/events": [labeled("lawrence", "merge-freeze")],
             f"repos/{self.REPO}/collaborators/": {"role_name": "admin"},
             "graphql": {"data": {"repository": {"issue": {"lastEditedAt": None}}}},
@@ -285,14 +300,51 @@ class CheckApiCalls(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn(f"repos/{self.REPO}/pulls/42", calls)
 
+    def test_the_freeze_list_follows_graphql_pages_and_fails_closed_past_the_cap(self):
+        pages = [freeze_list([issue(number=7, body=body())], has_next=True),
+                 freeze_list([issue(number=8, body=body())])]
+        cursors = []
+
+        def fake(*args, write=False):
+            cursors.append(next((a for a in args if a.startswith("c=")), None))
+            return json.dumps(pages[len(cursors) - 1])
+        with mock.patch.object(freeze, "gh", fake):
+            self.assertEqual([i["number"] for i in freeze.open_freeze_issues(self.REPO)], [7, 8])
+            self.assertEqual(cursors, [None, "c=next"])
+            cursors.clear()
+            with self.assertRaises(ValueError):
+                freeze.open_freeze_issues(self.REPO, max_pages=1)
+
     def test_a_refused_app_read_falls_back_to_the_workflow_token(self):
-        fake = FakeGh({self.ISSUES: []}, refuse_token="app")
+        fake = FakeGh({self.ISSUES: freeze_list([])}, refuse_token="app")
         status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"})
         self.assertEqual(status, 0)
         self.assertEqual([token for _, token in fake.calls], ["app", "workflow"])
-        fake = FakeGh({self.ISSUES: []}, refuse_token="app")
+        fake = FakeGh({self.ISSUES: freeze_list([])}, refuse_token="app")
         status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": ""})
         self.assertEqual(status, 3)  # no fallback: rate-limited, not checked, never clear
+
+    def test_a_graphql_refusal_of_the_app_token_falls_back_to_the_workflow_token(self):
+        # GraphQL names no HTTP status: the REST list this replaced got a 403 here and fell back.
+        calls = []
+
+        def fake(args, **kwargs):
+            token = (kwargs.get("env") or os.environ).get("GH_TOKEN")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args, "", "GraphQL: Resource not accessible by integration (repository)")
+            return subprocess.CompletedProcess(args, 0, json.dumps(freeze_list([])), "")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}), \
+                mock.patch.object(freeze.subprocess, "run", fake):
+            self.assertEqual(freeze.open_freeze_issues(self.REPO), [])
+        self.assertEqual(calls, ["app", "workflow"])
+
+    def test_a_freeze_list_answer_with_graphql_errors_is_never_read_as_complete(self):
+        answer = {**freeze_list([]), "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        with mock.patch.object(freeze, "gh", lambda *args, write=False: json.dumps(answer)):
+            with self.assertRaises(ValueError):
+                freeze.open_freeze_issues(self.REPO)
 
     def test_a_write_is_never_retried_with_the_fallback(self):
         with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}):
@@ -326,7 +378,7 @@ class CheckApiCalls(unittest.TestCase):
             calls.append(args)
             if len(calls) <= failures:
                 raise freeze.subprocess.CalledProcessError(1, ["gh", *args], stderr=error)
-            return "[]"
+            return json.dumps(freeze_list([])) if "graphql" in args else "[]"
 
         original_gh, original_sleep = freeze.gh, freeze.time.sleep
         freeze.gh, freeze.time.sleep = gh, sleeps.append
@@ -409,6 +461,33 @@ class PaginationTests(unittest.TestCase):
         source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
         self.assertNotIn('"--paginate"', source)
 
+
+class GraphqlRepositoryVariablesTests(unittest.TestCase):
+    """The lane-gh broker refuses a graphql call unless the repository is named through variables called
+    owner and name, so `merge_freeze.py check` exited 2 on every lane VM while it used $o and $n."""
+
+    REPOSITORY_ARGS = re.compile(r"repository\(\s*owner:\s*\$(\w+)\s*,\s*name:\s*\$(\w+)\s*\)")
+
+    def test_every_graphql_query_in_scripts_names_the_repository_with_owner_and_name(self):
+        wrong, seen = [], 0
+        for path in sorted((ROOT / "scripts").rglob("*")):
+            if not path.is_file() or path.suffix in {".png", ".jpg", ".gz", ".zip", ".pyc"}:
+                continue
+            try:
+                text = path.read_text()
+            except UnicodeDecodeError:
+                continue
+            for match in self.REPOSITORY_ARGS.finditer(text):
+                seen += 1
+                if match.groups() != ("owner", "name"):
+                    wrong.append(f"{path.relative_to(ROOT)}: $" + ", $".join(match.groups()))
+        self.assertGreater(seen, 0, "the detector found no graphql repository queries; its pattern is stale")
+        self.assertEqual([], wrong, "name the repository with $owner and $name (the lane-gh broker requires it)")
+
+    def test_merge_freeze_passes_the_repository_as_owner_and_name_variables(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertEqual(2, source.count('f"owner={owner}", "-f", f"name={name}"'))
+        self.assertNotRegex(source, r'"-f", f"[on]=')
 
 
 if __name__ == "__main__":

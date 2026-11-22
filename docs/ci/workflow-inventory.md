@@ -32,7 +32,7 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 
 **c. Duplicates and overlaps**
 
-- `ios-testflight.yml` (every 20 minutes, CMUX INTERNAL) and `ios-appstore-upload.yml` (hourly, cmux.app) both run scheduled TestFlight uploads. About half of each one's runs fail (251 of 507 and 79 of 161). Together they use about 250 runner-hours a week.
+- `ios-testflight.yml` (every 20 minutes, CMUX INTERNAL; retired 2026-11-13 with cmux DEMO) and `ios-appstore-upload.yml` (hourly, then cmux.app; since 2026-11-13 cmux CLASSIC, `dev.cmux.app.classic`) both run scheduled TestFlight uploads. About half of each one's runs fail (251 of 507 and 79 of 161). Together they use about 250 runner-hours a week.
 - `testbox-broker-guard.yml` used to run on every PR and every push to main (6,275 runs) because its header said "The main CI suite is dispatch-only right now". Its checks now run in the routed `ci-guards.yml` group; the standalone workflow is dispatch-only for diagnostics.
 - `web-complexity-trusted.yml` and `cla-policy-guard.yml` together ran about 27,000 times. That is roughly 3x the PR events, because `pull_request_target` also fires on `edited`. Do not drop `edited` blindly: it also carries base-branch changes.
 - `web-complexity.yml` and `web-complexity-trusted.yml` are an intentional pair: an untrusted diagnostic plus the trusted required check. Not a duplicate.
@@ -49,7 +49,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `ci.yml` | pr merge_group dispatch | blacksmith/warp/macos | 4,571 | 788 / 1,392 / 0 / 2,228 | 99,698 | 2026-09-22 | lawrencecchen (direct push)  | Leo 2026-09-22 | REQUIRED: ci-status; 8 wf refs; 26 docs/tests |  |
 | `web-complexity-trusted.yml` | pr_target merge_group push (paths) | gh-ubuntu | 13,693 | 5,490 / 179 / 0 / 8,023 | 18,747 | 2026-09-22 | lawrencecchen #11944 | Leo 2026-09-19 | REQUIRED: Web complexity; 2 wf refs; 6 docs/tests |  |
 | `nightly.yml` | push schedule dispatch | blacksmith/warp/macos | 489 | 150 / 39 / 0 / 300 | 14,637 | 2026-09-22 | lawrencecchen (direct push)  | Lawrence Chen 2026-09-21 | 7 wf refs; 23 docs/tests |  |
-| `ios-testflight.yml` | schedule dispatch | blacksmith/warp/macos | 507 | 231 / 251 / 0 / 25 | 13,771 | 2026-09-22 | lawrencecchen #5448 | Abdulaziz Albahar 2026-09-21 | 11 docs/tests | **c** overlaps ios-appstore-upload; 50% fail |
+| `ios-testflight.yml` (retired 2026-11-13) | schedule dispatch | blacksmith/warp/macos | 507 | 231 / 251 / 0 / 25 | 13,771 | 2026-09-22 | lawrencecchen #5448 | Abdulaziz Albahar 2026-09-21 | 11 docs/tests | **c** overlaps ios-appstore-upload; 50% fail |
 | `cli-pipe-regressions.yml` | call dispatch | warp/macos | 2,432 | 1,500 / 228 / 0 / 588 | 7,710 | 2026-09-22 | austinywang #12503 | Leo 2026-09-22 | REQUIRED: ci-status (reusable); called by ci; 3 docs/tests | removed: its CLI tests run in compile admission's CLI smoke step |
 | `cmux-tui-sdks.yml` | push pr dispatch (paths) | blacksmith | 453 | 235 / 82 / 0 / 132 | 7,271 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-16 | 1 docs/tests |  |
 | `test-e2e.yml` | dispatch | blacksmith/warp/macos | 959 | 270 / 531 / 0 / 158 | 6,730 | 2026-09-22 | lawrencecchen #778 | Leo 2026-09-21 | 6 docs/tests | 55% fail |

@@ -63748,71 +63748,6 @@
         }
       }
     },
-    "browser.import.warning.safariCookiesUnsupported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari のCookieは Cookies.binarycookies に保存されており、このインポーターではまだ対応していません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari 쿠키는 Cookies.binarycookies에 저장되어 있으며 아직 이 가져오기 도구에서 지원되지 않습니다."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cookies Safari зберігаються у форматі Cookies.binarycookies і поки не підтримуються цим імпортером."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari 的 Cookie 存储在 Cookies.binarycookies 中，此导入工具尚不支持。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari-Cookies werden in Cookies.binarycookies gespeichert und von diesem Importer noch nicht unterstützt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les cookies Safari sont stockés dans Cookies.binarycookies et ne sont pas encore pris en charge par cet importateur."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتم تخزين ملفات تعريف ارتباط Safari في Cookies.binarycookies وهي غير مدعومة بعد بواسطة أداة الاستيراد هذه."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las cookies de Safari se almacenan en Cookies.binarycookies y este importador aún no las admite."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Safari 的 Cookie 儲存在 Cookies.binarycookies 中，此匯入工具尚不支援。"
-          }
-        }
-      }
-    },
     "browser.moreActions": {
       "extractionState": "manual",
       "localizations": {
@@ -65752,6 +65687,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "默认"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinito"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លំនាំដើម"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan"
           }
         }
       }
@@ -266630,29 +266625,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux BETA"
-          }
-        }
-      }
-    },
-    "mobile.pairing.target.demo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux DEMO"
           }
         }
       }
@@ -674187,6 +674159,1723 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chief 啟用時，Home 群組會保持釘選"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesAccessDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't read Safari's cookies at %@. Allow cmux under System Settings > Privacy & Security > Full Disk Access, then run the import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتعذر على cmux قراءة ملفات تعريف ارتباط Safari في %@. اسمح لـ cmux في إعدادات النظام > الخصوصية والأمن > الوصول الكامل إلى القرص، ثم أعد تشغيل الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može pročitati Safari kolačiće na lokaciji %@. Dozvolite cmux u Postavke sistema > Privatnost i sigurnost > Puni pristup disku, a zatim ponovo pokrenite uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke læse Safaris cookies på %@. Tillad cmux under Systemindstillinger > Anonymitet og sikkerhed > Fuld diskadgang, og kør derefter importen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann die Safari-Cookies unter %@ nicht lesen. Erlauben Sie cmux unter Systemeinstellungen > Datenschutz & Sicherheit > Festplattenvollzugriff und starten Sie den Import dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede leer las cookies de Safari en %@. Permite cmux en Ajustes del Sistema > Privacidad y seguridad > Acceso total al disco y vuelve a ejecutar la importación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas lire les cookies de Safari à l’emplacement %@. Autorisez cmux dans Réglages Système > Confidentialité et sécurité > Accès complet au disque, puis relancez l’importation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non può leggere i cookie di Safari in %@. Consenti cmux in Impostazioni di Sistema > Privacy e sicurezza > Accesso completo al disco, quindi esegui di nuovo l’importazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ にある Safari の Cookie を読み取れません。システム設定 > プライバシーとセキュリティ > フルディスクアクセスで cmux を許可してから、もう一度インポートを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចអានខូគីរបស់ Safari នៅ %@ បានទេ។ សូមអនុញ្ញាត cmux នៅក្នុង ការកំណត់ប្រព័ន្ធ > ឯកជនភាព និងសុវត្ថិភាព > ការចូលប្រើថាសពេញលេញ បន្ទាប់មកដំណើរការការនាំចូលម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 있는 Safari 쿠키를 읽을 수 없습니다. 시스템 설정 > 개인정보 보호 및 보안 > 전체 디스크 접근 권한에서 cmux를 허용한 다음 가져오기를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke lese Safaris informasjonskapsler på %@. Tillat cmux under Systeminnstillinger > Personvern og sikkerhet > Full disktilgang, og kjør deretter importen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może odczytać plików cookie Safari w lokalizacji %@. Zezwól na dostęp dla cmux w Ustawienia systemowe > Prywatność i ochrona > Pełny dostęp do dysku, a następnie ponownie uruchom import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue ler os cookies do Safari em %@. Permita o cmux em Ajustes do Sistema > Privacidade e Segurança > Acesso Total ao Disco e execute a importação novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может прочитать файлы cookie Safari в %@. Разрешите cmux в разделе «Системные настройки» > «Конфиденциальность и безопасность» > «Полный доступ к диску», затем снова запустите импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถอ่านคุกกี้ของ Safari ที่ %@ ได้ อนุญาต cmux ใน การตั้งค่าระบบ > ความเป็นส่วนตัวและความปลอดภัย > การเข้าถึงดิสก์เต็มรูปแบบ แล้วเรียกใช้การนำเข้าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, %@ konumundaki Safari çerezlerini okuyamıyor. Sistem Ayarları > Gizlilik ve Güvenlik > Tam Disk Erişimi bölümünde cmux’a izin verin, ardından içe aktarmayı yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може прочитати файли cookie Safari у %@. Дозвольте cmux у розділі «Системні налаштування» > «Конфіденційність і безпека» > «Повний доступ до диска», а потім знову запустіть імпорт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取位于 %@ 的 Safari Cookie。请在“系统设置”>“隐私与安全性”>“完全磁盘访问权限”中允许 cmux，然后重新运行导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取位於 %@ 的 Safari Cookie。請在「系統設定」>「隱私權與安全性」>「完整磁碟取用權限」中允許 cmux，然後再次執行匯入。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesCorrupt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookie store at %@ is damaged or in a format cmux doesn't recognize."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف ملفات تعريف ارتباط Safari في %@ تالف أو بتنسيق لا يتعرف عليه cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremište Safari kolačića na lokaciji %@ je oštećeno ili je u formatu koji cmux ne prepoznaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safaris cookielager på %@ er beskadiget eller i et format, som cmux ikke genkender."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Safari-Cookie-Speicher unter %@ ist beschädigt oder liegt in einem Format vor, das cmux nicht erkennt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacén de cookies de Safari en %@ está dañado o tiene un formato que cmux no reconoce."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari à l’emplacement %@ est endommagé ou dans un format que cmux ne reconnaît pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archivio dei cookie di Safari in %@ è danneggiato o in un formato che cmux non riconosce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にある Safari の Cookie ストアは破損しているか、cmux が認識できない形式です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងខូគីរបស់ Safari នៅ %@ ខូច ឬស្ថិតក្នុងទម្រង់ដែល cmux មិនស្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 있는 Safari 쿠키 저장소가 손상되었거나 cmux가 인식하지 못하는 형식입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lageret for Safari-informasjonskapsler på %@ er skadet eller i et format cmux ikke gjenkjenner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn plików cookie Safari w lokalizacji %@ jest uszkodzony lub ma format, którego cmux nie rozpoznaje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório de cookies do Safari em %@ está danificado ou em um formato que o cmux não reconhece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari в %@ повреждено или имеет формат, который cmux не распознаёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่เก็บคุกกี้ของ Safari ที่ %@ เสียหายหรืออยู่ในรูปแบบที่ cmux ไม่รู้จัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konumundaki Safari çerez deposu hasarlı veya cmux’ın tanımadığı bir biçimde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari у %@ пошкоджене або має формат, який cmux не розпізнає."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %@ 的 Safari Cookie 存储文件已损坏，或采用 cmux 无法识别的格式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 %@ 的 Safari Cookie 儲存檔已損毀，或採用 cmux 無法辨識的格式。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Safari cookie store was found for the %@ profile."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على ملف ملفات تعريف ارتباط Safari لملف التعريف %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za profil %@ nije pronađeno spremište Safari kolačića."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke fundet noget Safari-cookielager for profilen %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für das Profil „%@“ wurde kein Safari-Cookie-Speicher gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ningún almacén de cookies de Safari para el perfil %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun fichier de cookies Safari n’a été trouvé pour le profil %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun archivio dei cookie di Safari trovato per il profilo %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル「%@」の Safari の Cookie ストアが見つかりませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញឃ្លាំងខូគីរបស់ Safari សម្រាប់ប្រវត្តិរូប %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 프로필의 Safari 쿠키 저장소를 찾을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke noe lager for Safari-informasjonskapsler for profilen %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono magazynu plików cookie Safari dla profilu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum repositório de cookies do Safari foi encontrado para o perfil %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari для профиля %@ не найдено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบที่เก็บคุกกี้ของ Safari สำหรับโปรไฟล์ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ profili için Safari çerez deposu bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari для профілю %@ не знайдено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到“%@”配置文件的 Safari Cookie 存储文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到「%@」設定檔的 Safari Cookie 儲存檔。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't read the Safari cookie store at %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux قراءة ملف ملفات تعريف ارتباط Safari في %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pročitati spremište Safari kolačića na lokaciji %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke læse Safaris cookielager på %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte den Safari-Cookie-Speicher unter %@ nicht lesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo leer el almacén de cookies de Safari en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu lire le fichier de cookies Safari à l’emplacement %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a leggere l’archivio dei cookie di Safari in %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ にある Safari の Cookie ストアを読み取れませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចអានឃ្លាំងខូគីរបស់ Safari នៅ %@ បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 있는 Safari 쿠키 저장소를 읽지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke lese lageret for Safari-informasjonskapsler på %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł odczytać magazynu plików cookie Safari w lokalizacji %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu ler o repositório de cookies do Safari em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось прочитать хранилище файлов cookie Safari в %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถอ่านที่เก็บคุกกี้ของ Safari ที่ %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, %@ konumundaki Safari çerez deposunu okuyamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося прочитати сховище файлів cookie Safari у %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法读取位于 %@ 的 Safari Cookie 存储文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法讀取位於 %@ 的 Safari Cookie 儲存檔。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesFilePermissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your macOS user account doesn't have permission to read Safari's cookies at %@. Make sure your account owns the file and can read it, then run the import again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك حساب المستخدم الخاص بك على macOS إذنًا بقراءة ملفات تعريف ارتباط Safari في %@. تأكد من أن حسابك يملك الملف ويمكنه قراءته، ثم أعد تشغيل الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš macOS korisnički račun nema dozvolu za čitanje Safari kolačića na lokaciji %@. Provjerite da je vaš račun vlasnik datoteke i da je može čitati, a zatim ponovo pokrenite uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din macOS-brugerkonto har ikke tilladelse til at læse Safaris cookies på %@. Sørg for, at din konto ejer filen og kan læse den, og kør derefter importen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr macOS-Benutzerkonto hat keine Berechtigung, die Safari-Cookies unter %@ zu lesen. Stellen Sie sicher, dass Ihr Konto Eigentümer der Datei ist und sie lesen darf, und starten Sie den Import dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu cuenta de usuario de macOS no tiene permiso para leer las cookies de Safari en %@. Asegúrate de que tu cuenta sea propietaria del archivo y pueda leerlo, y vuelve a ejecutar la importación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre compte utilisateur macOS n’est pas autorisé à lire les cookies de Safari à l’emplacement %@. Vérifiez que votre compte est propriétaire du fichier et peut le lire, puis relancez l’importation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo account utente macOS non ha l’autorizzazione per leggere i cookie di Safari in %@. Assicurati che il tuo account sia proprietario del file e possa leggerlo, quindi esegui di nuovo l’importazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS のユーザアカウントには %@ にある Safari の Cookie を読み取る権限がありません。アカウントがファイルの所有者で読み取り可能であることを確認してから、もう一度インポートを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គណនីអ្នកប្រើ macOS របស់អ្នកមិនមានសិទ្ធិអានខូគីរបស់ Safari នៅ %@ ទេ។ សូមប្រាកដថាគណនីរបស់អ្នកជាម្ចាស់ឯកសារ ហើយអាចអានវាបាន បន្ទាប់មកដំណើរការការនាំចូលម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 사용자 계정에 %@에 있는 Safari 쿠키를 읽을 권한이 없습니다. 계정이 파일의 소유자이며 읽을 수 있는지 확인한 다음 가져오기를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-brukerkontoen din har ikke tillatelse til å lese Safaris informasjonskapsler på %@. Sørg for at kontoen din eier filen og kan lese den, og kjør deretter importen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoje konto użytkownika macOS nie ma uprawnień do odczytu plików cookie Safari w lokalizacji %@. Upewnij się, że Twoje konto jest właścicielem pliku i może go odczytać, a następnie ponownie uruchom import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua conta de usuário do macOS não tem permissão para ler os cookies do Safari em %@. Verifique se sua conta é a proprietária do arquivo e pode lê-lo, e execute a importação novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашей учётной записи macOS нет прав на чтение файлов cookie Safari в %@. Убедитесь, что ваша учётная запись является владельцем файла и может его читать, затем снова запустите импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บัญชีผู้ใช้ macOS ของคุณไม่มีสิทธิ์อ่านคุกกี้ของ Safari ที่ %@ ตรวจสอบให้แน่ใจว่าบัญชีของคุณเป็นเจ้าของไฟล์และอ่านไฟล์ได้ แล้วเรียกใช้การนำเข้าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS kullanıcı hesabınızın %@ konumundaki Safari çerezlerini okuma izni yok. Dosyanın sahibinin hesabınız olduğundan ve hesabınızın dosyayı okuyabildiğinden emin olun, ardından içe aktarmayı yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш обліковий запис користувача macOS не має дозволу на читання файлів cookie Safari у %@. Переконайтеся, що ваш обліковий запис є власником файлу і може його читати, а потім знову запустіть імпорт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 用户账户没有读取位于 %@ 的 Safari Cookie 的权限。请确认你的账户拥有该文件并且可以读取，然后重新运行导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 macOS 使用者帳號沒有讀取位於 %@ 的 Safari Cookie 的權限。請確認你的帳號擁有該檔案且可以讀取，然後再次執行匯入。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي ملف ملفات تعريف ارتباط Safari في %1$@ على بيانات تتجاوز حد الاستيراد في cmux البالغ %2$@، لذلك لم يتم استيراد أي ملفات تعريف ارتباط منه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremište Safari kolačića na lokaciji %1$@ sadrži više podataka o kolačićima nego što dozvoljava cmux ograničenje uvoza od %2$@, pa iz njega nijedan kolačić nije uvezen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safaris cookielager på %1$@ indeholder flere cookiedata end cmux' importgrænse på %2$@, så der blev ikke importeret nogen cookies fra det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Safari-Cookie-Speicher unter %1$@ enthält mehr Cookie-Daten, als das Importlimit von cmux (%2$@) zulässt. Daher wurden daraus keine Cookies importiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacén de cookies de Safari en %1$@ contiene más datos de cookies que el límite de importación de cmux (%2$@), por lo que no se importó ninguna cookie de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de cookies Safari à l’emplacement %1$@ contient plus de données de cookies que la limite d’importation de cmux (%2$@) ne le permet ; aucun cookie n’en a donc été importé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’archivio dei cookie di Safari in %1$@ contiene più dati di cookie del limite di importazione di cmux (%2$@), quindi non è stato importato alcun cookie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ にある Safari の Cookie ストアには cmux のインポート上限（%2$@）を超える Cookie データが含まれているため、Cookie はインポートされませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងខូគីរបស់ Safari នៅ %1$@ មានទិន្នន័យខូគីច្រើនជាងដែនកំណត់នាំចូលរបស់ cmux (%2$@) ដូច្នេះគ្មានខូគីណាត្រូវបាននាំចូលពីវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 있는 Safari 쿠키 저장소의 쿠키 데이터가 cmux 가져오기 한도(%2$@)를 초과하므로 쿠키를 가져오지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lageret for Safari-informasjonskapsler på %1$@ inneholder mer data enn importgrensen i cmux (%2$@), så ingen informasjonskapsler ble importert fra det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Magazyn plików cookie Safari w lokalizacji %1$@ zawiera więcej danych niż limit importu cmux (%2$@), dlatego nie zaimportowano z niego żadnych plików cookie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório de cookies do Safari em %1$@ contém mais dados de cookies do que o limite de importação do cmux (%2$@), então nenhum cookie foi importado dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище файлов cookie Safari в %1$@ содержит больше данных, чем допускает ограничение импорта cmux (%2$@), поэтому файлы cookie из него не импортированы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่เก็บคุกกี้ของ Safari ที่ %1$@ มีข้อมูลคุกกี้เกินขีดจำกัดการนำเข้าของ cmux (%2$@) จึงไม่ได้นำเข้าคุกกี้ใดจากที่เก็บนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konumundaki Safari çerez deposu, cmux’ın içe aktarma sınırından (%2$@) daha fazla çerez verisi içerdiği için bu depodan hiçbir çerez içe aktarılmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховище файлів cookie Safari у %1$@ містить більше даних, ніж дозволяє обмеження імпорту cmux (%2$@), тому файли cookie з нього не імпортовано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %1$@ 的 Safari Cookie 存储文件中的 Cookie 数据超过了 cmux 的导入上限（%2$@），因此未从中导入任何 Cookie。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位於 %1$@ 的 Safari Cookie 儲存檔中的 Cookie 資料超過了 cmux 的匯入上限（%2$@），因此未從中匯入任何 Cookie。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.target.classic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux CLASSIC"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.missingCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requires a subcommand: toggle, show, hide, focus, or mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب left-sidebar أمرًا فرعيًا: toggle أو show أو hide أو focus أو mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar erfordert einen Unterbefehl: toggle, show, hide, focus oder mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requiere un subcomando: toggle, show, hide, focus o mode"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar requiert une sous-commande : toggle, show, hide, focus ou mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar にはサブコマンドが必要です: toggle、show、hide、focus、mode のいずれか"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar에는 하위 명령이 필요합니다: toggle, show, hide, focus 또는 mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar 需要一个子命令：toggle、show、hide、focus 或 mode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar 需要子指令：toggle、show、hide、focus 或 mode"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.windowRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: يتطلب الخيار --window معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : --window requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window에 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：--window 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --window 需要 id"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.workspaceRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: يتطلب الخيار --workspace معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : --workspace requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace에 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：--workspace 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: --workspace 需要 id"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux left-sidebar <command> [flags]\n\nControl the left (workspace) sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle left sidebar visibility\n  show                           Show the left sidebar\n  hide                           Hide the left sidebar\n  focus                          Show the left sidebar and focus its workspace list\n  mode                           Print {\"visible\":bool}\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n\nOnly focus moves keyboard focus or brings the window forward.\n\nExamples:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux left-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيسر (مساحات العمل) من CLI.\n\nالأوامر:\n  toggle                         تبديل ظهور الشريط الجانبي الأيسر\n  show                           إظهار الشريط الجانبي الأيسر\n  hide                           إخفاء الشريط الجانبي الأيسر\n  focus                          إظهار الشريط الجانبي الأيسر والتركيز على قائمة مساحات العمل فيه\n  mode                           طباعة {\"visible\":bool}\n\nالخيارات:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n\nالأمر focus وحده ينقل تركيز لوحة المفاتيح أو يُحضر النافذة إلى الأمام.\n\nأمثلة:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux left-sidebar <Befehl> [Flags]\n\nSteuern Sie die linke Seitenleiste (Arbeitsbereiche) über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der linken Seitenleiste umschalten\n  show                           Die linke Seitenleiste anzeigen\n  hide                           Die linke Seitenleiste ausblenden\n  focus                          Die linke Seitenleiste anzeigen und ihre Arbeitsbereichsliste fokussieren\n  mode                           {\"visible\":bool} ausgeben\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n\nNur focus verschiebt den Tastaturfokus oder holt das Fenster nach vorne.\n\nBeispiele:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux left-sidebar <command> [flags]\n\nControla la barra lateral izquierda (espacios de trabajo) desde la CLI.\n\nComandos:\n  toggle                         Alterna la visibilidad de la barra lateral izquierda\n  show                           Muestra la barra lateral izquierda\n  hide                           Oculta la barra lateral izquierda\n  focus                          Muestra la barra lateral izquierda y enfoca su lista de espacios de trabajo\n  mode                           Imprime {\"visible\":bool}\n\nOpciones:\n  --workspace <id|ref|index>     Apunta a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apunta a una ventana\n\nSolo focus mueve el foco del teclado o trae la ventana al frente.\n\nEjemplos:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux left-sidebar <commande> [options]\n\nContrôler la barre latérale gauche (espaces de travail) depuis la CLI.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale gauche\n  show                           Afficher la barre latérale gauche\n  hide                           Masquer la barre latérale gauche\n  focus                          Afficher la barre latérale gauche et donner le focus à sa liste d'espaces de travail\n  mode                           Afficher {\"visible\":bool}\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n\nSeul focus déplace le focus clavier ou met la fenêtre au premier plan.\n\nExemples :\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux left-sidebar <command> [flags]\n\nCLI から左サイドバー（ワークスペース）を操作します。\n\nコマンド:\n  toggle                         左サイドバーの表示を切り替えます\n  show                           左サイドバーを表示します\n  hide                           左サイドバーを隠します\n  focus                          左サイドバーを表示し、ワークスペース一覧にフォーカスします\n  mode                           {\"visible\":bool} を出力します\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n\nキーボードフォーカスを移したりウィンドウを前面に出したりするのは focus だけです。\n\n例:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux left-sidebar <command> [flags]\n\nCLI에서 왼쪽 사이드바(작업 공간)를 제어합니다.\n\n명령어:\n  toggle                         왼쪽 사이드바 표시 여부 토글\n  show                           왼쪽 사이드바 표시\n  hide                           왼쪽 사이드바 숨기기\n  focus                          왼쪽 사이드바를 표시하고 작업 공간 목록에 포커스 지정\n  mode                           {\"visible\":bool} 출력\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n\nfocus만 키보드 포커스를 옮기거나 창을 앞으로 가져옵니다.\n\n예시:\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux left-sidebar <command> [flags]\n\n从 CLI 控制左侧边栏（工作区）。\n\n命令：\n  toggle                         切换左侧边栏的显示与隐藏\n  show                           显示左侧边栏\n  hide                           隐藏左侧边栏\n  focus                          显示左侧边栏并聚焦其工作区列表\n  mode                           打印 {\"visible\":bool}\n\n标志：\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n\n只有 focus 会移动键盘焦点或将窗口置于前台。\n\n示例：\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux left-sidebar <command> [flags]\n\n從 CLI 控制左側邊欄（工作區）。\n\n指令：\n  toggle                         切換左側邊欄可見性\n  show                           顯示左側邊欄\n  hide                           隱藏左側邊欄\n  focus                          顯示左側邊欄並聚焦至其工作區清單\n  mode                           列印 {\"visible\":bool}\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n\n只有 focus 會移動鍵盤焦點或將視窗移到最前面。\n\n範例：\n  cmux left-sidebar hide\n  cmux left-sidebar show --window window:2\n  cmux left-sidebar mode"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.focusFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Failed to focus left sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: فشل التركيز على الشريط الجانبي الأيسر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Linke Seitenleiste konnte nicht fokussiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: No se pudo enfocar la barra lateral izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: échec de la mise au point de la barre latérale gauche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーにフォーカスできませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바에 포커스를 설정하지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 聚焦左侧边栏失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無法聚焦左側邊欄"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Left sidebar target not found"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: هدف الشريط الجانبي الأيسر غير موجود"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Ziel der linken Seitenleiste nicht gefunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Destino de la barra lateral izquierda no encontrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: cible de barre latérale gauche introuvable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーの対象が見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바 대상을 찾을 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未找到左侧边栏目标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 找不到左側邊欄目標"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Left sidebar not available"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الشريط الجانبي الأيسر غير متوفر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Linke Seitenleiste nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Barra lateral izquierda no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: barre latérale gauche indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左サイドバーを利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 왼쪽 사이드바를 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左侧边栏不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左側邊欄無法使用"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: utilisation : left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar <toggle|show|hide|focus|mode> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: unknown flag '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: علم غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: unbekanntes Flag „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: opción desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar : option inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 不明なフラグ '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 알 수 없는 플래그 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar：未知标志 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar: 未知的旗標 '%@'"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown left-sidebar command '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر left-sidebar غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter left-sidebar-Befehl „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando left-sidebar desconocido '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande left-sidebar inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な left-sidebar コマンド '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 left-sidebar 명령 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 left-sidebar 命令 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 left-sidebar 指令 '%@'"
+          }
+        }
+      }
+    },
+    "cli.leftSidebar.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ received unexpected arguments"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقى left-sidebar %@ وسائط غير متوقعة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ hat unerwartete Argumente empfangen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ recibió argumentos inesperados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ a reçu des arguments inattendus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ に予期しない引数があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@에 예상치 못한 인수가 전달되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ 收到了意外参数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left-sidebar %@ 收到未預期的引數"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.optionRequiresID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requires an id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ يتطلب معرفًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ erfordert eine ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requiere un id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ requiert un identifiant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ には ID が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@에는 ID가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ 需要一个 id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: %@ 需要 ID"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unknown left sidebar option '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: خيار الشريط الجانبي الأيسر مجهول '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unbekannte Option für die linke Seitenleiste: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Opción de barra lateral izquierda desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: option de barre latérale gauche inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 不明な左サイドバーオプション '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 옵션: '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左侧边栏选项 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左側邊欄選項「%@」"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.unknownCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unknown left sidebar command '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: أمر الشريط الجانبي الأيسر مجهول '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Unbekannter Befehl für die linke Seitenleiste: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Comando de barra lateral izquierda desconocido '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: commande de barre latérale gauche inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 不明な左サイドバーコマンド '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 알 수 없는 왼쪽 사이드바 명령어: '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左侧边栏命令 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 未知的左側邊欄命令「%@」"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.usage.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: الاستخدام: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Verwendung: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: utilisation : left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 사용법: left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 用法：left_sidebar %@ [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        }
+      }
+    },
+    "leftSidebar.remote.error.invalidTargetID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Invalid left sidebar --%@ id '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: شريط جانبي أيسر غير صالح --%@ معرف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Ungültige linke Seitenleiste --%@-ID „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Barra lateral izquierda no válida --%@ id '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: identifiant de barre latérale gauche invalide pour --%@ : '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無効な左サイドバー --%@ ID '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 잘못된 왼쪽 사이드바 --%@ ID '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 左侧边栏 --%@ id '%@' 无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 無效的左側邊欄 --%@ id「%@」"
           }
         }
       }

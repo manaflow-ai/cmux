@@ -1161,14 +1161,17 @@ mod tests {
 
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        // A short private root, as in client.rs: the probe's 256-entry scan of
+        // a shared /tmp/cmux-tui-<uid> may never reach this socket.
+        let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
-        let session = format!("resource-fallback-{}-{id}", std::process::id());
-        let dir = PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
+        let session = format!("rr{}-{id}", std::process::id());
+        let dir = root.path().join(crate::client::private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
         let runtime_name = crate::client::private_runtime_dir_name();
         let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
-        let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{uid}"));
+        let hashed_dir = root.path().join(format!("cmux-tui-hashed-{uid}"));
         std::fs::create_dir_all(&hashed_dir).unwrap();
         let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
         let config = Config::from_socket_path(hashed_dir.join(digest));
