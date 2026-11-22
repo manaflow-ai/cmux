@@ -34,6 +34,17 @@ await requireBrowserLane("queued-glass.test.ts", async () => {
       ];
     throw new Error(`unparsed color ${color}`);
   }
+  /** A one-colour gradient laid over a fill (Chromium's see-through glass: the tint over the
+   * underlay, glass.css "CHROMIUM OVER THE WINDOW GLASS"), as one colour: what the band covers. */
+  function layered(color: Rgba, image: string): Rgba {
+    const tint = image.match(/linear-gradient\((color\([^)]*\)|rgba?\([^)]*\))/);
+    if (!tint) return color;
+    const top = parse(tint[1]!);
+    const alpha = top[3] + color[3] * (1 - top[3]);
+    if (alpha === 0) return [0, 0, 0, 0];
+    const channel = (i: number) => (top[i]! * top[3] + color[i]! * color[3] * (1 - top[3])) / alpha;
+    return [channel(0), channel(1), channel(2), alpha];
+  }
   const over = (top: Rgba, under: Rgb): Rgb => [0, 1, 2].map((i) => top[i]! * top[3] + under[i]! * (1 - top[3])) as Rgb;
   const luminance = ([r, g, b]: Rgb) => {
     const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -116,6 +127,7 @@ await requireBrowserLane("queued-glass.test.ts", async () => {
       return {
         reduceMedia: matchMedia("(prefers-reduced-transparency: reduce)").matches,
         fill: style("queue").backgroundColor,
+        fillImage: style("queue").backgroundImage,
         backdrop: style("queue").backdropFilter,
         label: style("queue-kind").color,
         prompt: style("queued").color,
@@ -129,7 +141,9 @@ await requireBrowserLane("queued-glass.test.ts", async () => {
     });
     return {
       reduceMedia: raw.reduceMedia,
-      fill: parse(raw.fill),
+      // The band's cover: its tint over the see-through underlay where Chromium lays one (glass.css,
+      // design/glass-system.md rule 6: 40% under the tint), not the underlay alone.
+      fill: layered(parse(raw.fill), raw.fillImage),
       backdrop: raw.backdrop,
       label: parse(raw.label),
       prompt: parse(raw.prompt),

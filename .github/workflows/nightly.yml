@@ -176,6 +176,8 @@ concurrency:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Main's promote guard reads this exact line (promote-nightly-next.mjs G5); see resolve-tree-pending.sh.
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
   CREATE_DMG_VERSION: 8.0.0
@@ -4279,6 +4281,12 @@ jobs:
           CMUX_NEXT_CEF_ON_DEMAND: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && '1' || '' }}
           CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
           CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
+          # Languages download on first use (CMUX-570): the non-English strings leave the app
+          # for language packs, which publish-nightly uploads before the appcast. On for
+          # nightly-next; the repository variable CMUX_NEXT_LANGUAGE_PACKS=0 turns it off.
+          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_LANGUAGE_PACKS_OUT: ${{ runner.temp }}/language-packs
+          CMUX_NEXT_LANGUAGE_PACKS_BASE_URL: https://files-next.cmux.com/language-packs
           # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
           CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
         run: |
@@ -4314,6 +4322,34 @@ jobs:
         with:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/cef-runtime
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+      # The language packs the app's pin names (language-packs.py); publish-nightly uploads
+      # them before the appcast.
+      - name: Upload the language packs
+        id: upload-the-language-packs
+        continue-on-error: true
+        if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/language-packs/
+            !${{ runner.temp }}/language-packs/stage
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the language packs (retry)
+        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT)"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: |
+            ${{ runner.temp }}/language-packs/
+            !${{ runner.temp }}/language-packs/stage
           if-no-files-found: error
           retention-days: 7
           overwrite: true
@@ -4637,6 +4673,8 @@ jobs:
           # and moves to Nightly (cmux-next) on a canary pass
           # (scripts/ci/nightly_next_ring.py, nightly-next-verdict.yml).
           SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
+          # nightly-next-one writes the item full-only and builds the deltas after the feed. Why: docs/ci/nightly-workflow-notes.md#note-31
+          NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true' && needs.decide.outputs.track == 'nightly-next' && 'true' || '' }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -5293,6 +5331,7 @@ jobs:
       behind: ${{ steps.fetch.outputs.behind }}
       behind_hours: ${{ steps.fetch.outputs.behind_hours }}
       cef: ${{ steps.fetch.outputs.cef }}
+      language_packs: ${{ steps.fetch.outputs.language_packs }}
       source_archive: ${{ steps.fetch.outputs.source_archive }}
     steps:
       - *checkout-default
@@ -5365,6 +5404,29 @@ jobs:
         with:
           name: cef-runtime-pack
           path: ${{ runner.temp }}/republished/cef-runtime/
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+      # The same for the source build's language packs (its language_packs output), whatever
+      # CMUX_NEXT_LANGUAGE_PACKS says now: the app's pin names them.
+      - name: Upload the republished build's language packs
+        id: upload-the-republished-build-s-language-packs
+        continue-on-error: true
+        if: steps.fetch.outputs.language_packs == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: ${{ runner.temp }}/republished/language-packs/
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload the republished build's language packs (retry)
+        if: "!cancelled() && steps.upload-the-republished-build-s-language-packs.outcome == 'failure' && (steps.fetch.outputs.language_packs == 'true')"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: language-packs
+          path: ${{ runner.temp }}/republished/language-packs/
           if-no-files-found: error
           retention-days: 3
           overwrite: true
@@ -5785,13 +5847,19 @@ jobs:
           # republished build publishes the pack its source signed with (the app's pin names it), and
           # no source archive when its source made none.
           CEF_ON_DEMAND: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND }}
+          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS }}
           PUBLISH_SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE }}
           REPUBLISHED_CEF: ${{ needs.republish-nightly-next.outputs.cef }}
+          REPUBLISHED_LANGUAGE_PACKS: ${{ needs.republish-nightly-next.outputs.language_packs }}
           REPUBLISHED_SOURCE_ARCHIVE: ${{ needs.republish-nightly-next.outputs.source_archive }}
         run: |
           set -euo pipefail
           run_id=
           cef=false source_archive=false
+          # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
+          # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
+          language_packs=true language_packs_run=
+          [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
           [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
           [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
@@ -5802,6 +5870,7 @@ jobs:
             source=recovered build="$RECOVERED_BUILD" build_sha="$RECOVERED_BUILD_SHA" tip_sha="$RECOVERED_TIP_SHA"
             behind="$RECOVERED_BEHIND" behind_hours="$RECOVERED_BEHIND_HOURS" pattern="cmux-nightly-recovered-variant-*"
             tested_pattern="cmux-nightly-recovered-tested-*" run_id="$RECOVERED_RUN_ID"
+            language_packs_run="$RECOVERED_RUN_ID"
             echo "::notice title=Publishing an earlier nightly-next build::this run's build was not accepted in time; publishing build $build from run $RECOVERED_RUN_ID"
           elif [ "${REPUBLISHED:-}" = success ]; then
             # Published as a recovered build: the lineage and webview gate read its run.
@@ -5809,6 +5878,7 @@ jobs:
             behind="$REPUBLISHED_BEHIND" behind_hours="$REPUBLISHED_BEHIND_HOURS" pattern="cmux-nightly-republished-variant-*"
             tested_pattern="cmux-nightly-republished-tested-*" run_id="$REPUBLISHED_RUN_ID"
             [ "${REPUBLISHED_CEF:-}" = true ] && cef=true || cef=false
+            [ "${REPUBLISHED_LANGUAGE_PACKS:-}" = true ] && language_packs=true || language_packs=false
             [ "${REPUBLISHED_SOURCE_ARCHIVE:-}" = true ] || source_archive=false
             echo "::notice title=Republishing a verified nightly-next build::build $build from run $REPUBLISHED_RUN_ID, with this run's publication tooling"
           else
@@ -5828,6 +5898,8 @@ jobs:
             echo "tested_pattern=$tested_pattern"
             echo "run_id=$run_id"
             echo "cef=$cef"
+            echo "language_packs=$language_packs"
+            echo "language_packs_run=$language_packs_run"
             echo "source_archive=$source_archive"
           } >> "$GITHUB_OUTPUT"
           echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
@@ -6167,6 +6239,27 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
+
+      # Languages download on first use (CMUX-570): the packs the app's pin names, from this run
+      # (own or republished build) or the recovered build's run, published before the appcast.
+      - name: Download the language packs
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.language_packs == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: language-packs
+          path: language-packs
+          run-id: ${{ steps.source.outputs.language_packs_run || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - &x92b
+        name: Publish the language packs
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.language_packs == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && !env.LEFT_SLOT
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: bash "$PUBLISH_TOOLING/cmux-next/publish-language-packs.sh" language-packs
 
       - &x93
         name: Read the live nightly-next feed before the write
@@ -7074,17 +7167,54 @@ jobs:
 
       - *wipe-owned-credentials
 
+  # The signer Mac for this run's nightly-next-one, one build per Mac. Why: docs/ci/nightly-workflow-notes.md#note-33
+  pick-nightly-next-signer:
+    needs: [decide, resolve-nightly-cmux-tui-client]
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+    # Any failure leaves the outputs empty: nightly-next-one then takes the signer label alone and cmux15's group.
+    continue-on-error: true
+    # No secret and no signing key: decide's runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      # cmux15 or ultra1 (nightly-next-one's group, nightly-next-one-push-<host>).
+      host: ${{ steps.pick.outputs.host }}
+      # The JSON runs-on array; it always starts with the literal glaeda-trusted-next-signing.
+      pin: ${{ steps.pick.outputs.pin }}
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Checkout pick tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci
+
+      - name: Pick an idle signer Mac, else the one whose build ends soonest
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .publish-tooling/scripts/ci/nightly_next_signer_pick.py
+
   # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
-    needs: [decide, resolve-nightly-cmux-tui-client]
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-next-signer]
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     environment: ${{ needs.decide.outputs.environment }}
-    # The push slot, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19
+    # The push slot, one per signer Mac, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19, #note-33
     concurrency:
-      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || format('nightly-next-one-{0}', github.run_id) }}
+      group: ${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || format('nightly-next-one-{0}', github.run_id) }}
       cancel-in-progress: false
-    # cmux15's signer label, a literal (one-mini mode too): no variable picks where signing secrets go.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}
+    # The signer label, a literal (one-mini mode too): no variable picks where signing secrets go. The pick only
+    # narrows it to one signer runner; its pin always starts with the label. Why: docs/ci/nightly-workflow-notes.md#note-33
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     # Build, sign, notarize (40m wait), then the publish lease's 60m wait.
     timeout-minutes: 300
     permissions:
@@ -7395,7 +7525,15 @@ jobs:
       - *x68
       - *x69
       - *x70
-      - *x71
+      # The keyless deltas and the notes fetch run beside the bundle's checks; the key comes after a stray check.
+      # With the deltas after the feed, the wait below holds the feed for the notes only. Why: docs/ci/nightly-workflow-notes.md#note-31
+      - name: Start the nearest deltas and the notes fetch (no key, no token)
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true' && !env.LEFT_SLOT
+        env:
+          SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+          NOTES_HEAD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" deltas-start
       - name: Point the verify steps at the restored signed app
         if: ${{ !env.LEFT_SLOT }}
         env:
@@ -7411,7 +7549,7 @@ jobs:
       - *x79
       - name: Verify final DMG artifact
         if: ${{ !env.LEFT_SLOT }}
-        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final && bash "$PUBLISH_TOOLING/ci/nightly-steps/verify-final-dmg.sh"
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final-dmg && bash "$PUBLISH_TOOLING/ci/nightly-steps/verify-final-dmg.sh"
       - name: Launch smoke from a fresh home
         if: ${{ !env.LEFT_SLOT }}
         timeout-minutes: 12
@@ -7423,6 +7561,18 @@ jobs:
         env:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
+      - name: Wait for the nearest deltas and the notes fetch
+        if: ${{ !env.LEFT_SLOT }}
+        env:
+          NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true' && needs.decide.outputs.track == 'nightly-next' && 'true' || '' }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" deltas-join
+      - name: Refuse stray processes before the Sparkle key
+        if: ${{ !env.LEFT_SLOT }}
+        run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
+      - *x71
+      - name: Put this build's appcast and deltas beside the final DMG
+        if: ${{ !env.LEFT_SLOT }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final-feed
       - name: Wait for the build commit's tree-commit marker
         if: needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' && !env.LEFT_SLOT
         env:
@@ -7440,6 +7590,7 @@ jobs:
           BEHIND: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}
           BEHIND_HOURS: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}
           CEF: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' }}
+          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS != '0' }}
           SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" source
       - name: Refuse stray processes before secrets (publication)
@@ -7473,6 +7624,7 @@ jobs:
       - *x90
       - *x91
       - *x92
+      - *x92b
       - *x93
       - *x94
       - *x95
@@ -7494,6 +7646,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-tag-outcome.sh
       - *x101
       - *release-the-nightly-next-publi
+      # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
       - name: Upload nightly variant artifacts
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-variant
@@ -7501,14 +7654,16 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-arm64
-          path: final-dmg/*
+          path: |
+            final-dmg/*
+            !final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
           if-no-files-found: error
           retention-days: 3
           overwrite: true
       - name: Upload nightly variant artifacts (retry)
         if: "!cancelled() && steps.one-up-variant.outcome == 'failure' && (!env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*", if-no-files-found: error, retention-days: 3, overwrite: true}
+        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*\n!final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg", if-no-files-found: error, retention-days: 3, overwrite: true}
       - name: Upload tested DMG digests
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-tested
@@ -7533,6 +7688,52 @@ jobs:
       - *x41
       - *x50
       - *x72
+      # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
+      # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
+      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
+      # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
+      # in these steps (tests/test_nightly_next_one_job.py). Why: docs/ci/nightly-workflow-notes.md#note-31
+      - name: Refuse stray processes before secrets (deltas)
+        id: deltas-stray
+        if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
+        continue-on-error: true
+        run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
+      - name: Build the nightly-next deltas after the feed
+        id: deltas-build
+        if: "!cancelled() && steps.deltas-stray.outcome == 'success' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          TRACK: ${{ needs.decide.outputs.track }}
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+          SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
+        run: |
+          set -euo pipefail
+          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
+          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh after-feed
+      - name: Upload the deltas and give the live item its deltas
+        id: deltas-upload
+        if: "!cancelled() && steps.deltas-build.outcome == 'success' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          DELTAS_ONLY_WHILE_NEWEST: "1"
+        run: |
+          set -euo pipefail
+          if ! compgen -G 'nightly-deltas/*.delta' >/dev/null; then
+            echo "No delta was built; the feed keeps the full-only item"
+            exit 0
+          fi
+          # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
+          # --same-build: only while the live feed still serves this build).
+          bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
       # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
       - name: Wipe this job's credentials and temp files
         if: always()

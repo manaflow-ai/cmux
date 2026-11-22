@@ -312,10 +312,15 @@ impl Hub {
         // then takes it instead of starting cold. Never with this session's own env, route or
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
-        // for the person's next chat, which never waits behind a lane's start.
+        // for the person's next chat, which never waits behind a lane's start. A Claude Code chat
+        // only the person made: a pooled one started for the person (`pool/start.rs`) and asked
+        // for a next-prompt suggestion after every turn, which Claude Code decides once, at
+        // `initialize` (`host_level.rs` `start_params`).
         let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
+            && (profile.kind != crate::config::HarnessKind::ClaudeStdio
+                || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
@@ -398,6 +403,12 @@ impl Hub {
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
+            // A chat that records no creator (an adopt, a move's target) is the person's only
+            // when the person asked for it: its first start says so (`host_level.rs`).
+            if session.read_meta(|m| m.created_by.is_none()) {
+                let start_for = super::host_level::start_for_creator(person);
+                session.start_for.store(start_for, Ordering::SeqCst);
+            }
             // Before the session is published, so its first spawn already has it; memory only.
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -1409,7 +1420,7 @@ impl Hub {
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
-        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+        let init = match child.request(method::INITIALIZE, self.start_params(session)).await {
             Ok(v) => v,
             Err(e) => {
                 // An agent CLI that refuses to start signed out exits before it answers
@@ -1523,6 +1534,7 @@ impl Hub {
             }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
+            self.note_start_level(session, &child, true);
             self.save_meta(session);
             let meta_now = session.meta();
             self.remember_models(&meta_now.harness, &meta_now);
@@ -1628,6 +1640,7 @@ impl Hub {
         self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.note_launch(session, &child);
+        self.note_start_level(session, &child, true);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);
