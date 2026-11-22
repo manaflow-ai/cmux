@@ -12,16 +12,6 @@
       "title" : "Attachment View",
       "type" : "string"
     },
-    "agentPane.composerLook" : {
-      "default" : "auto",
-      "description" : "Where the mode, model and effort sit: under the box or inside it.",
-      "enum" : [
-        "auto",
-        "studio"
-      ],
-      "title" : "Composer Look",
-      "type" : "string"
-    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -90,6 +80,14 @@
       "title" : "Play Sound When Work Finishes",
       "type" : "boolean"
     },
+    "agentPane.display.font.faces" : {
+      "description" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+      "properties" : {
+
+      },
+      "title" : "Chat Font Files",
+      "type" : "object"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",
@@ -108,6 +106,11 @@
         "mono"
       ],
       "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.proseFamily" : {
+      "description" : "The font of the agent's replies. When set, it replaces the Chat Font.",
+      "title" : "Chat Reply Font Family",
       "type" : "string"
     },
     "agentPane.display.font.size" : {
@@ -136,6 +139,11 @@
         "atkinson"
       ],
       "title" : "Chat Interface Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.uiFamily" : {
+      "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+      "title" : "Chat Interface Font Family",
       "type" : "string"
     },
     "agentPane.display.fullWidth" : {
@@ -374,16 +382,6 @@
         "never"
       ],
       "title" : "Edited Files Card",
-      "type" : "string"
-    },
-    "agentPane.emptyChatComposerPosition" : {
-      "default" : "bottom",
-      "description" : "Where the message box sits in a chat with no messages yet.",
-      "enum" : [
-        "bottom",
-        "center"
-      ],
-      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
@@ -733,6 +731,36 @@
       "description" : "Shows \"Debug: …\" commands in the Command Palette.",
       "title" : "Internal Developer Mode",
       "type" : "boolean"
+    },
+    "app.language" : {
+      "default" : "system",
+      "description" : "The language of cmux's menus, pages and messages.",
+      "enum" : [
+        "system",
+        "en",
+        "ar",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "nb",
+        "pl",
+        "pt-BR",
+        "tr",
+        "vi",
+        "ru",
+        "uk",
+        "th",
+        "km",
+        "ja",
+        "ko",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "title" : "Language",
+      "type" : "string"
     },
     "app.quitBehavior" : {
       "default" : "keep",
@@ -1684,6 +1712,18 @@
       "title" : "Spring Response",
       "type" : "number"
     },
+    "appearance.cornerFlush" : {
+      "default" : "flush",
+      "description" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+      "enum" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "title" : "Selected Tab Shape",
+      "type" : "string"
+    },
     "appearance.customDensities" : {
       "default" : [
 
@@ -2237,6 +2277,24 @@
         "subtleTone"
       ],
       "title" : "Title Area",
+      "type" : "string"
+    },
+    "appearance.twoTone" : {
+      "default" : "off",
+      "description" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+      "enum" : [
+        "off",
+        "auto",
+        "inkSakura",
+        "charcoalRose",
+        "inkMagenta",
+        "creamForest",
+        "navySand",
+        "boneOxblood",
+        "slateMatcha",
+        "plumAmber"
+      ],
+      "title" : "Two-Tone",
       "type" : "string"
     },
     "appearance.wallpaperTint" : {
