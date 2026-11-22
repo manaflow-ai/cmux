@@ -194,9 +194,10 @@ async function main(): Promise<number> {
       if (facts.MainPID === first.MainPID || facts.ActiveState !== "active") throw new Error(`no restart onto the new build: ${JSON.stringify(facts)}\n${log}`);
       const exe = await must(exec, asRoot(`readlink -f /proc/${facts.MainPID}/exe`));
       if (!exe.startsWith("/var/lib/cmux-chief/store/")) throw new Error(`the host runs ${exe}`);
-      const handoff = /handed off between turns/.test(log);
-      if (!handoff) throw new Error(`the host restarted without the between-turns handoff line:\n${log}`);
-      return { value: null, detail: `${out.split("\n").at(-1)}; pid ${first.MainPID} -> ${facts.MainPID} (${exe}), handoff logged` };
+      // The whole unit journal: the new host's start lines push the old host's last line out of the tail.
+      const handoff = await exec(asRoot("journalctl -u cmux-chief.service -o cat --no-pager | grep -F 'handed off between turns' | tail -n 3"), 30_000);
+      if (!handoff.stdout.trim()) throw new Error(`the host restarted without the between-turns handoff line:\n${log}`);
+      return { value: null, detail: `${out.split("\n").at(-1)}; pid ${first.MainPID} -> ${facts.MainPID} (${exe}); ${handoff.stdout.trim().split("\n").at(-1)}` };
     });
     return J.steps.some((s) => s.status === "fail") ? 1 : 0;
   } catch (e) {
