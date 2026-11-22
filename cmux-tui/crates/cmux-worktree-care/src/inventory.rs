@@ -139,9 +139,19 @@ impl Facts {
     }
 }
 
+/// Whether a folder is one no git may run in unasked: on macOS a read inside
+/// a privacy-protected folder (Desktop, Documents, iCloud Drive, another
+/// volume, ...) raises a prompt naming the app, on a screen that may have
+/// nobody at it (LAUNCH-NO-TCC-PROMPTS). acpmux passes
+/// `protected_folders::in_protected_location`; the crate keeps no list of its own.
+pub type Guarded = dyn Fn(&Path) -> bool + Send + Sync;
+
 /// The repositories at or one level under each of `roots`, plus those of
-/// `extra` folders (session folders), each once.
-pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
+/// `extra` folders (session folders), each once. A folder `guarded` names,
+/// and a repository whose git folder or main checkout it names, is skipped
+/// before any git runs there: a session someone once ran on the Desktop is
+/// no reason to read the Desktop at every daemon start.
+pub fn repositories(roots: &[PathBuf], extra: &[PathBuf], guarded: &Guarded) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for root in roots {
         candidates.push(root.clone());
@@ -155,15 +165,41 @@ pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     let mut found = Vec::new();
     for folder in candidates {
+        // A stat raises no prompt; a git run in the folder reads inside it.
+        if guarded(&folder) {
+            continue;
+        }
         if !folder.join(".git").exists() && !extra.contains(&folder) {
             continue;
         }
+        // A linked worktree's `.git` file names its repository's git folder,
+        // which git reads first: one in a guarded folder is skipped unread.
+        if linked_git_dir(&folder).is_some_and(|dir| guarded(&dir)) {
+            continue;
+        }
         let Some(common) = common_dir(&folder) else { continue };
+        if guarded(&common) || cmux_git::main_root(&common).is_some_and(|main| guarded(main)) {
+            continue;
+        }
         if seen.insert(common.clone()) {
             found.push(common);
         }
     }
     found
+}
+
+/// The git folder a linked worktree's `.git` file names (`gitdir: <path>`),
+/// read in the process: no git run.
+fn linked_git_dir(folder: &Path) -> Option<PathBuf> {
+    use std::io::Read as _;
+    let path = folder.join(".git");
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::open(&path).ok()?.take(4096).read_to_string(&mut text).ok()?;
+    let named = PathBuf::from(text.lines().next()?.strip_prefix("gitdir:")?.trim());
+    Some(if named.is_absolute() { named } else { folder.join(named) })
 }
 
 /// The common git folder of the repository `folder` is in.
@@ -188,6 +224,18 @@ pub fn scan_with_memo(
     bases: &[String],
     finished: Arc<FinishedMemo>,
 ) -> Result<Repo, String> {
+    scan_guarded(common_dir, bases, finished, &|_| false)
+}
+
+/// `scan_with_memo` without the linked worktrees `guarded` names: no git
+/// runs in them and the pass never acts on them (a worktree someone put on
+/// the Desktop stays as it is).
+pub fn scan_guarded(
+    common_dir: &Path,
+    bases: &[String],
+    finished: Arc<FinishedMemo>,
+    guarded: &Guarded,
+) -> Result<Repo, String> {
     let main_root = cmux_git::main_root(common_dir).map(Path::to_path_buf);
     let anchor = main_root.clone().unwrap_or_else(|| common_dir.to_path_buf());
     let overrides = cmux_git::filter_overrides(&anchor).map_err(|f| f.reason())?;
@@ -205,6 +253,7 @@ pub fn scan_with_memo(
             || main_root.as_deref().is_some_and(|main| same_path(main, &entry.path))
             || entry.bare
             || same_path(common_dir, &entry.path)
+            || guarded(&entry.path)
         {
             continue;
         }
