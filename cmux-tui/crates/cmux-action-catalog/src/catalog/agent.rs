@@ -268,7 +268,15 @@ pub static ACTIONS: &[Action] = &[
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[
+            Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…")),
+            // Native UI too (ask-5077a4ec48): the picker starts on the right-clicked tab, pane or sidebar row and
+            // costs nothing until then (UIInspectorController: no monitor, observer or hit-test outside a pick).
+            Placement::at("tab", "inspect", 510).label(Text::raw("Point at Element…")),
+            Placement::at("pane", "inspect", 511).label(Text::raw("Point at Element…")),
+            Placement::at("workspaceRow", "inspect", 410).label(Text::raw("Point at Element…")),
+            Placement::at("sidebarItem", "view", 130).label(Text::raw("Point at Element…")),
+        ], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
