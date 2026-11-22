@@ -16,6 +16,11 @@
 //! resolved) and with its links resolved, since a terminal reports the
 //! folder its shell names (macOS `/tmp` is `/private/tmp`). Filters
 //! combine with AND; no match is an empty list and exit 0.
+//!
+//! `--created-by agents|scripts|people|<session>` (workspace, space and tab
+//! lists; `created-by-detail-v1`) keeps the rows an agent or a script made,
+//! the person's own (no record), or the ones one acpmux session made, named
+//! by its name or id: an agent's leftovers in one list.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -28,15 +33,59 @@ pub(in crate::cli) struct ListFilter {
     pub name: Option<String>,
     /// `--cwd`: the folder a row's terminal must be in or under.
     pub cwd: Option<CwdFilter>,
+    /// `--created-by`: who must have made the row.
+    pub created_by: Option<CreatedByFilter>,
     /// `--id`: the ids (or id prefixes) a row's `id` must be one of.
     pub ids: Vec<String>,
     /// `--tree`: each workspace with its panes, tabs and creator.
     pub tree: bool,
 }
 
+/// The makers `--created-by` keeps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) enum CreatedByFilter {
+    /// Every agent session.
+    Agents,
+    /// Scripts: a create from outside an agent session that said so.
+    Scripts,
+    /// The person: rows with no agent or script record.
+    People,
+    /// The acpmux session with this name or id.
+    Session(String),
+}
+
+impl CreatedByFilter {
+    fn parse(value: &str) -> Self {
+        match value {
+            "agents" | "agent" => Self::Agents,
+            "scripts" | "script" => Self::Scripts,
+            "people" | "person" | "me" => Self::People,
+            other => Self::Session(other.to_owned()),
+        }
+    }
+
+    /// Whether a row with `created_by` (its `created_by` or `extra.created_by`) passes.
+    pub(in crate::cli) fn keeps(&self, created_by: Option<&serde_json::Value>) -> bool {
+        let field = |name: &str| created_by.and_then(|by| by.get(name)).and_then(|v| v.as_str());
+        match self {
+            Self::Agents => field("kind") == Some("agent"),
+            Self::Scripts => field("kind") == Some("script"),
+            Self::People => !matches!(field("kind"), Some("agent" | "script")),
+            Self::Session(named) => {
+                field("session_name") == Some(named.as_str())
+                    || field("session").is_some_and(|id| id == named || id.starts_with(named))
+            }
+        }
+    }
+}
+
 impl ListFilter {
     pub(in crate::cli) fn is_empty(&self) -> bool {
-        self.name.is_none() && self.cwd.is_none() && self.ids.is_empty() && !self.tree
+        self.name.is_none()
+            && self.cwd.is_none()
+            && self.created_by.is_none()
+            && self.ids.is_empty()
+            && !self.tree
     }
 
     /// Whether row `id` passes `--id`: equal to one of its ids or starting with it.
@@ -136,7 +185,12 @@ pub(super) fn take(flags: &mut Flags, name: bool, cwd: bool) -> Result<ListFilte
         }
         None => None,
     };
-    Ok(ListFilter { name, cwd, ..ListFilter::default() })
+    Ok(ListFilter { name, cwd, created_by: take_created_by(flags)?, ..ListFilter::default() })
+}
+
+/// Takes `--created-by` for a list.
+pub(super) fn take_created_by(flags: &mut Flags) -> Result<Option<CreatedByFilter>, UsageError> {
+    Ok(value(flags, "created-by")?.map(|value| CreatedByFilter::parse(&value)))
 }
 
 /// `workspace list`'s filters: `--name`, `--cwd`, `--id` and `--tree`.
