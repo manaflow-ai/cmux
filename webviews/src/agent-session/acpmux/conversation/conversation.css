@@ -1854,7 +1854,8 @@
    thing better in cmux-next"). The body starts at the card's inset instead of under a row. */
 .cv-codeblock--corner .cv-codeblock__header {
   position: absolute;
-  top: 6px;
+  /* The 26px action target shares the first code line's 20px centre. */
+  top: var(--cv-live-gap);
   right: 6px;
   z-index: var(--layer-raised);
   min-height: 0;
@@ -1914,7 +1915,7 @@
    hover fade), so at rest every line reads to the card's edge. Both the plain lines and Pierre's
    shadow root are inside the body, so one mask covers both. `--cv-code-corner-clear` is the
    actions' footprint from the body's right edge (their 6px inset less the body's 1px);
-   `--cv-code-corner-veil-height` is their bottom below the body's top (6px + 26px - 13px). */
+   `--cv-code-corner-veil-height` is their bottom below the body's top (10px + 26px - 13px). */
 @property --cv-code-corner-veil {
   syntax: "<number>";
   inherits: false;
@@ -1925,7 +1926,7 @@
     var(--cv-code-corner-actions) * 26px + (var(--cv-code-corner-actions) - 1) * var(--cv-code-action-gap) + 5px
   );
   --cv-code-corner-veil-fade: 8px;
-  --cv-code-corner-veil-height: 19px;
+  --cv-code-corner-veil-height: 23px;
 }
 /* A mask cuts everything outside the body's border box, and a highlighted card's horizontal
    scrollbar hangs below that box into the card's bottom inset (HighlightedCode.tsx `codeUnsafeCSS`,
