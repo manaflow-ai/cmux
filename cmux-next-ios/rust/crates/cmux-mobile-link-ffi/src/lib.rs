@@ -19,6 +19,7 @@ mod classic_leftovers;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
+mod terminal_projection;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
@@ -27,6 +28,7 @@ pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
 
 uniffi::setup_scaffolding!();
 
@@ -547,12 +549,7 @@ impl LinkHandle {
                 .into_iter()
                 .map(|mark| serde_json::json!({ "name": mark.name, "ms": mark.millis }))
                 .collect();
-            let path = match *path.borrow() {
-                cmux_mobile_link::LinkPath::Direct => "direct",
-                cmux_mobile_link::LinkPath::Turn => "turn",
-                cmux_mobile_link::LinkPath::TurnTls => "turn-tls",
-                cmux_mobile_link::LinkPath::NoPath => "none",
-            };
+            let path = path.borrow().as_str();
             serde_json::json!({
                 "roam": roam,
                 "sessions": hit,
@@ -825,6 +822,15 @@ async fn connect_on(
             ping_timeline.mark("first_pong");
         }
     });
+    // The path report (PROTOCOL.md "Link stats"): on the pool's current socket for this team and
+    // device, so a replaced socket still carries it; it ends with the link.
+    cmux_mobile_link::link_stat::spawn(
+        connected.link.clone(),
+        connected.transport,
+        connected.path.clone(),
+        timeline.clone(),
+        current_signaling(pool, &signaling),
+    );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
         _signaling: signaling,
@@ -837,6 +843,28 @@ async fn connect_on(
     }))
 }
 
+/// The pool's current signaling socket for `socket`'s team and device, else `socket` itself while
+/// it is open (the media session and the path report send on it).
+fn current_signaling(
+    pool: &Arc<Warm>,
+    socket: &Arc<WarmSocket>,
+) -> cmux_mobile_link::hybrid::SignalingSource {
+    let key = socket.key.clone();
+    let fallback = socket.client.clone();
+    let pool = Arc::clone(pool);
+    Arc::new(move || {
+        let key = key.clone();
+        let fallback = fallback.clone();
+        let pool = Arc::clone(&pool);
+        Box::pin(async move {
+            match pool.pooled(&key).await {
+                Some(socket) => Some(socket.client.clone()),
+                None => (fallback.closed_reason().is_none()).then_some(fallback),
+            }
+        })
+    })
+}
+
 /// The phone's media session manager for a WireGuard link both sides
 /// agreed to pair with a WebRTC media session. It dials on the warm pool's
 /// current socket for this team and device (the link's may have been
@@ -847,20 +875,7 @@ fn media_manager(
     connected: &cmux_mobile_link::Connected,
     socket: &Arc<WarmSocket>,
 ) -> cmux_mobile_link::hybrid::MediaManager {
-    let key = socket.key.clone();
-    let fallback = socket.client.clone();
-    let signaling_pool = Arc::clone(pool);
-    let signaling: cmux_mobile_link::hybrid::SignalingSource = Arc::new(move || {
-        let key = key.clone();
-        let fallback = fallback.clone();
-        let pool = Arc::clone(&signaling_pool);
-        Box::pin(async move {
-            match pool.pooled(&key).await {
-                Some(socket) => Some(socket.client.clone()),
-                None => (fallback.closed_reason().is_none()).then_some(fallback),
-            }
-        })
-    });
+    let signaling = current_signaling(pool, socket);
     let base_url = request.base_url.clone();
     let token = request.token.clone();
     // Cached servers while fresh; else fetched with the dial's token (best

@@ -538,7 +538,8 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] = &["ls", "list", "help", "resize", "workspace", "start-chat", "chat"];
+const VM_OWN_WORDS: &[&str] =
+    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner"];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -846,6 +847,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && verb == "pool"
     {
         return Some(run_pool(tail, global.output, &env));
+    }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "runner"
+    {
+        let mut words = vec!["runner".to_owned()];
+        words.extend(tail.iter().cloned());
+        return Some(run_pool(&words, global.output, &env));
     }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")

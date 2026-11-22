@@ -244,6 +244,19 @@ public protocol TerminalSession: AnyObject {
     /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
     /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
     func reportPaint(_ samples: [TerminalPaintTally.Sample])
+
+    /// The phone projects this terminal itself (``TerminalProjectingSession``):
+    /// the session claims a size only when told to, and never holds the
+    /// Mac's own grid back from the screen while the primary screen shows.
+    /// Sessions without a Mac ignore it.
+    func setProjectsLocally(_ projects: Bool)
+    /// Where the reader is, in the page's rows: from the document's end to
+    /// the top of the screen they read (the screen's height at the bottom).
+    /// A projection keeps those lines when it re-wraps at a new width.
+    /// Called as the page scrolls; others ignore it.
+    func noteReaderRowsFromEnd(_ rows: Int)
+    /// The session itself, under any session wrapping it (the projection).
+    var underlyingSession: AnyObject { get }
 }
 
 extension TerminalSession {
@@ -281,6 +294,12 @@ extension TerminalSession {
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
+
+    public func setProjectsLocally(_ projects: Bool) {}
+
+    public func noteReaderRowsFromEnd(_ rows: Int) {}
+
+    public var underlyingSession: AnyObject { self }
 
     public var hostGridOwnerName: String? { nil }
 }

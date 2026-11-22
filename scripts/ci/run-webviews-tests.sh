@@ -209,6 +209,9 @@ if [ "${1:-}" = --one ]; then
     exit 0
   fi
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+  # CMUX_WEB_TEST_PASSED_OUT: each file that passes, as it passes, so a run a newer head cancels still leaves its passes
+  # to that head's shard (ci-web.yml reuses those its change cannot reach).
+  if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
@@ -392,7 +395,36 @@ if [ -n "$shard" ] || [ -n "$shard_count" ]; then
     ${split_widths:+"$split_widths"} > "$results/shard-files"
   mv "$results/shard-files" "$results/files"
 fi
+# CMUX_WEB_TEST_REUSED: a file of test files (one a line) that passed at the pull request's previous head and that no
+# change since can reach (ci-web.yml reads them with webviews_affected.py). This run drops them as passed, after the
+# split, so every shard still picks the same files, and lists them in CMUX_WEB_TEST_PASSED_OUT for the head after it.
+: > "$results/reused"
+if [ -n "${CMUX_WEB_TEST_REUSED:-}" ] && [ -s "$CMUX_WEB_TEST_REUSED" ]; then
+  python3 - "$results/files" "$CMUX_WEB_TEST_REUSED" "$results/reused" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+reusable = {line.strip() for line in pathlib.Path(sys.argv[2]).read_text().splitlines() if line.strip()}
+path.write_bytes(b"".join(name.encode() + b"\0" for name in listed if name not in reusable))
+pathlib.Path(sys.argv[3]).write_text("".join(name + "\n" for name in listed if name in reusable))
+PY
+  if [ -s "$results/reused" ]; then
+    echo "passed at the previous head, and no change since reaches them, so not run again: $(grep -c . "$results/reused")"
+    sed 's/^/  REUSED /' "$results/reused"
+    if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
+  fi
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ] && [ -s "$results/reused" ] && [ "${CMUX_WEB_TEST_LIST_ONLY:-}" != 1 ]; then
+  echo "### webviews tests: 0 files; all $(grep -c . "$results/reused") of this shard passed at the previous head"
+  if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+    : > "$results/summary"
+    python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+  fi
+  exit 0
+fi
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
@@ -451,9 +483,44 @@ warm_transforms() {
     tail -n 20 "$results/warm-transforms.log" || true
   fi
 }
+# gallery_stages: once per run, when a selected file scans the gallery's stages (accent-glass-invariants,
+# control-contrast, gallery-control-surfaces), build the gallery (`bun run gallery:build`, about 60 s on
+# 16 cores) and name the folder in CMUX_GALLERY_STAGE_BUILD, which test/support/galleryStageServer.ts
+# serves in place of a Vite dev server. Each dev server stage loaded about 650 unbundled modules from
+# one Vite thread: 80 stages took 29.3 s pinned to 4 cores and 59.8 s pinned to 2, against 15.4 s from
+# the build. CMUX_GALLERY_STAGE_CSS=dev keeps the CSS as the dev server serves it (no Tailwind optimize,
+# no CSS minify): the shipped CSS lowers light-dark() and reorders rules, and the scans' baselines were
+# read from the dev server's. A build that fails or runs out of time leaves the dev servers, as before.
+# A later call (the serial phase, the retries) reuses the folder.
+gallery_stage_files='accentGlassInvariants|controlContrast|galleryControlSurfaces'
+gallery_stages() {
+  local build="$results/gallery-build"
+  if [ ! -e "$results/gallery-tried" ]; then
+    : > "$results/gallery-tried"
+    if grep -q '"gallery:build"' package.json 2> /dev/null && [ -f test/support/galleryStageServer.ts ] &&
+      xargs -0 grep -lE -- "$gallery_stage_files" < "$results/files" > /dev/null 2>&1; then
+      local limit=600
+      if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+        limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
+        if [ "$limit" -gt 600 ]; then limit=600; fi
+      fi
+      local started=$SECONDS
+      if [ "$limit" -ge 1 ] && CMUX_GALLERY_STAGE_CSS=dev CMUX_GALLERY_OUT_DIR="$build" run_with_timeout "$limit" bun run gallery:build > "$results/gallery-build.log" 2>&1 < /dev/null &&
+        [ -f "$build/frame.html" ]; then
+        echo "gallery-build: built the gallery stages in $((SECONDS - started))s"
+      else
+        echo "::warning::gallery-build failed or timed out after $((SECONDS - started))s; the gallery scans use Vite dev servers"
+        tail -n 20 "$results/gallery-build.log" 2> /dev/null || true
+        rm -rf "$build"
+      fi
+    fi
+  fi
+  if [ -f "$build/frame.html" ]; then export CMUX_GALLERY_STAGE_BUILD="$build"; fi
+  return 0
+}
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
-  { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
+  { warm_transforms; gallery_stages; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
   browser_pool=$!
   # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
   plain_status=0
@@ -466,10 +533,13 @@ else
   fi
   if [ -s "$results/browser" ]; then
     warm_transforms
+    gallery_stages
     xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
   fi
 fi
 [ ! -s "$results/serial" ] || warm_transforms
+# Builds for the serial files, or picks up the browser pool's build for them and the retries.
+gallery_stages
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {

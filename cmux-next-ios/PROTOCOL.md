@@ -431,6 +431,53 @@ without waking, so this costs nothing per ping.
   fresh listing (the next `hello` or Mac route) to learn it again.
 - The hub's `online` and its rules for closing sockets do not change.
 
+### Link stats (`link_stat`; added 2026-11-21, backward compatible)
+
+The phone reports which path its link to a Mac takes and how it performs,
+on its signaling socket, so production can see path, RTT, loss and setup
+time (`cmux-mobile-link/src/link_stat.rs`). Phone to service only; nothing
+is forwarded, and the service never answers it.
+
+```json
+{"type":"link_stat","v":1,"transport":"wireguard","path":"turn-tls","reason":"first",
+ "setupMs":812,"marks":{"signaling_open":120,"dial_start":130,"link_ready":700,"first_pong":812},
+ "rtt":{"n":3,"p50":41,"p95":77,"max":80},"pings":3,"lost":0,"switches":1,
+ "net":"cellular","upS":2,"lib":"0.1.0"}
+```
+
+- `transport`: `wireguard` or `webrtc`. `path`: `direct`, `turn`, `turn-tls`
+  (WireGuard over TURN on TCP/TLS) or `none` (no working route right now).
+- `reason`: `first` (once the link's first ping is answered, or 5 s after it
+  came up), `periodic` (every 60 s while up), `path` (the path changed; at
+  most one per 10 s, a change inside that only counts in `switches`), `end`
+  (the link closed; `end` is then `app`, `keepalive`, `transport` or `other`).
+- `setupMs` and `marks` (first stat only): ms from the app's `connect` to the
+  first pong (else `link_ready`), and the dial's step marks from a fixed list.
+- `rtt`: the link's ping round trips since the last stat (nearest-rank p50 and
+  p95, max; absent with no sample). `pings`: pings sent since the last stat;
+  `lost`: pings neither answered nor waiting, counted once (a pong that comes
+  after its ping was counted lost does not take it back). `switches`: path
+  changes since the link came up. `net`: `cellular` or `other` (the app's last
+  `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+- Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
+  It names no user, device, session or address.
+
+The service (`TeamHub.linkStat`) takes it only from a phone socket, under the
+socket's text rate limit, and drops silently (no error frame: a session-less
+error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
+one within 5 s of the socket's last (an `end` stat excepted). It writes one
+Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
+against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
+`rttMax`), plus `kind`, `ingressColo`, `country` and `continent` (where the
+socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
+hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
+reads them back.
+
+A Worker older than the frame answers it `{"type":"error","code":"bad_request",
+"message":"unknown frame type"}` without `sessionId`. The phone takes that
+answer, within 30 s of a stat it sent, as the refusal of the stat: it never
+reaches a dial, and that socket sends no more stats.
+
 ## Link (inside either transport)
 
 A link is one reliable ordered byte stream, the main stream (WebRTC: data
@@ -1179,6 +1226,25 @@ TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path a
 
 ## Terminal size claims
 
+**Projection (2026-11-12, the default).** The phone keeps a VT model of the
+Mac terminal at the Mac's grid, fed the attach stream's bytes
+(`cmux-terminal-projection`, `TerminalProjectingSession`), and re-wraps its
+primary screen (a shell, an inline TUI such as Claude Code) at the phone's
+own width. On the primary screen the phone claims no size: it attaches
+without one and never sends `resize-surface`, so attach, an app switch, a
+lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
+re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
+it claims as below, only while the page claims, and releases when the
+program leaves the alternate screen. On the primary screen, cursor position
+(`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
+in the Mac's cells; on the alternate screen the phone's terminal gets the
+program's bytes unchanged and answers them itself (once). A rotation
+re-wraps the Mac's screen and two phone screens of scrollback above it
+(plus the lines being read); older lines are re-wrapped as the reader
+scrolls up to them.
+Settings → Terminal → Fit to Phone turns projection off: the rest of this
+section then applies to every screen.
+
 When the phone shows a Mac terminal, the shared PTY is sized for the phone too
 (cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
 shows the phone's grid. The phone's size counts only while the person is
@@ -1813,7 +1879,9 @@ to a phone: it changes the Mac-wide preference only.
   horizontally (it follows the cursor while typing); shorter than the
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
-  It never reflows the host's output to its own width.
+  This applies to the alternate screen, and to every screen with Fit to
+  Phone on; with projection (the default, "Terminal size claims" above)
+  the primary screen is re-wrapped to the phone's width instead.
 
 ## Connectivity incidents (API 0.15.0)
 
