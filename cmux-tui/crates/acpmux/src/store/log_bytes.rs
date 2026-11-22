@@ -82,7 +82,7 @@ pub struct LogMarks {
 struct Listing {
     log: String,
     stamp: u64,
-    segments: Vec<(u32, PathBuf)>,
+    segments: SegmentList,
 }
 
 impl LogMarks {
@@ -429,7 +429,7 @@ impl LocalStore {
         }
         drop(carry);
         let mut position =
-            listing.segments.iter().position(|(i, _)| *i == segment.index).unwrap_or(0);
+            listing.segments.binary_search_by_key(&segment.index, |(i, _)| *i).unwrap_or(0);
         // Listed again at most once a read, at the end of a full last segment.
         let mut relisted = false;
         let mut last: Option<u64> = None;
@@ -534,8 +534,7 @@ impl LocalStore {
                 listing.segments = self.segments(id)?;
                 position = listing
                     .segments
-                    .iter()
-                    .position(|(i, _)| *i == segment.index)
+                    .binary_search_by_key(&segment.index, |(i, _)| *i)
                     .unwrap_or(listing.segments.len());
             }
             let Some((index, path)) = listing.segments.get(position + 1) else {
@@ -595,7 +594,7 @@ impl LocalStore {
             .filter(|m| m.log == id && m.stamp == stamp && m.seq <= from)
             .max_by_key(|m| m.seq);
         if let Some(mark) = usable
-            && let Some(position) = segments.iter().position(|(i, _)| *i == mark.segment)
+            && let Ok(position) = segments.binary_search_by_key(&mark.segment, |(i, _)| *i)
             && let Some((index, path)) = segments.get(position)
         {
             let segment = Segment::open(*index, path)?;
