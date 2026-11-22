@@ -284,6 +284,15 @@ class KnownReds(unittest.TestCase):
         self.assertEqual(history.base_red_files(set(), head), [])
         self.assertEqual(history.base_red_files({TEST}, {FILE: True}), [])
 
+    def test_a_file_red_on_the_base_by_its_bare_name_covers_every_red_the_head_names_in_it(self):
+        """Shard 1 of run 44987019885: 29 of the 46 red files it retried alone were red on the base push by file name
+        only (a timeout there), while the head named a test; all 29 failed again alone."""
+        other = "test/other.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > a": False}
+        self.assertEqual(history.base_red_files({FILE}, head), [FILE])
+        # A bare name says nothing about another file, and a passing head file is never listed.
+        self.assertEqual(history.base_red_files({FILE}, {f"{other} > a": False, FILE: True}), [])
+
     def test_the_commands_write_and_read_the_base_reds_and_fail_safe(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
