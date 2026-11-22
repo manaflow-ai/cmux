@@ -17,7 +17,8 @@
 # The bridge comes from an installed cmux NEXT app (never classic cmux: its bundle id must not be
 # com.cmuxterm.app), or CUEVAL_CMUX_CU_COMMAND (a JSON array). Output: DURESS lines, and
 # artifacts/cu-duress-suite.tgz with duress.json and the bridge's stderr. Exit: 0 when every
-# check passes, 1 when one fails (known reds included), 4 when no NEXT bridge is installed.
+# check passes, 1 when one fails (known reds included), 4 when no NEXT bridge is installed, 5 when
+# the job has no logged-in GUI session (launchctl managername is not Aqua): unrunnable there.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -33,6 +34,12 @@ finish() {
   tar -czf "$root/artifacts/cu-duress-suite.tgz" -C "$root/artifacts" cu-duress-suite
 }
 trap finish EXIT
+
+manager="$(launchctl managername 2>&1 || true)"
+if [[ "$manager" != "Aqua" ]]; then
+  echo "DURESS unrunnable: no GUI session on this runner (launchctl managername=$manager, user $(id -un), console owner $(stat -f %Su /dev/console 2>/dev/null))" | tee "$out/unrunnable.txt"
+  exit 5
+fi
 
 if [[ -z "${CUEVAL_CMUX_CU_COMMAND:-}" ]]; then
   bridge=""

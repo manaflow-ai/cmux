@@ -227,9 +227,34 @@ def _windows(r: ToolResult) -> list[dict]:
     return d.get("windows") or []
 
 
+def gui_session() -> str | None:
+    """None when this process sits in a logged-in GUI session; else why not (macOS only).
+
+    A runner job outside the console's Aqua session (a LaunchDaemon, an ssh login) reads no
+    frontmost app and sees no windows, so every check would report on nothing."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        manager = subprocess.run(["launchctl", "managername"], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        manager = f"unreadable ({type(e).__name__})"
+    front = front_app()
+    if manager == "Aqua" and front and front.get("pid"):
+        return None
+    return (f"launchctl managername={manager!r} (wants 'Aqua'), lsappinfo front="
+            f"{(front or {}).get('raw') or front!r}")
+
+
 def run(out_dir: str, rounds: int = 5) -> int:
     os.makedirs(out_dir, exist_ok=True)
     plat = penv.platform_name()
+    no_gui = gui_session()
+    if no_gui:
+        # Unrunnable here, and loud about it: a red, never a pass, and never 581 empty samples.
+        print(f"DURESS unrunnable: no GUI session on this runner: {no_gui}")
+        with open(os.path.join(out_dir, "duress.json"), "w") as f:
+            json.dump({"platform": plat, "unrunnable": f"no GUI session on this runner: {no_gui}"}, f, indent=1)
+        return 5
     arm = armsmod.load_arm("cmux-cu")
     command = armsmod.server_command(arm)
     report: dict = {"command": command, "platform": plat, "checks": {}, "calls": []}
