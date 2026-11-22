@@ -555,6 +555,12 @@ body,
   padding: var(--ds-space-2) var(--ds-space-3);
   font-size: var(--text-content);
 }
+/* Until the editor is made (its chunk loads once the page is idle, LazyPromptEditor.tsx), the empty
+   root holds what the editor's empty paragraph takes: its one line, or .acpmux-md's least height
+   (markdownField.css), whichever is more, so the composer has its final height from the first frame. */
+.hc-composer-field > .acpmux-md-root:empty {
+  min-height: max(var(--text-content--line-height), 1lh);
+}
 .hc-composer-bar {
   display: flex;
   align-items: center;
