@@ -370,8 +370,8 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     if train.sent.iter().any(|sample| sample.departed_us.is_none()) {
         return None;
     }
-    if !train.sent.windows(2).all(|window| {
-        window[1].departed_us.unwrap_or_default() >= window[0].departed_us.unwrap_or_default()
+    if train.sent.windows(2).any(|window| {
+        matches!(window, [a, b] if b.departed_us.unwrap_or_default() < a.departed_us.unwrap_or_default())
     }) {
         return None;
     }
@@ -398,10 +398,14 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     }
     // A train cannot span half of the 32-bit arrival clock. If no candidate
     // was valid, timestamps crossed an ambiguous wrap and the sample is unsafe.
-    if !found_earliest
-        || train.received.iter().any(|sample| {
-            sample.arrival_us.wrapping_sub(train.received[earliest].arrival_us) > CLOCK_HALF_RANGE
-        })
+    if !found_earliest {
+        return None;
+    }
+    let earliest_us = train.received.get(earliest)?.arrival_us;
+    if train
+        .received
+        .iter()
+        .any(|sample| sample.arrival_us.wrapping_sub(earliest_us) > CLOCK_HALF_RANGE)
     {
         return None;
     }
@@ -409,7 +413,6 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     // crossed a path whose per-packet delay varies, and its spread measures that jitter,
     // not a capacity (netem, 15 ms of jitter: 16 x 1.2 KB spread over about 35 ms read as
     // 5 Mbit/s on a link that carried 80). Like a lossy train, it yields none.
-    let earliest_us = train.received.get(earliest)?.arrival_us;
     let mut by_departure: Vec<(usize, u32)> = train
         .received
         .iter()
@@ -444,8 +447,7 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     // bytes are excluded, so N packets over N-1 intervals cannot look faster
     // merely because the first packet was counted in the numerator.
     let mut ordered = train.received.clone();
-    ordered
-        .sort_by_key(|sample| sample.arrival_us.wrapping_sub(train.received[earliest].arrival_us));
+    ordered.sort_by_key(|sample| sample.arrival_us.wrapping_sub(earliest_us));
     let first_bytes = ordered.first()?.bytes;
     let received_bytes = ordered.iter().map(|sample| sample.bytes).sum::<usize>();
     let measured_bytes = received_bytes.checked_sub(first_bytes)?;
