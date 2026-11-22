@@ -760,6 +760,16 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold
+    /// (`rate_hold.rs` `wait_rate_hold`): a chat held past its idle period may then hibernate
+    /// (`sleeps_through_hold`). One deciding, firing or waiting for any other reason keeps it.
+    pub(super) fn continuation_waits_on_hold(&self, session: &Session) -> bool {
+        match session.auto_resume.lock().as_ref() {
+            Some(Mark::Waiting { retry: Some(r), .. }) => r.reason == RetryReason::RateLimit,
+            mark => !is_pending(mark),
+        }
+    }
+
     /// Whether the chat holds any continuation mark: a shutdown stops those chats' retries first.
     pub(super) fn has_auto_resume_mark(&self, session: &Session) -> bool {
         session.auto_resume.lock().is_some()
@@ -1103,6 +1113,25 @@ impl Hub {
     #[cfg(test)]
     pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
         matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
+    }
+
+    /// Tests only: a continuation of `turn` waits, for `reason`'s wait.
+    #[cfg(test)]
+    pub(super) fn set_waiting_for_test(&self, session: &Session, turn: &str, reason: RetryReason) {
+        let retry = RetrySummary {
+            attempt: 1,
+            of: 4,
+            reason,
+            next_at: u64::MAX,
+            prompt_id: format!("p-{turn}"),
+            turn_id: turn.to_owned(),
+        };
+        let wake = Wake(Arc::new(Notify::new()));
+        session.auto_resume.lock().replace(Mark::Waiting {
+            turn: turn.to_owned(),
+            retry: Some(retry),
+            _wake: wake,
+        });
     }
 
     #[cfg(test)]
