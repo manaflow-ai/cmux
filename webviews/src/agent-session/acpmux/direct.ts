@@ -7812,6 +7812,9 @@ export class AcpmuxDirectClient {
       // while a loaded daemon streamed their chats).
       this.daemonProvedAt = this.daemonFrameAt;
       this.daemonProbe = undefined;
+      const wasWaiting = this.daemonWaitingSince !== undefined;
+      this.daemonWaitingSince = undefined;
+      if (wasWaiting) this.emit("daemon resumed");
     } else if (probe) {
       // The socket stayed open but nothing behind it answered, not even the probe.
       if (now - probe.at >= AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS) return this.daemonGone(socket, now);
