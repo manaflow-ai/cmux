@@ -41,4 +41,8 @@ public nonisolated extension RemoteRdHello {
     /// `caps::FEC_BLOCKS`): the host splits them across interleaved FEC blocks and the Rust
     /// reassembler (`RemoteRdCore`) rebuilds them.
     static let fecBlocksCap = "fec.blocks"
+    /// The cap a viewer offers when it shows a picture smaller than the stream scaled up to the
+    /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
+    /// host may then encode a smaller picture on a slow link (its resolution ladder).
+    static let videoScaledCap = "video.scaled"
 }
