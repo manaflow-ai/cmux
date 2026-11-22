@@ -6887,6 +6887,57 @@ class NightlySigningStall(unittest.TestCase):
             self.assertEqual(api.attempt, attempt)
             self.assertIn("started delivery work", "\n".join(lines))
 
+    def test_the_sweeper_watches_a_nightlys_first_attempt_so_no_runner_waits_with_it(self):
+        # A `requested` nightly wake held a runner for the whole build, only looking (job 137003041727 on main's
+        # nightly: 7,399 s of "no job is waiting for a persistent runner", 2026-11-21). The always-on sweeper lists
+        # main's and nightly-next's first attempts instead and watches each once, as that wake did.
+        main_run = dict(nightly_event()["workflow_run"], id=11, run_attempt=1, status="in_progress")
+        next_run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=12, run_attempt=1,
+                        status="queued")
+        asked_main = []
+
+        class API(SweepAPI):
+            def nightly_runs(self, count, main=True):
+                asked_main.append(main)
+                return [(11, 1), (12, 1)] if main else [(12, 1)]
+        watched, _ = Sweeper.sweep(Sweeper(), API([main_run, next_run]), ticks=3)
+        self.assertEqual(watched, [(11, 1, False), (12, 1, False)])
+        self.assertEqual(len(asked_main), 3)  # every tick, as the marker listings: a refusal is acted on at once
+        # Main's build takes the trusted pool only while both variables are set (NIGHTLY_MAIN_OWNED); without them
+        # the wake never ran for main, and the sweeper skips main's runs too.
+        clock = Clock()
+        seen = []
+        with unittest.mock.patch.object(rescue, "follow", lambda client, target, **_: seen.append(target.run_id)
+                                        or "stopped: the run finished"):
+            rescue.sweep(API([main_run, next_run]), "manaflow-ai/cmux", seconds=90, queue_rounds="0",
+                         now=clock.now, log=lambda text: None, sweep_seconds=60, tick_seconds=60,
+                         wait=clock.sleep, nightly_main=False)
+        self.assertEqual(seen, [12])
+        # The listing keeps what the wake's `if` admitted: attempt 1 from this repository, main's push or
+        # schedule (only with `main`), nightly-next's push.
+        github = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        here = {"full_name": "manaflow-ai/cmux"}
+        listed_runs = [
+            dict(id=1, run_attempt=1, head_branch="main", event="push", head_repository=here),
+            dict(id=2, run_attempt=1, head_branch="main", event="schedule", head_repository=here),
+            dict(id=3, run_attempt=1, head_branch="nightly-next", event="push", head_repository=here),
+            dict(id=4, run_attempt=2, head_branch="main", event="push", head_repository=here),
+            dict(id=5, run_attempt=1, head_branch="main", event="workflow_dispatch", head_repository=here),
+            dict(id=6, run_attempt=1, head_branch="nightly-next", event="workflow_dispatch", head_repository=here),
+            dict(id=7, run_attempt=1, head_branch="lane/x", event="push", head_repository=here),
+            dict(id=8, run_attempt=1, head_branch="main", event="push", head_repository={"full_name": "a/fork"}),
+        ]
+
+        def request(method, path, **_):
+            asked.append(path)
+            return {"workflow_runs": listed_runs}
+        github.request = request
+        self.assertEqual(github.nightly_runs(5), [(1, 1), (2, 1), (3, 1)] * 2)
+        self.assertEqual(github.nightly_runs(5, main=False), [(3, 1)] * 2)
+        self.assertTrue(all("nightly.yml/runs?status=" in path for path in asked), asked)
+        self.assertEqual({path.split("status=")[1].split("&")[0] for path in asked}, {"queued", "in_progress"})
+
     def test_the_sweeper_adopts_a_nightly_next_re_run_on_blacksmith(self):
         # Run 40500413442's attempt 2 left no marker (its build picker chose Blacksmith): the sweeper lists it.
         run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=2,
@@ -7304,7 +7355,7 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_when_dispatched_or_for_a_screenshots_or_nightly_run(self):
+    def test_runs_when_dispatched_or_for_a_screenshots_or_dev_run(self):
         triggers = self.doc[True]
         self.assertEqual(sorted(triggers), ["schedule", "workflow_dispatch", "workflow_run"])
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], False)
@@ -7315,14 +7366,20 @@ class Workflow(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"]["types"], ["requested", "completed"])
         self.assertEqual(
             triggers["workflow_run"]["workflows"],
-            ["iOS App Store screenshots", "Nightly macOS build", "cmux NEXT DEV daily", "cmux-next"],
+            ["iOS App Store screenshots", "cmux NEXT DEV daily", "cmux-next"],
         )
+        # nightly.yml wakes nothing: the sweeper watches its first attempts (GitHub.nightly_runs()), so no runner
+        # waits out a two-hour build only looking. Main's runs only while both trusted variables are set, as before.
+        self.assertNotIn("nightly.yml", self.doc["jobs"]["rescue"]["if"])
+        self.assertEqual(self.rescue_step()["env"]["NIGHTLY_MAIN_OWNED"],
+                         "${{ startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && "
+                         "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') && '1' || '' }}")
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(
             set(paths),
-            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH,
-             rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, rescue.CMUX_NEXT_WORKFLOW_PATH},
+            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH,
+             rescue.CMUX_NEXT_WORKFLOW_PATH},
         )
         self.assertEqual(set(paths) & rescue.SIDE_WORKFLOW_PATHS, {rescue.CMUX_NEXT_WORKFLOW_PATH})
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
@@ -7333,8 +7390,7 @@ class Workflow(unittest.TestCase):
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
                      "github.event.action == 'requested' && "
                      "github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && "
-                     "(github.event.workflow_run.path != '.github/workflows/nightly.yml' && "
-                     "github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && "
+                     "(github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && "
                      "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
                      "github.event.workflow_run.event) && "
                      "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
@@ -7342,19 +7398,7 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
                      "github.event.workflow_run.event == 'workflow_dispatch' || "
                      "github.event.workflow_run.path == '.github/workflows/cmux-next-dev-daily.yml' && "
-                     "github.event.workflow_run.event == 'workflow_dispatch' || "
-                     "github.event.workflow_run.path == '.github/workflows/nightly.yml' && "
-                     "(github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && "
-                     "(github.event.workflow_run.head_branch == 'main' && "
-                     "startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && "
-                     "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || "
-                     "github.event.workflow_run.head_branch == 'nightly-next' && "
-                     "github.event.workflow_run.event == 'push' && "
-                     "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
-                     "startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || "
-                     "!startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') || "
-                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
-                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && "
+                     "github.event.workflow_run.event == 'workflow_dispatch') && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1 || "
                      + self.COMPLETED_DEV_RUN + ")"):
