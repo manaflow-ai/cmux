@@ -487,7 +487,8 @@ impl Hub {
         let guard = match early {
             Some(guard) => guard,
             None => {
-                let wait = std::time::Duration::from_secs(if cut == TurnCut::Refuse { 2 } else { 20 });
+                let wait =
+                    std::time::Duration::from_secs(if cut == TurnCut::Refuse { 2 } else { 20 });
                 let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
                     let e = transfer_error("busy", "the running turn did not stop");
                     return Err(unfreeze(e, carried));
