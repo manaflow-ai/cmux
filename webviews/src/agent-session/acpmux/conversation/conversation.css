@@ -7512,9 +7512,9 @@ a.cv-sha:focus-visible {
   overflow: hidden;
 }
 .cv-plan__detail {
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
   color: var(--cv-text-muted);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
   line-height: 14px;
 }
 .cv-plan__title .cv-chip {
@@ -7528,7 +7528,7 @@ a.cv-sha:focus-visible {
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--cv-text-muted);
-  margin-top: 2px;
+  margin-top: var(--grid-half-step);
   border-radius: 50%;
   box-sizing: border-box;
 }
