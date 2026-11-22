@@ -11,6 +11,8 @@ import {
   type SnapshotLive,
 } from "./shared";
 import { watchLaunchSettle } from "../launchSettle";
+import { COMPOSER_READY_EVENT } from "../composerFocus";
+import { skeletonField } from "./skeleton";
 
 type Shown = { at: number; swappedAt?: number };
 
@@ -72,10 +74,52 @@ export function removeChatSnapshot(doc: Document = document): boolean {
   if (root) root.style.removeProperty("opacity");
   if (!host) return false;
   host.remove();
+  handOverSkeleton(doc);
   const value = shown();
   if (value) value.swappedAt = performance.now();
   performance.mark?.("cmux-chat:snapshot-swap");
   return true;
+}
+
+/// The live prompt's editable, once its editor is up (MarkdownField.tsx).
+const LIVE_PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
+const LIVE_PLACEHOLDER = ".acpmux-composer-prompt .acpmux-md-placeholder";
+/// How long the copy's prompt field (skeleton.ts) waits for the live prompt after the swap. Past it the
+/// field goes: a chat whose page drew no prompt (a question card in its place) has none to fill.
+const SKELETON_WAIT_MS = 10_000;
+
+/// Moves what the person typed in the copy's prompt field into the live prompt, as typing (the host's
+/// `insertText`, as its queued keys go in), with the caret there when the field had it. The field stays
+/// over the live prompt until that editor is up, so nothing typed meanwhile is lost.
+export function handOverSkeleton(doc: Document = document): void {
+  const field = skeletonField(doc);
+  const view = doc.defaultView;
+  if (!field || !view) return;
+  let timer: number | undefined;
+  let hidden: HTMLElement | null = null;
+  const finish = () => {
+    view.removeEventListener(COMPOSER_READY_EVENT, finish);
+    view.clearTimeout(timer);
+    if (hidden) hidden.style.removeProperty("visibility");
+    const text = field.innerText ?? field.textContent ?? "";
+    const focused = doc.activeElement === field;
+    const live = doc.querySelector<HTMLElement>(LIVE_PROMPT);
+    field.remove();
+    if (!live || !(focused || text.length > 0)) return;
+    live.focus({ preventScroll: true });
+    if (text.length > 0) doc.execCommand("insertText", false, text);
+  };
+  if (doc.querySelector(LIVE_PROMPT)) {
+    finish();
+    return;
+  }
+  // The live placeholder under the field would show through its typed text until the handover.
+  if ((field.textContent ?? "").length > 0) {
+    hidden = doc.querySelector<HTMLElement>(LIVE_PLACEHOLDER);
+    hidden?.style.setProperty("visibility", "hidden");
+  }
+  view.addEventListener(COMPOSER_READY_EVENT, finish);
+  timer = view.setTimeout(finish, SKELETON_WAIT_MS);
 }
 
 /// Takes over from the copy at the next frame: the live page's frame is in by then (it rendered
@@ -162,6 +206,9 @@ export function reportChatSnapshot(
     // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
     // and click). A wheel ends the copy and scrolls. Stops with the copy.
     const end = (event?: Event) => {
+      // A press or key in the copy's prompt field (skeleton.ts) is the person typing: it keeps the copy.
+      const field = skeletonField(document);
+      if (event && field && event.target instanceof Node && field.contains(event.target)) return;
       // Only a press on the copy is consumed: once it is gone, input reaches the page as usual.
       if (event && event.type !== "wheel" && showsChatSnapshot()) {
         event.preventDefault();
