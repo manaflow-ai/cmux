@@ -608,6 +608,14 @@ fn every_shipped_slot_has_its_variants_and_the_theme_schema_names_them() {
             && variants.iter().any(|v| v == "default"))
     );
     assert!(known.iter().all(|(_, variants)| !variants.is_empty()));
+    // The native slot (TabCloseSlot.swift) is read the same way as the web ones.
+    assert!(
+        known
+            .iter()
+            .any(|(id, variants)| id == "tab.close" && variants.iter().any(|v| v == "default"))
+    );
+    let file = overlay(r#"{ "slots": { "tab.close": "default" } }"#);
+    assert_eq!(file.slots, BTreeMap::from([("tab.close".to_string(), "default".to_string())]));
     let schema = Schema::embedded().theme_file_json_schema(is_look);
     let property = &schema["properties"]["slots"]["properties"]["chat.jumpToBottom"]["enum"];
     assert!(property.as_array().is_some_and(|v| v.contains(&json!("nudge"))), "{property}");
