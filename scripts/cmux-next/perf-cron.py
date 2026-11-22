@@ -1226,7 +1226,7 @@ def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
     PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
-    the stale ones: it has no row on NOW at all. A yielded part stays first in todo, so without this a part that keeps
+    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
     yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
     38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
     ran (2026-11-21)."""
@@ -1241,6 +1241,14 @@ def part_order(state, todo, t):
             never.append(name)
         elif hours_between(at, t) > PART_STALE_HOURS:
             stale.append((at, i, name))
+    # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
+    # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
+    # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    if never:
+        names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
+            | set(state.get("part_rows") or {})
+        seen = {part_for_row(n) for n in names}
+        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
     first = never + [n for _, _, n in sorted(stale)]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
