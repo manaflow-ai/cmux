@@ -1,12 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { intl } from "../../../ui/intl";
 import { currentLanguage, useT } from "../i18n";
 import { isOlderDaemon } from "../queue/queueModel";
 import "../ledger/ledger.css";
 import "./unitCost.css";
 
 export type UnitCostProps = { load(params: Record<string, unknown>): Promise<unknown> };
+type EstimateResult = { state: "ready"; cost: number } | { state: "failed" | "older" };
+
+async function estimateCost(load: UnitCostProps["load"], values: Record<string, unknown>): Promise<EstimateResult> {
+  try {
+    const answer = (await load(values)) as { costUsd?: unknown } | null;
+    if (typeof answer?.costUsd !== "number" || !Number.isFinite(answer.costUsd) || answer.costUsd < 0) {
+      return { state: "failed" };
+    }
+    return { state: "ready", cost: answer.costUsd };
+  } catch (error) {
+    return { state: isOlderDaemon(error) ? "older" : "failed" };
+  }
+}
+
 export function UnitCostScreen({ load }: UnitCostProps) {
   const t = useT();
   const [values, setValues] = useState({ seconds: "", hourlyUsd: "", busyPercent: "" });
@@ -29,18 +44,10 @@ export function UnitCostScreen({ load }: UnitCostProps) {
     const id = ++request.current;
     setCost(undefined);
     setState("loading");
-    try {
-      const answer = (await load(values)) as { costUsd?: unknown } | null;
-      if (id !== request.current) return;
-      if (typeof answer?.costUsd !== "number" || !Number.isFinite(answer.costUsd) || answer.costUsd < 0) {
-        setState("failed");
-        return;
-      }
-      setCost(answer.costUsd);
-      setState("ready");
-    } catch (error) {
-      if (id === request.current) setState(isOlderDaemon(error) ? "older" : "failed");
-    }
+    const answer = await estimateCost(load, values);
+    if (id !== request.current) return;
+    if (answer.state === "ready") setCost(answer.cost);
+    setState(answer.state);
   };
   return (
     <form
@@ -91,12 +98,14 @@ export function UnitCostScreen({ load }: UnitCostProps) {
             : state === "failed"
               ? t("unitCost.failed")
               : cost !== undefined
-                ? new Intl.NumberFormat(currentLanguage(), {
-                    style: "currency",
-                    currency: "USD",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 4,
-                  }).format(cost)
+                ? intl
+                    .NumberFormat(currentLanguage(), {
+                      style: "currency",
+                      currency: "USD",
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 4,
+                    })
+                    .format(cost)
                 : ""}
       </output>
     </form>
