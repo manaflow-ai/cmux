@@ -424,7 +424,7 @@ extension SidebarListViewComponents {
         let drag = settled.drag
         guard drag.lift.superview != nil else { return }
         drag.landsOnModel = true
-        if let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) { return land(drag, at: real, then: settled.then) }
+        if let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) { return land(drag, at: real, then: settled.then) }
         if settled.landed { finishLand(drag, then: settled.then) }
     }
 
@@ -433,7 +433,7 @@ extension SidebarListViewComponents {
     /// retargets, on its spring, to where the model shows the item now, and the item's new views stay hidden under it.
     func followLanding() {
         guard let drag = landing, drag.landsOnModel, drag.lift.superview != nil, settling?.drag !== drag,
-              let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) else { return }
+              let real = holdDropped(drag), !real.isSameFrame(as: drag.lift.frame) else { return }
         land(drag, at: real, then: drag.landingThen)
     }
 
@@ -617,7 +617,10 @@ extension SidebarListViewComponents {
     }
 }
 
-/// Two frames within half a point on every edge (a landing that needs no retarget).
-private func sameFrame(_ a: NSRect, _ b: NSRect) -> Bool {
-    abs(a.minX - b.minX) <= 0.5 && abs(a.minY - b.minY) <= 0.5 && abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
+private extension NSRect {
+    /// Within half a point of `other` on every edge (a landing that needs no retarget).
+    func isSameFrame(as other: NSRect) -> Bool {
+        abs(minX - other.minX) <= 0.5 && abs(minY - other.minY) <= 0.5 && abs(width - other.width) <= 0.5
+            && abs(height - other.height) <= 0.5
+    }
 }
