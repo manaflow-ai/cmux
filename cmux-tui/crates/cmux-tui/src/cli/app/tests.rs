@@ -1218,6 +1218,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Share(_)
         | AppCommand::Published(_)
         | AppCommand::LaunchTimes(_)
+        | AppCommand::WebPieces(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
