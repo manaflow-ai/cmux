@@ -1666,9 +1666,11 @@ export function NewTabScreen(props: Props) {
       if (!rows.length) return false;
       switch (command) {
         case "list.next":
-          return void pick(stepRows(current, 1));
+          pick(stepRows(current, 1));
+          return;
         case "list.previous":
-          return void pick(stepRows(current, -1));
+          pick(stepRows(current, -1));
+          return;
         case "list.first":
           return pick(0);
         case "list.last":
