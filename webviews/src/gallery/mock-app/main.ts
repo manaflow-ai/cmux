@@ -16,8 +16,8 @@ import themes from "virtual:cmux-gallery/themes";
 import entryIndex from "virtual:cmux-gallery/entry-index";
 import { overPicture, readEnv } from "../env";
 import { DEFAULT_DARK_THEME } from "../theme/ghostty";
-import { themeTokens } from "../theme/web";
-import { css, mixed, type ThemeTokens } from "../theme/tokens";
+import { themeInput, themeTokens } from "../theme/web";
+import { css, deriveTokens, mixed, type ThemeTokens } from "../theme/tokens";
 import { chromeFills } from "./chrome";
 import { fitScale, windowGeometry, windowSize, type PaneLayout, type WindowGeometry } from "../window";
 import { appAxis, paneFrameQuery, parseFixture } from "./axes";
@@ -88,10 +88,13 @@ function applyLook(look: GoldenLook): void {
   const scheme = look.schemes[schemeOf(env.colorScheme)];
   const lookAccent =
     scheme.accent && (APP_ACCENTS as readonly string[]).includes(scheme.accent) ? scheme.accent : env.accent;
-  const t = themeTokens(
-    lookTheme(scheme, theme, (name) => themes.find((candidate) => candidate.name === name)),
-    lookAccent as AppAccent,
-  );
+  const t = deriveTokens({
+    ...themeInput(
+      lookTheme(scheme, theme, (name) => themes.find((candidate) => candidate.name === name)),
+      lookAccent as AppAccent,
+    ),
+    selection: scheme.selection,
+  });
   const sidebar = scheme.surfaces?.sidebar ? parseHex(scheme.surfaces.sidebar) : undefined;
   applyTokens(root, sidebar ? { ...t, sidebarBackground: sidebar } : t);
 }
