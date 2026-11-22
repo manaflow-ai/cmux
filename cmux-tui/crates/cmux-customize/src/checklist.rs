@@ -143,7 +143,7 @@ pub const STEPS: &[Step] = &[
             "Chat text, font and width.",
         ),
         route: "/settings/chat",
-        watch: Watch::Settings(&["agentPane.display.", "agentPane.composer."]),
+        watch: Watch::Settings(&["agentPane.display.", "agentPane.composerRing"]),
     },
     Step {
         id: "newTab",
