@@ -256,6 +256,19 @@
         "nullable": true
       }
     },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "event:bell": {
       "/event": {
         "ty": "literal",
@@ -12002,6 +12015,10 @@
       },
       "/flow": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/key": {
+        "ty": "string",
         "nullable": true
       },
       "/paste": {

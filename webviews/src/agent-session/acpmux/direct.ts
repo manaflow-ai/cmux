@@ -3790,6 +3790,13 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// Calls still running when a prompt reset `toolRows`, by call id: the row each draws in. Their
+  /// updates still come (Claude Code's call ends after a notice it woke on landed as a prompt),
+  /// and one that finds no row leaves its row running for good: "Sending message to ... 2m 9s"
+  /// that never cleared, and the reply after it gone (Leo, 2026-11-21: "there's just way too many
+  /// commands that it just keeps on going through"). Read only by updates, never by a call's
+  /// start, so a call id an adapter reuses in a later prompt still opens its own row (cx-jzhka).
+  private openCalls = new Map<string, string>();
   /// Tool ids are scoped to a prompt by ACP adapters. Keep the scope beside the row so paging
   /// reconciliation never joins two different turns that reused one id.
   private toolRowScopes = new Map<string, string>();
@@ -4999,6 +5006,7 @@ export class AcpmuxDirectClient {
     this.offerRows.clear();
     this.receivedOffers.clear();
     this.toolRows.clear();
+    this.openCalls.clear();
     this.toolRowScopes.clear();
     this.currentToolScope = undefined;
     this.reactions.clear();
@@ -7443,7 +7451,9 @@ export class AcpmuxDirectClient {
 
   /// Whether `message` is one only the daemon makes (`daemonFrameAt`).
   private fromDaemon(message: Reply | Notification): boolean {
-    if (!("id" in message) || message.id === undefined || message.id === null) return "method" in message;
+    if (!("id" in message) || message.id === undefined || message.id === null) {
+      return "method" in message && !hostNotification(message as Notification);
+    }
     if (!("result" in message) || message.error) return false;
     const request = this.pending.get(message.id as number | string);
     return request !== undefined && request.method !== "_acpmux/status";
@@ -9117,6 +9127,7 @@ export class AcpmuxDirectClient {
       this.presetApprovalRemoved.clear();
       this.compactionHeardAt.clear();
       this.toolRows.clear();
+      this.openCalls.clear();
       this.toolRowScopes.clear();
     } else {
       // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
@@ -9669,6 +9680,14 @@ export class AcpmuxDirectClient {
     if (reaction.fresh) this.freshReactions.add(origin);
     else this.freshReactions.delete(origin);
     return true;
+  }
+
+  /// Keeps the calls of `toolRows` that still run (`openCalls`) before a prompt resets it.
+  private carryOpenCalls(): void {
+    for (const [callId, rowId] of this.toolRows) {
+      const tool = this.rows.get(rowId)?.items?.find((item) => item.tool?.id === callId)?.tool;
+      if (tool && (tool.status === "pending" || tool.status === "in_progress")) this.openCalls.set(callId, rowId);
+    }
   }
 
   /// The newest activity row that holds call `origin`.
@@ -10439,6 +10458,7 @@ export class AcpmuxDirectClient {
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
         if (msg.steer !== true) {
+          if (this.foldingBelow === undefined) this.carryOpenCalls();
           this.toolRows.clear();
           this.toolRowScopes.clear();
           this.planCalls.clear();
@@ -10950,7 +10970,11 @@ export class AcpmuxDirectClient {
       // An update to a call already shown stays in its fold; a new user-visible call ends the text
       // segment. Discovery plumbing gets an activity row for pending/failed states, but a
       // completed one is filtered from presentation and must not split one assistant message.
-      const known = this.toolRows.get(callId);
+      // A new call under a carried id is another call (cx-jzhka); an update finds its running call.
+      if (event.kind === "tool_call" && this.foldingBelow === undefined) this.openCalls.delete(callId);
+      const known =
+        this.toolRows.get(callId) ??
+        (event.kind === "tool_call_update" && this.foldingBelow === undefined ? this.openCalls.get(callId) : undefined);
       const knownRow = known && this.rows.has(known) ? known : undefined;
       // The result of a call this page never saw, naming nothing (a hidden call's, hiddenTools.ts).
       // A terminal result can arrive on its own page before the opener. Keep that result in a
@@ -10997,6 +11021,8 @@ export class AcpmuxDirectClient {
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
+      if (this.foldingBelow === undefined && (!row.streaming || item.tool?.status === "stopped"))
+        this.openCalls.delete(callId);
       // A call folded before any prompt or turn start of its page (an older page cut mid-turn) has
       // no known scope: paging reconciliation may join it to that call's row in any turn.
       if (!this.toolRowScopes.has(id) && this.currentToolScope !== undefined)
@@ -17247,6 +17273,15 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   if (notAllowlisted.has(method)) return;
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
+
+/// Whether `notification` is one the app's host made, not the daemon: its question key requests
+/// (`_cmux/*`, AgentPaneTransport+QuestionKeys.swift) and the lag notice it writes when its own queue
+/// to the page fills (AcpmuxPaneShedding.swift, `host_queue_full`). Neither proves a daemon alive.
+function hostNotification(notification: Notification): boolean {
+  const method = notification.method;
+  if (typeof method !== "string" || method.startsWith("_cmux/")) return true;
+  return method === "_acpmux/lagged" && notification.params?.reason === "host_queue_full";
 }
 
 /// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
