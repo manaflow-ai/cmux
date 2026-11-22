@@ -15,10 +15,16 @@
 // the agent and its full report.
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
-// error" with the turning ring. A failed one acpmux can retry offers Retry, inline and in its ⋯
-// menu; one it cannot offers none, as the chat's agent already read the error (Leo, 2026-11-14:
-// "we maybe want to remove the "ask parent to retry" if we haven't already").
-// A refusal leaves a short note after the line until the row next changes.
+// error" with the turning ring. A failed one acpmux can retry offers Retry on hover, once: on the
+// line, or only in its ⋯ menu for the `menu` affordance, never both (subagentDoneLineModel.ts
+// `doneLineControls`), and no Restart beside it. One acpmux cannot retry offers none, as the chat's
+// agent already read the error (Leo, 2026-11-14: "we maybe want to remove the "ask parent to retry"
+// if we haven't already"). A refusal leaves a short note after the line until the row changes.
+//
+// A subagent the harness refused to start (the concurrent subagent limit, any spawn error;
+// `spawnRefused`) is the parent's own failed tool call: its line is its name and the harness's one
+// short reason, nothing else, at rest or under the pointer (Leo, 2026-11-11: "this is kind of weird
+// tbh").
 //
 // The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
 // the agent name opens the agent's view (doneReport.experiment.ts).
@@ -54,11 +60,19 @@ import { Markdown } from "../conversation/Markdown";
 import { AgentMessageRow } from "../conversation/AgentMessageRow";
 import { messagePreview } from "../conversation/agentMessageRowModel";
 import { doneReportLook } from "./doneReport.experiment";
-import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
+import {
+  RetryAffordanceContext,
+  DoneReportLookContext,
+  doneLineControls,
+  doneReport,
+  shortReason,
+  spawnRefused,
+} from "./subagentDoneLineModel";
 import { useWholeReport, type WholeReport } from "./wholeReport";
 import { WholeReportBody } from "./WholeReportBody";
 import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentDoneLine.css";
+import { Described } from "../chips/FactsHoverCard";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -127,7 +141,8 @@ function DoneLine({
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
-  const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
+  // A lost helper that can resume already has its one recovery control.
+  const action = !resumed.offered && retryAgent && phase.kind === "failed" ? phase.action : undefined;
   // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
   // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
@@ -157,6 +172,13 @@ function DoneLine({
     !resumed.offered && restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
       ? restartSubagent
       : undefined;
+  const refused = spawnRefused(agent);
+  const controls = doneLineControls({
+    retry: action !== undefined,
+    restart: restart !== undefined,
+    affordance,
+    refused,
+  });
   const head = waiting
     ? [name, retryLabel(t, waiting)]
     : [
@@ -195,17 +217,21 @@ function DoneLine({
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };
-  const restartButton = restart && (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
-      aria-label={t("subagents.restart")}
-      title={t("subagents.restart")}
-      data-tooltip-detail={t("subagents.restartDetail")}
-      onClick={() => restart(agent)}
-    >
-      <Retry size={14} />
-    </button>
+  const restartButton = restart && controls.line.includes("restart") && (
+    <Described text={t("subagents.restartDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-subagent-restart"
+          aria-label={t("subagents.restart")}
+          title={t("subagents.restart")}
+          onClick={() => restart(agent)}
+        >
+          <Retry size={14} />
+        </button>
+      )}
+    </Described>
   );
   // Resume where acpmux can start it again, else Restart: one control on the line.
   const lineButton = resumed.button || restartButton;
@@ -214,6 +240,31 @@ function DoneLine({
   // first line, and the same card that opens to the whole report as Markdown (Leo, 2026-11-07: "with
   // the sub-agent conclusions ... They should look basically the same as the other ones"). The name
   // opens the agent's view, as the line did; the line opens the report.
+  if (refused)
+    return (
+      <div className="cv-tools">
+        <TranscriptActivityRowShell
+          className="cv-tool cv-subagent-done-row"
+          attributes={{ "data-state": "failed", "data-look": "quiet", "data-refused": "" }}
+        >
+          <div className="cv-tool cv-bgtask cv-subagent-done" data-state="failed" aria-label={`${name} · ${reason}`}>
+            <span className="cv-tool__icon">
+              <AgentIdentity
+                harness={foreignHarness(agent.harness, chatHarness, senderBadge)}
+                tone={agentTone(agent.id)}
+                size={16}
+                fallback={SUBAGENT_FALLBACK}
+              />
+            </span>
+            {/* tooltip-allow: the line cuts the harness's reason; its whole text */}
+            <span className="cv-tool__text cv-subagent-failed__text" title={error ? `${name} · ${error}` : name}>
+              <span className="cv-subagent-failed__title">{name}</span>
+              <span className="cv-subagent-failed__reason">{reason}</span>
+            </span>
+          </div>
+        </TranscriptActivityRowShell>
+      </div>
+    );
   if (disclose)
     return (
       <div className="cv-tools">
@@ -267,7 +318,7 @@ function DoneLine({
         />
       </div>
     );
-  const inline = action && affordance !== "menu" && (
+  const inline = action && controls.line.includes("retry") && (
     <button
       type="button"
       className={affordance === "link" ? "cv-subagent-retry-link" : "cv-subagent-retry"}
@@ -347,10 +398,10 @@ function DoneLine({
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {resumed.note}
-        {(lineButton || action) && (
+        {(lineButton || controls.menu.length > 0) && (
           <span className="cv-subagent-done__actions">
             {lineButton}
-            {action && (
+            {action && controls.menu.includes("retry") && (
               <Menu>
                 <MenuButton
                   className="cv-iconbtn cv-iconbtn--compact"
@@ -362,7 +413,7 @@ function DoneLine({
                   <Icon name="action.more" size={14} />
                 </MenuButton>
                 <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                  {/* The one Retry the row offers: acpmux's. */}
+                  {/* The row's one Retry, here only when the line has none (`doneLineControls`). */}
                   <MenuItem className="acpmux-quick-item" onSelect={run}>
                     {t("retry.action")}
                   </MenuItem>
