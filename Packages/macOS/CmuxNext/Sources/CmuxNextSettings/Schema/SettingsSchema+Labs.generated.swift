@@ -8,6 +8,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveTree`: Read-only live-tree compiler snapshot in the agent pane. Off by default; only opening or refreshing the popover reads status. Turning it off unmounts the experiment.
     public nonisolated static let liveTreePath = ["labs", "liveTree"]
     public nonisolated static let liveTreeDefault = false
+    /// `labs.fleetSagas`: Read-only local fleet-saga projection in the agent pane. Off by default; opening or refreshing the popover reads unfinished saga logs without running or changing an operation.
+    public nonisolated static let fleetSagasPath = ["labs", "fleetSagas"]
+    public nonisolated static let fleetSagasDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -56,6 +59,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveTreeDefault),
                 keywords: ["labs", "live", "tree", "shared", "compile", "lanes", "experiment"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.fleetSagasPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.fleetSagas", "Fleet Sagas"),
+                help: SettingsText.keyed("settings.labs.fleetSagas.help", "Show unfinished local fleet operations and the step where each stopped."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.fleetSagasDefault),
+                keywords: ["labs", "fleet", "saga", "operations", "unfinished", "step", "experiment"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,

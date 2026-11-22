@@ -116,7 +116,7 @@ nonisolated extension AcpmuxPaneMethods {
         "catalog.get": ([], []),
         "catalog.refresh": ([], []),
         // Only the live-tree read: `waitLogs: false` answers from the session list at once.
-        "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
+        "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree", "includeFleetSagas"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):

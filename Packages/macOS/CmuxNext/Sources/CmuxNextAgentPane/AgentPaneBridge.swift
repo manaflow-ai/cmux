@@ -141,6 +141,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyShortcuts()
             view.applyPreviewFeatures()
             view.applyLiveTree()
+            view.applyFleetSagas()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
             view.replayExperiments()

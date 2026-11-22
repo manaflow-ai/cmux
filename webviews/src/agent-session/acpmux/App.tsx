@@ -18,6 +18,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
+import { FleetSagaPill } from "./header/FleetSagaPill";
 import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
@@ -950,6 +951,7 @@ declare global {
       applyPreview?(on: boolean): void;
       /// The default-off live-tree status card (Settings > Advanced > Labs, `labs.liveTree`).
       applyLiveTree?(on: boolean): void;
+      applyFleetSagas?(on: boolean): void;
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
@@ -1716,6 +1718,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
   /// The first live-tree slice is opt-in from Settings > Advanced > Labs; the default pane stays unchanged.
   const [liveTreeEnabled, setLiveTreeEnabled] = useState(initialChat?.liveTree === true);
+  const [fleetSagasEnabled, setFleetSagasEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   /// Where this New Tab page's new chat starts, as the app knew it when the page loaded
@@ -3920,6 +3923,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () =>
       snapshot.sessionId
         ? (directClient.current?.liveTreeStatus(snapshot.sessionId) ?? Promise.resolve(undefined))
+        : Promise.resolve(undefined),
+    [snapshot.sessionId],
+  );
+  const readFleetSagas = useCallback(
+    () =>
+      snapshot.sessionId
+        ? (directClient.current?.fleetSagasStatus(snapshot.sessionId) ?? Promise.resolve(undefined))
         : Promise.resolve(undefined),
     [snapshot.sessionId],
   );
@@ -8430,6 +8440,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       applyLiveTree(on) {
         setLiveTreeEnabled(on === true);
+      },
+      applyFleetSagas(on) {
+        setFleetSagasEnabled(on === true);
       },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
@@ -14526,6 +14539,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     {liveTreeEnabled && snapshot.sessionId && (
                       <LiveTreePill key={snapshot.sessionId} cwd={snapshot.summary?.cwd} readStatus={readLiveTree} />
+                    )}
+                    {fleetSagasEnabled && snapshot.sessionId && (
+                      <FleetSagaPill key={snapshot.sessionId} readStatus={readFleetSagas} />
                     )}
                     <LivePresenceStack
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}

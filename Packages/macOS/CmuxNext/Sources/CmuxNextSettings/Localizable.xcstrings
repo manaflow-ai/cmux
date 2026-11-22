@@ -32221,6 +32221,20 @@
         }
       }
     },
+    "settings.labs.fleetSagas": {
+      "comment": "Settings > Advanced > Labs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fleet Sagas" } }
+      }
+    },
+    "settings.labs.fleetSagas.help": {
+      "comment": "Settings > Advanced > Labs",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show unfinished local fleet operations and the step where each stopped." } }
+      }
+    },
     "settings.labs.voiceRoom": {
       "extractionState": "manual",
       "localizations": {

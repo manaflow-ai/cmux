@@ -635,6 +635,7 @@
     "setting.imessage.enabled": false,
     "setting.labs.agentCustomization": false,
     "setting.labs.liveCode": false,
+    "setting.labs.fleetSagas": false,
     "setting.labs.liveTree": false,
     "setting.labs.machineJoin": false,
     "setting.labs.previewFeatures": false,

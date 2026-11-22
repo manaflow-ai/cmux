@@ -32,6 +32,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/info": .object(["liveTree": .object([
             "available": .bool, "updated": .number, "seq": .number, "stale": .bool,
             "lanes": .list(.object(["name": .string, "verdict": .string])),
+        ]), "fleetSagas": .object([
+            "available": .bool,
+            "sagas": .list(.object(["id": .string, "status": .string, "step": .string])),
         ])]),
         // The local/app connection's peer state snapshot; never transport URLs or credentials.
         "_acpmux/peers": .object(["peers": .list(.object([
