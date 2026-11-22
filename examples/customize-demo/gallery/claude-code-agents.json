@@ -1,0 +1,16 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-agents",
+  "description": "Open Claude’s native background session list in a terminal tab with its saved grouping.",
+  "created_ms": 0,
+  "settings": {},
+  "files": {},
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-agents",
+    "name": "Claude Code agents view",
+    "source": "looks/claude-code/agents",
+    "actions": [
+      "claude-code-agents"
+    ]
+  }
+}

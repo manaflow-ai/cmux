@@ -17,7 +17,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cli="${CMUX:-cmux}"
 
 # The order of the demo: the app looks first (Claude Code, Codex, studio), then the last demo's
-# setups redone, glass, widgets. `steps` drops repeats, so a glob after a named file adds only the rest.
+# setups redone, glass, widgets; then every installable look in the gallery (gallery/, bundled
+# from examples/looks and examples/gallery), the tabs and sidebar ones first; then the
+# whole-window showcase and the Leo collection (showcase/). `steps` drops repeats, so a glob after
+# a named file adds only the rest.
 order=(
   looks/claude.json
   looks/codex.json
@@ -26,6 +29,22 @@ order=(
   last-demo/*.json
   glass/*.json
   widgets/*.json
+  gallery/material.json
+  gallery/shadcn.json
+  gallery/apple.json
+  gallery/codex-sidebar.json
+  gallery/codex-threads.json
+  gallery/claude-code-sidebar.json
+  gallery/claude-code-session-recents.json
+  gallery/claude-code-project-picker.json
+  gallery/claude-code-transcript.json
+  gallery/claude-code-composer.json
+  gallery/claude-code-session-worktree.json
+  gallery/claude-code-whole.json
+  gallery/rex-whole.json
+  gallery/hairline.json
+  gallery/*.json
+  showcase/*.json
 )
 
 steps() {
