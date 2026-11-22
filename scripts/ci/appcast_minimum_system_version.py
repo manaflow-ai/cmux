@@ -9,7 +9,9 @@ launch. This tool makes both links explicit and fail closed:
 
   floor <app>
       Print the bundle's LSMinimumSystemVersion. Fails when it is missing or
-      lower than the deployment target (`minos`) of the main executable.
+      lower than the deployment target (`minos`) of the main executable or of
+      Contents/Frameworks/CmuxNextApp.framework, where cmux-next's code is
+      behind a stub executable (CMUX-629): its target is the package's.
 
   enforce <appcast> --archive <dmg-name> --minimum <version>
       The item(s) whose enclosure is <dmg-name> must carry
@@ -39,6 +41,9 @@ ITEM_RE = re.compile(r"<item>.*?</item>", re.S)
 MIN_RE = re.compile(r"<sparkle:minimumSystemVersion>\s*([^<]*?)\s*</sparkle:minimumSystemVersion>")
 VERSION_RE = re.compile(r"<sparkle:version>\s*([^<]*?)\s*</sparkle:version>")
 DELTAS_RE = re.compile(r"<sparkle:deltas>.*?</sparkle:deltas>", re.S)
+
+
+APP_CODE_FRAMEWORK_BINARY = "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
 
 
 class FloorError(Exception):
@@ -76,14 +81,17 @@ def floor(app: Path, minos_reader=executable_minos) -> str:
     if not isinstance(declared, str) or not declared.strip():
         raise FloorError(f"{info_path} has no LSMinimumSystemVersion; Sparkle would offer this build to every macOS")
     declared = declared.strip()
+    images = []
     executable_name = info.get("CFBundleExecutable")
     if executable_name:
-        executable = app / "Contents" / "MacOS" / executable_name
-        if executable.exists():
-            for minos in minos_reader(executable):
+        images.append(("the executable's", app / "Contents" / "MacOS" / executable_name))
+    images.append(("CmuxNextApp.framework's", app / APP_CODE_FRAMEWORK_BINARY))
+    for what, image in images:
+        if image.exists():
+            for minos in minos_reader(image):
                 if parse_version(declared) < parse_version(minos):
                     raise FloorError(
-                        f"LSMinimumSystemVersion {declared} is below the executable's deployment target {minos}; "
+                        f"LSMinimumSystemVersion {declared} is below {what} deployment target {minos}; "
                         "older macOS would be offered a build that cannot launch"
                     )
     parse_version(declared)

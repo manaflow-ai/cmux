@@ -171,6 +171,21 @@ pub struct QueueEntry {
     pub span: u32,
     pub text_len: u32,
 }
+
+/// Apply one followed-chat action after its raw line is durable. The action
+/// line's raw `place` and `span` become the queue entry's source coordinates;
+/// the translator remains the sole owner of queue state.
+#[derive(Deserialize)]
+struct ActBody {
+    #[serde(rename = "promptId")]
+    prompt_id: String,
+    #[serde(default)]
+    at: u64,
+    #[serde(default)]
+    held: bool,
+    #[serde(rename = "textLen", default)]
+    text_len: u64,
+}
 impl QueueEntry {
     const AT_MASK: u64 = (1 << 48) - 1;
     const STATE_SHIFT: u32 = 48;
@@ -587,6 +602,63 @@ pub fn translate(
     // The queue is counted apart from the translator's 32 KiB segment: its records go to the
     // book's prompt section.
     Ok(out.ops)
+}
+
+impl State {
+    /// Whether an action prompt can be admitted before its raw line is written.
+    pub fn act_queue_full(&self) -> bool {
+        self.queue_len() >= MAX_QUEUE_ENTRIES
+    }
+
+    pub fn validate_act(&self, bytes: &[u8]) -> Result<(), Error> {
+        #[derive(Deserialize)]
+        struct Act<'a> {
+            op: &'a str,
+            body: ActBody,
+        }
+        let action: Act<'_> = serde_json::from_slice(bytes).map_err(|_| Error::InvalidJson)?;
+        if !matches!(action.op, "prompt" | "retract") {
+            return Err(Error::InvalidRecord("unknown act operation"));
+        }
+        if action.body.prompt_id.is_empty() {
+            return Err(Error::InvalidRecord("act promptId"));
+        }
+        Ok(())
+    }
+
+    /// Apply a durable `k:"act"` line into the translator's queue. Only
+    /// `prompt` and `retract` are action transitions in this row. For a
+    /// followed chat, `place` and `span` are offsets in `raw/acts.ndjson`;
+    /// the actor gives that file to queue readers as their `RawSource`.
+    pub fn apply_act(&mut self, bytes: &[u8], place: u64, span: u64) -> Result<Vec<Op>, Error> {
+        let mut out = input::Output::new(bytes);
+        #[derive(Deserialize)]
+        struct Act<'a> {
+            op: &'a str,
+            body: ActBody,
+        }
+        let action: Act<'_> = serde_json::from_slice(bytes).map_err(|_| Error::InvalidJson)?;
+        match action.op {
+            "prompt" => {
+                if self.act_queue_full() {
+                    self.queue_overflowed = self.queue_overflowed.saturating_add(1);
+                    return Ok(out.ops);
+                }
+                self.queue_add(
+                    &action.body.prompt_id,
+                    action.body.at,
+                    action.body.held,
+                    place,
+                    span,
+                    action.body.text_len,
+                    &mut out,
+                );
+            }
+            "retract" => self.queue_remove(&action.body.prompt_id, &mut out),
+            _ => return Err(Error::InvalidRecord("unknown act operation")),
+        }
+        Ok(out.ops)
+    }
 }
 fn bounded(s: &str) -> Result<(), Error> {
     if s.len() > MAX_KEY_BYTES {

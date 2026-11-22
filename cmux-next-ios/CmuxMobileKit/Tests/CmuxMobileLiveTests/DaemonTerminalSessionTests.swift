@@ -42,6 +42,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var afterAttach: String? = "\u{1B}[?1049hTUI"
     /// `send` is recorded but never answered (its reply lost on the way).
     var unansweredSends = false
+    /// `resize-surface` is recorded but never answered (its reply stuck
+    /// behind the terminal's output on a slow link).
+    var unansweredResizes = false
+    /// `identify` advertises size-lease-v2 (the 8 s lease).
+    var shortSizeLease = false
     /// `identify` advertises attach-replay-history-rows-v1: an attach with
     /// `replay_history_rows` gets a replay of the screen and that many of
     /// the newest of `historyRows` rows, and `history_rows_omitted`.
@@ -56,6 +61,12 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var hybridEvents: [[String: Any]] = []
     /// `identify` lists agent-cli-hybrid-v1 and v2.
     var advertisesHybrid = false
+    /// `identify` lists send-key-v1 (`send` takes `key`).
+    var sendKeys = false
+    /// `identify` lists send-expect-agent-v1 (`send` takes `submit` with `paste`).
+    var pasteSubmit = false
+    /// `send` with `submit` is answered with an error (a daemon refusing the paste).
+    var refusesPasteSubmit = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -79,11 +90,22 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return [reply()]
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease || sharedSizing || tailReplay || lock.withLock({ advertisesHybrid }):
-            return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
-                    + (lock.withLock { advertisesHybrid } ? ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] : [])
-                    + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])
-                    + (tailReplay ? ["attach-replay-history-rows-v1"] : [])])]
+        case "send" where object["submit"] != nil && lock.withLock({ refusesPasteSubmit }):
+            return [Self.line(["id": id, "ok": false, "error": "send refused"])]
+        case "resize-surface" where lock.withLock({ unansweredResizes }):
+            return []
+        case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || lock.withLock({ advertisesHybrid }):
+            // Built in steps: one long `+` chain is too slow for the type checker.
+            var capabilities: [String] = []
+            if initialSize { capabilities.append("attach-initial-size") }
+            if sizeLease { capabilities.append("size-lease-v1") }
+            if shortSizeLease { capabilities.append("size-lease-v2") }
+            if lock.withLock({ advertisesHybrid }) { capabilities += ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2"] }
+            if sharedSizing { capabilities += ["shared-sizing-v1", "host-size-policy-v1"] }
+            if tailReplay { capabilities.append("attach-replay-history-rows-v1") }
+            if sendKeys { capabilities.append("send-key-v1") }
+            if pasteSubmit { capabilities.append("send-expect-agent-v1") }
+            return [reply(["capabilities": capabilities])]
         case "attach-surface" where object["replay_history_rows"] != nil && lock.withLock({ laneRefusesHistoryRows }):
             return [Self.line(["id": id, "ok": false, "error": "attach-surface does not take replay_history_rows from a phone"])]
         case "get-host-size-policy":
@@ -688,6 +710,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             channels.append(channel)
             return DaemonClient(channel: channel)
         }
+        // This fake Mac replays its own 80x24 grid and never answers the
+        // phone's 54x42 claim with a resize, so the page holds that grid
+        // until the claim's wait ends (it never draws a grid it did not ask
+        // for while its claim may still bring its own back); shortened here.
+        session.reclaimWait = .milliseconds(20)
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
         session.resize(columns: 54, rows: 42)
@@ -702,6 +729,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         session.reconnect()
         try await waitUntil { session.isAttached }
         try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == 2 }
+        try await waitUntil { events[before...].contains(.output(Data("hello\r\n$ ".utf8))) }
         let after = Array(events[before...])
         let reset = after.firstIndex(of: .output(Data("\u{1B}c".utf8)))
         let replay = after.firstIndex(of: .output(Data("hello\r\n$ ".utf8)))

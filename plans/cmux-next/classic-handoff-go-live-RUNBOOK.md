@@ -14,7 +14,7 @@ Classic stable (0.65.x, bundle `com.cmuxterm.app`) checks
 | Must be true | Today |
 | --- | --- |
 | Item is EdDSA-signed with classic's stable key (`SUPublicEDKey` avjcg…, secret `SPARKLE_PRIVATE_KEY`) | release.yml on feat-cmux-next signs with the same secret. Proven by the RC dry run. |
-| `sparkle:version` (CFBundleVersion) > installed build. Classic 0.65.2.2 is build **113** | feat-cmux-next has `CURRENT_PROJECT_VERSION = 108`. **Blocker B1.** The RCs set 114 and 115 in Info.plist on their test branches only. |
+| `sparkle:version` (CFBundleVersion) > installed build. Classic 0.65.2.2 is build **113** | feat-cmux-next has `CURRENT_PROJECT_VERSION = 108`. **Blocker B1.** The RCs set 114, 115 and 116 in Info.plist on their test branches only. |
 | No `sparkle:channel` on the item (classic allows no channels) | release.yml writes none. |
 | `sparkle:minimumSystemVersion` ≤ the Mac's macOS | Both floors are 14.0. |
 | Same bundle id, Developer ID team 7WLXT3NR37, notarized, stapled | Release config: `com.cmuxterm.app`, `cmux.app`, same team. |
@@ -80,15 +80,29 @@ one classic already reads.
   the same 3 sidebar rows, and the Chief started.
 - Production unchanged after RC 8: the same six feed hashes, latest release `v0.65.2.2`, cask `0.64.25`.
 
+### RC 9 (build 116, the B16 fix)
+
+- RC: release.yml dry run [44151701525](https://github.com/manaflow-ai/cmux/actions/runs/44151701525) on
+  `rc/cmux-next-handoff-dry-9` (feat-cmux-next `f06afba3` plus the build-116 Info.plist literal), release
+  [rc9-b116](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc9-b116).
+- Run B with leftover terminals: an RC 8 cmux-next made two terminal workspaces, its daemon was stopped
+  so their hosts kept running, and its session and migration ledger were moved aside. Classic 0.65.2.2
+  then updated to build 116. The new daemon recovered the hosts into "Recovered terminals", and cmux-next
+  still asked "Import your classic cmux workspaces? 3 workspaces and 1 browser tab". After Import the
+  sidebar lists Recovered terminals and the 3 classic workspaces; the ledger shows each `done` (no
+  `baseline`). Screenshots `b9-1-prompt-with-recovered-terminals.png`, `b9-2-after-import.png` and the
+  recording are on the release.
+- Production unchanged after RC 9: the same six feed hashes, latest release `v0.65.2.2`, cask `0.64.25`.
+
 ## Go live (not taken)
 
 Preconditions: every **Blocker** below closed; the RC passed the end-to-end test on a clean classic install
 for the current classic release and one older release; one Intel classic run shows no update offered (B0b).
 
 1. Land the build-number bump on feat-cmux-next: `CURRENT_PROJECT_VERSION` above both the newest classic
-   build and every RC build handed out (the RCs used 114 and 115, so ≥ 116). The exact change, in
+   build and every RC build handed out (the RCs used 114, 115 and 116, so ≥ 117). The exact change, in
    `cmux.xcodeproj/project.pbxproj` on feat-cmux-next: both `CURRENT_PROJECT_VERSION = 108;` lines (the
-   Debug and Release configs of the cmux target) become `CURRENT_PROJECT_VERSION = 116;`
+   Debug and Release configs of the cmux target) become `CURRENT_PROJECT_VERSION = 117;`
    (`./scripts/bump-version.sh 1.0.0` would write 109, too low: write the number by hand or run
    `bump-version.sh` after the edit). `Resources/Info.plist` reads `$(CURRENT_PROJECT_VERSION)`, so nothing
    else changes. The file is frozen (`FREEZE: cmux.xcodeproj/project.pbxproj token=none` in the
@@ -146,10 +160,10 @@ already downloaded the update in the background install it at their next quit; t
 | B0c | Closed | `release.yml` did not build or bundle the OptChat Chief (`bin/optchat-chief`), the iPhone host (`bin/cmux-mobile-host`) and the Screen Sharing helper, and the app started a bundled Chief only on DEV and NIGHTLY. | release.yml runs nightly's chief-build.sh, app-build-mobile-host.sh and app-bundle-chief-and-mobile-host.sh and checks all three are universal; `HomeBrainHost.bundledChiefAllowed` now also allows stable and RC (red/green suite `ChiefStableChannelTests`). Developer tools stay DEV and NIGHTLY only. This reverses c8ca87c2 ("Release and RC never bundle or start it"). |
 | B6b | High | Intel CEF is pinned at cmux.48, arm64 at cmux.52. Since 92de5acb the build embeds arm64 CEF only, so an Intel Mac gets cmux-next with no Chromium browser. | Publish a cmux.52 x86_64 CEF before go-live. |
 | B14 | Closed (lab config, not a product bug) | After the update the sidebar showed no workspace rows, although `cmux workspace list` returned all 5 workspaces. Root cause: the lab Mac's `~/.config/cmux/cmux-next.json` (written on 2026-11-16 by earlier nightly-next dogfood, before the runs) has `"sidebar": {"showProjects": false, "minimal": true}`, which hides the workspace list. No classic setting maps to it, and a fresh user gets `showProjects: true`. | Rerun with `showProjects: true` (see the RC 8 results). Possible polish: the import toast could say when Projects is hidden. |
-| B16 | Medium | cmux-next counts a "Recovered terminals" workspace (terminal hosts a previous cmux-next daemon left running) as a workspace of the person's own. On the first contact it then records a `baseline` ledger instead of asking, and the classic workspaces are marked `done` and never offered (run B attempt 1, `b8-1-recovered-terminals-no-prompt.png`). Only a Mac that ran a cmux-next stable build before (a tester) can hit it. | `needsFirstWorkspace` (`CmuxNextHomeEngine/FirstWorkspace.swift`) should not count the recovered-terminals workspace; a red test, then the fix. |
+| B16 | Fixed | cmux-next counted a "Recovered terminals" workspace (terminal hosts a previous cmux-next daemon left running) as a workspace of the person's own. On the first contact it then recorded a `baseline` ledger instead of asking, and the classic workspaces were marked `done` and never offered (RC 8 run B attempt 1, `b8-1-recovered-terminals-no-prompt.png`). | `needsFirstWorkspace` (`CmuxNextHomeEngine/FirstWorkspace.swift`) no longer counts the daemon's recovery workspace, first matched by the names cmux-tui gives it ("Recovered terminals", "復元されたターミナル"; red e8460bb9, fix f06afba3, suite `RecoveredTerminalsFirstUseTests`; re-proved in RC 9 run B with leftover terminals present). Now the daemon marks it: capability `workspace-recovered-v1`, field `recovered` on each workspace of the tree (true while every tab of the workspace is a recovered terminal host, read from the durable `recovered_terminal` launch spec; a tab the person adds makes it theirs). `needsFirstWorkspace` reads `WorkspaceModel.recovered` and uses the two names only when the daemon sends no field (an older daemon). Tests: cmux-tui `a_live_host_of_a_lost_registry_is_recovered_not_terminated`, suite `RecoveredWorkspaceMarkerTests`. No new RC: the change does not touch the update path. |
 | B17 | Low | Classic 0.64.25 shows its "Quit cmux?" sheet when Sparkle relaunches it for the update; the install waits until the person clicks Quit. 0.65.2.2 does not ask. | Release note for older classic installs; nothing to change in cmux-next. |
 | B15 | Medium | On cmux-next's first launch macOS 27 showed "Data Access Blocked: “cmux” tried to access your data from other apps". | Find the path (likely a classic-era container or another app's data during import) and avoid it or ask first. |
-| B1 | Blocker | feat-cmux-next `CURRENT_PROJECT_VERSION` is 108, classic stable is 113: classic would never take the update, and the tag push's monotonic guard (`enforce`) fails. | Both `CURRENT_PROJECT_VERSION = 108;` lines to `116` in a Chief-granted pbxproj slot (Go live step 1 has the exact change and the slot rule). Not done here: the freeze holds. |
+| B1 | Blocker | feat-cmux-next `CURRENT_PROJECT_VERSION` is 108, classic stable is 113: classic would never take the update, and the tag push's monotonic guard (`enforce`) fails. | Both `CURRENT_PROJECT_VERSION = 108;` lines to `117` in a Chief-granted pbxproj slot (Go live step 1 has the exact change and the slot rule). Not done here: the freeze holds. |
 | B2 | Fixed | Socket access got looser: classic's Settings choice (UserDefaults `socketControlMode`) was ignored and next defaulted to `automation`. | Fixed in this change: `ControlService.classicStoredMode` falls back to classic's stored mode when `cmux-next.json` names none; `password` still fails closed to `off`. Suite `ControlServiceAccessModeTests` 3/3 on aws-m4pro-6. |
 | B3 | High | Classic's packet-tunnel system extension (`com.cmuxterm.app.tunnel`) and its "cmux Cloud" VPN configuration are orphaned; cmux-next has no NetworkExtension code to remove them. | Ship a one-time cleanup in cmux-next, or a last classic build that deactivates it first. |
 | B4 | High | Settings-window preferences are lost: only 4 link-routing keys and shortcuts import; theme, fonts, sidebar tint and about 170 other `@AppStorage` keys do not. No notice tells the user. | Import list or a toast naming what did not carry over. |

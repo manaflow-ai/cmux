@@ -131,6 +131,11 @@ impl Cap {
         self.bytes > self.max_bytes || self.files > self.max_files
     }
 
+    /// The bytes of every file counted so far.
+    pub(super) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
     /// Whether what was listed is more bytes than a copy sends whole.
     pub(super) fn past_bytes(&self) -> bool {
         self.bytes > self.max_bytes

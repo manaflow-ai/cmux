@@ -141,7 +141,8 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
     AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
@@ -180,6 +181,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
+mod stop_if_idle;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
@@ -195,6 +197,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 pub mod cloud_host_replica;
+pub(crate) mod computer_use_command;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -246,12 +249,13 @@ mod cmd_server;
 mod cmd_sizing;
 mod size_lease;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
-pub use size_lease::SIZE_LEASE_CAPABILITY;
+pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
+mod send_once;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
@@ -469,6 +473,12 @@ pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
 /// get the bare event, which strict older SDK decoders accept.
 pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
+/// Advertises `if_idle` on `shutdown-daemon`: stop only while no other
+/// client is connected and no terminal is live, else refuse with
+/// `error_code` `daemon_busy` and what uses the daemon in `error_details`.
+/// An older daemon ignores the field and stops, so a client sends it only
+/// to a daemon that advertises this.
+pub const DAEMON_STOP_IF_IDLE_CAPABILITY: &str = "daemon-stop-if-idle-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -893,6 +903,20 @@ enum Command {
         app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
+    /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
+    ComputerUseEndpoint,
+    ComputerUseConfig {
+        config: Value,
+    },
+    ComputerUseApprovals {
+        action: String,
+        #[serde(default)]
+        app_id: Option<String>,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default)]
+        answer: Option<String>,
+    },
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,
@@ -977,6 +1001,11 @@ enum Command {
         /// exits. Absent from older callers, which leave it unknown.
         #[serde(default)]
         restart: Option<bool>,
+        /// Stop only while no other client is connected and no terminal is
+        /// live (`daemon-stop-if-idle-v1`); else refuse with `daemon_busy`.
+        /// Checked under the handoff reservation, which refuses new clients.
+        #[serde(default)]
+        if_idle: bool,
     },
     Ping,
     SetClientInfo {
@@ -1930,6 +1959,8 @@ enum Command {
     MoveColumn(column_move::MoveColumnParams),
     /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
     FloatPane(floating_panes::FloatPaneParams),
+    /// `quick-terminal-v1`: make the quick terminal of a screen, show it with the focus, or hide it.
+    QuickTerminal(floating_panes::QuickTerminalParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3095,10 +3126,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
-fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
-    mux.with_state(|state| state.pane_of(id).is_some())
-}
-
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
     if surface.kind() == SurfaceKind::Pty {
         Ok(())
@@ -3265,3 +3292,4 @@ mod cloud_api;
 mod cloud_repos;
 #[cfg(unix)]
 mod cloud_runs;
+mod language_packs_op;
