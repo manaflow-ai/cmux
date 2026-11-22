@@ -1352,13 +1352,16 @@ async fn duress_matrix() {
 }
 
 static COST_PHONE: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
+static COST_PHONE_TARGETS: std::sync::Mutex<Vec<(std::time::Instant, std::net::SocketAddr, usize)>> =
+    std::sync::Mutex::new(Vec::new());
 static COST_MAC: std::sync::Mutex<Vec<(std::time::Instant, usize)>> = std::sync::Mutex::new(Vec::new());
 
-fn cost_phone(len: usize) {
+fn cost_phone(target: &std::net::SocketAddr, len: usize) {
+    COST_PHONE_TARGETS.lock().unwrap().push((std::time::Instant::now(), *target, len));
     COST_PHONE.lock().unwrap().push((std::time::Instant::now(), len));
 }
 
-fn cost_mac(len: usize) {
+fn cost_mac(_: &std::net::SocketAddr, len: usize) {
     COST_MAC.lock().unwrap().push((std::time::Instant::now(), len));
 }
 
@@ -1422,6 +1425,15 @@ async fn cost_minute(foreground: bool) -> ((usize, usize, usize), (usize, usize,
     assert!(!connected.link.is_closed());
     connected.link.close("done");
     tokio::time::sleep(Duration::from_secs(2)).await;
+    if std::env::var_os("COST_BREAKDOWN").is_some() {
+        let mut by: std::collections::BTreeMap<(std::net::SocketAddr, usize), usize> = Default::default();
+        for (at, target, len) in COST_PHONE_TARGETS.lock().unwrap().iter() {
+            if *at >= from && *at < to {
+                *by.entry((*target, *len)).or_default() += 1;
+            }
+        }
+        eprintln!("COST breakdown foreground={foreground} (target, len) -> count: {by:?}");
+    }
     (cost_between(&COST_PHONE, from, to), cost_between(&COST_MAC, from, to))
 }
 
@@ -1442,7 +1454,7 @@ async fn foreground_probe_cost() {
         let mut cols = Vec::new();
         for foreground in [false, true] {
             let mut runs = Vec::new();
-            for _ in 0..3 {
+            for _ in 0..std::env::var("COST_ROUNDS").ok().and_then(|n| n.parse().ok()).unwrap_or(3) {
                 runs.push(cost_minute(foreground).await);
             }
             let pick = |f: fn(&((usize, usize, usize), (usize, usize, usize))) -> usize| {

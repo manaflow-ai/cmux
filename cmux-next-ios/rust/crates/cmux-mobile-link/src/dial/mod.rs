@@ -145,7 +145,7 @@ pub struct DialOptions {
     /// Test support: called with each plain UDP datagram's length as
     /// WireGuard hands it to the OS (the bytes a radio sends).
     #[doc(hidden)]
-    pub on_udp_sent: Option<fn(usize)>,
+    pub on_udp_sent: Option<fn(&std::net::SocketAddr, usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after

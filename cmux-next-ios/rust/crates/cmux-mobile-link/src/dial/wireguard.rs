@@ -1345,7 +1345,7 @@ impl HybridUnderlay {
             self.sent_to.insert(target);
         }
         if let Some(on_sent) = self.options.on_udp_sent {
-            on_sent(datagram.len());
+            on_sent(&target, datagram.len());
         }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         match self.socket.try_send_to(datagram, target) {
