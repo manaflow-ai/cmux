@@ -62,14 +62,14 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     }
 
     /// The density setting as a preset id: unset is Settings' Default.
-    nonisolated static func density(_ value: String?) -> String {
+    static func density(_ value: String?) -> String {
         value.flatMap(DensityPreset.init(rawValue:))?.rawValue ?? value ?? FirstRunChoices.defaultDensity
     }
 
     /// Every built-in density, in Settings' order and by Settings' names.
     public func densities() -> [FirstRunDensity] { Self.densities }
 
-    nonisolated static var densities: [FirstRunDensity] {
+    static var densities: [FirstRunDensity] {
         DensityPreset.allCases.map { FirstRunDensity(id: $0.rawValue, name: DensityNames().name($0.tokens)) }
     }
 
