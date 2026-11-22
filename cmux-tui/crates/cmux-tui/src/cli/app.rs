@@ -340,8 +340,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call(REMOTE_VIEWS_METHOD, Value::Object(params))
         }
         // The Mac Screen tabs (`mac_screen.state`, every build): per device tab its
-        // phase, whether a picture is up, time to first frame, fps, round trip and
-        // dropped frames; read-only, never a credential or a pixel of the screen.
+        // state (requesting, waiting_for_approval, connecting, viewing, failed, ...),
+        // the card's error text, whether a picture is up, frame size, time to first
+        // frame, fps, round trip and dropped frames; `--tab` takes the tab's id or its
+        // page key. Read-only, never a credential or a pixel of the screen.
         ("app", Some("mac-screens")) => {
             let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
             let mut params = Map::new();
