@@ -11,6 +11,7 @@
 // keystroke is lost.
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { lazyChunk } from "../../../lazyChunk";
+import { focusRoute } from "../../../ui/focusRoute";
 import { intl } from "../../../ui/intl";
 import { MarkdownFieldFrame } from "../markdownFieldFrame";
 import type { PromptEditorHandle, PromptEditorProps } from "./PromptEditor";
@@ -93,7 +94,7 @@ export const LazyPromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps
     /** Focus asked for early: kept, and the keys typed until the editor is made are kept with it. */
     const askFocus = useCallback(() => {
       wantsFocus.current = true;
-      real.current?.focus();
+      focusRoute(real.current, "system", "the prompt field was asked for before its editor was made");
       fetchNow();
       setListening(true);
     }, [fetchNow]);
@@ -135,7 +136,7 @@ export const LazyPromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps
       const text = typed.current;
       typed.current = "";
       if (editor && text) {
-        editor.focus();
+        focusRoute(editor, "system", "the prompt editor is made: the keys typed into its field before");
         editor.insertTyped(text);
       }
       latest.current.onReady?.();
@@ -144,7 +145,7 @@ export const LazyPromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps
     const attach = useCallback((handle: PromptEditorHandle | null) => {
       real.current = handle;
       if (!handle) return;
-      if (wantsFocus.current) handle.focus();
+      if (wantsFocus.current) focusRoute(handle, "system", "the prompt editor is made: focus asked for before");
       for (const quote of quotes.current.splice(0)) handle.quoteReply(quote);
     }, []);
 
