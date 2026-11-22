@@ -754,11 +754,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
               let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         var delta = now - (pick.windowY + shift)
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
-        // What a row above still owes UIKit pays with its new height, after this pass: not here, in
-        // either direction (down-fast-huge, step 3c24c106: a windowed swap moved the reader -2536 pt
-        // while a row above grew 74 pt; correcting both moved everything on screen by the growth when
-        // UIKit then paid it, the list at rest, video frames 2204-2205).
-        delta -= owed
+        // What a row above still owes is paid with its new height, in the same pass: not here.
+        if owed != 0, delta * owed > 0 { delta -= abs(owed) <= abs(delta) ? owed : delta }
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
         return pick
