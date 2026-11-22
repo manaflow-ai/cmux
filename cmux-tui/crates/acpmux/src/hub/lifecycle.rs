@@ -228,6 +228,17 @@ impl Hub {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
         };
+        // Every model a chat starts on, from any entry point (`new -m`, `exec -m`, ACP and MCP
+        // starts, a preset, the defaults, a saved pick), as the catalog names it: `fable-5.2`
+        // runs as `claude-fable-5-2` (`model_alias.rs`).
+        let model_rewrite = match &model {
+            Some(m) => Some(self.canonical_model_for(agent, &profile, m)?).filter(|c| c.changed()),
+            None => None,
+        };
+        let model = match model_rewrite.as_ref() {
+            Some(c) => Some(c.model.clone()),
+            None => model,
+        };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
             (false, Some(start)) => (Some(start.value), true),
@@ -449,6 +460,9 @@ impl Hub {
         // No `git` record exists yet; retain that baseline even if the chat grows before attach.
         self.restore_git_branch(&session, session.meta().git_branch);
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        if let Some(c) = &model_rewrite {
+            self.record_model_rewrite(&session, c, "new");
+        }
         // Opt-in usage patterns: one more chat on this harness (its kind, not the chat).
         cmux_usage_patterns::count("agent-chat", agent);
         if let Some(a) = &adopt {
@@ -646,7 +660,7 @@ impl Hub {
         super::full_access_bound::operation_entry(self);
         // Harness startup can itself run repository hooks and write files. A harness that gates
         // every tool on the sync itself starts at the repository's head (repo_sync.rs).
-        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let head_ok = super::repo_sync::gates_its_tools(profile);
         let cwd = session.meta().cwd;
         let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
@@ -736,6 +750,14 @@ impl Hub {
         self.wake_ended(session, wake, None);
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
+        // A Codex that went ahead at the head but started without the repository hook gets no
+        // prompt before the whole checkout is in (repo_sync.rs).
+        if super::repo_sync::start_waits_for_all(head_ok, profile, &child) {
+            let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+                session.stops.load(Ordering::SeqCst) != stops
+            })
+            .await?;
+        }
         Ok(child)
     }
 
@@ -1221,6 +1243,7 @@ impl Hub {
                 let mut m = session.meta.lock().unwrap();
                 m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
+                m.claude_unstored_work = false;
             }
             if !untouched {
                 session.rehydrate.store(true, Ordering::SeqCst);
@@ -1496,6 +1519,7 @@ impl Hub {
                 };
                 m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
+                m.claude_unstored_work = false;
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
                 }
@@ -1809,7 +1833,7 @@ impl Hub {
                 let meta = session.meta();
                 let cfg = self.config.read().await;
                 super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(&p))
             }
         };
         let cwd = session.meta().cwd;

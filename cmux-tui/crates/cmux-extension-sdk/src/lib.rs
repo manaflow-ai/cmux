@@ -236,6 +236,17 @@ impl Manifest {
         self.append_data("cmux.composer.command/1", "commands", entry)
     }
 
+    /// Shows an available composer action beside the + menu. Omitting the label uses the
+    /// action's localized title. The current composer's handler handles the click.
+    pub fn composer_toolbar_button(self, action: &str, label: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("action".into(), json!(action));
+        if let Some(label) = label {
+            entry.insert("label".into(), json!(label));
+        }
+        self.append_data("cmux.composer.toolbar/1", "buttons", Value::Object(entry))
+    }
+
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the
     /// daemon answers the completions. `insert` is what the mention writes (the label when None).
     pub fn mention(self, prefix: &str, id: &str, label: &str, insert: Option<&str>) -> Self {
