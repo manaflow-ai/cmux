@@ -86,7 +86,7 @@ impl ResumeRing {
     pub(crate) fn append(&self, output: &[u8]) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.end += output.len() as u64;
-        let tail = &output[output.len().saturating_sub(self.budget)..];
+        let tail = output.get(output.len().saturating_sub(self.budget)..).unwrap_or_default();
         inner.bytes.extend(tail.iter().copied());
         let over = inner.bytes.len().saturating_sub(self.budget);
         if over > 0 {
