@@ -256,6 +256,11 @@ export function runAgentConfigMock(
   if (!row.writableScopes.includes(scope)) return { state, answer: refusal(`cmux cannot write the ${scope} scope`) };
   const path = fileFor(state, scope);
   if (!path) return { state, answer: refusal(`there is no ${scope} file`) };
+  // The CLI's `--if-value` / `--if-unset`: a stale read writes nothing.
+  if (run.expect !== undefined && run.expect !== row.value) {
+    const now = row.value === null ? "unset (the agent's default)" : `${row.value} (${row.scope})`;
+    return { state, answer: refusal(`${row.key} changed since this was read; it is now ${now}. Nothing was written`) };
+  }
   const next = structuredClone(state);
   const curated = next.curated.find((candidate) => candidate.key === row.key)!;
   const others = next.entries.filter((candidate) => candidate.key !== row.key);

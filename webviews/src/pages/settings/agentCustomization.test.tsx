@@ -92,7 +92,7 @@ test("a pick sends exactly one set and the row shows the new value and scope", a
   const row = setting(page.container, "codex", "model_reasoning_effort");
   await changeValue(row.querySelector<HTMLSelectElement>("select[data-agent-value]")!, "low");
   expect(page.provider.agentConfigRuns).toEqual([
-    { verb: "set", agent: "codex", key: "model_reasoning_effort", value: "low", scope: "user" },
+    { verb: "set", agent: "codex", key: "model_reasoning_effort", value: "low", scope: "user", expect: "high" },
   ]);
   const after = setting(page.container, "codex", "model_reasoning_effort");
   expect(after.querySelector<HTMLSelectElement>("select[data-agent-value]")!.value).toBe("low");
@@ -108,7 +108,7 @@ test("a text is saved in the picked scope, and Use Default unsets the scope it c
   expect(page.provider.agentConfigRuns).toEqual([]);
   await click(row.querySelector('[data-agent-action="save"]')!);
   expect(page.provider.agentConfigRuns).toEqual([
-    { verb: "set", agent: "claude", key: "cleanupPeriodDays", value: "90", scope: "local" },
+    { verb: "set", agent: "claude", key: "cleanupPeriodDays", value: "90", scope: "local", expect: null },
   ]);
   const saved = setting(page.container, "claude", "cleanupPeriodDays");
   expect(saved.querySelector<HTMLInputElement>("input[data-agent-value]")!.value).toBe("90");
@@ -119,6 +119,7 @@ test("a text is saved in the picked scope, and Use Default unsets the scope it c
     agent: "claude",
     key: "model",
     scope: "project",
+    expect: "sonnet",
   });
   expect(setting(page.container, "claude", "model").querySelector("[data-agent-scope]")!.textContent).toBe("Default");
   page.unmount();
@@ -137,6 +138,21 @@ test("a refusal shows in plain words on the row and changes nothing", async () =
     "cmux cannot write the user scope",
   );
   expect(page.provider.agentConfig.codex.curated[0]!.value).toBe("gpt-5-codex");
+  page.unmount();
+});
+
+test("a save from a stale read is refused, names the value now, and the row shows it", async () => {
+  const page = await renderCard(<AgentCustomizationCard />, on);
+  // Claude Code's /model wrote opus after the page read sonnet.
+  page.provider.agentConfig.claude.curated[0]!.value = "opus";
+  const row = setting(page.container, "claude", "model");
+  await changeValue(row.querySelector<HTMLInputElement>("input[data-agent-value]")!, "haiku");
+  await click(row.querySelector('[data-agent-action="save"]')!);
+  expect(page.provider.agentConfigRuns.at(-1)).toMatchObject({ verb: "set", key: "model", expect: "sonnet" });
+  const after = setting(page.container, "claude", "model");
+  expect(after.querySelector("[data-agent-error]")!.textContent).toContain("it is now opus");
+  expect(page.provider.agentConfig.claude.curated[0]!.value).toBe("opus");
+  expect(after.querySelector<HTMLInputElement>("input[data-agent-value]")!.value).toBe("opus");
   page.unmount();
 });
 

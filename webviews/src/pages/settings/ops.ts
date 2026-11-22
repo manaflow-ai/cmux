@@ -1462,6 +1462,9 @@ export type AgentConfigRun = {
   key?: string;
   value?: string;
   scope?: string;
+  /** The row's value as the page drew it (null: the agent's default). The CLI writes only while
+   * it is still that, so a stale page never overwrites a newer edit (`agent_config.changed`). */
+  expect?: string | null;
   path?: string;
 };
 

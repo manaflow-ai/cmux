@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 
 /// Settings > Agents > Claude Code & Codex > Settings (webviews `AgentSettingsSection.tsx`, Labs
-/// `labs.agentCustomization`): `cmux.settings.agentConfig {verb, agent, key?, value?, scope?, path?}`
+/// `labs.agentCustomization`): `cmux.settings.agentConfig {verb, agent, key?, value?, scope?, expect?, path?}`
 /// runs `cmux --json agent-config settings VERB --agent A …` through the bundled CLI and answers its
 /// JSON, or its error envelope on a refusal. The reading, the scopes, the masking and every write
 /// are the CLI's (cmux-agent-customize `settings.rs`), so the card and the CLI never differ, and
@@ -121,6 +121,15 @@ public final class SettingsAgentConfig: PageProvider {
             if let scope = params["scope"]?.stringValue {
                 guard isScope(scope) else { throw PageError.invalidParams("scope is user, project, local or profile:NAME") }
                 arguments += ["--scope", scope]
+            }
+            // The row's value as the page drew it: the CLI writes only while it is still that
+            // (`agent_config.changed` otherwise), so a stale page never overwrites a newer edit.
+            switch params["expect"] {
+            case nil: break
+            case .null?: arguments += ["--if-unset"]
+            case let expect?:
+                guard let value = expect.stringValue else { throw PageError.invalidParams("expect is a string or null") }
+                arguments += ["--if-value", value]
             }
             return arguments
         default:
