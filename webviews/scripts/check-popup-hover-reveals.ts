@@ -8,6 +8,15 @@
  * before the menu can be used. This checker scans every webview stylesheet and only exempts
  * controls that are documented as non-popup reveals (keyboard hints, status text, and similar
  * affordances).
+ *
+ * The popup reveal may also take the flag form, which keeps the pane's restyles small: the block sets
+ * `--popup-in-<its class>: 1` from a `:has()` whose subject is the block itself, and the part reads it
+ * through a style query, its selector doubling the block's class in place of the `:hover`:
+ *   .row:has([data-popup-open]) { --popup-in-row: 1; }
+ *   @container style(--popup-in-row: 1) { .row.row .actions { opacity: 1; } }
+ * `.row:has([data-popup-open]) .actions` (a non-subject `:has()`) put `.actions` in Chromium's one shared
+ * `:has()` invalidation set, so every node inserted under the pane restyled every `.actions` drawn
+ * (ask-fac73c9b41; cmuxterm-hq docs/handbook/pane-level-has-restyles-every-row.md).
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -230,6 +239,21 @@ function cssRules(source: string): Rule[] {
   return parseRules(withoutComments(source));
 }
 
+/** The flag form (the header): `.X:hover REST` is covered by `.X:has([data-popup-open]) { --popup-in-X: 1 }`
+ * and `@container style(--popup-in-X: 1) { .X.X REST { the same reveal } }` in the same context. */
+function flagCovers(rules: Rule[], context: string, selector: string, covers: (key: string) => boolean): boolean {
+  const anchor = /(\.[\w-]+):hover\b/.exec(selector)?.[1];
+  if (!anchor || selector.split(":hover").length !== 2) return false;
+  const flag = `--popup-in-${anchor.slice(1)}`;
+  const set = rules.some(
+    (rule) =>
+      new RegExp(`(?:^|;)\\s*${flag}\\s*:\\s*1\\s*(?:;|$)`).test(rule.body.trim()) &&
+      splitSelectorList(rule.selector).some((part) => normalized(part).endsWith(`${anchor}:has([data-popup-open])`)),
+  );
+  const part = normalized(selector.replace(`${anchor}:hover`, `${anchor}${anchor}`));
+  return set && covers(`${context}@container style(${flag}: 1);|${part}`);
+}
+
 /** Returns every hover reveal that has no matching popup-open reveal. */
 export function findHoverRevealViolations(source: string, file = ""): HoverRevealViolation[] {
   const rules = cssRules(source);
@@ -256,13 +280,16 @@ export function findHoverRevealViolations(source: string, file = ""): HoverRevea
       const normalizedSelector = normalized(selector);
       if (NON_POPUP_REVEALS.has(`${file}|${normalizedSelector}`)) continue;
       const expected = normalized(selector.replace(/:hover\b/g, ":has([data-popup-open])"));
-      const popupDeclarations = revealed.get(`${rule.context}|${expected}`);
-      if (
-        !all.includes(`${rule.context}|${expected}`) ||
-        !popupDeclarations ||
-        [...declarations].some((declaration) => !popupDeclarations.has(declaration))
-      )
-        violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
+      const covers = (key: string) => {
+        const popupDeclarations = revealed.get(key);
+        return (
+          all.includes(key) &&
+          popupDeclarations !== undefined &&
+          [...declarations].every((declaration) => popupDeclarations.has(declaration))
+        );
+      };
+      if (covers(`${rule.context}|${expected}`) || flagCovers(rules, rule.context, selector, covers)) continue;
+      violations.push({ line: rule.line, selector: normalizedSelector, expected, file });
     }
   }
   return violations;

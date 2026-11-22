@@ -7816,6 +7816,12 @@ function TranscriptView({
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
             data-send-entrance={slimFollow ? "fade" : undefined}
+            // The running turn's live line is the last row (turns.ts LIVE_THINKING): the arriving rows'
+            // hand-over timing reads this (conversation.css), not `.acpmux-scroll:has(...) .acpmux-row`,
+            // which restyled every drawn row on each node the composer or a send inserted
+            // (ask-fac73c9b41, Leo 2026-11-22: "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES
+            // TOO FUCKING LONG").
+            data-live-line={rows.at(-1)?.id === LIVE_THINKING ? "" : undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
