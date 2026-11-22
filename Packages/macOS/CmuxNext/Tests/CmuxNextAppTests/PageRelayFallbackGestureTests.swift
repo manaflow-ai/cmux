@@ -91,8 +91,12 @@ import Testing
         }
         // A `confirm` op of a page that has one needs the sheet; a click is not enough.
         let apps = try Self.channel("cmux.apps")
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
-        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 8)) == .refused)
+        #expect(await Self.outcome(apps, "apps.uninstall", PageCallContext(page: "cmux.apps", origin: "user", confirmed: true)) == .forwarded)
+        // An install is a `gesture` op (Leo, 2026-11-16: "if i click install it means it works"):
+        // the Install click carries it, and a call with no click is still refused.
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps", userGesture: true, gestureEvent: 9)) == .forwarded)
+        #expect(await Self.outcome(apps, "apps.install", PageCallContext(page: "cmux.apps")) == .refused)
     }
 
     /// A change subscription never needs a gesture: on this daemon the page has no live events
