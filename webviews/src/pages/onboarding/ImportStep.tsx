@@ -18,6 +18,7 @@ import { Lock, Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { OPS, type ImportCounts, type ImportRow, type ImportState } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import { countsLine, importRowDetail, importStatus, keychainLine, kindLabel } from "./text";
+import { intl } from "../../ui/intl";
 
 /** Row slots kept mounted, so detection fills them in place. */
 export const IMPORT_ROW_SLOTS = 4;
@@ -87,6 +88,7 @@ function ProfileRow({ row, importer }: { row: Extract<ImportRow, { kind: "profil
         <span className="onb-import-sub">{subtitle}</span>
       </span>
       <span className="onb-import-trailing">
+        {/* tooltip-allow: a failed import's reason shows nowhere else. */}
         <span className="onb-import-detail" title={tooltip ?? undefined}>
           {text}
         </span>
@@ -223,7 +225,7 @@ function ImportList({ importer }: { importer: ImportState }) {
           className="onb-check onb-sync"
           data-off={history ? undefined : ""}
           inert={!history}
-          title={strings.t("onboarding.import.keepInSync.help")}
+          aria-description={strings.t("onboarding.import.keepInSync.help")}
         >
           <Check
             aria-label={strings.t("onboarding.import.keepInSync")}
@@ -359,9 +361,9 @@ function browsersOf(importer: ImportState, keep: (row: Extract<ImportRow, { kind
 
 function listOf(names: string[], language: string): string {
   try {
-    return new Intl.ListFormat(language, { type: "conjunction" }).format(names);
+    return intl.ListFormat(language, { type: "conjunction" }).format(names);
   } catch {
-    return new Intl.ListFormat("en", { type: "conjunction" }).format(names);
+    return intl.ListFormat("en", { type: "conjunction" }).format(names);
   }
 }
 
@@ -514,7 +516,7 @@ export function ImportStep({ importer, progress }: { importer: ImportState; prog
         )}
       </ViewSwap>
       {mode === "list" && status !== "" && (
-        <output className="onb-status" aria-live="polite" title={status || undefined}>
+        <output className="onb-status" aria-live="polite" aria-description={status || undefined}>
           {status}
         </output>
       )}

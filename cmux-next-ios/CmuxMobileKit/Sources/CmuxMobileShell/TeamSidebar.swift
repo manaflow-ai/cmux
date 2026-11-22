@@ -152,7 +152,7 @@ struct TeamSidebar: View {
             .fixedSize()
             .contentShape(.capsule)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .capsule)
         .disabled(shell.isFetchingInvite)
         .accessibilityLabel("Invite to \(team.name)")

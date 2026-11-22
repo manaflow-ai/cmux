@@ -171,6 +171,11 @@ fn scripted_app_host() {
                 if export == "crash" {
                     std::process::exit(70);
                 }
+                // `spin`: the op runs past its entry deadline, as `while (true) {}` does.
+                if export == "spin" {
+                    send(FromHost::Fatal { reason: FatalReason::Interrupt, entry: "run".into() });
+                    std::process::exit(70);
+                }
                 if export == "openLink" {
                     // An opener (`cmux.opener/1`): the link it was asked to open.
                     send(FromHost::Log {
@@ -510,6 +515,52 @@ fn app_entry(list: &Value, id: &str) -> Value {
     list["apps"].as_array().unwrap().iter().find(|a| a["id"] == id).cloned().unwrap_or(Value::Null)
 }
 
+/// A third-party app `acme/<dir>` from the store (the bundled folder) with the manifest
+/// `server` block `server` and two read ops, `acme.<dir>.go` (export `go`)
+/// and `acme.<dir>.spin` (export `spin`: the scripted host runs it past its
+/// deadline). `approve`: the manifest asks for `server:execute`, which the
+/// consent card grants at install.
+fn write_server_app_3p(root: &Path, dir: &str, server: Value, approve: bool) {
+    let app = root.join("bundled").join(dir);
+    std::fs::create_dir_all(app.join("dist")).unwrap();
+    std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};").unwrap();
+    let id = format!("acme/{dir}");
+    let family = cmux_app_manifest::app_namespace(&id);
+    let op = |verb: &str| {
+        json!({
+            "name": format!("{family}.{verb}"), "owner": format!("app:{id}"), "class": "read",
+            "risk": "read", "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d",
+            "since": format!("{dir}/1"), "export": verb
+        })
+    };
+    let catalog = json!({ "family": family, "operations": [op("go"), op("spin")] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    let mut scopes = json!({ format!("{family}:read"): "Read." });
+    if approve {
+        scopes["server:execute"] = json!("Run its server.");
+    }
+    let manifest = json!({
+        "manifestVersion": 2, "id": id, "name": "Server", "version": "1.0.0", "description": "d",
+        "engines": { "cmux": "^2.0" }, "repository": "https://github.com/acme/server", "runtime": { "main": "dist/main.js" },
+        "catalog": "catalog.json", "server": server, "scopes": scopes,
+        "files": ["dist/", "catalog.json"]
+    });
+    std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+}
+
+/// Runs `op` of `app` with `origin` and waits for its answer.
+fn run_op(
+    f: &Fixture,
+    app: &str,
+    op: &str,
+    origin: Origin,
+) -> Result<Value, super::supervisor::ApiError> {
+    let (tx, rx) = channel();
+    f.supervisor
+        .run(run_request(app, op, None, origin, None), Box::new(move |r| tx.send(r).unwrap()));
+    rx.recv_timeout(Duration::from_secs(10)).unwrap()
+}
+
 // MARK: install mirror over the wire shape
 
 #[test]
@@ -655,6 +706,31 @@ fn focus_ops_need_the_gesture_the_supervisor_minted() {
         key.as_deref().is_some_and(|k| k.starts_with("app:cmux/demo:")),
         "mutations get an idempotency key"
     );
+}
+
+/// A run of an app the catalog lacks names what the catalog holds, so a
+/// missing `cmux/cloud` says whether its folder was refused or never found.
+#[test]
+fn a_run_of_an_unknown_app_names_the_catalog_and_its_refusals() {
+    let root = temp_dir();
+    let broken = root.0.join("bundled/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("cmux-app.json"), "{").unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let error = run_op(&f, "cmux/cloud", "cloud.machine.list", Origin::Cli).unwrap_err();
+    assert_eq!(error.code, "apps.unknown");
+    assert_eq!(error.message, "no such app");
+    let details = error.details.expect("details");
+    assert_eq!(details["app"], "cmux/cloud");
+    assert!(details["first_party"].is_null(), "{details}");
+    let packages = details["packages"].as_array().unwrap();
+    assert!(packages.contains(&json!("cmux/demo")), "{details}");
+    let rejected = details["rejected"].as_array().unwrap();
+    let refused = rejected
+        .iter()
+        .find(|r| r["dir"].as_str().is_some_and(|d| d.ends_with("broken")))
+        .unwrap_or_else(|| panic!("{details}"));
+    assert!(!refused["issue"].as_str().unwrap().is_empty(), "{details}");
 }
 
 #[test]
@@ -1248,6 +1324,8 @@ mod provider_channel;
 mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_status_item_tests.rs"]
+mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
 #[path = "supervisor_widget_tests.rs"]
