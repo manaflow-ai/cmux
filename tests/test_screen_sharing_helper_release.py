@@ -31,7 +31,7 @@ NIGHTLY_REQUIREMENT = ('identifier "com.cmuxterm.app.nightly.screen-sharing" and
                        "certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and "
                        "certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and "
                        'certificate leaf[subject.OU] = "7WLXT3NR37"')
-KEY = "0123456789abcdef"
+KEY = "c" * 16  # a helper source key: 16 hex, not a secret
 COMMIT = "a" * 40
 
 

@@ -639,7 +639,7 @@ class MacLivePayload(unittest.TestCase):
     def helper_record(self, **change):
         data = b"the signed helper's zip"
         (self.served / release.ZIP).write_bytes(data)
-        value = {"schema": 1, "key": "0123456789abcdef", "commit": "f" * 40, "zip": release.ZIP,
+        value = {"schema": 1, "key": "c" * 16, "commit": "f" * 40, "zip": release.ZIP,
                  "sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "bundle_id": release.BUNDLE_ID,
                  "team": release.TEAM, "designated_requirement": release.requirement(release.BUNDLE_ID, release.TEAM)}
         value.update(change)
