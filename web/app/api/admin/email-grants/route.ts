@@ -23,7 +23,10 @@ import { enforceBrowserMutationProtection } from "../../../../services/vms/route
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * POST /api/admin/email-grants { email, plan: "pro" | "founders" }
+ * POST /api/admin/email-grants { email, plan: "pro" | "max" | "founders" | "next_plus" | "next_pro" | "next_max" }
+ *
+ * The plan lands in its own slot (a cmux NEXT plan in the NEXT slot), so an
+ * account's grant in the other slot is kept.
  *
  * Grants directly when exactly one non-anonymous Stack user owns the email
  * with a verified mailbox. Otherwise records a pending grant that is applied

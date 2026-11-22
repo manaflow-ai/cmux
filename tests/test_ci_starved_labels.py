@@ -90,6 +90,31 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(starved(queued, job(label="cmux-fleet-linux-x64", status="in_progress", created=30,
                                              started=20, runner="cmux-gha-runner-1116-1")), [])
 
+    def test_the_persistent_linux_pool_label_is_in_scope(self) -> None:
+        # Same-repository jobs name cmux-linux (PR #47956); a pool that stops listening must alert too.
+        queued = job(label="cmux-linux", created=780, name="web / react-doctor")
+        self.assertEqual([entry["label"] for entry in starved(queued)], ["cmux-linux"])
+        self.assertEqual(starved(queued, job(label="cmux-linux", status="in_progress", created=30,
+                                             started=20, runner="cmux-gha-runner-1120-1")), [])
+
+    def test_one_pool_label_running_serves_the_other(self) -> None:
+        # Every pool runner registers both cmux-linux and cmux-fleet-linux-x64, so either label's running job
+        # proves a listener for the other (router-review F1 on #47956).
+        for queued_label, running_label in (("cmux-linux", "cmux-fleet-linux-x64"),
+                                            ("cmux-fleet-linux-x64", "cmux-linux")):
+            with self.subTest(queued=queued_label):
+                queued = job(label=queued_label, created=60)
+                running = job(label=running_label, status="in_progress", created=30, started=20,
+                              runner="cmux-runner-pool-c1f-0014-1")
+                self.assertEqual([e["label"] for e in starved(queued)], [queued_label])
+                # Two runs, so the running job is no sibling that may gate the queued one (wait_start()).
+                self.assertEqual(starved_labels.starved([{"id": 1}, {"id": 2}], {1: [queued], 2: [running]},
+                                                        now=NOW), [])
+        # A glaeda label is not the pool's: a pool job (in another run, so it is no sibling) serves no Mac label.
+        pool_job = job(label="cmux-linux", status="in_progress", created=30, started=20, runner="p-1")
+        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=60)], 2: [pool_job]}, now=NOW)
+        self.assertEqual([e["label"] for e in found], [SIDE])
+
     def test_a_cancelled_job_that_never_got_a_runner_is_no_start(self) -> None:
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
         self.assertEqual([entry["label"] for entry in found], [SIDE])
@@ -311,6 +336,104 @@ def dispatches(github: FakeGitHub) -> list:
             if method == "POST" and path.endswith("/actions/workflows/ci-owned-pool-rescue.yml/dispatches")]
 
 
+def gate_row(*, listening=0, busy=0, units=0, cpu=0, livelock=0, other=0, down=0, unreported=0) -> dict:
+    return {"listening": listening, "busy": busy, "down": down, "unreported": unreported, "queued": 1,
+            "oldest_queued_s": 1800, "as_of": iso(1),
+            "held_offline": {"total": units + cpu + livelock + other, "units": units, "cpu": cpu,
+                             "livelock": livelock, "other": other}}
+
+
+def gates(minutes_ago: float = 1, **rows) -> dict:
+    return {"version": 1, "as_of": iso(minutes_ago), "labels": rows}
+
+
+STD = "glaeda-std-xcode-26.6"
+
+
+class CarrierTests(unittest.TestCase):
+    """Full (busy, or held for units or load) is capacity; offline (down with no hold) is an outage."""
+
+    def state(self, label: str, reading) -> str:
+        return starved_labels.carriers(label, reading, NOW)["state"]
+
+    def test_every_carrier_busy_or_held_for_units_reads_full(self) -> None:
+        # cmux#45614: every std mini ran jobs or held its root runner for units; GitHub showed them offline.
+        found = starved_labels.carriers(STD, gates(**{STD: gate_row(busy=13, units=24, other=17)}), NOW)
+        self.assertEqual(found["state"], "full")
+        self.assertIn("13 busy", found["why"])
+        self.assertIn("24 units", found["why"])
+
+    def test_carriers_held_only_for_load_read_full(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(cpu=5, other=2)})), "full")
+
+    def test_carriers_down_with_no_hold_and_none_running_read_offline(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=4)})), "offline")
+
+    def test_one_busy_carrier_beside_down_ones_reads_full_and_names_the_down_ones(self) -> None:
+        found = starved_labels.carriers(SIDE, gates(**{SIDE: gate_row(busy=1, down=3)}), NOW)
+        self.assertEqual(found["state"], "full")
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j", "carriers": found}
+        self.assertIn("3 of its carriers are down with no hold", starved_labels.issue_body(entry, iso(0)))
+
+    def test_down_carriers_beside_unreported_ones_read_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(down=1, unreported=10)})), "unknown")
+
+    def test_an_idle_listener_reads_listening(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(listening=1, busy=2)})), "listening")
+
+    def test_a_label_with_no_carrier_reads_none(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row()})), "none")
+
+    def test_only_unreported_carriers_read_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, gates(**{SIDE: gate_row(unreported=3)})), "unknown")
+
+    def test_no_stale_or_missing_reading_reads_unknown(self) -> None:
+        self.assertEqual(self.state(SIDE, None), "unknown")
+        self.assertEqual(self.state(SIDE, gates(minutes_ago=6, **{SIDE: gate_row(busy=1)})), "unknown")
+        self.assertEqual(self.state(SIDE, gates(**{OTHER: gate_row(busy=1)})), "unknown")
+
+    def test_a_label_over_several_parts_reads_its_worst_part_and_an_unlisted_part_is_unknown(self) -> None:
+        # cmux#45620: glaeda-ios-sim+glaeda-std; the reading lists std only, so std being full proves nothing.
+        both = f"glaeda-ios-sim+{STD}"
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3, units=4)})), "unknown")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(units=2)})),
+                         "full")
+        self.assertEqual(self.state(both, gates(**{STD: gate_row(busy=3), "glaeda-ios-sim": gate_row(down=2)})),
+                         "offline")
+
+    def test_the_stale_bound_matches_the_janitors(self) -> None:
+        text = (ROOT / "scripts/ci/queue_janitor.py").read_text(encoding="utf-8")
+        self.assertIn(f"FLEET_GATES_STALE_S = {starved_labels.CARRIER_READING_STALE_S}\n", text)
+
+    def test_the_issue_body_says_full_or_offline(self) -> None:
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j"}
+        full = starved_labels.issue_body({**entry, "carriers": {"state": "full", "why": "x"}}, iso(0))
+        offline = starved_labels.issue_body({**entry, "carriers": {"state": "offline", "why": "x"}}, iso(0))
+        self.assertIn("full, not offline", full)
+        self.assertNotIn("outage", full)
+        self.assertIn("outage", offline)
+        self.assertIn("No runner with this label is taking jobs", starved_labels.issue_body(entry, iso(0)))
+
+    def test_main_classifies_each_starved_label_from_the_snapshot_gates(self) -> None:
+        entry = {"label": SIDE, "oldest_queued_minutes": 30, "queued": 1, "job_url": "u", "job": "j"}
+        snapshot = {"generated_at": iso(0), "starved": [entry, {**entry, "label": OTHER}],
+                    "gates": gates(**{SIDE: gate_row(busy=2, units=3), OTHER: gate_row(down=2)})}
+        github = FakeGitHub([])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(starved_labels, "client", return_value=github):
+            path = Path(tmp) / "load.json"
+            path.write_text(json.dumps(snapshot), encoding="utf-8")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = starved_labels.main(["--snapshot", str(path)], env={"GH_REPO": "manaflow-ai/cmux", "GH_TOKEN": "t"})
+        self.assertEqual(code, 0)
+        self.assertIn(f"{SIDE} took no job for 30m, carriers full", out.getvalue())
+        self.assertIn(f"{OTHER} took no job for 30m, carriers offline", out.getvalue())
+        bodies = {body["title"]: body["body"] for method, path, body in github.calls
+                  if method == "POST" and path.endswith("/issues")}
+        self.assertIn("full, not offline", bodies[starved_labels.issue_title(SIDE)])
+        self.assertIn("an outage", bodies[starved_labels.issue_title(OTHER)])
+
+
 class RescueTests(unittest.TestCase):
     """cmux#45115 (2026-11-17): glaeda-ios-sim+glaeda-std-xcode-26.6 unserved 539 minutes, 16 jobs queued, every
     carrier held off by its mini's gate; the alert opened an issue and NOW paged it, and nothing moved a job."""
@@ -342,6 +465,18 @@ class RescueTests(unittest.TestCase):
         github = FakeGitHub([dict(search_item(IOS, 45115), body=f"<!-- starved-rescue: 11@{iso(230)} -->")])
         starved_labels.sync_issues(github, found, iso(0), now=NOW)
         self.assertEqual(dispatches(github), ["11"])
+
+    def test_the_persistent_pool_label_alerts_but_starts_no_rescue(self) -> None:
+        # A job on cmux-linux names it literally, so the rescue cannot move it (PR #47956 review).
+        stuck = job(label="cmux-linux", created=231, name="full bake")
+        stuck["run_id"], stuck["run_attempt"] = 11, 1
+        found = starved_labels.starved([{"id": 11}], {11: [stuck]}, now=NOW)
+        self.assertEqual([entry["label"] for entry in found], ["cmux-linux"])
+        self.assertEqual(starved_labels.rescue_plan(found[0], {}, NOW), [])
+        github = FakeGitHub([])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), [])
+        self.assertEqual(github.opened(), 1)
 
     def test_a_label_starved_under_thirty_minutes_only_alerts(self) -> None:
         found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 25)]}, now=NOW)
@@ -394,7 +529,7 @@ class WorkflowTests(unittest.TestCase):
         concurrency = workflow["concurrency"]
         self.assertIs(concurrency["cancel-in-progress"], False)
         # every run that sweeps shares one group; only a run whose job starts no sweep gets its own
-        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor' }}"), concurrency["group"])
+        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor-v2' }}"), concurrency["group"])
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

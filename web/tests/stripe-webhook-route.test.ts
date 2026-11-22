@@ -621,6 +621,39 @@ describe("Stripe billing webhook route", () => {
     );
   });
 
+  test("keeps route tokens and API keys when the lapsed subscription leaves the person entitled", async () => {
+    // A cmux NEXT subscription ended, or a classic entitlement remains.
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: false,
+      retainsAccess: true,
+    };
+    currentEvent = {
+      id: "evt_next_deleted",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_next",
+          customer: "cus_1",
+          status: "canceled",
+          metadata: { stackUserId: "user_1", app: "cmux", plan: "next_pro" },
+        },
+      },
+    };
+    retrievedSubscription = {
+      ...(currentEvent.data as { object: Record<string, unknown> }).object,
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription);
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+  });
+
   test("revokes every selected-team route after Team cancellation", async () => {
     applySubscriptionUpdateResult = {
       scope: "team",
