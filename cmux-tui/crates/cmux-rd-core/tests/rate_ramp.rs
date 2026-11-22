@@ -280,9 +280,9 @@ fn routed_path_motion_from_start() {
 
 /// Send stage "at any rate": frames at the budget (`rate / fps`), at 60 and
 /// 30 fps, and frames at twice the budget (an encoder overshoot, a keyframe
-/// smaller than the pacer's rise). The pacer drains a frame at 2.5x the target
-/// or within half a frame interval, so at-budget send is 0.4 of an interval:
-/// 6.7 ms at 60 fps, 13.3 ms at 30 fps.
+/// smaller than the pacer's rise). The pacer drains a frame at 2.5x the target,
+/// or within half a frame interval or 8 ms, whichever is shorter, so send stays
+/// at or under 8 ms at 30 fps too (11.4 ms before the absolute window).
 #[test]
 fn send_stage_at_budget_and_over_budget() {
     let mut rows = Vec::new();
@@ -293,6 +293,6 @@ fn send_stage_at_budget_and_over_budget() {
             report(&format!("send, {fps} fps, frame {fill}x budget"), &sim, 2_000_000);
         rows.push((fps, fill, send.0));
     }
-    // Printed for the record; the 60 fps at-budget row is the goal's case.
-    assert!(rows[0].2 <= 8.0, "{rows:?}");
+    // "at any rate": every row.
+    assert!(rows.iter().all(|r| r.2 <= 8.0), "{rows:?}");
 }
