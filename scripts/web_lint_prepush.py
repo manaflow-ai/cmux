@@ -1887,6 +1887,15 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
         for result in failed:
+            # A ratchet that lands with its own script and baseline: the base cannot run it, so every finding on
+            # the merge (base's own moves since the baseline was written included) would be charged here. The
+            # same rule as the webviews checks gate (NEW_CHECK_SCRIPTS); later PRs compare normally.
+            script = compare.NEW_CHECK_SCRIPTS.get(result.command.removeprefix("bun run ").strip())
+            if script and not (base_tree / result.label / script).is_file():
+                print(f"::warning title=web lint (new check)::{result.label}: {result.command} is new; the base "
+                      f"{base[:12]} has no {script}, so this transition is not charged", file=sys.stderr)
+                result.returncode = 0
+                continue
             whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
             if whole and ensure_deps(base_tree, result.label):
                 continue  # no base to compare with: the red stays this change's
