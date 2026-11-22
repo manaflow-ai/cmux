@@ -70,6 +70,6 @@ public nonisolated enum WebDevToolsLimit: String, CaseIterable, Hashable, Sendab
     }
 
     private func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "DevTools", bundle: .module)
+        String(localized: key, defaultValue: english, table: "DevTools", bundle: .localizedModule)
     }
 }
