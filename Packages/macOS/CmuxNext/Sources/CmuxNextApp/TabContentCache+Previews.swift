@@ -1,8 +1,10 @@
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextTerminal
 import CoreGraphics
+import Foundation
 
 /// Hover card and drag thumbnails of `TabContentCache` tabs.
 extension TabContentCache {
