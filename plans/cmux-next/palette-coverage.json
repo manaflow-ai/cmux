@@ -1517,7 +1517,7 @@
     },
     {
       "verb": "remote-host stop",
-      "palette": "remote.stopScreenSession"
+      "palette": "macScreen.stopSharing"
     },
     {
       "verb": "room create",
