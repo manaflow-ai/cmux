@@ -80,8 +80,11 @@ public protocol AppsTransport: AnyObject {
 }
 
 public extension AppsTransport {
-    /// A transport without chat widget routing answers that no widget shows.
-    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON { ["widget": .null] }
+    /// The daemon's chat widget route, as a store op (`apps.chat_widgets.route`); a transport that
+    /// serves no store ops answers `{}`, which the page reads as no widget.
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        try await storeCall("apps.chat_widgets.route", args: args)
+    }
     /// A transport without web panes refuses every page call.
     func pageCall(app: String, page: String, message: String) async throws(AppsTransportError) -> AppJSON {
         // The wire command it lacks, not prose: the page shows the code.
