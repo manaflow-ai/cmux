@@ -142,7 +142,7 @@ jobs:
       # fleet step's engine does); the PR head is fetched as git objects and planned as `sha:` (no worktree
       # of it). A PR that brings the engine itself, before the base has one, is planned with its own scripts/.
       - name: Checkout the base branch's scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -311,7 +311,7 @@ jobs:
       event_at: ${{ steps.check.outputs.event_at }}
     steps:
       - name: Checkout the pull request check
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -372,7 +372,7 @@ jobs:
       key: ${{ steps.key.outputs.key }}
     steps:
       - name: Checkout the pull request head (trees only)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.target.outputs.head }}
           persist-credentials: false
@@ -441,7 +441,7 @@ jobs:
       actions: write
     steps:
       - name: Checkout the publisher
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false

@@ -67,7 +67,7 @@ jobs:
       attempt: ${{ steps.pick.outputs.attempt }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
@@ -119,7 +119,7 @@ jobs:
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
 
       - name: Checkout the commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha }}
@@ -202,7 +202,7 @@ jobs:
       ref: ${{ steps.asc.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -244,7 +244,7 @@ jobs:
       ASC_REF: ${{ needs.previous-build.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # History (trees, no file contents) for git log over base..sha; the
@@ -288,7 +288,7 @@ jobs:
       ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
       - name: Checkout the builder branch (trusted signing script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
