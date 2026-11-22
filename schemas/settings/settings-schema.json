@@ -91559,7 +91559,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 8,
+      "default" : 6,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",

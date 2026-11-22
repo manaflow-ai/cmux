@@ -355,6 +355,13 @@ fn each_verb_carries_its_arguments() {
             Some(10)
         )
     );
+    // The start gate names the team its machines are made in (the install's own): the active team's gateway serves
+    // only that team's machines, so reading it waved a start through that no gateway served (start matrix, 13:10Z
+    // 2026-11-22: the active team's gateway off, the machines' team's on).
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123"})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123"]
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(
