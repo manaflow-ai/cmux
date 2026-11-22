@@ -130,6 +130,22 @@ expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
 
+# Each cargo package builds with its own -p: a joint -p a -p b build unifies features, so -p b alone
+# would rebuild its dependencies inside the cap.
+registry '{"entries": [
+  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"},
+  {"name": "clock again", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "filter": "again", "owner": "op-test"},
+  {"name": "reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-test"}]}'
+run --dry-run
+expect "dry run builds the first cargo package alone" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
+expect "dry run builds the second cargo package alone" 0 "^BUILD cargo test --locked --no-run -p cmux-layout-reducer \\(in cmux-tui\\)$"
+if [ "$(grep -c '^BUILD cargo' <<<"$out")" -ne 2 ]; then echo "FAIL: one build per cargo package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+
+registry '{"entries": [
+  {"name": "tokens", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "MotionTokenTests", "owner": "op-test"},
+  {"name": "intents", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "IntentMappingTests", "owner": "op-test"},
+  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"}]}'
+
 # --kind splits one registry between the Linux cargo job and the Mac Swift job:
 # each runs and builds only its kinds, and a kind with no entry is refused.
 run --dry-run --kind cargo

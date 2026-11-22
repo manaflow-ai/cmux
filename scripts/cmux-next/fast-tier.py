@@ -223,10 +223,16 @@ def build_packages(root, entries, dry_run, timing):
              for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
                           (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
                            f"{package} test plan"))]
+    # One build per package, with the entry's own `-p`: cargo unifies features across the packages it
+    # selects, so a joint `-p a -p b` build leaves `-p b` alone to rebuild its dependencies inside the
+    # 60 s cap. On a cold runner sidebar layout reducer spent 41 s there and timed out as FLAKY (pool
+    # jobs 137147817305, 137153270114, 2026-11-22).
     cargo = []
     for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
-        packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+        packages = list(dict.fromkeys(e["package"] for e in entries if e["kind"] == "cargo" and e["path"] == path))
+        for package in packages:
+            what = path if len(packages) == 1 else f"{path} -p {package}"
+            cargo.append((["cargo", "test", "--locked", "--no-run", "-p", package], path, what))
     builds = swift + cargo
     if dry_run:
         for argv, cwd, what in builds:
