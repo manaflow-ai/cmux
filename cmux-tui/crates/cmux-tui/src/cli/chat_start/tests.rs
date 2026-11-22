@@ -1622,6 +1622,7 @@ fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
                         catalog: no_session,
                         signed_in: || true,
                         cloud_machines: || Ok(listed()),
+                        peers: unread_peers,
                     },
                 )
             },
@@ -1668,6 +1669,7 @@ fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
                         catalog: || Ok(catalog()),
                         signed_in: || true,
                         cloud_machines: || Ok(listed()),
+                        peers: || Ok(peers()),
                     },
                 )
             },
