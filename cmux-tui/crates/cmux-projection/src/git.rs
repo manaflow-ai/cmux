@@ -606,6 +606,15 @@ impl Worktree {
                 command.arg("core.excludesFile").arg(&exclude);
                 output(command)?;
             }
+            // With per-worktree config on, a bare mirror's `core.bare = true` reaches its
+            // worktrees too, and git refuses `status` in one ("must be run in a work tree").
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", "core.bare"]);
+            if output(read).unwrap_or_default() != b"false\n" {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config).args(["core.bare", "false"]);
+                output(command)?;
+            }
         }
         Ok(Self { admin })
     }

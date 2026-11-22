@@ -288,3 +288,63 @@ fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
     assert_eq!(blobs.read(main, 0, 64).unwrap(), b"fn main() {}\n");
     assert_eq!(blobs.fetches(), 2, "a second read is local");
 }
+
+#[test]
+fn a_lazy_mount_of_a_bare_blobless_mirror_is_a_clean_worktree_that_fetches_what_is_read() {
+    let fuse = Path::new("/dev/fuse").exists()
+        && Command::new("fusermount3")
+            .arg("--version")
+            .output()
+            .is_ok_and(|out| out.status.success());
+    if !fuse {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let (dir, mirror, commit) = blobless(true);
+    // As the lane mirrors have it: bare, with per-worktree config.
+    run(&mirror, &["config", "extensions.worktreeConfig", "true"]);
+    let at = dir.path().join("mnt");
+    std::fs::create_dir_all(&at).unwrap();
+    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    let links = link_texts(&mirror, &tree.items).unwrap();
+    let admin = mirror.join("worktrees").join("projected");
+    let real_root = dir.path().join("real");
+    let layout = Layout {
+        commit_ns: 1_000_000_000,
+        now_ns: 5_000_000_000,
+        gitfile: Some(Worktree::gitfile(&admin)),
+        real_root: &real_root,
+        links: &links,
+    };
+    let projection =
+        Projection::build(&commit, &tree.items, &mut Book::default(), &layout).unwrap();
+    for real in &projection.real_dirs {
+        std::fs::create_dir_all(real_root.join(real)).unwrap();
+    }
+    // SAFETY: getuid and getgid cannot fail.
+    let owner = unsafe { (libc::getuid(), libc::getgid()) };
+    let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
+    Worktree::write(&mirror, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
+    let blobs = std::sync::Arc::new(
+        GitBlobs::new(&mirror, projection.sources).lazy(&projection.manifest, tree.missing),
+    );
+    let overlay = std::sync::Arc::new(
+        crate::overlay::Overlay::open(
+            std::sync::Arc::new(projection.manifest),
+            &dir.path().join("state"),
+            blobs.clone(),
+            owner,
+        )
+        .unwrap(),
+    );
+    let mounted = crate::mount::mount(overlay, &at).unwrap();
+    assert_eq!(run(&at, &["status", "--porcelain"]), "", "clean, by stat alone");
+    assert_eq!(blobs.fetches(), 0, "git status read no file");
+    assert_eq!(missing_count(&mirror, &commit), 6);
+    assert_eq!(std::fs::read_to_string(at.join("crate/src/main.rs")).unwrap(), "fn main() {}\n");
+    assert_eq!(blobs.fetches(), 1);
+    assert_eq!(missing_count(&mirror, &commit), 5);
+    std::fs::write(at.join("a/c"), "changed\n").unwrap();
+    assert_eq!(run(&at, &["status", "--porcelain"]), " M a/c\n");
+    mounted.unmount();
+}
