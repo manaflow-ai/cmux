@@ -2937,6 +2937,7 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
     // The newest call: a thought after it is no call.
     const items = row.items ?? [];
     let index = items.length - 1;
+    // ends: `index` falls by one each pass and stops below 0
     while (index >= 0 && !items[index]!.tool) index -= 1;
     if (index < 0) continue;
     const tool = items[index]!.tool;
