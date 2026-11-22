@@ -334,7 +334,7 @@ fn a_send_to_a_down_ssh_peer_is_delivered_once_over_ssh_and_not_again_on_reconne
     assert_eq!(pair.status(&id)["status"], "delivered");
 }
 
-/// B's `user_message` record of the prompt whose text holds `words`, once it is there. A miss
+/// B's record of the message whose text holds `words`, once it is there. A miss
 /// says what both machines saw: the carries counted, B's whole record, and each daemon's log.
 fn carried(pair: &Pair, delivery: &str, words: &str) -> Value {
     let info = json_of(&cli(&pair.b.home, &["--json", "info", "lane-x"]));
@@ -342,13 +342,20 @@ fn carried(pair: &Pair, delivery: &str, words: &str) -> Value {
     let events = |params: Value| unix(&pair.b.home, "_acpmux/events", params);
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        let page = events(json!({"sessionId": session, "kinds": ["user_message"]}));
+        // The person's prompt is a `user_message`; another agent's message that starts no turn
+        // is kept in the session's inbox (`inbox`), its words in `prompt`.
+        let page = events(json!({"sessionId": session}));
         let found = page["result"]["events"]
             .as_array()
             .into_iter()
             .flatten()
+            .filter(|e| matches!(e["kind"].as_str(), Some("user_message" | "inbox")))
             .map(|e| e["msg"].clone())
-            .find(|m| m["text"].as_str().is_some_and(|t| t.contains(words)));
+            .find(|m| {
+                let said = |v: &Value| v.as_str().is_some_and(|t| t.contains(words));
+                said(&m["text"])
+                    || m["prompt"].as_array().into_iter().flatten().any(|b| said(&b["text"]))
+            });
         if let Some(found) = found {
             return found;
         }
@@ -423,6 +430,7 @@ fn an_agents_send_carried_over_ssh_is_never_recorded_as_the_person() {
         agent.pointer("/_meta/provenance/fromRelay/machine").is_some_and(Value::is_string),
         "and the machine it came from: {agent}"
     );
+    assert_eq!(agent.pointer("/sender/actorKind"), Some(&json!("other_agent")), "{agent}");
 
     let id = pair.send("owner-words");
     let owner = carried(&pair, &id, "owner-words");
