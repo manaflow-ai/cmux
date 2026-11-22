@@ -593,8 +593,8 @@ test("switching away from a chat twice before its detaches answer attaches it af
     expect(settled).toBe(false);
     expect(attachesOfA()).toBe(before);
     daemon.releaseDetach();
-    // The switch the first detach held was superseded and attached nothing.
-    expect(await first).toBeUndefined();
+    // The first switch was superseded by B, but a newer select of the same chat (A) decides for it (issue 44964).
+    expect(await first).toBe(A);
     expect(await back).toBe(A);
     expect(attachesOfA()).toBe(before + 1);
     const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
