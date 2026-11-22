@@ -597,20 +597,24 @@ the Mac.
 - **Rule 6 (tests):** `agent_tabs_get_this_macs_host` and
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
-- **A chat tab's first message from the phone:** `bind-conversation-tab-session`
-  is new on the allowlist, so a chat tab made on the Mac (or a Duplicate) that
-  has no session yet starts from the phone's first message, as it does from the
-  Mac's. The phone starts the session over its `acpmux` lane (`session/new`,
-  under the same remote guard as above), then binds it to the tab.
-  `DaemonPolicy::bind_verdict` narrows the command to one shape:
-
-| Rule 2 question | Answer |
-| --- | --- |
-| Executes commands or opens content on local objects? | No. It records which acpmux session a chat tab shows. The session was already started over the `acpmux` lane, under its guard. |
-| Mutates or destroys objects the session does not own? | Only an unbound tab. The phone may set only `surface` (a number), `session` (`[A-Za-z0-9._:-]`, at most 128 bytes), `harness` (the same alphabet, at most 64) and `expected_session`, which must be null: the daemon's compare-and-swap then refuses a tab that already shows a session (`conversation_tab.session_conflict`), so the phone can never move a running chat to another session. Any other field is refused. The daemon itself refuses `registry:` tabs, which start through `agent-session-start`. Without `CMUX_MOBILE_AGENT_TAB_HOST` (an older app) the command is refused with `unavailable`, as `new-conversation-tab` is. |
-| Reads local state the remote should not see? | No new read. |
-
-- **Rule 6 (tests):** `a_phone_binds_its_new_session_only_to_an_unbound_chat_tab` (policy).
+- **The first message of a Mac's New chat tab:** `bind-conversation-tab-session` is new on the
+  allowlist, so a tab the Mac opened with no session starts from the phone's first send the way
+  it starts from the Mac's: the phone makes the session with `session/new` (as above), then binds
+  it to that tab. `DaemonPolicy::bind_verdict` narrows it to the daemon's own four fields,
+  `surface`, `session`, `harness` and `expected_session`, which must be `null`, so the daemon's
+  compare-and-swap applies only to a tab with no chat and a phone never swaps the chat a tab
+  shows. `Ownership::UnboundAgentTab` then confirms against the Mac's `list-workspaces` that the
+  surface is an agent tab recorded for this Mac's own `install:<id>` with no session; any other
+  tab (a terminal, a `registry:` or another Mac's chat, a bound chat) is refused. That tree comes
+  from hostd's cache connection, which declares `agent-session-tabs-v1` so the daemon lists agent
+  tabs with their host and session (without it they read as browser tabs and every bind is
+  refused). Rule 2: the bind runs nothing (the session behind it was made under acpmux's remote
+  guard), changes only a tab of this Mac that shows nothing yet, and reads nothing new: the
+  session id it names is one the phone can already open in a tab with `new-conversation-tab`
+  (same id check), and attach over `acpmux`. Without `CMUX_MOBILE_AGENT_TAB_HOST` it is refused
+  with `unavailable`; the Swift mirror lists it and refuses it, as `new-conversation-tab`. Tests:
+  `a_phone_binds_its_first_session_only_to_an_unbound_tab`,
+  `the_bound_tab_is_an_unbound_agent_tab_of_this_mac` (policy).
 
 ## `daemon`: terminal agents in the Feed
 

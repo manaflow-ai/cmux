@@ -6,9 +6,8 @@ import Testing
 @testable import CmuxMobileLive
 
 /// Leo 2026-11-22: "figure out the fucking right behaviour we want, perfect it." A chat tab the
-/// Mac opened that has no session yet said "Agent hasn't started in this tab. Send the first
-/// message from cmux on <Mac>; the chat continues here." Now the phone's first message starts
-/// it, and the chat streams in the same store.
+/// Mac opened that has no session yet told the person to send its first message from the Mac.
+/// Now the phone's first message starts it, and the chat streams in the same store.
 @MainActor
 @Suite struct UnboundChatFirstMessageTests {
     func summary(harness: String = "agent", agent: String = "Agent") -> AgentSessionSummary {
