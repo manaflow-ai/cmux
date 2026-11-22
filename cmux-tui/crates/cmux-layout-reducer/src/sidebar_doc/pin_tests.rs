@@ -29,9 +29,20 @@ fn run(doc: &mut Doc, ops: Vec<Op>) -> Vec<Op> {
 
 /// Machine section: w4, group g1 (w1, w2, w3), w5.
 fn fixture() -> Doc {
+    build(false)
+}
+
+/// The fixture with the Pinned band already there, as the app has it; a
+/// drag (`Op::Move`) into a band that does not exist goes nowhere.
+fn banded() -> Doc {
+    build(true)
+}
+
+fn build(band: bool) -> Doc {
     let mut section = Section::machine(SESSION);
     section.order = super::order_key::spread(1).remove(0);
-    let mut doc = Doc::from_parts(0, vec![section], vec![]);
+    let sections = if band { vec![Section::pinned(), section] } else { vec![section] };
+    let mut doc = Doc::from_parts(0, sections, vec![]);
     run(
         &mut doc,
         vec![Op::Adopt { refs: ["w4", "w1", "w2", "w3", "w5"].map(reference).to_vec(), to: None }],
@@ -109,14 +120,15 @@ fn pin_on_a_group_member_moves_it_to_the_pinned_band() {
 #[test]
 fn pin_and_a_drag_into_pinned_make_the_same_pin() {
     for id in ["w4", "w2"] {
-        let mut pinned = fixture();
+        let mut pinned = banded();
         run(&mut pinned, vec![Op::Pin { items: vec![item_id(id)] }]);
-        let mut dragged = fixture();
+        let mut dragged = banded();
         run(
             &mut dragged,
             vec![Op::Move { items: vec![item_id(id)], to: Target::end(PINNED_SECTION_ID) }],
         );
         let (a, b) = (pinned.item(&item_id(id)).unwrap(), dragged.item(&item_id(id)).unwrap());
+        assert_eq!(b.section, PINNED_SECTION_ID, "the drag pinned {id}");
         assert_eq!((&a.section, &a.parent, &a.extra), (&b.section, &b.parent, &b.extra), "{id}");
         assert_eq!(list(&pinned, PINNED_SECTION_ID, None), list(&dragged, PINNED_SECTION_ID, None));
     }
@@ -145,9 +157,11 @@ fn unpin_puts_a_group_member_back_in_its_group_where_it_was() {
 
 #[test]
 fn a_group_member_dragged_into_pinned_unpins_back_into_its_group() {
-    let mut doc = fixture();
+    let mut doc = banded();
     let to = Target { section: PINNED_SECTION_ID.into(), index: Some(0), ..Target::default() };
     run(&mut doc, vec![Op::Move { items: vec![item_id("w1")], to }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w1"], "the drag pinned it");
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w2", "w3"]);
     run(&mut doc, vec![Op::Unpin { items: vec![item_id("w1")] }]);
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
 }

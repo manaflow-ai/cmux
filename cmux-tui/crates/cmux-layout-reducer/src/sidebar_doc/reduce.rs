@@ -926,7 +926,13 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
         if item.parent.is_some() && item.section != PINNED_SECTION_ID {
             continue;
         }
-        let machine = unpin_machine(tx.doc, item).ok_or(Refusal::NoMachine)?;
+        let Some(machine) = unpin_machine(tx.doc, item) else {
+            // A member of a pinned tree with no machine (a link, a tab) stays in its tree.
+            if item.parent.is_some() {
+                continue;
+            }
+            return Err(Refusal::NoMachine);
+        };
         if tx
             .doc
             .section(&item.section)
@@ -1000,6 +1006,11 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     if let Some(parent) = parent {
         let group = doc.item(parent)?;
         if !group.body.is_group() || group.section != section || group.id == item.id {
+            return None;
+        }
+        // A pinned group whose old parent sank deeper since then no longer fits there.
+        if item.body.is_group() && doc.group_level(group) + doc.group_height(item) > MAX_GROUP_DEPTH
+        {
             return None;
         }
     }
