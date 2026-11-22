@@ -15,7 +15,9 @@
 //! with no wait. 3 of them use a first call that started 1 hour ahead of the
 //! clock: for the executable each file that a row made is a file that
 //! changed a moment ago, so it cannot show which session a call does not
-//! read again.
+//! read again. One row through the executable waits 3 seconds for the clock
+//! for the same cause: its stores must be older than the 2 seconds before a
+//! call's start that the check counts as after it.
 //!
 //! A call that starts at zero each time gains only what the file cache
 //! keeps. So a caller can ask for a place (`--place ""`): the `not_ready`
@@ -523,4 +525,86 @@ fn a_change_that_is_in_the_wal_file_is_seen() {
     set_written_after_the_start(&wal);
     assert_eq!(stored_from(&sessions, None, Some(&from), now_ms).unwrap(), the_number(17));
     drop(store);
+}
+
+/// A session folder `name` in the state root of `folder`, with a registry
+/// file in WAL mode, as the daemon's stores are, whose stored schema number
+/// is `number`. The store is closed: no connection to it is open.
+fn closed_wal_session(folder: &Path, name: &str, number: i64) {
+    let session = sessions_of(folder).join(name);
+    fs::create_dir_all(&session).unwrap();
+    let store = Connection::open(session.join(REGISTRY_FILE)).unwrap();
+    let mode: String = store.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0)).unwrap();
+    assert_eq!(mode, "wal");
+    store
+        .execute_batch(&format!(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta (key, value) VALUES ('schema_version', '{number}');"
+        ))
+        .unwrap();
+    drop(store);
+}
+
+/// For each session folder of `names` in the state root of `folder`: whether
+/// its registry has a `-wal` file, and whether it has a `-shm` file.
+fn side_files(folder: &Path, names: &[&str]) -> Vec<(bool, bool)> {
+    names
+        .iter()
+        .map(|name| {
+            let session = sessions_of(folder).join(name);
+            (
+                session.join(format!("{REGISTRY_FILE}-wal")).is_file(),
+                session.join(format!("{REGISTRY_FILE}-shm")).is_file(),
+            )
+        })
+        .collect()
+}
+
+/// What the check's own read does to the file times that a later call looks
+/// at. The daemon's stores are in WAL mode, and a store that was closed has
+/// no `-wal` file. The 3 stores here are such stores, and they are older
+/// than the 2 seconds before its start that the check counts as after it.
+/// Each call has a limit of 0 ms, so it stops before the second store that
+/// it reads, in each of its 2 parts: the count of calls to the last answer
+/// is the count of store reads. 3 calls for 3 stores = each store was read
+/// one time. One call more = a call read again a store that nothing but the
+/// check itself touched.
+#[test]
+fn a_check_of_closed_wal_stores_reads_each_store_one_time() {
+    const NAMES: [&str; 3] = ["session-0", "session-1", "session-2"];
+    let root = tempfile::tempdir().unwrap();
+    for (name, number) in NAMES.iter().zip([13, 15, 14]) {
+        closed_wal_session(root.path(), name, number);
+    }
+    assert_eq!(
+        side_files(root.path(), &NAMES),
+        vec![(false, false); 3],
+        "a closed store has a -wal file or a -shm file before the first call"
+    );
+    // The stores must be older than the 2 seconds, so that only what the
+    // calls do themselves can make a store look changed. This is a wait for
+    // the clock, not for the check.
+    let old_enough = SystemTime::now() + Duration::from_millis(3_000);
+    while SystemTime::now() < old_enough {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let mut place = String::new();
+    let mut calls = 0;
+    let mut last = Value::Null;
+    while calls < 9 {
+        calls += 1;
+        let (code, answer, stderr) = check(root.path(), &["--within-ms", "0", "--place", &place]);
+        assert_eq!(code, Some(0), "call {calls}, stderr: {stderr}");
+        last = answer;
+        if last.get("not_ready").is_none() {
+            break;
+        }
+        place = place_of(&last);
+    }
+    let side = side_files(root.path(), &NAMES);
+    assert_eq!(
+        (calls, last),
+        (3, json!({ "workspace_registry": 15 })),
+        "not 3 store reads to the numbers; -wal and -shm of each store after the calls: {side:?}"
+    );
 }
