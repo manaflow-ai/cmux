@@ -79,15 +79,11 @@ extension WorkspaceRowView {
     override func updateLayer() {
         performWithTheme {
             // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
-            title.textColor = SidebarStyle.titleInk
+            title.textColor = SidebarStyle.nameInk(.title, archived: isArchived)
             icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
             // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
-            subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
-            if isArchived { // dimmed (archiving-DESIGN.md)
-                title.textColor = title.textColor.withAlphaComponent(SidebarStyle.archivedAlpha)
-                subtitle.setColor(Palette.textTertiary)
-            }
-            tabCount.setColor(Palette.textTertiary)
+            // Archived (archiving-DESIGN.md): the title drops to the detail ink, no opacity of its own (Leo 2026-10-27).
+            [subtitle, timeLabel, metaLabel, tabCount].forEach { $0.setColor(SidebarStyle.TextInk.tertiary.color) }
             mutedMark.setTint(Palette.textTertiary)
             cloudMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
