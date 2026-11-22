@@ -15,7 +15,7 @@
 // gates itself (turnEndFold.ts).
 //
 // Cost: per commit that adds nodes or changes a class, one box read for the view and one per changed
-// element; none at rest, none for a text-only change.
+// row and element; none at rest, none for a text-only change.
 
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
@@ -97,15 +97,25 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
       );
   const observer = View?.MutationObserver
     ? new View.MutationObserver((records) => {
-        // Each element the commit added or re-classed, by its own box: a long row that is partly in
-        // the view still has its words below the view's edge streaming in out of sight.
+        // Each row the commit touched, by the row's box, and each element it added or re-classed, by its
+        // own box: a long row that is partly in the view still has its words below the view's edge
+        // streaming in out of sight. An element's own box alone is not enough: a line that mounts with
+        // no box yet (the Thinking roll) reads as in view.
+        const rows = new Set<Element>();
         const changed = new Set<Element>();
         for (const record of records) {
           const nodes = record.type === "childList" ? [...record.addedNodes] : [record.target];
-          for (const node of nodes) if (node instanceof Element && node.closest(ROW)) changed.add(node);
+          for (const node of nodes) {
+            if (!(node instanceof Element)) continue;
+            const row = node.closest(ROW);
+            if (!row || !scroller.contains(row)) continue;
+            rows.add(row);
+            if (node !== row) changed.add(node);
+          }
         }
-        if (changed.size === 0) return;
+        if (rows.size === 0) return;
         const view = scroller.getBoundingClientRect();
+        for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
         for (const element of changed)
           if (element.isConnected && misses(element.getBoundingClientRect(), view)) finishAll(cssOf(element));
       })
