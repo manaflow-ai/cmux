@@ -160,14 +160,18 @@ pub(super) fn claude_transcript_now(
         if record.get("sessionId").is_some_and(Value::is_string) {
             record.set("sessionId", Value::String(id.clone()));
         }
+        lines.push(serde_json::to_string(&record)?);
+        // Claude's bookkeeping lines (no uuid) carry no folder or version: an added line takes
+        // those from the last line in the chain, or the last line when none has a uuid.
         if let Some(uuid) = record.get("uuid").filter(|u| u.is_string()) {
             last_uuid = Some(uuid.clone());
+            last = Some(record);
+        } else if last_uuid.is_none() {
+            last = Some(record);
         }
-        lines.push(serde_json::to_string(&record)?);
-        last = Some(record);
     }
     anyhow::ensure!(prompts > 0, "Claude has not stored this chat's conversation yet");
-    // A line the copy adds: it follows the transcript's last one, with its time, folder and
+    // A line the copy adds: it follows the transcript's last chained one, with its time, folder and
     // version, and Claude's uuid chain (`parentUuid`) when the transcript keeps one.
     let mut added = |mut line: Value| -> anyhow::Result<()> {
         if let Some(last) = &last {
