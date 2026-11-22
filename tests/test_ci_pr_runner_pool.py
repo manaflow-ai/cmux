@@ -2911,6 +2911,8 @@ class Wiring(unittest.TestCase):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
         self.assertEqual(shards["runs-on"], "${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                             "[format('shard-{0}', matrix.shard)] "
+                                            # The Mac grant (cmuxterm-hq#16502): "" while scripts/ci/mac-grants.json is off.
+                                            "|| github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) "
                                             "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
@@ -3110,7 +3112,10 @@ class Wiring(unittest.TestCase):
                  "contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner)")
         self.assertIn("fromJSON(inputs.owned_head_repos)", job["runs-on"])
         self.assertIn("contains(inputs.pr_owned_jobs, ' release-build ')", job["runs-on"])
-        self.assertEqual(job["runs-on"], job["env"]["CMUX_PRODUCT_RUNNER"])
+        # The mirror names the Mac grant's own label (cmuxterm-hq#16502): an env value holds no array.
+        grant = "github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)"
+        self.assertIn(grant + " || ", job["runs-on"])
+        self.assertEqual(job["runs-on"].replace(grant, grant + "[0]"), job["env"]["CMUX_PRODUCT_RUNNER"])
         # The Xcode follows the same condition: the lane pin on the owned label.
         self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])

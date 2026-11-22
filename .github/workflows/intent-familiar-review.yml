@@ -25,7 +25,7 @@ concurrency:
 jobs:
   warn:
     # pull_request_target runs for outside authors too: an ephemeral runner only.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 5
     permissions:
       contents: read
@@ -35,8 +35,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+          # One file, not a directory: cone mode refuses a file path ("'scripts/ci/intent_familiar_warning.py' is
+          # not a directory"), which failed this job on every pull request before any step ran.
           sparse-checkout: |
             scripts/ci/intent_familiar_warning.py
+          sparse-checkout-cone-mode: false
 
       # The patch comes from git, not the API: every workflow's GITHUB_TOKEN shares one
       # hourly REST budget, and listing files on every push spent ~155 calls an hour of it.
