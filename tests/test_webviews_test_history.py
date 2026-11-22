@@ -585,6 +585,32 @@ class Inputs(unittest.TestCase):
             # From a subfolder (the push shards run from webviews/), the key is the top's.
             self.assertEqual(history.inputs(repo / "webviews"), history.inputs(repo))
 
+    def test_the_key_follows_paths_a_webview_test_reads_at_runtime(self):
+        # one-spinner.test.ts reads the Swift sources and theme-ink-vectors.test.ts a schema by path, not by import: a
+        # base break there must not read as green at an older push's key. A path no test names stays out.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            for path, text in (("webviews/test/spin.test.ts", 'readdir(resolve(repo, "Packages/macOS/Sources"));\n'),
+                               ("webviews/test/support/ink.ts", "read(`${root}/schemas/theme/ink.json`);\n"),
+                               ("Packages/macOS/Sources/A.swift", "1\n"), ("schemas/theme/ink.json", "{}\n"),
+                               ("Packages/macOS/Other/B.swift", "1\n")):
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            first = history.inputs(repo)
+            (repo / "Packages/macOS/Other/B.swift").write_text("2\n")
+            self.git(repo, "commit", "-qam", "unnamed")
+            self.assertEqual(history.inputs(repo), first)
+            (repo / "Packages/macOS/Sources/A.swift").write_text("2\n")
+            self.git(repo, "commit", "-qam", "named folder")
+            second = history.inputs(repo)
+            self.assertNotEqual(second, first)
+            (repo / "schemas/theme/ink.json").write_text('{"a": 1}\n')
+            self.git(repo, "commit", "-qam", "named file")
+            self.assertNotEqual(history.inputs(repo), second)
+
     def test_a_tree_with_no_webview_inputs_has_no_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -845,6 +871,53 @@ class Fetch(unittest.TestCase):
         self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
 
 
+class PassedBefore(unittest.TestCase):
+    """A newer head's shard reads the files its previous head passed (ci-web.yml reuses those its change cannot reach)."""
+
+    def test_the_newest_earlier_run_on_the_branch_is_read_and_forks_and_this_run_are_not(self):
+        def art(id, at, run, branch="lane/x", head_repo=7):
+            return {"id": id, "name": "react-apps-passed-shard3", "created_at": at, "expired": False,
+                    "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+                    "workflow_run": {"id": run, "head_branch": branch, "repository_id": 7, "head_repository_id": head_repo}}
+
+        def zipped(commit, files):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as archive:
+                archive.writestr("commit", commit + "\n")
+                archive.writestr("files", files)
+            return buf.getvalue()
+
+        listing = json.dumps({"artifacts": [art(1, "2026-11-22T01:00:00Z", 11), art(2, "2026-11-22T02:00:00Z", 12),
+                                            art(3, "2026-11-22T03:00:00Z", 13, head_repo=9),
+                                            art(4, "2026-11-22T04:00:00Z", 14, branch="other"),
+                                            art(5, "2026-11-22T05:00:00Z", 99)]}).encode()
+        calls = []
+
+        def get(url, token):
+            calls.append((url, token))
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/2/zip":
+                return 302, {"Location": "https://blob.example/2"}, b""
+            if url == "https://blob.example/2":
+                return 200, {}, zipped("a" * 40, "test/a.test.ts\n")
+            return 404, {}, b""
+
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 3, 99, out, get=get)
+        self.assertIn("from run 12", said)
+        self.assertEqual((out / "commit").read_text().strip(), "a" * 40)
+        self.assertEqual((out / "files").read_text(), "test/a.test.ts\n")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2][1])  # the storage host never gets the token
+
+    def test_a_failed_read_writes_nothing(self):
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 1, 99, out, get=lambda url, token: (403, {}, b""))
+        self.assertIn("403", said)
+        self.assertFalse(out.exists())
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -856,12 +929,25 @@ class Workflow(unittest.TestCase):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
         self.assertIn("webviews_test_history.py record", upkeep)
-        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('history="$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('webviews_test_history.py fetch "$history"', upkeep)
         self.assertIn('--branch "$BRANCH"', upkeep)
         self.assertIn("name: webviews-test-history\n", upkeep)
         self.assertIn("timeout-minutes: 5", upkeep)
-        # The cache the history used to live in was never restored by the next push (2026-11-08).
-        self.assertNotIn("actions/cache", upkeep)
+        # One fixed cache key was never replaced, so the next push restored a stale history (2026-11-08): every save
+        # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
+        # in both, since the cache version hashes the path as written and runner.temp differs between runners.
+        scope = self.job("web-subarea-scope")
+        for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+            self.assertIn(f"key: {key}\n", text)
+            paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
+            self.assertTrue(paths)
+            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+        self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
+        self.assertIn("actions/cache/save@", upkeep)
+        self.assertNotIn("actions/cache/save@", scope)
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
@@ -907,13 +993,13 @@ class Workflow(unittest.TestCase):
         block = job[job.index("    permissions:\n"):].split("\n    ", 3)
         self.assertEqual(block[1:3], ["  contents: read", "  actions: read"])
 
-    def test_only_the_history_jobs_ask_for_actions_read(self):
-        # The history is an artifact: listing and downloading it takes actions: read, nothing more.
-        for name in ("webviews-test-history", "react-apps-base-check"):
+    def test_only_the_artifact_reading_jobs_ask_for_actions_read(self):
+        # The history and a shard's passes at the previous head (passed-before) are artifacts: listing and downloading
+        # them takes actions: read, nothing more.
+        for name in ("webviews-test-history", "react-apps-base-check", "react-apps-check-shard"):
             job = self.job(name)
             block = job[job.index("    permissions:\n"):].split("\n    ", 3)
             self.assertEqual(block[1:3], ["  contents: read", "  actions: read"], name)
-        self.assertNotIn("permissions:", self.job("react-apps-check-shard"))
 
     def test_the_replay_fetches_the_history_unless_the_head_results_say_no_reds(self):
         # Head results it cannot read are unknown, not "no reds": skipping the fetch then left the flaky list empty.

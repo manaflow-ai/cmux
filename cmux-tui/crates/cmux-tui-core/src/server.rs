@@ -181,6 +181,7 @@ pub use orphan_shutdown::stop_orphaned_owner;
 pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
+mod stop_if_idle;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
@@ -254,6 +255,7 @@ mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
+mod send_once;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
@@ -471,6 +473,12 @@ pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
 /// get the bare event, which strict older SDK decoders accept.
 pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
+/// Advertises `if_idle` on `shutdown-daemon`: stop only while no other
+/// client is connected and no terminal is live, else refuse with
+/// `error_code` `daemon_busy` and what uses the daemon in `error_details`.
+/// An older daemon ignores the field and stops, so a client sends it only
+/// to a daemon that advertises this.
+pub const DAEMON_STOP_IF_IDLE_CAPABILITY: &str = "daemon-stop-if-idle-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -586,6 +594,10 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `created_by` also names the agent's `session_name`, `host` and a one-line `purpose`, and
+/// `room.create`, `tab.create_terminal` and `tab.create_browser` take it too: a space shows it as
+/// `created_by`, a tab and a workspace as `extra.created_by` (state/created_by.rs).
+pub const CREATED_BY_DETAIL_CAPABILITY: &str = "created-by-detail-v1";
 /// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
 /// lines) and `lines` (the last N lines of scrollback and screen), and
 /// `terminal.copy` takes `unwrap`.
@@ -993,6 +1005,11 @@ enum Command {
         /// exits. Absent from older callers, which leave it unknown.
         #[serde(default)]
         restart: Option<bool>,
+        /// Stop only while no other client is connected and no terminal is
+        /// live (`daemon-stop-if-idle-v1`); else refuse with `daemon_busy`.
+        /// Checked under the handoff reservation, which refuses new clients.
+        #[serde(default)]
+        if_idle: bool,
     },
     Ping,
     SetClientInfo {
@@ -3279,3 +3296,4 @@ mod cloud_api;
 mod cloud_repos;
 #[cfg(unix)]
 mod cloud_runs;
+mod language_packs_op;

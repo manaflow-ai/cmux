@@ -389,7 +389,13 @@ final class SidebarListView: NSView {
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
             (view as? WorkspaceRowView)?.isNeedsYouWindowVisible = visible // its glow's breath (WorkspaceRowView+NeedsYouGlow)
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+            if let indicator = view as? StatusIndicatorView {
+                indicator.isWindowVisible = visible
+            } else if let beam = view as? SidebarAgentBeamView {
+                beam.setWindowVisible(visible) // `experiments.agentBadges` beam: no lap in a covered window
+            } else {
+                pending.append(contentsOf: view.subviews.reversed())
+            }
         }
     }
     /// Loops turned on or off: each glowing row's breath starts or stops (WorkspaceRowView+NeedsYouGlow).
