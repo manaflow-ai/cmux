@@ -12,7 +12,7 @@
 
 use super::*;
 use base64::Engine;
-use std::io::{BufRead, Write as _};
+use std::io::BufRead;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -69,7 +69,7 @@ fn run_variant(label: &str, capabilities: &[&str]) -> String {
     // Every output event's arrival time and decoded bytes, read on its own thread as the phone's socket does.
     let (events_tx, events) = mpsc::channel::<(Instant, Vec<u8>)>();
     let reader = std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(client);
+        let mut reader = BufReader::new(client);
         let mut line = String::new();
         loop {
             line.clear();
@@ -115,7 +115,7 @@ fn run_variant(label: &str, capabilities: &[&str]) -> String {
             "the responder never started: {:?}",
             String::from_utf8_lossy(&seen)
         );
-        match events.recv_timeout(remaining) {
+        match events.recv_timeout(remaining.min(Duration::from_millis(100))) {
             Ok((_, bytes)) => seen.extend_from_slice(&bytes),
             Err(_) => {
                 // The marker may have come in the attach's replay (vt-state), before the stream: go on.
@@ -132,7 +132,8 @@ fn run_variant(label: &str, capabilities: &[&str]) -> String {
     }
     std::thread::sleep(Duration::from_millis(200));
     while events.try_recv().is_ok() {}
-    let python = seen.windows(4).any(|window| window == b"\x1b[?1");
+    // python3 asked for the mouse; `cat` did not (its answers are the reports echoed back).
+    let python = surface.try_with_terminal(|t| t.mode(1000, false)).unwrap_or(false);
 
     let mut first_of_fling = Vec::new();
     let mut every = Vec::new();
@@ -196,7 +197,7 @@ fn run_variant(label: &str, capabilities: &[&str]) -> String {
 fn wheel_round_trip() {
     for (label, capabilities) in [
         ("phone-default", &[][..]),
-        ("output-coalesce-v1", &[super::super::ATTACH_OUTPUT_COALESCE_CAPABILITY][..]),
+        ("output-coalesce-v1", &[ATTACH_OUTPUT_COALESCE_CAPABILITY][..]),
     ] {
         for run in 0..3 {
             println!("{} run={run}", run_variant(label, capabilities));
