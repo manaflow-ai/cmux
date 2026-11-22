@@ -33,3 +33,21 @@ test("an opaque window keeps the tertiary placeholder", () => {
   expect(body).toBeDefined();
   expect(body!).toMatch(/color\s*:\s*var\(--ds-color-faint\)/);
 });
+
+// The placeholder lift alone left Settings search at 2.35:1 on the Great Wave in dark (fleet capture
+// of be805d96): the filled field is a faint hover tint over the art. Over a see-through window it
+// lays the composer's surface (its solid colour at the chrome glass tint, composerStates.css) under
+// that tint, the fill the Chief composer's field takes there too (HomeThemePalette).
+test("over a see-through window a filled field lays the composer's surface under its tint", () => {
+  const body = rule(
+    (selector) => selector.includes("[data-cmux-see-through]") && selector.includes('.ui-input[data-variant="filled"]'),
+  );
+  expect(body).toBeDefined();
+  expect(body!).toMatch(/background\s*:[^;]*var\(--ds-glass-chrome-tint/);
+  expect(body!).toMatch(/light-dark\(/);
+});
+
+test("Reduce Transparency keeps the plain filled field", () => {
+  const selector = /(:root\[data-cmux-see-through\][^{]*)\.ui-input\[data-variant="filled"\]\s*\{/.exec(css)?.[1] ?? "";
+  expect(selector).toContain("data-reduce-transparency");
+});
