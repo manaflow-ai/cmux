@@ -203,8 +203,15 @@ public struct NativeMarkdownLayout: @unchecked Sendable {
                 blocks.append(.table(block))
                 y = block.frame.maxY
                 pendingBottom = margin.bottom
-            case .math:
-                break
+            case .math(let tex):
+                // Reached only with the web renderer switched off (`MobilePieces`, `markdown-web`):
+                // the formula's source, in the native code card.
+                flushRun()
+                let top = y + gap(margin.top)
+                let block = codeBlock(language: "latex", code: tex, top: top)
+                blocks.append(.code(block))
+                y = block.frame.maxY
+                pendingBottom = margin.bottom
             }
         }
 

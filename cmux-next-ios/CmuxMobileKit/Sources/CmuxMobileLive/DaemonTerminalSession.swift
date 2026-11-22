@@ -121,7 +121,12 @@ public final class DaemonTerminalSession: TerminalSession {
     private var resyncAfterClose = false
     /// The session declares the hybrid capabilities: the setting is on and its frames did
     /// not fail twice.
-    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Nor with the `terminal-agent-cli-changes` piece switched off (`MobilePieces`): the
+    /// session then attaches in bytes mode, as with the setting off.
+    private var hybridWanted: Bool {
+        Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2
+            && !MobilePieces.shared.isOff(.terminalAgentCLIChanges)
+    }
     /// Where the setting is read (tests give each session its own).
     var agentCLIHybridDefaults: UserDefaults = .standard
     /// History rows the next attach asks for above the screen (nil: all of

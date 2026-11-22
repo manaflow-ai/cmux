@@ -5,6 +5,9 @@ name: cmux-next web pieces switch
 # switch file,
 #   cmux-next-web/ota/pieces-every-merge.json
 #   cmux-next-web/ota/pieces-nightly.json
+#   cmux-next-web/ota/pieces-ios-internal.json   (kind ios: the iPhone app's kill switch file,
+#     cmux-next-ios/SECURITY.md "What the phone takes remotely"; it only switches a built-in
+#     piece off, PIECE=bundled, and carries no code and no refuse list)
 # which the app reads after each web update check (cmux-tui/crates/cmux-web-pieces: same envelope
 # and pinned key as the web update pointer, its own purpose, a serial that never goes back). A
 # piece named in it is served from the last good update on disk or from the app's own bundle; an
@@ -16,13 +19,18 @@ name: cmux-next web pieces switch
 on:
   workflow_dispatch:
     inputs:
-      channel:
-        description: "The web update channel"
+      kind:
+        description: "web: the Mac's web pieces. ios: the iPhone app's kill switch file (channel internal)"
         type: choice
-        options: [every-merge, nightly]
+        options: [web, ios]
+        default: web
+      channel:
+        description: "The web update channel (kind ios: internal)"
+        type: choice
+        options: [every-merge, nightly, internal]
         default: every-merge
       out_of:
-        description: "Pieces to swap out, space separated: PIECE=last-good or PIECE=bundled (agent-pane, pages, agent-activity, webviews-app, inspector, or PIECE/NAME)"
+        description: "Pieces to swap out, space separated: PIECE=last-good or PIECE=bundled (agent-pane, pages, agent-activity, webviews-app, inspector, or PIECE/NAME; kind ios: markdown-web, terminal-agent-cli-changes, terminal-predictive-echo, each =bundled)"
         type: string
         default: ""
       reason:
@@ -50,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-web-pieces-${{ inputs.channel }}
+  group: cmux-next-web-pieces-${{ inputs.kind }}-${{ inputs.channel }}
   cancel-in-progress: false
 
 jobs:
@@ -73,6 +81,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          KIND: ${{ inputs.kind }}
           CHANNEL: ${{ inputs.channel }}
           OUT_OF: ${{ inputs.out_of }}
           REASON: ${{ inputs.reason }}

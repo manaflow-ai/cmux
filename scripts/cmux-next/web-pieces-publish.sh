@@ -5,7 +5,8 @@
 #   web-pieces-publish.sh WORKDIR KEY.pem
 #
 # Reads CHANNEL, OUT_OF, REASON, LIVE, REFUSE, ALLOW (space separated lists) and ALL_LIVE
-# (true|false). The published file is read first and must verify under the pinned key (none yet:
+# (true|false), and KIND (web, the default, or ios: the iPhone app's kill switch file,
+# pieces-ios-CHANNEL.json, purpose cmux-ios-pieces). The published file is read first and must verify under the pinned key (none yet:
 # the channel's first file); the new one continues its serial. WEB_PIECES_BASE (default
 # https://files.cmux.com/cmux-next-web/ota) and WEB_PIECES_KEYS replace the place and the key list
 # (tests); WEB_PIECES_DRY_RUN=1 stops before the upload and leaves WORKDIR/pieces-CHANNEL.json.
@@ -16,16 +17,21 @@ pem=$2
 ptr="$ROOT/scripts/cmux-next/web-ota-pointer.py"
 keys=${WEB_PIECES_KEYS:-$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json}
 base=${WEB_PIECES_BASE:-https://files.cmux.com/cmux-next-web/ota}
-name="pieces-$CHANNEL.json"
+kind=${KIND:-web}
+case "$kind" in
+  web) name="pieces-$CHANNEL.json" purpose=cmux-web-pieces ;;
+  ios) name="pieces-ios-$CHANNEL.json" purpose=cmux-ios-pieces ;;
+  *) echo "web-pieces-publish: unknown KIND $kind (web or ios)" >&2; exit 1 ;;
+esac
 stamp=${GITHUB_RUN_ID:-$$}
 
-words=(--channel "$CHANNEL" --out "$dir/payload.json")
+words=(--kind "$kind" --channel "$CHANNEL" --out "$dir/payload.json")
 code=$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "$base/$name?switch=$stamp" 2>/dev/null || true)
 case "$code" in
   200)
     # A published file no pinned key covers is never continued: fail, and a person looks.
     python3 "$ptr" verify --pointer "$dir/current.json" --keys "$keys" --channel "$CHANNEL" \
-      --purpose cmux-web-pieces --allow-expired > "$dir/current-payload.json"
+      --purpose "$purpose" --allow-expired > "$dir/current-payload.json"
     words+=(--current "$dir/current-payload.json")
     ;;
   403 | 404) ;;
@@ -44,10 +50,10 @@ esac
 [[ "${ALL_LIVE:-false}" == true ]] && words+=(--all-live)
 python3 "$ROOT/scripts/cmux-next/web-pieces-file.py" payload "${words[@]}"
 python3 "$ptr" sign --payload "$dir/payload.json" --key "$pem" --keys "$keys" --out "$dir/$name"
-python3 "$ptr" verify --pointer "$dir/$name" --keys "$keys" --channel "$CHANNEL" --purpose cmux-web-pieces --allow-expired >/dev/null
+python3 "$ptr" verify --pointer "$dir/$name" --keys "$keys" --channel "$CHANNEL" --purpose "$purpose" --allow-expired >/dev/null
 [[ "${WEB_PIECES_DRY_RUN:-}" == 1 ]] && exit 0
 python3 "$ROOT/scripts/ci/upload-r2-object.py" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
   --cache-control "public, max-age=60, must-revalidate" --file "$dir/$name" \
   --key "cmux-next-web/ota/$name" --content-type application/json
 curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "$base/$name?check=$stamp"
-python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel "$CHANNEL" --purpose cmux-web-pieces --allow-expired >/dev/null
+python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel "$CHANNEL" --purpose "$purpose" --allow-expired >/dev/null

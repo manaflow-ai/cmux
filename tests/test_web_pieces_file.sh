@@ -90,4 +90,35 @@ publish OUT_OF="pages=bundled" >/dev/null 2>&1 && fail "a file signed by an unli
 printf '{"schema":1,"channel":"every-merge","key":"%s","committed_at":1}' "$key" >"$TMP/ptr"
 python3 "$PTR" sign --payload "$TMP/ptr" --key "$TMP/a.pem" --keys "$TMP/keys-a.json" --out "$TMP/site/pieces-every-merge.json"
 publish OUT_OF="pages=bundled" >/dev/null 2>&1 && fail "a web update pointer was continued as a switch file"
+
+# The iPhone app's kill switch file (--kind ios): its own name, purpose, channel and pieces.
+phone=$(sed -n '/^pub const PIECES/,/^];/p' "$ROOT/cmux-tui/crates/cmux-web-pieces/src/phone.rs" \
+  | grep -o '^ *(\?"[a-z-]*",\|^ *"[a-z-]*",$' | grep -o '[a-z-]\+' | tr '\n' ' ')
+[[ -n "$phone" && "$phone" == "$(python3 "$FILE" pieces --kind ios | tr '\n' ' ')" ]] || fail "web-pieces-file.py's iPhone pieces differ from the crate's: $phone"
+ios() { # ENV...: one dry run of the iPhone app's file
+  env KIND=ios CHANNEL=internal WEB_PIECES_BASE="http://127.0.0.1:$port" WEB_PIECES_KEYS="$TMP/keys-a.json" WEB_PIECES_DRY_RUN=1 \
+    "$@" "$PUBLISH" "$TMP/work" "$TMP/a.pem"
+}
+ios_field() { # EXPR over the verified payload `v` of the file just made
+  python3 "$PTR" verify --pointer "$TMP/work/pieces-ios-internal.json" --keys "$TMP/keys-a.json" --channel internal --purpose cmux-ios-pieces --allow-expired \
+    | python3 -c "import json,sys; v=json.load(sys.stdin); print($1)"
+}
+ios OUT_OF="markdown-web=bundled" REASON="blank math" >/dev/null
+[[ "$(ios_field 'v["serial"], v["purpose"], v["pieces"]["markdown-web"]["reason"], v["refuse"]')" == "1 cmux-ios-pieces blank math []" ]] \
+  || fail "the iPhone file's first is not serial 1 with its switch"
+cp "$TMP/work/pieces-ios-internal.json" "$TMP/site/pieces-ios-internal.json"
+# Off, then on again: the next file continues the serial and no longer names the piece.
+ios LIVE="markdown-web" >/dev/null
+[[ "$(ios_field 'v["serial"], v["pieces"]')" == "2 {}" ]] || fail "the iPhone piece did not come back on"
+# The Mac's pieces and channels are not the phone's, nor the other way round; no refuse list.
+ios OUT_OF="agent-pane=bundled" >/dev/null 2>&1 && fail "a Mac piece was switched in the iPhone file"
+ios REFUSE="$key" >/dev/null 2>&1 && fail "the iPhone file took a refuse entry"
+env KIND=ios CHANNEL=every-merge WEB_PIECES_BASE="http://127.0.0.1:$port" WEB_PIECES_KEYS="$TMP/keys-a.json" WEB_PIECES_DRY_RUN=1 \
+  "$PUBLISH" "$TMP/work" "$TMP/a.pem" >/dev/null 2>&1 && fail "the iPhone file was made for a Mac channel"
+publish OUT_OF="markdown-web=bundled" >/dev/null 2>&1 && fail "an iPhone piece was switched in the Mac's file"
+# The Mac's published file is never continued as the phone's.
+cp "$TMP/site/pieces-every-merge.json" "$TMP/keep"
+python3 "$FILE" payload --channel every-merge --out "$TMP/p2" --out-of "agent-pane=bundled" >/dev/null
+python3 "$PTR" sign --payload "$TMP/p2" --key "$TMP/a.pem" --keys "$TMP/keys-a.json" --out "$TMP/site/pieces-ios-internal.json"
+ios OUT_OF="markdown-web=bundled" >/dev/null 2>&1 && fail "the Mac's file was continued as the iPhone's"
 echo "ok: web pieces switch file"

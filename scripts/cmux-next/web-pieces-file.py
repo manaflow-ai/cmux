@@ -12,7 +12,7 @@ asked changes, and the next serial (an app refuses a serial older than the last 
 file can never be replayed to undo a switch).
 
 Usage:
-  web-pieces-file.py payload --channel C [--current PAYLOAD.json] --out P
+  web-pieces-file.py payload [--kind web|ios] --channel C [--current PAYLOAD.json] --out P
       [--out-of PIECE=last-good|bundled[:REASON]]...   swap a piece (or a finer id under it) out
       [--live PIECE]...                                serve it from the newest update again
       [--refuse KEY]... [--allow KEY]...               never serve this update / serve it again
@@ -21,6 +21,11 @@ Usage:
 PAYLOAD.json is what `web-ota-pointer.py verify --pointer F --keys K --channel C --purpose
 cmux-web-pieces --allow-expired` printed for the published file; without it the file is the
 channel's first (serial 1).
+
+--kind ios makes the iPhone app's kill switch file instead (`ota/pieces-ios-<channel>.json`,
+purpose cmux-ios-pieces, cmux-web-pieces `phone`): its own channels and pieces. A piece named in
+it is switched off, back to the fallback built into the app (say PIECE=bundled); the phone holds
+no updates, so it reads no refuse list. `pieces --kind ios` prints its pieces.
 """
 import argparse
 import json
@@ -33,6 +38,11 @@ PURPOSE = "cmux-web-pieces"
 CHANNELS = ("every-merge", "nightly")
 # cmux-web-pieces PIECES; tests/test_web_pieces_file.sh holds the two lists equal.
 PIECES = ("agent-pane", "pages", "agent-activity", "webviews-app", "inspector")
+# The iPhone app's file: cmux-web-pieces phone::PURPOSE, phone::channel and phone::PIECES.
+KINDS = {
+    "web": (PURPOSE, CHANNELS, PIECES),
+    "ios": ("cmux-ios-pieces", ("internal",), ("markdown-web", "terminal-agent-cli-changes", "terminal-predictive-echo")),
+}
 SERVES = ("last-good", "bundled")
 KEY = re.compile(r"[0-9a-f]{64}")
 # A finer id: its piece, then `/` and a name the fix-forward tools give (a page, a PR).
@@ -47,15 +57,18 @@ def fail(message):
     sys.exit(1)
 
 
-def piece_id(name):
-    if not PIECE_ID.fullmatch(name) or name.split("/", 1)[0] not in PIECES:
-        fail(f"{name!r} is no web piece; the pieces are {', '.join(PIECES)} (a finer id is PIECE/NAME)")
+def piece_id(name, known=PIECES):
+    if not PIECE_ID.fullmatch(name) or name.split("/", 1)[0] not in known:
+        fail(f"{name!r} is no piece of this file; the pieces are {', '.join(known)} (a finer id is PIECE/NAME)")
     return name
 
 
 def make(args):
+    PURPOSE, CHANNELS, known = KINDS[args.kind]
     if args.channel not in CHANNELS:
         fail(f"unknown channel {args.channel!r}; the channels are {', '.join(CHANNELS)}")
+    if args.kind == "ios" and (args.refuse or args.allow):
+        fail("the iPhone app's file has no refuse list: the phone holds no updates")
     pieces, refuse, serial = {}, [], 0
     if args.current:
         current = json.load(open(args.current))
@@ -69,7 +82,7 @@ def make(args):
     if args.all_live:
         pieces = {}
     for name in args.live:
-        if pieces.pop(piece_id(name), None) is None and not args.all_live:
+        if pieces.pop(piece_id(name, known), None) is None and not args.all_live:
             fail(f"{name} is not switched out")
     for word in args.out_of:
         name, _, rest = word.partition("=")
@@ -78,7 +91,7 @@ def make(args):
             fail(f"--out-of {word!r}: say {name}=last-good or {name}=bundled, then :REASON")
         if len(reason) > MAX_REASON:
             fail(f"--out-of {name}: the reason is longer than {MAX_REASON} characters")
-        pieces[piece_id(name)] = {"serve": serve, "reason": reason}
+        pieces[piece_id(name, known)] = {"serve": serve, "reason": reason}
     for key in args.allow:
         if key not in refuse:
             fail(f"{key} is not refused")
@@ -103,6 +116,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("payload")
+    p.add_argument("--kind", choices=sorted(KINDS), default="web")
     p.add_argument("--channel", required=True)
     p.add_argument("--current")
     p.add_argument("--out", required=True)
@@ -111,10 +125,10 @@ def main(argv):
     p.add_argument("--refuse", action="append", default=[], metavar="KEY")
     p.add_argument("--allow", action="append", default=[], metavar="KEY")
     p.add_argument("--all-live", action="store_true")
-    sub.add_parser("pieces")
+    sub.add_parser("pieces").add_argument("--kind", choices=sorted(KINDS), default="web")
     args = parser.parse_args(argv)
     if args.command == "pieces":
-        print("\n".join(PIECES))
+        print("\n".join(KINDS[args.kind][2]))
         return 0
     make(args)
     return 0

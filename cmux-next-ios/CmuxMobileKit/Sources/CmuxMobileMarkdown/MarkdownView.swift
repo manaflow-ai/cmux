@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileTransport
 import CmuxMobileDesign
 import SwiftUI
 import UIKit
@@ -100,7 +101,7 @@ public struct MarkdownBlockView: View {
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
-            if MarkdownInlineMath.contains(text) {
+            if MarkdownInlineMath.contains(text), !MobilePieces.shared.isOff(.markdownWeb) {
                 WebMarkdownView(markdown: text, style: .body)
             } else {
                 // No `.textSelection`: on iOS it took the long press and selected the whole
@@ -120,7 +121,12 @@ public struct MarkdownBlockView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
         case .math(let tex):
-            WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body)
+            if MobilePieces.shared.isOff(.markdownWeb) {
+                // The web renderer is switched off: the formula's source, in the native code card.
+                CodeCard(language: "latex", code: tex)
+            } else {
+                WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body)
+            }
         case .rule:
             Divider().padding(.vertical, 4)
         }
