@@ -8,7 +8,8 @@
 #  - a tip whose FFI sources moved past the release is left alone (newer), and
 #    the pin check still fails there: a stale pin is never accepted;
 #  - headers that drop or change a declaration, a declaration moved under a
-#    new `#if`, a new directive, and a packaging change (a module map edit in
+#    new `#if`, a new directive (also in an `#else` of the `__cplusplus`
+#    wrapper), and a packaging change (a module map edit in
 #    build-app-ffi.sh) go to the pull request (pr);
 #  - an already pinned tip, a dry run and a push the remote refuses once.
 set -euo pipefail
@@ -195,11 +196,13 @@ git -C "$work" checkout -q feat-cmux-next
 git -C "$work" pull -q --ff-only origin feat-cmux-next
 
 # A changed declaration (a field added to a struct, a parameter changed) goes to the pull request.
-# A moved declaration (wrapped in a new #if), a new #pragma before a struct, and a module map edit in the packaging
-# script keep every declaration's text, and still go to the pull request.
+# A moved declaration (wrapped in a new #if), a new #pragma before a struct, a `#else` branch C compiles added to the
+# `#ifdef __cplusplus` wrapper (a #pragma pack there changes every struct's layout), and a module map edit in the
+# packaging script keep every declaration's text, and still go to the pull request.
 for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int a);/int cmux_one(long a);/:cmux_x.h' \
   's/^int cmux_one(int a);$/#if defined(CMUX_ONE)\nint cmux_one(int a);\n#endif/:cmux_x.h' \
   's/^typedef struct CmuxPoint/#pragma pack(1)\ntypedef struct CmuxPoint/:cmux_x.h' \
+  's/^extern "C" {$/extern "C" {\n#else\n#pragma pack(1)/:cmux_x.h' \
   's/module CCmuxX/module CCmuxRenamed/:build-app-ffi.sh'; do
   target="$header"
   [[ "${edit##*:}" == build-app-ffi.sh ]] && target=scripts/cmux-next/build-app-ffi.sh
