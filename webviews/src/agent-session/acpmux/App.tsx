@@ -78,7 +78,6 @@ import {
   slashLogin,
   useRouteAuthSwitch,
   useSessionAuth,
-  UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance, resendToastAvoidance } from "./toastAvoidance";
@@ -295,7 +294,7 @@ import {
   type CloudMachine,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
+import { composerTrustBlock, inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";

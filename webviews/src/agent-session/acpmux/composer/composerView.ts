@@ -145,7 +145,9 @@ export function composerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const view: AcpmuxSnapshot = {
     ...snapshot,
     rows: composerRows(snapshot.rows),
-    connection: linkUp(snapshot.connection) ? "connected" : snapshot.connection,
+    // Down, the client names each step of the reconnect ("disconnected", "connecting…", "connecting
+    // (attempt 3)…"); the composer reads only `linkUp`, so each step drew it again for nothing.
+    connection: linkUp(snapshot.connection) ? "connected" : "disconnected",
   };
   for (const key of TURN_LIVE) delete view[key];
   return view;
