@@ -3,8 +3,9 @@
 // `?mock`) the in-memory mock provider stands in for the app.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import "../../ui/ui.css";
-import { createPageClient } from "../shared/pageClient";
+import { BridgePageClient, createPageClient, DEFER_MOUNT_NAME } from "../shared/pageClient";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";
 import type { HarnessRow } from "./ops";
@@ -39,4 +40,8 @@ if (bridge === null && process.env.NODE_ENV !== "production" && search.has("jour
 }
 // The dev server and tests can give the mock the app's timing (mockTiming.ts); production drops this.
 if (mock && process.env.NODE_ENV !== "production") mock = (await import("./mockTiming")).withMockTiming(mock, search);
-void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);
+const mount = () => void mountSettingsPage(document.getElementById("root")!, bridge ?? mock!);
+// A spare that mounts at its claim (PageSpareVariant.unmounted): the bundle is parsed, no React root yet.
+if (bridge instanceof BridgePageClient && (globalThis as Record<string, unknown>)[DEFER_MOUNT_NAME] === true)
+  bridge.whenClaimed(mount);
+else mount();

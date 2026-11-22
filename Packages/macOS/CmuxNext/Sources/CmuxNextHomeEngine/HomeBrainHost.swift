@@ -1,6 +1,7 @@
 public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextAgentPane
+import CmuxNextDaemon
 public import Foundation
 import os
 
@@ -11,13 +12,12 @@ import os
 /// instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
-/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
-/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that the app
+/// bundles as Contents/Resources/bin/optchat-chief
 /// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
-/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
-/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
-/// DevTools channel rule); Release and RC never bundle or start it: Home
-/// works and the Chief does not answer. Both keep the
+/// chief-done.md check 7: every Chief turn follows OptChat). DEV, NIGHTLY,
+/// RC and stable start it when it is bundled (`bundledChiefAllowed`); stable
+/// ships it since the classic handoff (release.yml bundles it). Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
 /// The mux home is this build's Chief home (`ChiefHome`, one Chief per
 /// build); isolated launches (agent preflights, tests) get their own. The
@@ -37,16 +37,26 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// Starts the app's own acpmux when none runs (the local pane host's prewarm), before a host
     /// that only waits for it launches. Nil: nothing to start.
     public var ensureAppAcpmux: (@Sendable () async -> Void)?
+    /// "cmux Files (dev)" in a DEV build that embeds it (docs/cmux-files-host.md): the host and the
+    /// agents it starts then answer to that helper for Files and Folders, shared by every DEV build,
+    /// as the app's own acpmux does. Nil in every other build, which runs the host as before.
+    var filesHost: FilesHost?
 
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
 
-    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
-    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
-    /// Release, so the bundle id decides, as for DevTools).
+    /// Every cmux channel starts the Chief it bundles: DEV (a Debug compile), NIGHTLY
+    /// (`com.cmuxterm.app.nightly[.<tag>]`), RC and stable (`com.cmuxterm.app`, which the
+    /// classic → cmux-next handoff ships with the Chief bundled). Another app's bundle id
+    /// never starts it. Developer tools keep their own DEV and NIGHTLY rule (``DevTools``).
     public static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
-        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+        if DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild) { return true }
+        guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
+        return bundle == stableBundleID || bundle.hasPrefix(stableBundleID + ".")
     }
+
+    /// The stable cmux bundle id; RC and NIGHTLY add a suffix to it.
+    static let stableBundleID = "com.cmuxterm.app"
 
     /// Whether this app can start a host at all (`resolve` finds an executable).
     public static func canStart(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -72,7 +82,8 @@ public nonisolated struct HomeBrainHost: Sendable {
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
-                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+                                                                                      isDebugBuild: DevTools.isDebugBuild),
+                        filesHost: ([String: String]) -> FilesHost? = { FilesHost.current(environment: $0) }) -> HomeBrainHost? {
         if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
@@ -92,6 +103,7 @@ public nonisolated struct HomeBrainHost: Sendable {
                                  acpmux: AcpmuxEnvironment.resolve(build: usesAppAcpmux ? appBuild : nil, bundledBinDirectory: bundledBinDirectory,
                                                                    environment: acpmuxEnvironment))
         host.usesAppAcpmux = usesAppAcpmux
+        host.filesHost = filesHost(environment)
         return host
     }
 
@@ -102,13 +114,18 @@ public nonisolated struct HomeBrainHost: Sendable {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
-    /// The shell prints the host's pid, so Home watches that process's exit.
+    /// The shell prints the host's pid (with the helper, its launcher's, which forwards signals and
+    /// exits with the host's status), so Home watches that process's exit.
     var arguments: [String] {
-        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch",
-         executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
+        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch"]
+            + (filesHost?.arguments(running: executable.path) ?? [executable.path])
+            + ["host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
     }
 
-    var childEnvironment: [String: String] {
+    var childEnvironment: [String: String] { childEnvironment(process: ProcessInfo.processInfo.environment) }
+
+    /// The host's environment with `process` as the app's own (tests pass theirs).
+    func childEnvironment(process: [String: String]) -> [String: String] {
         var variables: [String: String] = [
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             // Constant links to the app that last opened Home (ChiefAppLinks):
@@ -136,8 +153,10 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
-            if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
+        // CMUX_BUILD_SPACE: the build's cloud space (LaunchIdentity sets it in the app's own environment at launch),
+        // so the brain, its acpmux, subagents and their `cmux` calls reach this build's cloud data, never nightly's.
+        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK", DaemonLauncher.buildSpaceKey] {
+            if let value = process[key] { variables[key] = value }
         }
         variables.merge(Self.analyticsEnvironment(bundle: .main)) { $1 }
         return variables

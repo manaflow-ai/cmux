@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cf802e7ace1d739b51a36e501922243d89ea1d5f6a14b3b5b57b33d0091cbcea. */
+/* cmux-tui mux protocol 12, IR c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75. */
 
 
 import type * as T from "./types.js";
@@ -77,6 +77,11 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "tool": (string) | null;
   /** When the hook observed the event; null on clear. */
   "updated_at_ms": (bigint) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentSessionShareChangedEvent = { event: "agent-session-share-changed" } & {
+  "session": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -617,6 +622,8 @@ export type TabAddedEvent = { event: "tab-added" } & {
   "pane": T.Id;
   "screen": T.Id;
   "surface": T.Id;
+  /** The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1). */
+  "transaction"?: (string) | null;
   "workspace": T.Id;
 };
 
@@ -802,6 +809,7 @@ export type KnownCmuxEvent =
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -900,6 +908,7 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ChiefChangedEvent

@@ -158,6 +158,14 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
                 // Read the cache at send time rather than trusting a queued
                 // payload; a rapid rotation/removal cannot regress the app.
@@ -392,6 +400,12 @@ pub(super) fn subscribe_command(
                 MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
                 // Only the Tasks page hears its owner's changes.
                 MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
+                // What agents do with the person's apps: their own local connections only.
+                MuxEvent::ComputerUseActivity(_) | MuxEvent::ComputerUsePreview(_)
+                    if !trusted_pairing_client || page_events.is_some() =>
+                {
+                    continue;
+                }
                 // Apps hear it as `chat.changed`; no subscribe event carries it yet.
                 MuxEvent::ChatsChanged { .. } => continue,
                 // Apps hear it as `github.changed`; no subscribe event carries it.
@@ -628,6 +642,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "revision": change.revision,
             "origin": change.origin.as_str(),
         }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
+        }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
             "registry_id":registry_id,
@@ -684,6 +702,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
+        MuxEvent::ComputerUseActivity(payload) | MuxEvent::ComputerUsePreview(payload) => {
+            payload.as_ref().clone()
+        }
         // The subscribe loop never sends a chat change (apps hear it as `chat.changed`).
         MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
             json!({"event": "empty"})

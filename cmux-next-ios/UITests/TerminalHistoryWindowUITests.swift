@@ -25,6 +25,9 @@ final class TerminalHistoryWindowUITests: XCTestCase {
         var down = 0
         var maxHeld = 0
         var of = 0
+        /// The first word of the page's first row with text when it last came
+        /// to rest: a demo row's number (`TerminalHistoryWindowProbe`).
+        var top = ""
     }
 
     @MainActor
@@ -40,18 +43,41 @@ final class TerminalHistoryWindowUITests: XCTestCase {
 
         // Up to line 1: each fling that nears the oldest row held fetches older rows.
         var drags = 0
+        // The caption (its probe trail too) when a window first fell back to
+        // the newest rows on the way up.
+        var fellBack: String?
+        var windowed = false
         while state(caption).omitted > 0, drags < 600 {
             fling(app, from: 0.2, to: 0.7)
             drags += 1
+            let now = state(caption)
+            if now.window != nil { windowed = true } else if windowed, fellBack == nil {
+                fellBack = "after \(drags) drags: \(caption.label)"
+                attach(app, "2-fell-back-\(drags)")
+            }
             if drags % 40 == 0 { attach(app, "2-scrolling-up-\(drags)") }
         }
         let top = state(caption)
-        XCTAssertEqual(top.omitted, 0, "line 1 reached after \(drags) drags: \(caption.label)")
+        XCTAssertEqual(top.omitted, 0, "line 1 reached after \(drags) drags: \(caption.label); first fall back to the newest rows: \(fellBack ?? "none")")
+        XCTAssertNil(fellBack, "going up, the window never fell back to the newest rows")
         XCTAssertEqual(top.window, 0, "the mirror holds a window from line 1: \(caption.label)")
         XCTAssertGreaterThan(top.skipped, 0, "the rows between the window and the screen stay on the Mac: \(caption.label)")
         XCTAssertLessThanOrEqual(top.maxHeld, 10_000, "no replay held more than 10,000 of the 30,000 rows: \(caption.label)")
-        // The page's very top: row 000000.
-        for _ in 0..<6 { fling(app, from: 0.2, to: 0.7) }
+        // Going up never moves the window back down (run 8f9f55310f87a97be78b36cd:
+        // 40 steps down on the way up, 98 fetches, the page left on the Mac's screen).
+        XCTAssertEqual(top.down, 0, "going up never moved the window toward the screen: \(caption.label)")
+        // The page's very top: row 000000. The reader rests on their own rows
+        // after the last fetch, a window step (1,500 rows) below line 1, a
+        // few flings of the rows held. Read from the page's own rows, not the
+        // caption's numbers: at 77fee684 (step 8f9f55310f87a97be78b36cd) the
+        // numbers passed while the page showed the Mac's screen.
+        var topFlings = 0
+        while !wait(caption, timeout: 2, { $0.top == "000000" }), topFlings < 40 {
+            fling(app, from: 0.2, to: 0.7)
+            topFlings += 1
+        }
+        XCTAssertEqual(state(caption).top, "000000", "the page rests on line 1 after \(topFlings) more flings: \(caption.label)")
+        XCTAssertEqual(state(caption).omitted, 0, "no row above line 1: \(caption.label)")
         attach(app, "3-line-1")
 
         // Back down: reaching the window's end moves it toward the screen.
@@ -124,6 +150,7 @@ final class TerminalHistoryWindowUITests: XCTestCase {
             case "down": state.down = value ?? 0
             case "maxHeld": state.maxHeld = value ?? 0
             case "of": state.of = value ?? 0
+            case "top": state.top = String(pair[1])
             default: break
             }
         }

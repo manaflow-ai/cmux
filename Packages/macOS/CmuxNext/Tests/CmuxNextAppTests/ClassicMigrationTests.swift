@@ -32,7 +32,7 @@ struct ClassicMigrationTests {
         var pinned: Set<String> = []
         /// Group names with whether each is collapsed.
         var groupNames: [String: Bool] = [:]
-        /// Workspace names per window that holds any of them.
+        /// Workspace names per window that owns any of them (its guests, another window's, not counted).
         var windows: [[String]] = []
         var notice: String?
     }
@@ -151,7 +151,9 @@ struct ClassicMigrationTests {
             if workspace.pinned { tree.pinned.insert(workspace.name) }
         }
         let byID = Dictionary(mine.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        tree.windows = services.windows.registry.value.windows.map { $0.workspaceIDs.compactMap { byID[$0] } }.filter { !$0.isEmpty }
+        // Each window's own workspaces: since #44275 two windows on one space list each other's as guests, so every
+        // classic window, all on the default space, lists them all; which window owns each is what the import made.
+        tree.windows = services.windows.registry.value.windows.map { $0.ownedIDs.compactMap { byID[$0] } }.filter { !$0.isEmpty }
         return tree
     }
 

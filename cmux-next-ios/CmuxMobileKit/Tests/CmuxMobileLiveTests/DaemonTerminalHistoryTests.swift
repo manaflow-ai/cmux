@@ -39,7 +39,7 @@ import Testing
         defer { session.stop() }
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
-        try await waitUntil { session.isAttached }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 9_000 && text(events).hasSuffix("$ ") }
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 0)
         #expect(session.historyRowsOmitted == 9_000)
         #expect(text(events) == "\u{1B}c[0 rows]hello\r\n$ ")
@@ -121,8 +121,9 @@ import Testing
         let session = session(daemon, ChannelLog())
         defer { session.stop() }
         session.start { _ in }
-        try await waitUntil { session.isAttached }
-        #expect(session.historyRowsOmitted == 9_000)
+        // The attach is marked before its replay's `vt-state` names the rows
+        // omitted: wait for both.
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 9_000 }
         session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 60, "rows": 20,
                                                 "replay": Data("all".utf8).base64EncodedString()]))
         #expect(session.historyRowsOmitted == 0)
@@ -160,7 +161,7 @@ import Testing
         defer { session.stop() }
         session.requestHistoryRows(2_500)
         session.start { _ in }
-        try await waitUntil { session.isAttached }
+        try await waitUntil { session.isAttached && session.historyRowsOmitted == 5_000 }
         #expect(attaches(daemon).count == 1)
         #expect(attaches(daemon).first?["replay_history_rows"] as? Int == 2 * DaemonTerminalSession.historyChunkRows)
         #expect(session.historyRowsOmitted == 5_000)

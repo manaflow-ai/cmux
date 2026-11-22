@@ -1,0 +1,120 @@
+/* The machine card over a Cloud chat's location popover (MachineCard.tsx). It sits on the popover's
+   own text inset (the env heading's, composerLocation.css), so the card, Wake machine and Continue
+   on line up as one menu. Type and color follow the plan usage card (planUsageCard.css), whose rows
+   and bars it reuses: the name in body type, the specs and status in detail type and the muted
+   color, numbers on tabular figures. The dot is the env strip's 6 px live dot. */
+.acpmux-env-popover.acpmux-env-card {
+  min-width: 260px;
+}
+
+.acpmux-machine-card {
+  --acpmux-machine-card-inset: calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));
+  /* The env strip's live dot (composerLocation.css --acpmux-env-live-size) and its gap to the
+     words, as the composer's machine link has them (machineLinkStatus.css). */
+  --acpmux-machine-card-dot: 6px;
+  --acpmux-machine-card-dot-gap: 6px;
+  padding: var(--ds-space-1) var(--acpmux-machine-card-inset);
+  text-align: start;
+}
+
+.acpmux-machine-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.acpmux-machine-card-title {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.acpmux-machine-card-name {
+  overflow: hidden;
+  color: var(--agent-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-machine-card-specs,
+.acpmux-machine-card-status,
+.acpmux-machine-card-note {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-machine-card-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--acpmux-machine-card-dot-gap);
+  white-space: nowrap;
+}
+
+/* One dot-sized box for the dot and the spinner, so Asleep, Waking and Awake swap in place. */
+.acpmux-machine-card-mark {
+  position: relative;
+  flex: none;
+  width: var(--acpmux-machine-card-dot);
+  height: var(--acpmux-machine-card-dot);
+}
+.acpmux-machine-card-dot {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+.acpmux-machine-card-status[data-status="awake"] .acpmux-machine-card-dot {
+  background: var(--agent-success, var(--acpmux-add, currentColor));
+}
+.acpmux-machine-card-status[data-status="failed"] .acpmux-machine-card-dot {
+  background: var(--agent-danger, currentColor);
+}
+.acpmux-machine-card-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  color: var(--agent-muted);
+}
+
+/* The usage rows: a hairline over them, as the reference cards divide the head from the meters. */
+.acpmux-machine-card .acpmux-machine-card-usage {
+  margin-top: var(--ds-space-2);
+  padding-top: var(--ds-space-2);
+  border-top: 0.5px solid color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+
+.acpmux-machine-card-note {
+  margin: var(--ds-space-2) 0 0;
+}
+
+/* Continue on: the first place the chat can go carries the heading over it, under the hairline
+   (EnvironmentPicker `data-divider`), as the plain Computer menu heads its sections. */
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-card-section]) {
+  margin-top: 32px;
+}
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-card-section])::before {
+  top: -24px;
+}
+.acpmux-env-popover .acpmux-env-row[data-card-section]::before {
+  content: attr(data-card-section);
+  position: absolute;
+  top: -16px;
+  left: calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
+  pointer-events: none;
+}
+
+/* The chip's dot while the machine is asleep: a grey dot, as the card's (the env strip draws a
+   paused machine as a ring elsewhere). */
+.acpmux-location-picker[data-machine-card] .acpmux-location-button .acpmux-env-live[data-sleep="paused"] {
+  border: 0;
+  background: var(--agent-muted);
+}

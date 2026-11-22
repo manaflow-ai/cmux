@@ -25,13 +25,18 @@ struct TerminalHistoryGap: Equatable {
         case newest
     }
 
-    /// What the reader showing rows `visibleTop..<visibleBottom` needs: within
-    /// a screen of the gap from above, newer rows; from below, the newest.
-    func need(visibleTop: Int, visibleBottom: Int) -> Need? {
+    /// What the reader showing rows `visibleTop..<visibleBottom` needs: coming
+    /// down (`movingDown`) to within a screen of the gap from above, newer
+    /// rows; coming up to it from below, the newest. A reader going up past
+    /// the window's end, or down the Mac's screen, needs nothing: moving the
+    /// window then took them away from the rows they scroll toward.
+    func need(visibleTop: Int, visibleBottom: Int, movingDown: Bool) -> Need? {
         let screen = max(1, visibleBottom - visibleTop)
-        if visibleTop < row {
-            return visibleBottom + screen >= row ? .newer : nil
+        if movingDown {
+            // From above: the window's rows on top, its end within a screen.
+            return visibleTop < row && visibleBottom + screen >= row ? .newer : nil
         }
-        return visibleTop - screen <= row ? .newest : nil
+        // From below: rows past the window on screen, its end within a screen.
+        return visibleBottom > row && visibleTop - screen <= row ? .newest : nil
     }
 }
