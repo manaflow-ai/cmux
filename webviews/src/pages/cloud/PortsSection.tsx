@@ -6,6 +6,7 @@
 import { HostActions } from "./ops";
 import { isUnavailable, PortField, Unavailable, type SectionProps } from "./sectionParts";
 import { format, L } from "./strings";
+import { intl } from "../../ui/intl";
 
 function shareExpiry(expiresAt: number | undefined, language: string): string | undefined {
   if (expiresAt === undefined) return undefined;
@@ -13,7 +14,7 @@ function shareExpiry(expiresAt: number | undefined, language: string): string | 
   // display correct if the platform DTO is decoded from its Unix timestamp.
   const date = new Date(expiresAt < 10_000_000_000 ? expiresAt * 1000 : expiresAt);
   if (Number.isNaN(date.getTime())) return undefined;
-  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 export function PortsSection({

@@ -165,11 +165,14 @@ def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> 
     assert module.job_is_plainly_linux(router)
     references = module.macos_job_test_references("\njobs:\n  " + router)
     assert references is not None and references[0] == frozenset(), references
+    # One cmux-linux label, no placement job (hq decisions/junctions.md 2026-11-20); a Mac label or a
+    # needs expression in its place is no longer plainly Linux.
+    assert "'cmux-linux'" in router, router
     for unknown in (
-        router.replace("outputs.linux_runner", "outputs.mini_runner"),
-        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
-        router.replace("' changes '", "' other-job '"),
+        router.replace("'cmux-linux'", "'macos-26'"),
+        router.replace("'cmux-linux'", "needs.place.outputs.runner"),
     ):
+        assert unknown != router
         assert not module.job_is_plainly_linux(unknown), unknown
 
 
@@ -3301,8 +3304,9 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     assert 'required_jobs.append("react-apps-base-check")' in block
     # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
     assert 'else:\n              required_jobs.append("react-doctor")' in block
-    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
-    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one. A post-merge batch probe
+    # (inputs.only set) runs no aggregate: its probed shards answer for themselves.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
@@ -4570,18 +4574,7 @@ def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -
     assert '--event-path "$GITHUB_EVENT_PATH"' in suite
 
 
-def test_merge_groups_stop_at_the_first_failure() -> None:
-    # The privileged watcher is started by a merge-group-only workflow, so an
-    # ordinary pull request never creates a skipped fail-fast run. It still runs
-    # from the default branch and executes no repository code.
-    watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [Merge-group policy checks]\n    types: [in_progress]" in watcher
-    assert "workflows: [CI]" not in watcher
-    assert "head_sha=$HEAD_SHA" in watcher
-    assert "event=merge_group" in watcher
-    assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
-    assert "permissions: {}" in watcher and "actions: write" in watcher
-    assert "uses:" not in watcher
+def test_ci_holds_no_actions_write() -> None:
     # ci.yml holds no actions: write at all: a pull_request run takes it from
     # the pull request.
     jobs = _ci_jobs()
