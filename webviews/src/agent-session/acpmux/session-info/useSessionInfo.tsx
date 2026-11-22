@@ -84,6 +84,7 @@ import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
 import { useAlsoHere } from "./alsoHereSectionModel";
 import type { PrFeedbackKind } from "./prFeedback";
+import type { FixChecksActions } from "./FixChecksButton";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -241,6 +242,7 @@ export function useSessionInfo({
   wide = false,
   onReconnectMcp,
   onDraftFeedback,
+  fixChecks,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -327,6 +329,9 @@ export function useSessionInfo({
   /// Labs: drafts a message about a pull request's own failing checks or its review comments into
   /// the composer, unsent (prFeedback.ts); Changes' two menu items hide without it.
   onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
+  /// Changes' Fix failing checks button's read and send (experiment `changes-fix-checks-button`,
+  /// off by default: FixChecksButton.tsx).
+  fixChecks?: FixChecksActions;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
@@ -607,6 +612,7 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         // A subagent's panel lists the chat's pull requests' rows too; the draft goes to the chat's composer.
         onDraftFeedback={subagent ? undefined : stableOnDraftFeedback}
+        fixChecks={subagent ? undefined : fixChecks}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
@@ -891,6 +897,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onSaveEnvironment,
   onReconnectMcp,
   onDraftFeedback,
+  fixChecks,
   remoteControl,
   onCompact,
   onViewPrompt,
@@ -964,6 +971,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
+  fixChecks?: FixChecksActions;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
   onViewPrompt?: () => void;
@@ -1506,6 +1514,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
         onDraftFeedback={scope ? undefined : onDraftFeedback}
+        fixChecks={scope ? undefined : fixChecks}
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}

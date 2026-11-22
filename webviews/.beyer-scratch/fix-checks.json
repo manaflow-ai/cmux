@@ -1,0 +1,52 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "fix-checks-now",
+      "entry": "agent-pane.session-info-changes-fix-checks",
+      "variant": "now",
+      "width": 640,
+      "height": 460,
+      "widthName": "narrow",
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-session-info__body",
+      "margin": 24
+    },
+    {
+      "name": "fix-checks-quiet",
+      "entry": "agent-pane.session-info-changes-fix-checks",
+      "variant": "quiet",
+      "width": 640,
+      "height": 460,
+      "widthName": "narrow",
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-session-info__body",
+      "margin": 24
+    },
+    {
+      "name": "fix-checks-count",
+      "entry": "agent-pane.session-info-changes-fix-checks",
+      "variant": "count",
+      "width": 640,
+      "height": 460,
+      "widthName": "narrow",
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-shell",
+      "margin": 24
+    },
+    {
+      "name": "fix-checks-preview",
+      "entry": "agent-pane.session-info-changes-fix-checks",
+      "variant": "preview",
+      "width": 640,
+      "height": 460,
+      "widthName": "narrow",
+      "deviceScaleFactor": 2,
+      "clip": ".acpmux-shell",
+      "margin": 24
+    }
+  ]
+}

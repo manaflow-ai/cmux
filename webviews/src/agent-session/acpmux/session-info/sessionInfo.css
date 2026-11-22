@@ -1159,6 +1159,99 @@ button.acpmux-session-info-port:hover,
   color: var(--agent-muted);
   opacity: 0.75;
 }
+/* The row's Fix failing checks button (FixChecksButton.tsx, experiment `changes-fix-checks-button`,
+   off by default): a line of its own under the row's text, on the label column, above the link's
+   row-wide hit area. */
+.acpmux-session-info-pr:has(> .acpmux-session-info-fix-row) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.acpmux-session-info-fix-row {
+  position: relative;
+  flex: 1 0 100%;
+  display: flex;
+  margin-top: calc(var(--grid-base) * -1);
+  padding: 0 0 var(--grid-base) calc(var(--grid-gap) * 2 + var(--grid-icon-box) - 2px);
+}
+.acpmux-session-info-fix {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.acpmux-session-info-fix[data-look="count"],
+.acpmux-session-info-fix[data-look="preview"] {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-status-failure) 35%, transparent);
+  border-radius: 999px;
+  color: var(--agent-status-failure);
+}
+.acpmux-session-info-fix[data-look="count"]:hover,
+.acpmux-session-info-fix[data-look="preview"]:hover {
+  color: var(--agent-status-failure);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--agent-status-failure) 10%, transparent);
+}
+.acpmux-session-info-fix__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--agent-status-failure);
+}
+.acpmux-session-info-fix__card,
+.acpmux-session-info-fix__preview {
+  max-width: 320px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-session-info-fix__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+  padding: 10px;
+}
+.acpmux-session-info-fix__heading {
+  color: var(--agent-muted);
+  font-weight: 600;
+}
+.acpmux-session-info-fix__list ul,
+.acpmux-session-info-fix__base ul {
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-session-info-fix__step,
+.acpmux-session-info-fix__base,
+.acpmux-session-info-fix__note {
+  color: var(--agent-muted);
+}
+.acpmux-session-info-fix__draft {
+  max-height: 200px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.acpmux-session-info-fix__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-session-info-fix__send {
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--agent-text);
+  color: var(--agent-surface, Canvas);
+  font: inherit;
+}
+.acpmux-session-info-fix__send:disabled {
+  opacity: 0.4;
+}
 .acpmux-session-info-pr__checks[data-checks="passing"],
 .acpmux-session-info-pr__checks[data-checks="pending"] {
   flex: none;

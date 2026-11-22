@@ -39,6 +39,10 @@ import {
 } from "./changesSectionModel";
 import { WindowedRows } from "./WindowedRows";
 import { prFeedbackKinds, type PrFeedbackKind } from "./prFeedback";
+import { experimentArm } from "../../../experiments/experiment";
+import { fixChecksButton } from "./fixChecks.experiment";
+import { ownFailing } from "./fixChecks";
+import { FixChecksButton, type FixChecksActions } from "./FixChecksButton";
 
 const ROW_ICON = rowIconSize(12);
 const KIND_LABELS: Record<ChangeKind, StringKey> = {
@@ -74,6 +78,7 @@ export function ChangesSection({
   onOpenBeside,
   onDismiss,
   onDraftFeedback,
+  fixChecks,
 }: {
   /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
@@ -86,6 +91,9 @@ export function ChangesSection({
   /// Labs: drafts a message about the pull request's own failing checks or its review comments into
   /// the composer, unsent (prFeedback.ts); the two menu items hide without it.
   onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
+  /// The Fix failing checks button's read and send (experiment `changes-fix-checks-button`, off by
+  /// default: FixChecksButton.tsx); the button needs `onDraftFeedback` too.
+  fixChecks?: FixChecksActions;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
@@ -107,6 +115,7 @@ export function ChangesSection({
               onOpenBeside={onOpenBeside}
               onDismiss={onDismiss}
               onDraftFeedback={onDraftFeedback}
+              fixChecks={fixChecks}
             />
           )}
         />
@@ -131,14 +140,17 @@ function PullRequestRow({
   onOpenBeside,
   onDismiss,
   onDraftFeedback,
+  fixChecks,
 }: {
   pr: SummaryPullRequest;
   live: SessionInfoPullRequestStatus;
   onOpenBeside?: (url: string) => void;
   onDismiss?: (url: string) => void;
   onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
+  fixChecks?: FixChecksActions;
 }) {
   const t = useT();
+  const [fixLook] = useState(() => experimentArm(fixChecksButton));
   const hover = useHoverCard();
   const site = useSiteInfo(pr.url);
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
@@ -155,6 +167,8 @@ function PullRequestRow({
   const stateLabel = t(STATE_LABELS[state]);
   const diffUrl = onOpenBeside ? pullRequestDiffUrl(pr.url) : undefined;
   const feedback = onDraftFeedback ? prFeedbackKinds(ended(state), failing, onBase) : [];
+  // The row's own Fix button (off by default) shows where the ⋯ menu offers Fix Failing Checks.
+  const fixButton = fixLook !== "off" && feedback.includes("checks");
   return (
     // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
     // over the row's own gap and padding (sessionInfo.css), with only the ⋯ button above it. The
@@ -309,6 +323,16 @@ function PullRequestRow({
           )}
         </MenuPopup>
       </Menu>
+      {fixButton && fixLook !== "off" && (
+        <FixChecksButton
+          url={pr.url}
+          count={ownFailing(failing, onBase)}
+          onBase={onBase}
+          look={fixLook}
+          onDraft={() => onDraftFeedback?.(pr.url, "checks")}
+          actions={fixChecks}
+        />
+      )}
     </li>
   );
 }

@@ -207,6 +207,7 @@ import { setStartModeSource } from "./startMode";
 import { setStartRecoveryPreview } from "./startRecoveryPreview";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { prFeedbackDispatcher, setPrFeedbackPreview, usePrFeedbackPreview } from "./session-info/prFeedback";
+import type { FixChecksActions } from "./session-info/FixChecksButton";
 import type { MockScript } from "./mock";
 import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
@@ -6180,6 +6181,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       failed: (text) => notices.failed(text),
     }),
   );
+  // Changes' Fix failing checks button (experiment `changes-fix-checks-button`, off by default):
+  // it reads the same acpmux answer to show what it sends, and its Preview arm's Send sends it to
+  // the chat it was read for (session-info/FixChecksButton.tsx).
+  const [fixChecks] = useState<FixChecksActions>(() => ({
+    read: (url) => {
+      const chat = sessionIdRef.current;
+      const client = directClient.current;
+      return {
+        answer: chat && client ? client.prFeedback(chat, url, "checks") : Promise.reject(new Error()),
+        stillShown: () => sessionIdRef.current === chat,
+      };
+    },
+    send: (text) => {
+      void callNative("chat.send", { text }).catch((error: unknown) =>
+        notices.failed(errorMessage(error) || translate("error.requestFailed")),
+      );
+    },
+  }));
   const sessionInfo = useSessionInfo({
     snapshot: sessionInfoSnapshot,
     split: sessionInfoSplit,
@@ -6219,6 +6238,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     onDraftFeedback: quick || !prFeedbackOn ? undefined : draftFeedback,
+    fixChecks: quick || !prFeedbackOn ? undefined : fixChecks,
     remoteControl: sessionInfoRemoteControl,
     // A Usage row opens that chat, this Mac's or a peer's, beside this one or in the tab showing it.
     onOpenChat: openSenderChat,

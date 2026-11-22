@@ -107,6 +107,7 @@ import { samePanelProps } from "./samePanelProps";
 import type { AlsoHere } from "./alsoHere";
 import "./sessionInfo.css";
 import type { PrFeedbackKind } from "./prFeedback";
+import type { FixChecksActions } from "./FixChecksButton";
 import {
   type SessionInfoPlacement,
   type RailLayout,
@@ -381,6 +382,7 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onDraftFeedback,
+  fixChecks,
   onCompact,
   onViewPrompt,
   onOpenFolder,
@@ -479,6 +481,9 @@ export function SessionInfo({
   /// Labs: drafts a message about a pull request's own failing checks or its review comments into
   /// the composer, unsent (prFeedback.ts); Changes' two menu items hide without it.
   onDraftFeedback?: (url: string, kind: PrFeedbackKind) => void;
+  /// Changes' Fix failing checks button's read and send (experiment `changes-fix-checks-button`,
+  /// off by default: FixChecksButton.tsx).
+  fixChecks?: FixChecksActions;
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
@@ -772,6 +777,7 @@ export function SessionInfo({
           statuses={statuses}
           onOpenBeside={onOpenUrl}
           onDraftFeedback={onDraftFeedback}
+          fixChecks={fixChecks}
         />
       )}
     </SessionInfoSection>
