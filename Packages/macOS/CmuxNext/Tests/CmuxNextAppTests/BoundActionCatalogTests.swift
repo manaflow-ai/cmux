@@ -21,6 +21,8 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // #50515 (Open Chief on the Left/Right) adds these rows to the Rust catalog in the same PR.
+        "home.tabLeft", "home.tabRight",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
