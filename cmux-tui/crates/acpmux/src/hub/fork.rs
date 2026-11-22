@@ -551,6 +551,9 @@ impl Hub {
             // so a prompt the chat takes while it answers is not in the fork's history either.
             let handoff = session.input_handoff.clone().lock_owned().await;
             let seen = std::sync::Mutex::new(None);
+            // What the agent sends for the new session while it answers (OpenCode replays the
+            // whole conversation under its id) is the fork's, not this chat's (`fork_replay.rs`).
+            let replay_wait = session.fork_replay.asking();
             let asked = child
                 .request_with_hook(method::SESSION_FORK, fork_params, None, || {
                     *seen.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -571,6 +574,9 @@ impl Hub {
                         .and_then(Value::as_str)
                         .ok_or_else(|| RpcError::internal("session/fork returned no sessionId"))?
                         .to_owned();
+                    // Before the wait ends, so no late update of it reads as this chat's.
+                    session.fork_replay.made(&new_sid);
+                    drop(replay_wait);
                     Made::Agent(res, new_sid)
                 }
                 // An agent that fails a fork while the chat works (OMP answers a bare

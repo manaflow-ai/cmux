@@ -115,6 +115,11 @@ impl Hub {
         // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
         let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The replay of a session this chat's `session/fork` made is the fork's, never this
+            // chat's (`fork_replay.rs`): kept nowhere, it counts as logged, so a host drops it.
+            if matches!(dir, Direction::In) && super::fork_replay::of_the_fork(&tap_session, msg) {
+                return true;
+            }
             let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
