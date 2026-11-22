@@ -35,8 +35,11 @@
 #   On a Mac with Xcode (a simulator worker): runs scripts/ci/cmux-next-ios-sim.sh test
 #     ui=ReadFirstUITests,ReadFirstColdUITests coldruns=N as a sibling step, then reads its evidence.
 #   Anywhere else: evidence=PATH reads a finished fleet simulator step's evidence.zip (or folder).
-#   The fleet controller runs only scripts/ci/cmux-next-ios-sim.sh on --class simulator, so the
-#   route from a lane VM is two commands:
+#   The fleet controller runs only scripts/ci/cmux-next-ios-sim.sh on --class simulator and refuses
+#   arguments outside its pattern ("test takes only=..., ui=..., video, profile, duress=SPEC,
+#   device=NAME and reducemotion=1, got \"coldruns=20\"") and every env but CMUX_CI_XCODE_APP, so the
+#   cold run count comes from ReadFirstColdUITests' `static let coldRuns = 20`, and the
+#   route from a lane VM is three commands:
 #     cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test \
 #       --arg ui=ReadFirstUITests,ReadFirstColdUITests --artifact artifacts/ios-sim/evidence.zip
 #     cmux-ci artifact STEP_ID /tmp/rf/evidence.zip
