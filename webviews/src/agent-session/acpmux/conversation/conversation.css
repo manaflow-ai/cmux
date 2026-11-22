@@ -1702,7 +1702,8 @@
   position: relative;
   width: fit-content;
   max-width: 100%;
-  margin: var(--cv-table-before, 6.5px) auto 14px;
+  margin: var(--cv-table-before, 6.5px) 0 14px;
+  margin-inline: auto;
 }
 /* Beside: the pair sits just past the table's right edge, so the block leaves room for it, and
    stays at the column's start: centered, a table near the cap would push the pair past the edge. */
