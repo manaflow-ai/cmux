@@ -22,7 +22,7 @@ function pass(held: Held, tail: number, following = true) {
     sessionSwitched: false,
     followedRoom: STACK,
     prompt: "prompt-1",
-    tail,
+    tail: () => tail,
   });
   // What the placement pass stores for the next pass (VirtualTranscript: the layout effect and `heldRoom.room`).
   return {

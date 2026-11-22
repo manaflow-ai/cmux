@@ -198,7 +198,22 @@ await requireBrowserLane("agent-pane-kept-room-fills-browser.test.ts", async () 
         browsers.push(browser);
         const pane = await papercutPane(() => browser, { turns: 40, running: true, session: each.session });
         try {
-          const page = await pane.open({ width: 900, height: 760 });
+          const errors: string[] = [];
+          let opened: Page | undefined;
+          const page = await pane
+            .open({ width: 900, height: 760 }, async (page) => {
+              opened = page;
+              page.on("pageerror", (error) => errors.push(`pageerror: ${error.message} ${error.stack ?? ""}`));
+              page.on("console", (message) => {
+                if (message.type() === "error") errors.push(`console: ${message.text()}`);
+              });
+            })
+            .catch(async (error) => {
+              const shown = await opened?.evaluate(() => document.body.innerText.slice(0, 400)).catch(() => "?");
+              throw new Error(`the chat never opened: ${errors.slice(0, 6).join(" | ")}; page: ${shown}`, {
+                cause: error,
+              });
+            });
           await settle(page);
           const rest = await view(page);
           expect(rest.fromEnd).toBeLessThanOrEqual(1);

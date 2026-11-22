@@ -847,21 +847,20 @@ export function roomUnderRows(
     sessionSwitched: boolean;
     followedRoom: number;
     prompt: string | undefined;
-    tail: number;
+    /// Read only while room is held or kept.
+    tail: () => number;
   },
 ): { room: number; kept: ReaderRoom["kept"] } {
   if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
   if (!pass.following) return { room: held, kept: undefined };
-  const end = !reader.followed
-    ? reader.left && held > pass.followedRoom + 0.5
-      ? pass.tail + held
-      : undefined
-    : reader.kept?.prompt === pass.prompt
-      ? reader.kept?.end
-      : undefined;
-  const left = end === undefined ? 0 : end - pass.tail;
+  const fresh = !reader.followed && reader.left === true && held > pass.followedRoom + 0.5;
+  const carried = reader.followed && reader.kept !== undefined && reader.kept.prompt === pass.prompt;
+  if (!fresh && !carried) return { room: pass.followedRoom, kept: undefined };
+  const tail = pass.tail();
+  const end = fresh ? tail + held : reader.kept!.end;
+  const left = Number.isFinite(end - tail) ? end - tail : 0;
   // Filled down to the stack's room: nothing is kept any longer.
-  if (end === undefined || left <= pass.followedRoom + 0.5)
+  if (left <= pass.followedRoom + 0.5)
     // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
     return { room: pass.followedRoom, kept: undefined };
   return { room: left, kept: { room: left, prompt: pass.prompt, end } };
@@ -4766,7 +4765,7 @@ function TranscriptView({
     sessionSwitched,
     followedRoom,
     prompt: keptPrompt,
-    tail: measured.layout.totalHeight - (keptAt >= 0 ? (measured.layout.tops[keptAt] ?? 0) : 0) + tailGap,
+    tail: () => measured.layout.totalHeight - (keptAt >= 0 ? (measured.layout.tops?.[keptAt] ?? 0) : 0) + tailGap,
   });
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
