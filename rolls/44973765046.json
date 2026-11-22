@@ -9,10 +9,174 @@
     "green": false,
     "superseded": false
   },
-  "rolled_back": true,
+  "rolled_back": false,
   "rollback": {
     "result": "pushed",
     "commit": "11efb90ea8b46790a879821bb2d26d2bc8c8d10c",
     "at": "2026-11-22T02:16:27Z"
+  },
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44973765046",
+  "recorded_at": "2026-11-22T02:23:48Z",
+  "reason": "cmux-tui 602f51e1015c changes the image's cmux-tui (pinned 9d9419a91089)",
+  "dry_run": false,
+  "cmux_tui": "602f51e1015cb2cb574fd2233a361c234554e944",
+  "fixes": [
+    {
+      "sha": "f8506441a04c37c9ec3849221ec283225a3cc191",
+      "mergedAt": "2026-11-22T01:27:05+00:00",
+      "subject": "acpmux: inbox failures say where they came from; team read within READ_WAIT (#49561)"
+    },
+    {
+      "sha": "be5af37f101ba1957a3cf9e78e2286cecc46ff11",
+      "mergedAt": "2026-11-22T01:26:19+00:00",
+      "subject": "cmux-relay, cmux-remote: a slot whose Register ticket ran out unrenewed answers credential-unavailable (Remote/Cloud durability F2) (#49464)"
+    },
+    {
+      "sha": "88507c515693464e7295223e373c3fc811210f85",
+      "mergedAt": "2026-11-21T17:25:05-08:00",
+      "subject": "cmux daemon stop --if-idle (server stop --if-idle): stop only an idle daemon"
+    },
+    {
+      "sha": "7912a1fa3c513e63ecc4c5c1b70d68302cf6f14c",
+      "mergedAt": "2026-11-21T17:25:05-08:00",
+      "subject": "cmux server uninstall (macOS): wait for launchd to drop the job after bootout"
+    },
+    {
+      "sha": "33dbf5d73136e633047db1711788c93bd8462667",
+      "mergedAt": "2026-11-22T01:21:49+00:00",
+      "subject": "acpmux tests: run_wait's timeout reads as timeoutSeconds since #48988 (#49180)"
+    },
+    {
+      "sha": "d82364e70173656fd43b4a9df45a2d8ffda072d0",
+      "mergedAt": "2026-11-21T17:07:41-08:00",
+      "subject": "cmux-browser-host Linux notices: regenerate for cmux-embed and zstd (base red) (#49206)"
+    },
+    {
+      "sha": "cf09b850942b005800bf303a26a9f1fa34071f2f",
+      "mergedAt": "2026-11-22T00:54:02+00:00",
+      "subject": "Choose notification delivery per event (#48796)"
+    },
+    {
+      "sha": "624a20d349d23112d8cb37ec988bdcb6b9981a73",
+      "mergedAt": "2026-11-21T16:48:36-08:00",
+      "subject": "cmux NEXT: a restored terminal's tab keeps its agent icon (#49392) (#49440)"
+    },
+    {
+      "sha": "5c85daaf422e68e4dc8484bc85e43bbcdd4a3bea",
+      "mergedAt": "2026-11-22T00:39:09+00:00",
+      "subject": "acpmux: a reply hint names only an address acpmux send can deliver to (#49488)"
+    },
+    {
+      "sha": "4bda820848a8e5b4b016e7c30d0e341cb42073bb",
+      "mergedAt": "2026-11-22T00:38:42+00:00",
+      "subject": "Customize recipes: App looks like the Codex app, and a true black one (#47820)"
+    },
+    {
+      "sha": "63f5820503f74c6155e848700b37c8d01a70f991",
+      "mergedAt": "2026-11-21T16:32:34-08:00",
+      "subject": "Page profiler: a Release-safe, read-only CLI view of each cmux page's heap and CPU (#49292)"
+    },
+    {
+      "sha": "421dbac642da59899bf96651c268084620f42a3b",
+      "mergedAt": "2026-11-21T16:31:14-08:00",
+      "subject": "Explain the token verifier deny_all start log in plain words (#48986)"
+    },
+    {
+      "sha": "dda9ce470757303f621186442ff279bf6326c247",
+      "mergedAt": "2026-11-22T00:27:04+00:00",
+      "subject": "coord-sim fanin: N sessions over H acpmux hosts through one controller (ramps 50/200/2000) (#47291)"
+    },
+    {
+      "sha": "fd0074ea3c24188a2edf3743f64799a727ee67f3",
+      "mergedAt": "2026-11-22T00:26:39+00:00",
+      "subject": "Computer use: stop waiting for screen frames when the app says nothing changed (#48234)"
+    },
+    {
+      "sha": "ee67bfc3745be6377af82a55d97e9e2538e802b4",
+      "mergedAt": "2026-11-22T00:16:08+00:00",
+      "subject": "coord-sim degen: seven degenerate cases against a scratch acpmux daemon (#47270)"
+    },
+    {
+      "sha": "3878623d0c80cd65744a19718ae7768dfd018a97",
+      "mergedAt": "2026-11-21T16:13:26-08:00",
+      "subject": "cmux NEXT: the Invite People sheet refreshes live on a daemon share-change event (#35298)"
+    },
+    {
+      "sha": "c1559bd4e0165ae8e527608a63c2788acc597965",
+      "mergedAt": "2026-11-22T00:10:35+00:00",
+      "subject": "coord-sim: report (coord-sim-run.v1), bench coord-sim, perf cron Linux part (#47251)"
+    },
+    {
+      "sha": "5ab94f12dca1d36476281afb7746394d7a6d76ab",
+      "mergedAt": "2026-11-22T00:04:55+00:00",
+      "subject": "cmux vm new and cmux chat --on vm:new answer their start stages (journey names, --timings) (#46836)"
+    },
+    {
+      "sha": "698ebc471dc2ed2136b957f5c504cf0163723f56",
+      "mergedAt": "2026-11-22T00:04:50+00:00",
+      "subject": "coord-sim gen: synthetic coordinator chats as scripts and acpmux session dirs, up to multi-GB (#47315)"
+    },
+    {
+      "sha": "6124275b6250dc9c14cb4144e8aa959bebe48553",
+      "mergedAt": "2026-11-22T00:04:46+00:00",
+      "subject": "customize: a watched folder stays on; launch expiry survives a hung network (#46281)"
+    },
+    {
+      "sha": "1ddc4d0384c43f38fe3802dfbd86122e61426c5d",
+      "mergedAt": "2026-11-21T16:01:58-08:00",
+      "subject": "rd: expose successful socket departure receipts (#44508)"
+    },
+    {
+      "sha": "78d7c3f028e66b43dce73b4c54abcd86b87d6f9e",
+      "mergedAt": "2026-11-21T23:40:24+00:00",
+      "subject": "acpmux: a task end its own agent read sends no end notice after it (hq#15820) (#49404)"
+    },
+    {
+      "sha": "8d8de102ea75d30ed7268ee61d36f70d0700d7c4",
+      "mergedAt": "2026-11-21T23:37:33+00:00",
+      "subject": "acpmux: archive and unarchive chats, ls --archived, and archive inactive chats on a setting (#46973)"
+    },
+    {
+      "sha": "36d2bb5c1834dab570a4d559256b838fb164519a",
+      "mergedAt": "2026-11-21T15:35:18-08:00",
+      "subject": "Feed: terminal Claude Code events show what the agent said, and its approvals and questions are answerable from the phone (#47070)"
+    },
+    {
+      "sha": "0b2ea794160772e518464fd2caed0475dd67994f",
+      "mergedAt": "2026-11-21T23:30:52+00:00",
+      "subject": "acpmux: asks about a peer down for minutes no longer re-dial its ssh each second (#49190)"
+    },
+    {
+      "sha": "edef8d5f752eaa5a8c3b6742e1d52f9b580f037c",
+      "mergedAt": "2026-11-21T23:29:30+00:00",
+      "subject": "acpmux: mesh read retries stay within READ_WAIT; inbox failures say how (#49453)"
+    },
+    {
+      "sha": "e96390ee5ef5e1ec6bc490479d02ebf06aa97e01",
+      "mergedAt": "2026-11-21T15:28:00-08:00",
+      "subject": "fix(rd-host): Capture::start builds only with bench, as its one caller"
+    },
+    {
+      "sha": "554c3774e0a4128a37de4e1ef7c9cdeac6dba390",
+      "mergedAt": "2026-11-21T23:19:02+00:00",
+      "subject": "machine join: install cmux-rd from the files channel so a joined Linux machine's screen is shareable (on base) (#49079)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T02:23:48Z",
+    "snapshot_id": "sh-76b799e3397d4b2b8ef17387b7506bc6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44973765046): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4cd884a8ee87e9dfafaa89c5ae19450cee8b1a21",
+    "image": "cloud-native-auto-602f51e1-44973765046-1",
+    "revision": "ci-44973765046-1",
+    "at": "2026-11-22T02:23:48Z"
   }
 }
