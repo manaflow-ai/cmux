@@ -51,10 +51,56 @@ test("the turn's end puts Worked for in Working for's place, at the same height"
   expect(after.heights[worked]).toBe(during.heights[header]);
 });
 
-test("a turn of only a reply so far draws no Working for: its end has no fold line to take its place", () => {
-  const live = shown(turnView(turn.slice(0, 2), new Set(), { now: 60_000, agentFamily: "codex", working: true }));
-  expect(live.some((each) => each.kind === WORKING)).toBe(false);
-});
+// Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways
+// so it disappearing means there's multiple problems". The person's turn holds its heading from the send to
+// its end, work or not: nothing it drew moves when its first call comes, nor when it ends.
+for (const family of ["codex", "claude"]) {
+  const options = { now: 60_000, agentFamily: family };
+  const ids = (rows: AcpmuxRow[]) => shown(rows).map((each) => each.id);
+
+  test(`${family}: a turn of only a reply so far draws Working for, and the first call moves nothing under it`, () => {
+    const reply = shown(turnView(turn.slice(0, 2), new Set(), { ...options, working: true }));
+    expect(reply[1]).toMatchObject({ kind: WORKING, id: "working-u" });
+    const called = shown(turnView(turn.slice(0, 3), new Set(), { ...options, working: true }));
+    expect(ids(called).slice(0, 3)).toEqual(ids(reply).slice(0, 3));
+  });
+
+  test(`${family}: a sent prompt draws Working for over its Thinking line, under the opened turn's id`, () => {
+    const sending = row("u", "user", 0, { text: "Build the page", pending: true });
+    const sent = shown(turnView([sending], new Set(), { ...options, working: false }));
+    expect(ids(sent)).toEqual(["u", "working-u", "thinking-live"]);
+    const opened = shown(turnView([turn[0]!], new Set(), { ...options, working: true }));
+    expect(ids(opened)).toEqual(["u", "working-u", "thinking-live"]);
+  });
+
+  test(`${family}: a prompt sent after an ended turn draws its heading from the send, the ended turn settled`, () => {
+    const ended = [...turn, row("end", "turnSummary", 4_000, { status: "completed", durationMs: 4_000 })];
+    const next = row("u2", "user", 9_000, { text: "Now the footer", pending: true });
+    const sent = ids(turnView([...ended, next], new Set(), { ...options, working: true }));
+    expect(sent.slice(sent.indexOf("u2"))).toEqual(["u2", "working-u2", "thinking-live"]);
+    expect(sent).toContain("worked-u");
+    expect(sent).not.toContain("working-u");
+  });
+
+  test(`${family}: a turn that only replied ends on an inert Worked for in Working for's place`, () => {
+    const reply = turn.slice(0, 2);
+    const live = turnView(reply, new Set(), { ...options, working: true });
+    const done = turnView(
+      [...reply, row("end", "turnSummary", 4_000, { status: "completed", durationMs: 4_000 })],
+      new Set(),
+      {
+        ...options,
+        working: false,
+      },
+    );
+    const header = live.findIndex((each) => each.kind === WORKING);
+    const worked = done.findIndex((each) => each.kind === WORKED);
+    expect(done[worked]).toMatchObject({ id: "worked-u", inert: true, foldOpen: false });
+    expect(done.some((each) => each.id === "plan")).toBe(true);
+    const [during, after] = [layoutConversation(live, 720), layoutConversation(done, 720)];
+    expect(after.tops[worked]).toBe(during.tops[header]);
+  });
+}
 
 test("a plan's activity line replaces the top clock when session status is enabled", () => {
   const plan = row("steps", "plan", 4_000, { plan: [{ content: "Build", status: "in_progress" }] });

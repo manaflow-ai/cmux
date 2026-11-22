@@ -72,8 +72,9 @@ for (const family of ["claude", "codex"]) {
       expect(drawn[head]!.foldOpen).toBeFalsy();
       expect(ids).not.toContain("working-u-1");
       expect(ids).not.toContain("act-1");
-      // The prompt on its way draws the Thinking line under it from the send on, running or not.
-      if (rows.includes(sending)) expect(ids.slice(ids.indexOf("u-2"))).toEqual(["u-2", LIVE_THINKING]);
+      // The prompt on its way draws its own heading and the Thinking line under it from the send on,
+      // running or not: the heading's slot is held before the turn opens.
+      if (rows.includes(sending)) expect(ids.slice(ids.indexOf("u-2"))).toEqual(["u-2", "working-u-2", LIVE_THINKING]);
     });
   });
 
