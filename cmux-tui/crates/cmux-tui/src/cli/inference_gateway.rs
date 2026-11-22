@@ -56,8 +56,8 @@ const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
-/// Calls this gateway takes at once (the API's own cap per team); one more is answered busy.
-const MAX_CALLS: usize = 32;
+/// Calls this gateway takes at once (equal to the API's cap per team); one more is answered busy.
+const MAX_CALLS: usize = 256;
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
 // timeout: a WebSocket upgrade that never completes fails the connect.
@@ -412,7 +412,9 @@ fn run(options: Options) -> i32 {
         // main.rs's handler takes SIGTERM, SIGINT and SIGHUP for the whole process, so the gateway must look for
         // them itself; one that did not waited out systemd's 90 s stop timeout and lost its calls to the SIGKILL.
         let (asked, stop) = watch::channel(false);
-        tokio::spawn(async move {
+        // The watcher's owner: closed once the gateway's code is known, so the watcher ends with the gateway.
+        let signals = cmux_scope::Scope::new("inference gateway");
+        signals.spawn_until_cancelled("inference gateway stop signal", async move {
             // An error is a process with no handler to hear one (a test): nothing can ask it to stop.
             if crate::wait_for_shutdown_signal_async().await.is_ok() {
                 let _ = asked.send(true);
@@ -433,14 +435,18 @@ fn run(options: Options) -> i32 {
                 }
             }
         };
-        if !supervised {
-            return serving.await;
-        }
-        // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
-        tokio::select! {
-            code = serving => code,
-            () = super::inference_gateway_mac::stdin_closed() => 0,
-        }
+        let code = if supervised {
+            // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
+            tokio::select! {
+                code = serving => code,
+                () = super::inference_gateway_mac::stdin_closed() => 0,
+            }
+        } else {
+            serving.await
+        };
+        // The watcher only waits for a signal, so its cancellation ends it at once.
+        let _ = signals.close(Duration::from_secs(1)).await;
+        code
     });
     // A stdin read still blocked (the gateway ended first) must not hold the exit: the app restarts it.
     runtime.shutdown_background();
