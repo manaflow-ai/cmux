@@ -144,10 +144,10 @@ const MODES: readonly Mode[] =
       : MODE === "reopen-all"
         ? REOPEN_MODES.filter((mode) => mode !== "reshow-kept")
         : MODE === "reshow-all"
-        ? REOPEN_MODES
-        : MODE === "nightly"
-          ? NIGHTLY_MODES
-          : [MODE as Mode];
+          ? REOPEN_MODES
+          : MODE === "nightly"
+            ? NIGHTLY_MODES
+            : [MODE as Mode];
 const isRefused = (mode: Mode) => (REFUSED_MODES as readonly string[]).includes(mode);
 const isReopen = (mode: Mode) => (REOPEN_MODES as readonly string[]).includes(mode);
 const ROUNDS = Number(process.env.ROUNDS ?? 3);
@@ -761,6 +761,14 @@ const keptHeapMb: number[] = [];
 const keptNodes: number[] = [];
 /// MODE=reshow-kept: how long the kept page stays hidden and frozen before it shows again.
 const HIDDEN_MS = Number(process.env.HIDDEN_MS ?? 1500);
+/// FOLDS=N: before its copy is written the settled chat opens its newest N closed folds (tool cards, thoughts),
+/// and the page's own wake state (`pane.wakeState`) is kept, so reopen-spare's adopt event carries those folds
+/// as the host's does for a released page that kept them (AgentPaneWakeState.spareCarriesAll). Each spare
+/// round reports how many folds stood open when its recording ended.
+const FOLDS = Number(process.env.FOLDS ?? 0);
+let wakeFoldsKept: unknown;
+const foldsOpenAtEnd: number[] = [];
+const foldsCarriedHeld: string[] = [];
 const spareNodes: number[] = [];
 const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
 type ProfileNode = CpuProfile["nodes"][number];
@@ -1293,6 +1301,23 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      if (FOLDS > 0) {
+        const opened = await page.evaluate((count) => {
+          const closed = [...document.querySelectorAll<HTMLElement>('#root [aria-expanded="false"]')].slice(-count);
+          for (const button of closed) button.click();
+          return closed.length;
+        }, FOLDS);
+        await page.waitForTimeout(SETTLE_QUIET_MS);
+        const wake = (await page.evaluate(async () => {
+          const actions = (window as { cmuxAcpmuxActions?: Record<string, (args: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions;
+          return (await actions?.["pane.wakeState"]?.({})) ?? null;
+        })) as { folds?: unknown } | null;
+        wakeFoldsKept = wake?.folds;
+        console.log(
+          `FOLDS=${FOLDS}: opened ${opened}, wake folds ${JSON.stringify(wakeFoldsKept ?? null).slice(0, 200)}`,
+        );
+      }
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;
@@ -1370,19 +1395,32 @@ try {
         await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
         await cdp.send("Profiler.start");
       }
+      let requests = 0;
+      page.on("request", () => {
+        requests += 1;
+      });
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, calls: 0 };
       simStream.armed = true;
       const start = await page.evaluate(
-        ({ session, tail, recordMs }) => {
+        ({ session, tail, recordMs, folds }) => {
           const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
           const at = performance.now();
           const shift = w.__firstLoad.layoutShift;
           w.__firstLoadUntil = at + recordMs;
           window.dispatchEvent(
-            new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
+            new CustomEvent("acpmux-session-adopt", {
+              detail: { sessionId: session, tail, scrollAnchor: null, ...(folds ? { folds } : {}) },
+            }),
           );
           return { at, shift, syncMs: performance.now() - at };
         },
-        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
+        {
+          session: PAPERCUT_CHAT,
+          tail: keptTail,
+          recordMs: RECORD_MS,
+          // CARRY_FOLDS=0: the adopt event leaves the folds out, as before the host carried them (the control).
+          folds: process.env.CARRY_FOLDS === "0" ? null : (wakeFoldsKept ?? null),
+        },
       );
       adoptSyncMs.push(start.syncMs);
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -1416,6 +1454,20 @@ try {
             )
           ).join("\n  ")}`,
         );
+      if (FOLDS > 0) {
+        foldsOpenAtEnd.push(
+          await page.evaluate(() => document.querySelectorAll('#root [aria-expanded="true"]').length),
+        );
+        // The adopted page's own wake state names the folds it holds open: the carried ones must be among them.
+        const held = (await page.evaluate(async () => {
+          const actions = (window as { cmuxAcpmuxActions?: Record<string, (args: unknown) => Promise<unknown>> })
+            .cmuxAcpmuxActions;
+          return (await actions?.["pane.wakeState"]?.({})) ?? null;
+        })) as { folds?: { expanded?: string[] } } | null;
+        const carried = (wakeFoldsKept as { expanded?: string[] } | undefined)?.expanded ?? [];
+        const kept = carried.filter((id) => held?.folds?.expanded?.includes(id)).length;
+        foldsCarriedHeld.push(`${kept}/${carried.length}`);
+      }
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
         .map((frame) => ({ ...frame, t: frame.t - start.at }));
@@ -1442,12 +1494,140 @@ try {
         // The spare connected before its adopt event: no socket ask is timed from the event.
         asks: 0,
         lastAskMs: null,
-        bytesDown: 0,
+        bytesDown: load.bytesDown,
+        requests,
+        daemonCalls: load.calls,
         ...(simulated ? { simStreamed: simStream.sent } : {}),
       };
     } finally {
       stopSim();
       servingSpare = false;
+      await page.close();
+    }
+  };
+
+  /// MODE=reshow-kept: what a hidden chat page the app keeps costs when it shows again. The page loads and
+  /// settles in the warm renderer, its JS heap and DOM nodes are read after a full GC (what a release gives
+  /// back from the page), then it is hidden as the app hides it (visibilitychange to hidden, which writes the
+  /// copy, live.ts) and frozen as CEF freezes hidden tabs (Page.setWebLifecycleState). After HIDDEN_MS it is
+  /// thawed and shown while the other PAGES-1 restored pages load beside it, as a released page's show is
+  /// measured. Every number is ms from the thaw.
+  const showKept = async (): Promise<Round> => {
+    if (!warmContext) throw new Error("reshow-kept needs the warm renderer");
+    const page = await warmContext.newPage();
+    const others: Page[] = [];
+    try {
+      await page.setViewportSize(RELAUNCH_VIEWPORT);
+      await prepare(page, NO_TAIL ? null : keptTail, 600_000);
+      await page.goto(url);
+      await page.waitForFunction(
+        (quietMs) => {
+          const recording = (window as unknown as BenchWindow).__firstLoad;
+          return (
+            recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
+          );
+        },
+        SETTLE_QUIET_MS,
+        { timeout: 120_000, polling: 100 },
+      );
+      const cdp = await warmContext.newCDPSession(page);
+      await cdp.send("HeapProfiler.collectGarbage");
+      await cdp.send("Performance.enable");
+      const { metrics: read } = (await cdp.send("Performance.getMetrics")) as {
+        metrics: { name: string; value: number }[];
+      };
+      const metric = (name: string) => read.find((entry) => entry.name === name)?.value ?? 0;
+      keptHeapMb.push(metric("JSHeapUsedSize") / 1048576);
+      keptNodes.push(metric("Nodes"));
+      await cdp.send("Performance.disable");
+      if (CPU > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+      await new Promise((resolve) => setTimeout(resolve, HIDDEN_MS));
+      for (let i = 1; i < PAGES; i++) others.push(await warmContext.newPage());
+      for (const one of others) {
+        await one.setViewportSize(RELAUNCH_VIEWPORT);
+        if (CPU > 1) await (await warmContext.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+        await prepare(one, NO_TAIL ? null : keptTail, recordMs("reopen"));
+      }
+      let requests = 0;
+      page.on("request", () => {
+        requests += 1;
+      });
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, calls: 0 };
+      simStream.armed = true;
+      const showEpoch = Date.now();
+      await cdp.send("Page.setWebLifecycleState", { state: "active" });
+      // The kept page attached before it was hidden and sends no attach now: the chat streams from its
+      // show, as it does from a reopened page's attach. Waiting for the other pages' attach started it
+      // seconds into the window under duress, so the kept page saw no turn end the spare did.
+      streamSim();
+      const start = await page.evaluate(
+        ({ epoch, recordMs }) => {
+          const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
+          const at = epoch - performance.timeOrigin;
+          w.__firstLoad.frames.length = 0;
+          w.__firstLoad.latestAt = 0;
+          w.__firstLoad.liveLatestAt = 0;
+          w.__firstLoadUntil = at + recordMs;
+          Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+          Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+          document.dispatchEvent(new Event("visibilitychange"));
+          return { at, shift: w.__firstLoad.layoutShift };
+        },
+        { epoch: showEpoch, recordMs: RECORD_MS },
+      );
+      await Promise.all(others.map((one) => one.goto(url, { waitUntil: "commit" })));
+      await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
+        timeout: RECORD_MS + 60_000,
+        polling: 250,
+      });
+      const got = await page.evaluate(() => {
+        const w = window as unknown as BenchWindow;
+        return {
+          frames: w.__firstLoad.frames,
+          layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
+          live: w.__firstLoad.liveLatestAt,
+        };
+      });
+      await cdp.detach();
+      const frames = got.frames
+        .filter((frame) => frame.t >= start.at)
+        .map((frame) => ({ ...frame, t: frame.t - start.at }));
+      return {
+        mode: "reshow-kept",
+        metrics: classifyFrames(frames),
+        frames,
+        liveLatestMs: got.live > start.at ? got.live - start.at : null,
+        layoutShift: got.layoutShift - start.shift,
+        layoutShifts: got.layoutShifts
+          .filter((shift) => shift.at >= start.at)
+          .map((shift) => ({ ...shift, at: shift.at - start.at })),
+        copyShownMs: null,
+        swapMs: null,
+        copyMiss: "none: the kept page draws itself",
+        tailAskedMs: null,
+        readyAnsweredMs: null,
+        acpmuxUpMs: 0,
+        refused: 0,
+        socketOpenedMs: null,
+        initializeAnsweredMs: null,
+        attachAnsweredMs: null,
+        asks: 0,
+        lastAskMs: null,
+        bytesDown: load.bytesDown,
+        requests,
+        daemonCalls: load.calls,
+        ...(simulated ? { simStreamed: simStream.sent } : {}),
+      };
+    } finally {
+      stopSim();
+      for (const one of others) await one.close();
       await page.close();
     }
   };
@@ -1499,6 +1679,10 @@ try {
         await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
         await cdp.send("Profiler.start");
       }
+      let requests = 0;
+      page.on("request", () => {
+        requests += 1;
+      });
       wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
@@ -1579,6 +1763,8 @@ try {
         attachAnsweredMs: since(load.attachAnsweredAt),
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        requests,
+        daemonCalls: load.calls,
         ...(simulated ? { simStreamed: simStream.sent } : {}),
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
@@ -1879,6 +2065,14 @@ try {
     console.log(
       `${mode} on show: recorded page HTTP requests p50 ${p50(rounds.map((r) => r.requests ?? 0))}, daemon calls (every page) p50 ${p50(rounds.map((r) => r.daemonCalls ?? 0))}, bytes down p50 ${p50(rounds.map((r) => r.bytesDown))}`,
     );
+  if (FOLDS > 0) {
+    console.log(`reopen-spare folds open at the end of each round (FOLDS=${FOLDS}): ${foldsOpenAtEnd.join(", ")}`);
+    json.foldsOpenAtEnd = foldsOpenAtEnd;
+    console.log(
+      `reopen-spare carried folds the adopted page holds open (its pane.wakeState): ${foldsCarriedHeld.join(", ")}`,
+    );
+    json.foldsCarriedHeld = foldsCarriedHeld;
+  }
   console.log(`HIDDEN_RESHOW_JSON ${JSON.stringify(json)}`);
   printProfile();
   if (GATE && failed) {

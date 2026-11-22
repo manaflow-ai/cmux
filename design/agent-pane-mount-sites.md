@@ -107,11 +107,55 @@ bench's own limit (it waits for one fixed reply to be in view while the stream m
 
 iOS has no web agent pane: its chat is native. Rows 14 to 16 are here because the same question applies.
 
+## Hidden chat page: shown again after its release, against kept
+
+`bench/hidden-reshow.bench.ts`, medians of 5, run 45071459299. `reshow-kept` loads and settles a page, hides it
+(visibilitychange, which writes its copy), freezes it as CEF freezes hidden tabs, then thaws and shows it while the
+other pages load. The released rows are the three ways a released chat comes back: a new page drawing its saved
+copy, a new page with no copy, and the prewarmed spare. Duress is `SIM=long:400 RUNNING=1 PAGES=6 CPU=4` (a chat
+streaming 60 records/s with no agent, 6 pages, CPU 4x).
+
+| Case | First content | Live | Shift frames | Page requests, bytes on show |
+|---|---|---|---|---|
+| quiet, kept | 18 ms | 18 ms | 0 | 0, 39 B |
+| quiet, released, copy | 81 ms | 339 ms | 0 | 46, 75.7 KB |
+| quiet, released, no copy | 320 ms | 320 ms | 0 | 45, 78.7 KB |
+| quiet, released, spare | 163 ms | 163 ms | 0 | 1, 77.9 KB |
+| duress, kept | 73 ms | 73 ms | 1 | 0 |
+| duress, released, copy | 1268 ms | 3306 ms | 2 | 47 |
+| duress, released, no copy | 4268 ms | never in 7 s (5 of 5) | 2 | 43 |
+| duress, released, spare | 536 ms | 536 ms | 33 | 9 |
+
+No blank frame in any round. What a release gives back from the page itself: a JS heap of 49.5 MB and 3080 DOM
+nodes (57.3 MB under duress), against 41.9 MB for the parked spare. Under duress the bytes column counts every page
+(1.27 MB for copy, 2.40 MB for no copy, 0.43 MB for spare), so it is not listed per row.
+
+The Mac half is not in these numbers. A released page's show also waits on the native view and its page being
+built again (`AgentTabs.view(for:)`, `makeView`, a CEF browser), the held picture (`AgentTabContent.drawLastPage`)
+and the cover held until `pane.painted`. The release before it waits on a hidden CEF capture of up to 2 s
+(`AgentPaneHibernationCapture.frame`), which runs for an idle release under CEF
+(`skipsCapture` needs `requiresFrame`).
+
+The spare is the released path closest to kept. A released chat took it only when its wake state held nothing but
+the scroll place (`holdsOnlyPlace`), so an open tool card, thought or subagent group sent it to a page built from
+nothing. The spare's adopt event now carries the folds too (`AgentPaneWakeState.spareCarriesAll`). Same duress,
+the chat holding an open fold (`FOLDS=6`):
+
+| Released chat with an open fold | First content | Live | Folds held open after the show | Run |
+|---|---|---|---|---|
+| before: a page built from nothing, copy | 1519 ms | 3455 ms | (handshake) | 45071860756 |
+| after: the spare, folds on its adopt event | 634 ms | 634 ms | 5 of 5 rounds | 45073282228 |
+| control: the spare, folds left off | 624 ms | 624 ms | 0 of 5 rounds | 45073282228 |
+
+The spare streams into a page that is already drawn, so it counts more shifted frames (155 to 168 across 5 rounds)
+than a page that draws once later. The spare serves one show; the next released chat shown before it refills
+builds its own page.
+
 ## Things that unload themselves
 
 | What | Where | Trigger | What the person sees |
 |---|---|---|---|
-| Hidden chat page released | `HiddenChatPages.swift` | 60 s hidden and idle (30 s under memory warning) | a rebuild on next show |
+| Hidden chat page released | `HiddenChatPages.swift` | hidden and idle: 60 s for the 2 most recently hidden (30 s under memory warning), 10 s for every other | a rebuild on next show |
 | Hidden Chromium page frozen | `browser.freezeHiddenTabs` | 30 s hidden | thaw on show |
 | Hidden pane's stream shed | `AcpmuxPaneSocket+Hidden.swift` | hidden | `_acpmux/lagged` resync on show |
 | Chat view rebuilt | `App.tsx` `chatViewMount.key += 1` | leaving the chat for New Tab, History, Contexts or Setup | draft and picker state start over |

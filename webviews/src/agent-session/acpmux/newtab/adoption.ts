@@ -23,12 +23,14 @@ export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
 /// chat's tail the app host kept, when it holds one (read as `chat.tail.get`'s answer is, tailCache.ts),
 /// and where the reader left the chat in this tab (`chat.scrollAnchor.get`'s answer): a place, or null
 /// for none kept (the chat opens at its latest message). Absent: the host did not say, so the page
-/// asks (an older host, one with no place store).
+/// asks (an older host, one with no place store). `folds`: the open folds a released page of the chat
+/// kept (its wake state's, conversation/wakeFolds.ts), which the switch opens again as they were.
 export type SessionAdoption = {
   sessionId: string;
   revealTurn?: string;
   tail?: unknown;
   scrollAnchor?: { rowId: string; offset: number } | null;
+  folds?: unknown;
 };
 
 /// The place an adopt event carries: a place, null for none kept, undefined when it says nothing usable.
@@ -44,11 +46,12 @@ function adoptedPlace(value: unknown): { rowId: string; offset: number } | null 
 /// The adoption an event's detail names; undefined when it names no session.
 export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
   if (typeof detail !== "object" || detail === null) return undefined;
-  const { sessionId, revealTurn, tail, scrollAnchor } = detail as {
+  const { sessionId, revealTurn, tail, scrollAnchor, folds } = detail as {
     sessionId?: unknown;
     revealTurn?: unknown;
     tail?: unknown;
     scrollAnchor?: unknown;
+    folds?: unknown;
   };
   if (typeof sessionId !== "string" || !sessionId) return undefined;
   const place = adoptedPlace(scrollAnchor);
@@ -57,6 +60,7 @@ export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
     ...(typeof revealTurn === "string" && revealTurn ? { revealTurn } : {}),
     ...(typeof tail === "object" && tail !== null && !Array.isArray(tail) ? { tail } : {}),
     ...(place !== undefined ? { scrollAnchor: place } : {}),
+    ...(typeof folds === "object" && folds !== null ? { folds } : {}),
   };
 }
 

@@ -258,13 +258,13 @@ extension AgentTabStore {
             guard let window = spare?.window else { return }
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, place: wakeStates[key]?.place, moved: moved) else {
-            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
+        guard spare.adoptSession(session, tab: key.key, revealTurn: revealTurn, place: wakeStates[key]?.place, folds: wakeStates[key]?.folds, moved: moved) else {
+            AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal, why: spare.model.spareRefusalReason, into: retirer.sources)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
             return false
         }
-        AgentPaneSpareOutcome.adopted.trace()
+        AgentPaneSpareOutcome.adopted.trace(into: retirer.sources)
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion, wakeStates[key]) = (spare, true, nil)
         wire(spare.model, key: key.key, machine: key.machine)
