@@ -754,6 +754,7 @@ public final class LiveCoordinator {
         // something named it (`touch`), then closes.
         let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
         for id in showing { lastShown[id] = now }
+        for (id, session) in sessions { session.link.onScreen = showing.contains(id) }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:
         // the cap never closes it for that.
         let ranked = macs.map { mac -> MacDevice in

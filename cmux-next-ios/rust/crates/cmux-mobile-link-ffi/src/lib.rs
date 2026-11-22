@@ -478,6 +478,14 @@ impl LinkHandle {
         u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX)
     }
 
+    /// The app is in the foreground with a terminal or chat on screen
+    /// (`true`), or not. While it is and the link's pings travel as
+    /// WireGuard datagrams, the link probes every 3 s and is suspect after
+    /// two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+    pub fn set_foreground_probe(&self, on: bool) {
+        self.link.set_foreground_probe(on);
+    }
+
     pub fn transport(&self) -> Transport {
         self.transport
     }

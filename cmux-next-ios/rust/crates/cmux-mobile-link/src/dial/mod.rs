@@ -142,6 +142,10 @@ pub struct DialOptions {
     /// side's route to the LAN is broken but the internet works.
     #[doc(hidden)]
     pub drop_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: called with each plain UDP datagram's length as
+    /// WireGuard hands it to the OS (the bytes a radio sends).
+    #[doc(hidden)]
+    pub on_udp_sent: Option<fn(&std::net::SocketAddr, usize)>,
     /// Test support: WireGuard drops plain UDP from any address it has not
     /// sent plain UDP to, as an address-restricted NAT in front of this
     /// side would. A peer that roams then reaches this side only after
@@ -248,6 +252,7 @@ impl Default for DialOptions {
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
+            on_udp_sent: None,
             restrict_inbound_udp: false,
             impair_inbound: None,
             input_lane: true,
@@ -304,6 +309,9 @@ pub struct Dialed {
     pub media: Option<PendingMedia>,
     /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
     pub webrtc_media: bool,
+    /// Pings and pongs as datagrams, when both sides listed
+    /// [`crate::link::LIVENESS_LANE`] (WireGuard).
+    pub liveness: Option<crate::link::LivenessDatagrams>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -516,6 +524,9 @@ pub async fn connect(
     };
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }
@@ -553,6 +564,9 @@ pub async fn answer(
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
     follow_lane(&link, dialed.lane);
+    if let Some(liveness) = dialed.liveness {
+        link.attach_liveness_datagrams(liveness);
+    }
     if let Some(media) = dialed.media {
         link.attach_media(media.start(&link));
     }

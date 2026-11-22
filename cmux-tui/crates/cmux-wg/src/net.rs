@@ -345,6 +345,7 @@ enum Command {
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
+    SendLiveness { from_port: u16, to: SocketAddr, payload: Vec<u8>, answer: bool },
     Rebind { rebind: Rebind, reply: oneshot::Sender<()> },
     Shutdown,
 }
@@ -758,6 +759,9 @@ impl Driver {
             }
             Command::SendDatagram { from_port, to, payload, priority } => {
                 self.send_datagram(from_port, to, &payload, priority);
+            }
+            Command::SendLiveness { from_port, to, payload, answer } => {
+                self.send_liveness(from_port, to, &payload, answer);
             }
             Command::Rebind { rebind, reply } => {
                 match rebind {

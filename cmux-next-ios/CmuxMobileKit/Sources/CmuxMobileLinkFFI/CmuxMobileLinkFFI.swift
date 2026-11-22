@@ -1435,6 +1435,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func roamTimings()  -> [TimingMark]
     
     /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+    func setForegroundProbe(on: Bool) 
+    
+    /**
      * The dial's steps (`signaling_open`, `ice_connected`, `channel_open`,
      * `link_ready`, ...), each in milliseconds since `connect` was called.
      * Marks recorded later (the first ping, `first_pong`) appear as they come.
@@ -1771,6 +1779,20 @@ open func roamTimings() -> [TimingMark]  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * The app is in the foreground with a terminal or chat on screen
+     * (`true`), or not. While it is and the link's pings travel as
+     * WireGuard datagrams, the link probes every 3 s and is suspect after
+     * two unanswered probes; otherwise it pings on its 15 s keepalive alone.
+     */
+open func setForegroundProbe(on: Bool)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_set_foreground_probe(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),$0
+    )
+}
 }
     
     /**
@@ -5249,6 +5271,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_set_foreground_probe() != 19184) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {
