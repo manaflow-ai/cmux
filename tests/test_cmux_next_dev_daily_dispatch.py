@@ -193,6 +193,8 @@ if resolve_script and shutil.which("bash") and shutil.which("jq"):
 
 def script_body():
     text = WORKFLOW.read_text()
+    # The dispatch step's script, not the App budget reads around it.
+    text = text[text.index("      - name: Dispatch the current feat-cmux-next tip when needed\n"):]
     match = re.search(r"^        with:\n          script: \|\n((?:^            .*\n|^\s*\n)+)", text, re.MULTILINE)
     if not match:
         sys.exit("FAIL: could not find the dispatcher's github-script")
