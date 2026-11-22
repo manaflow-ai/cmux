@@ -413,7 +413,7 @@ fn publish_refuses_a_listing_whose_recorded_scenes_warn() {
     let text = report.text();
     assert!(text.contains("registry review refuses a listing with any"), "{text}");
     assert!(text.contains("spacing: spacing 5 is not on the spacing scale"), "{text}");
-    assert!(text.contains("fix: use 4"), "{text}");
+    assert!(text.contains("fix: use 6"), "{text}");
     assert!(text.contains("color: color #ff0000 is a raw color"), "{text}");
     let json = report.to_json();
     assert_eq!(json["ready"], false);
