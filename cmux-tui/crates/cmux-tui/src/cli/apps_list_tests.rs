@@ -35,3 +35,21 @@ fn rows_join_install_state_and_filter_installed() {
     assert!(text.contains("a/one") && text.contains("available"), "{text}");
     assert!(text.contains("installed, hidden"), "{text}");
 }
+
+#[test]
+fn meters_parses_alone_and_prints_one_line_per_app() {
+    assert_eq!(parse(&words("meters")), Some(Ok(Request::Meters)));
+    assert!(matches!(parse(&words("meters acme/x")), Some(Err(_))));
+    assert_eq!(meters_table(&json!({"meters": []})), "No extensions are installed.\n");
+    let table = meters_table(&json!({"meters": [
+        {"app": "local/spy", "step": "paused", "host": "running", "mounts": 2,
+         "batches": {"in": 40, "out": 31}, "held": 9, "paused": "over its batch rate"},
+        {"app": "a/two", "step": "normal", "host": "none", "mounts": 0,
+         "batches": {"in": 0, "out": 0}, "held": 0},
+    ]}));
+    let lines: Vec<&str> = table.lines().collect();
+    assert_eq!(lines.len(), 4, "{table}");
+    assert!(lines[1].starts_with("local/spy  paused") && lines[1].ends_with("  9"), "{table}");
+    assert!(lines[2].contains("paused: over its batch rate"), "{table}");
+    assert!(lines[3].starts_with("a/two"), "{table}");
+}

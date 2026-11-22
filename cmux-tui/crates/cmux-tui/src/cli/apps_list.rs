@@ -4,6 +4,8 @@
 //! app, so a self-hosted Linux host reads its store the same way
 //! (docs/app-store-platonic-ideal.md 8a). Installs and removals are the app
 //! actions `cmux apps install|remove`, which show the person a consent card.
+//! `cmux apps meters` prints what the host's budget saw of each installed app
+//! (`apps.meters`, cmux-tui-core apps/meters.rs), the rows Settings > Extensions shows.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -14,13 +16,14 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
-const USAGE: &str = "usage: cmux apps list [--installed] [--query TEXT] [--json]\n       cmux apps info <app> [--json]\n\n  list: every app in the App Store with its tier and install state.\n  info: one app's listing, the machines a deployed app runs on, and the scopes it asks for, with their risk class.\n  Install and remove with `cmux apps install <app>` and `cmux apps remove <app>`:\n  cmux shows you a consent card and changes nothing until you confirm.";
+const USAGE: &str = "usage: cmux apps list [--installed] [--query TEXT] [--json]\n       cmux apps info <app> [--json]\n       cmux apps meters [--json]\n\n  list: every app in the App Store with its tier and install state.\n  info: one app's listing, the machines a deployed app runs on, and the scopes it asks for, with their risk class.\n  meters: each installed app's budget step, host, live views and scene batches since cmux started.\n  Install and remove with `cmux apps install <app>` and `cmux apps remove <app>`:\n  cmux shows you a consent card and changes nothing until you confirm.";
 
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
     List { installed: bool, query: Option<String> },
     Info { app: String },
+    Meters,
 }
 
 /// Parses the words after `apps`; `None` when they are not `list` or `info`
@@ -48,6 +51,8 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Request, String>> {
             [app] if !app.starts_with('-') => Some(Ok(Request::Info { app: app.clone() })),
             _ => Some(Err(USAGE.to_string())),
         },
+        "meters" if rest.is_empty() => Some(Ok(Request::Meters)),
+        "meters" => Some(Err(USAGE.to_string())),
         _ => None,
     }
 }
@@ -109,6 +114,37 @@ pub(super) fn table(rows: &[Value]) -> String {
     out
 }
 
+/// The human table of `apps meters`: one line per installed app.
+pub(super) fn meters_table(meters: &Value) -> String {
+    let rows: Vec<&Value> = meters["meters"].as_array().into_iter().flatten().collect();
+    if rows.is_empty() {
+        return "No extensions are installed.\n".into();
+    }
+    let width =
+        rows.iter().map(|r| r["app"].as_str().unwrap_or("").len()).max().unwrap_or(3).max(3);
+    let mut out = format!(
+        "{:width$}  {:8}  {:10}  {:6}  {:>9}  {:>9}  HELD\n",
+        "APP", "STEP", "HOST", "VIEWS", "BATCHES", "SENT"
+    );
+    for row in rows {
+        let step = row["step"].as_str().unwrap_or("");
+        out.push_str(&format!(
+            "{:width$}  {:8}  {:10}  {:6}  {:>9}  {:>9}  {}\n",
+            row["app"].as_str().unwrap_or(""),
+            step,
+            row["host"].as_str().unwrap_or(""),
+            row["mounts"].as_u64().unwrap_or(0),
+            row["batches"]["in"].as_u64().unwrap_or(0),
+            row["batches"]["out"].as_u64().unwrap_or(0),
+            row["held"].as_u64().unwrap_or(0),
+        ));
+        if let Some(cause) = row["paused"].as_str() {
+            out.push_str(&format!("{:width$}  paused: {cause}\n", ""));
+        }
+    }
+    out
+}
+
 /// The human form of `apps info`.
 pub(super) fn info_text(detail: &Value) -> String {
     let mut out = format!(
@@ -156,7 +192,7 @@ pub(super) fn info_text(detail: &Value) -> String {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = command_args.strip_prefix(&["apps".to_string()][..])?;
-    if matches!(rest, [verb, flag] if (verb == "list" || verb == "info") && matches!(flag.as_str(), "-h" | "--help"))
+    if matches!(rest, [verb, flag] if matches!(verb.as_str(), "list" | "info" | "meters") && matches!(flag.as_str(), "-h" | "--help"))
     {
         println!("{USAGE}");
         return Some(0);
@@ -235,6 +271,8 @@ fn run(global: &GlobalArgs, request: &Request) -> i32 {
         }
         Request::Info { app } => answer("cmux.apps.catalog.get", json!({"app": app}))
             .map(|detail| if json_out { detail.to_string() } else { info_text(&detail) }),
+        Request::Meters => answer("apps.meters", json!({}))
+            .map(|meters| if json_out { meters.to_string() } else { meters_table(&meters) }),
     };
     match result {
         Ok(text) => {
