@@ -1418,7 +1418,7 @@ function normalizeCwd(cwd?: string): string | undefined {
 /// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row. A folder's
 /// name (`middle`) is cut in the middle, so its end survives: "atl…web", never "atla…" (design
 /// panel, compact composer).
-function LocationFace({
+export function LocationFace({
   icon,
   value,
   chevron,
