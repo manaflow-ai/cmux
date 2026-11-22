@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { locale, t, text, unitSuffix } from "./strings";
 import type { HostLists } from "./ops";
 import type { NumberRange, SchemaRow } from "./schema";
+import { intl } from "../../ui/intl";
 
 /** The settings file's name from the path the app loaded (cmux-next.json, or the file
  * CMUX_NEXT_CONFIG_FILE names); "Settings File" until the host lists arrive. */
@@ -67,7 +68,8 @@ export function unitLabel(range: NumberRange | undefined): string {
     case "milliseconds":
       // The short millisecond unit of the page's locale ("ms"), from Intl.
       return (
-        new Intl.NumberFormat(locale(), { style: "unit", unit: "millisecond", unitDisplay: "short" })
+        intl
+          .NumberFormat(locale(), { style: "unit", unit: "millisecond", unitDisplay: "short" })
           .formatToParts(2)
           .find((part) => part.type === "unit")?.value ?? "ms"
       );
@@ -78,20 +80,23 @@ export function unitLabel(range: NumberRange | undefined): string {
     case "hours":
       // The short hour unit of the page's locale ("hr"), from Intl.
       return (
-        new Intl.NumberFormat(locale(), { style: "unit", unit: "hour", unitDisplay: "short" })
+        intl
+          .NumberFormat(locale(), { style: "unit", unit: "hour", unitDisplay: "short" })
           .formatToParts(2)
           .find((part) => part.type === "unit")?.value ?? "h"
       );
     case "days":
       // The plural day unit of the page's locale ("days", "日"), from Intl.
       return (
-        new Intl.NumberFormat(locale(), { style: "unit", unit: "day", unitDisplay: "long" })
+        intl
+          .NumberFormat(locale(), { style: "unit", unit: "day", unitDisplay: "long" })
           .formatToParts(2)
           .find((part) => part.type === "unit")?.value ?? ""
       );
     case "fraction":
       return (
-        new Intl.NumberFormat(locale(), { style: "percent" })
+        intl
+          .NumberFormat(locale(), { style: "percent" })
           .formatToParts(1)
           .find((part) => part.type === "percentSign")?.value ?? "%"
       );

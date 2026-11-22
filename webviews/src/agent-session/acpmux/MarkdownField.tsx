@@ -33,6 +33,7 @@ import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from ".
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
 import { subscribeIconFamily } from "./icons/iconPack";
@@ -65,6 +66,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
@@ -867,8 +869,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (attribute === undefined) dom.removeAttribute(name);
       else dom.setAttribute(name, attribute);
   };
+  // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   const showPlaceholder = (markdown: string) => {
-    if (empty.current) empty.current.hidden = markdown !== "";
+    const hide = markdown !== "";
+    if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
@@ -1439,6 +1443,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use($prose(() => deeplinkTokensPlugin()))
         // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
         .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
+        // `@` mentions as inline chips while the composer refresh is on (composer/mentionChips.ts).
+        .use($prose(() => mentionChipsPlugin()))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1455,7 +1461,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
-          if (pendingFocus.current) view.current.focus();
+          if (pendingFocus.current) focusRoute(view.current, "system", "the editor is ready: its pending focus");
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
         });

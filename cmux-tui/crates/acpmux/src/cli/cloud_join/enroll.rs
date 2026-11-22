@@ -54,8 +54,7 @@ use std::future::Future;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// `joined_by` of a join signing in made.
-pub(crate) const JOINED_BY_SIGN_IN: &str = "sign-in";
+pub(crate) use crate::machine_record::JOINED_BY_SIGN_IN;
 /// The minted token's life: the shortest the hub takes; it is redeemed at once.
 const MINT_TTL_SECS: u64 = 60;
 /// How long an enroll waits for another join or leave on this machine to finish.
@@ -199,7 +198,7 @@ pub(super) fn owner_among(recorded: Option<&str>, accounts: &[String]) -> Owner 
 
 /// The machine's name: its host name, with a DEV build's tag after it.
 fn enroll_name(build_tag: Option<&str>) -> String {
-    let base = crate::pairing::machine_name();
+    let base = crate::pairing::host_label();
     let tag: String = build_tag
         .unwrap_or_default()
         .chars()

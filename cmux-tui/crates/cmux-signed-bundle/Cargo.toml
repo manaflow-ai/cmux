@@ -1,0 +1,19 @@
+[package]
+name = "cmux-signed-bundle"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A verified copy of a signed macOS helper bundle outside its app: its content digest, its signature checked against a code requirement, one staged copy per digest, and the old copies pruned (cmux Remote and the acpmux share host's Screen Sharing helper)"
+
+[lints]
+workspace = true
+
+[dependencies]
+# `codesign`, `ditto` and `plutil`, each an owned child.
+cmux-process.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

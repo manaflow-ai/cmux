@@ -5,7 +5,7 @@
 //! cells' text, line feeds for a scroll up (so scrolled rows reach its scrollback, as they do
 //! from the PTY) and `CSI n T` for a scroll down. `tests/parity.rs` feeds these bytes to a
 //! fresh ghostty-vt terminal and checks every frame against the real screen. The phone's
-//! Swift decoder (`AgentCLIHybridScreen.swift`) does the same steps.
+//! Swift decoder (`AgentCLIHybridFrame.swift` `terminalBytes`) makes the same bytes.
 
 use std::fmt::Write as _;
 
@@ -13,7 +13,6 @@ use crate::hybrid::{Delta, Span};
 use crate::stream::Frame;
 use crate::{
     BLINK, BOLD, Color, FAINT, INVERSE, INVISIBLE, ITALIC, STRIKETHROUGH, Style, UNDERLINE,
-    str_width,
 };
 
 /// Where the viewer's cursor goes after a frame.
@@ -61,6 +60,13 @@ fn sgr(out: &mut String, style: Style) {
     out.push('m');
 }
 
+fn set_style(out: &mut String, style: &mut Option<Style>, want: Style) {
+    if *style != Some(want) {
+        sgr(out, want);
+        *style = Some(want);
+    }
+}
+
 /// The bytes that apply `frame` to a terminal of `rows` rows showing the frame's base (a
 /// blank one for a keyframe), then put the cursor at `cursor`. `None` when `frame.data` is
 /// not a delta.
@@ -89,22 +95,46 @@ pub fn frame_bytes(frame: &Frame, rows: u16, cursor: Cursor) -> Option<Vec<u8>> 
         match span {
             Span::Set { row, col, cells } => {
                 let _ = write!(out, "\x1b[{};{}H", row + 1, col + 1);
-                let mut after_wide = false;
-                for cell in cells {
-                    if style != Some(cell.style) {
-                        sgr(&mut out, cell.style);
-                        style = Some(cell.style);
+                // Whether the cursor stands at the next cell's column. After a glyph that is
+                // not one ASCII character it may not: the viewer's terminal gives it the width
+                // its own Unicode tables say (🚀 and ✅ are wide in Ghostty), so the next
+                // cell is placed by column.
+                let mut placed = true;
+                let mut skip = false;
+                for (i, cell) in cells.iter().enumerate() {
+                    let x = col.saturating_add(u16::try_from(i).unwrap_or(u16::MAX));
+                    if std::mem::take(&mut skip) {
+                        continue;
                     }
+                    let ascii = matches!(cell.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
+                    let next = cells.get(i + 1).filter(|next| next.text.is_empty());
+                    if !ascii
+                        && !cell.text.is_empty()
+                        && let Some(next) = next
+                    {
+                        // The empty cell right of a glyph first: a wide glyph then covers it,
+                        // a narrow one leaves it blank. Which it is is the viewer's to say.
+                        let _ = write!(out, "\x1b[{};{}H", row + 1, x.saturating_add(2));
+                        set_style(&mut out, &mut style, next.style);
+                        out.push(' ');
+                        let _ = write!(out, "\x1b[{};{}H", row + 1, x.saturating_add(1));
+                        set_style(&mut out, &mut style, cell.style);
+                        out.push_str(&cell.text);
+                        skip = true;
+                        placed = false;
+                        continue;
+                    }
+                    if !placed {
+                        let _ = write!(out, "\x1b[{};{}H", row + 1, x.saturating_add(1));
+                    }
+                    set_style(&mut out, &mut style, cell.style);
                     if cell.text.is_empty() {
-                        // The trailing half of a wide glyph: the cursor is past it already.
-                        if !after_wide {
-                            out.push(' ');
-                        }
-                        after_wide = false;
+                        out.push(' ');
+                        placed = true;
                         continue;
                     }
                     out.push_str(&cell.text);
-                    after_wide = str_width(&cell.text) == 2;
+                    placed = ascii;
                 }
             }
             Span::Clear { row, col, len } => {
@@ -151,6 +181,32 @@ mod tests {
             text,
             "\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J\x1b[1;3H\x1b[0;1;38;5;174mhi\x1b[0m\
              \x1b[2;1H\x1b[3X\x1b[0m\x1b[4;2H\x1b[?25h\x1b[?2026l"
+        );
+    }
+
+    /// A glyph that is not ASCII and the empty cell right of it: that cell is drawn blank
+    /// first, then the glyph, which covers it when the viewer's terminal makes it wide; the
+    /// next cell is placed by column (the phone's `AgentCLIHybridFrameTests` expects the same).
+    #[test]
+    fn a_wide_glyph_never_depends_on_a_width_table() {
+        let style = Style { fg: Color::Rgb(1, 2, 3), bg: Color::Palette(9), attrs: UNDERLINE };
+        let cell = |text: &str| Cell { text: text.to_owned(), style };
+        let delta = Delta {
+            seq: 0,
+            at_ms: 0,
+            shift: 0,
+            spans: vec![Span::Set {
+                row: 0,
+                col: 0,
+                cells: vec![cell("\u{1f680}"), cell(""), cell("a"), cell("\u{e9}"), cell("b")],
+            }],
+        };
+        let frame = Frame { frame: 1, base: None, data: delta.encode() };
+        let text = String::from_utf8(frame_bytes(&frame, 4, Cursor::default()).unwrap()).unwrap();
+        assert_eq!(
+            text,
+            "\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[2J\x1b[1;1H\x1b[1;2H\x1b[0;4;38;2;1;2;3;101m \
+             \x1b[1;1H\u{1f680}\x1b[1;3Ha\u{e9}\x1b[1;5Hb\x1b[0m\x1b[1;1H\x1b[?2026l"
         );
     }
 

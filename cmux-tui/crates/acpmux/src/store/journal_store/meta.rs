@@ -538,13 +538,14 @@ fn write_session_json(
     lsn: Lsn,
     journal: u64,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let path = dir.join("session.json");
     // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
     // gets the file.
     crate::config::refuse_lost_home(&path)?;
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // One name per file and process (`dead_temps`: each new name is one more path fseventsd
+    // keeps); this process's writers of it take turns.
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let turn = crate::dead_temps::hold(&tmp);
     let written = (|| -> Result<()> {
         let mut file = crate::home_fs::OpenOptions::new()
             .write(true)
@@ -567,6 +568,7 @@ fn write_session_json(
     if written.is_err() {
         let _ = crate::home_fs::remove_file(&tmp);
     }
+    drop(turn);
     crate::dead_temps::remove_beside(&path);
     written
 }

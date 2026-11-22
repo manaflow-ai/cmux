@@ -145,7 +145,7 @@ class NotesTests(FakeAscCase):
         # Classic screens and flows this app does not have.
         for phrase in (
             "Tailscale", "Add Computer", "Host:", "Port:", "Demo Mac", "Your Mac is connected",
-            "Open Workspaces", "Subscription", "In-App Purchase", "Scan Pairing Code", "Connection Method",
+            "Open Workspaces", "Scan Pairing Code", "Connection Method",
             "Chat Server", "Self-Hosted", "New Group",
         ):
             self.assertNotIn(phrase, notes)
@@ -163,6 +163,22 @@ class NotesTests(FakeAscCase):
         for label in ('"Continue with email"', '"Check your email"', '"Chief Is Off"', '"Turn On"', '"Delete Account"',
                       '"Delete your cmux account?"', "Settings", '"Account"', '"Not now"'):
             self.assertIn(label, self.TEMPLATE)
+
+    def test_template_says_where_the_subscriptions_are_and_how_to_restore(self):
+        # App Review could not locate the in-app purchases (2026-11-07): the notes name
+        # the Plan row, the products, the Sandbox, Restore Purchases, Manage Subscription
+        # and the 3.1.2 renewal terms, and never claim the app sells nothing.
+        notes = self.rendered()
+        for phrase in ('Settings > "Plan"', '"Plans"', "cmux Go", "cmux Pro", "cmux Max", "monthly", "Sandbox",
+                       '"Restore Purchases"', '"Manage Subscription"', '"Terms of Use"', '"Privacy Policy"', "3.1.2",
+                       "until cancelled"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, notes)
+        self.assertNotRegex(notes, r"(?i)sells? (no|nothing)|no digital goods")
+        self.assertLessEqual(len(pkg.render_notes(self.TEMPLATE, {**self.DETAIL,
+                             "demoAccountName": "cmux-rev-0e6ba145@mailinator.com",
+                             "contactEmail": "a-long-review-contact@example.com", "contactPhone": "+1 415 555 0100"},
+                             LIVE_ENV)), pkg.NOTES_LIMIT)
 
     def test_template_explains_every_permission_in_project_yml(self):
         project = (ROOT / "cmux-next-ios/project.yml").read_text(encoding="utf-8")
@@ -331,6 +347,18 @@ class ApiTests(unittest.TestCase):
     def test_the_default_version_is_project_yml_marketing_version(self):
         text = (ROOT / "cmux-next-ios/project.yml").read_text(encoding="utf-8")
         self.assertIn(f"MARKETING_VERSION: {VERSION}", text)
+
+    def test_the_appstore_configuration_version_wins_over_the_base_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            yml = Path(tmp) / "project.yml"
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    TestFlight:\n      CMUX_MOBILE_TAG: \"\"\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n      MARKETING_VERSION: 1.0.0\n"
+                           "packages:\n  X:\n    path: X\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.0.0")
+            yml.write_text("settings:\n  base:\n    MARKETING_VERSION: 1.2.0\n  configs:\n"
+                           "    AppStore:\n      CMUX_MOBILE_APP_BUNDLE_ID: com.cmux.app\n", encoding="utf-8")
+            self.assertEqual(pkg.marketing_version(yml), "1.2.0")
 
 
 class CheckoutTests(unittest.TestCase):

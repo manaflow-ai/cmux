@@ -390,7 +390,7 @@ impl Mux {
                         .iter_mut()
                         .find(|screen| screen.public_id == target_screen_id)
                         .context("destination screen is absent from durable topology")?;
-                    target_screen.active_pane = target_pane_id.clone();
+                    floating_panes::focus_registry_pane(target_screen, &target_pane_id);
                     changes.push(ResourceChange::UpsertScreen(target_screen.clone()));
                     changes.push(ResourceChange::UpsertWorkspace {
                         workspace: registry_workspace(state, target_workspace_index, &mux.session),

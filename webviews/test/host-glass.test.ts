@@ -10,13 +10,18 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
+  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
+  hostGlassPageZoom,
+  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
 } from "../src/ui/glass/hostGlass";
+import { INTERFACE_SCALE_EVENT } from "../src/ui/interfaceScale";
 
 let dom: JSDOM | undefined;
 let stop: (() => void) | undefined;
@@ -93,6 +98,16 @@ test("a marked surface is reported and shows its content before the App answers"
   answer!();
   await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a surface asks for a known role's glass by name and never for an unknown one", () => {
+  const doc = page();
+  const element = surface(doc);
+  expect(hostGlassSurface(element, "g1")?.role).toBeUndefined();
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "sheet");
+  expect(hostGlassSurface(element, "g1")?.role).toBe("sheet");
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "menu-bar");
+  expect(hostGlassSurface(element, "g1")).not.toHaveProperty("role");
 });
 
 test("a surface the App has not drawn by the deadline keeps the page's own glass", async () => {
@@ -197,6 +212,23 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
   expect(hostGlassApplies(live)).toBe(false);
+});
+
+test("a page that asks for the App's glass in either engine gets it in WebKit too, never past its other gates", () => {
+  const webkit = page({ chromium: false });
+  webkit.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(webkit)).toBe(true);
+  const opaque = page({ chromium: false, seeThrough: false });
+  opaque.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  expect(hostGlassApplies(opaque)).toBe(false);
+  const reduced = page({ chromium: false });
+  reduced.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  reduced.documentElement.setAttribute("data-reduce-transparency", "");
+  expect(hostGlassApplies(reduced)).toBe(false);
+  const lens = page({ chromium: false });
+  lens.documentElement.setAttribute(HOST_GLASS_ENGINES_ATTRIBUTE, "all");
+  lens.documentElement.setAttribute("data-glass-lens", "");
+  expect(hostGlassApplies(lens)).toBe(false);
 });
 
 test("an opaque page reports nothing and its surfaces keep the page's glass", async () => {
@@ -595,4 +627,120 @@ test("a pinch after the surface settled moves its report with no layout change",
   zoom({ scale: 1.5, offsetLeft: 0, offsetTop: 0 });
   await frames();
   expect(reports.at(-1)?.[0]).toMatchObject({ left: 60, top: 90, right: 360, bottom: 270, radius: 18 });
+});
+
+// Page zoom (cmux#42413 switched host glass off for this; Leo, 2026-11-20: "we have glass project / i
+// add background / it refract / boom done"). A box is in CSS px and the App needs view points: each
+// report carries the zoom its boxes were measured at, so the App never places them with a zoom of its
+// own, and a zoom that leaves a surface's CSS box as it was still reports again.
+function setPageZoom(doc: Document, zoom: number) {
+  doc.documentElement.style.setProperty("--cmux-ui-scale", String(zoom));
+  doc.defaultView!.dispatchEvent(new doc.defaultView!.Event(INTERFACE_SCALE_EVENT));
+}
+
+for (const zoom of [0.9, 1, 1.25, 1.5])
+  test(`at page zoom ${zoom} the report carries the zoom its boxes were measured at`, async () => {
+    const doc = page();
+    setPageZoom(doc, zoom);
+    expect(hostGlassPageZoom(doc)).toBe(zoom);
+    const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+    stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+    surface(doc);
+    await frames();
+    expect(reports.at(-1)).toEqual({
+      surfaces: [{ id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1 }],
+      zoom,
+    });
+  });
+
+test("a zoom that leaves the CSS box as it was reports again, at the new zoom", async () => {
+  const doc = page();
+  setPageZoom(doc, 1);
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  const before = reports.length;
+  expect(reports.at(-1)?.zoom).toBe(1);
+  for (const zoom of [1.25, 1.5, 0.9, 1]) {
+    setPageZoom(doc, zoom);
+    await frames();
+    expect(reports.at(-1)?.zoom).toBe(zoom);
+    expect(reports.at(-1)?.surfaces[0]).toMatchObject({ left: 40, top: 60, right: 240, bottom: 180 });
+  }
+  expect(reports.length).toBe(before + 4);
+});
+
+// A NIGHTLY's video showed the App's glass leading the page by 2 to 3 frames on 3 of 6 zoom changes
+// with the model picker open: the App moved its glass at once, the page's frame at the new zoom
+// reached the screen later, and a stray rim showed at the new box inside the old picker.
+/** A report at a new zoom waits as long as a new surface's box does (hostGlass.ts). */
+const ZOOM_HOLD_FRAMES = HOST_GLASS_HOLD_FRAMES;
+
+test("a report at a new zoom goes to the App only after the hold, so its glass never leads the page", async () => {
+  const doc = page();
+  setPageZoom(doc, 1);
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  for (const zoom of [1.25, 0.9]) {
+    const before = reports.length;
+    setPageZoom(doc, zoom);
+    // The frames that put the page's content at the new zoom on screen: the App's glass stays put.
+    await frames(ZOOM_HOLD_FRAMES);
+    expect(reports.length).toBe(before);
+    // The next frame: one report, at the new zoom.
+    await frames(1);
+    expect(reports.length).toBe(before + 1);
+    expect(reports.at(-1)?.zoom).toBe(zoom);
+    await frames(4);
+    expect(reports.length).toBe(before + 1);
+  }
+});
+
+test("a box that moves while a new zoom is held goes to the App as last measured", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.getBoundingClientRect = () =>
+    ({ left: 50, top: 75, right: 300, bottom: 225, width: 250, height: 150, x: 50, y: 75 }) as DOMRect;
+  element.style.width = "250px";
+  await frames(ZOOM_HOLD_FRAMES + 1);
+  expect(reports.at(-1)).toMatchObject({ zoom: 1.25, surfaces: [{ left: 50, top: 75, right: 300, bottom: 225 }] });
+});
+
+test("a surface that goes during a zoom hold is withdrawn at once", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.remove();
+  await settled();
+  expect(reports.at(-1)?.surfaces).toEqual([]);
+});
+
+test("a resizing surface is reported in every frame it changes, never a stale box", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, async (surfaces) => void reports.push(surfaces));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  for (let step = 1; step <= 6; step += 1) {
+    const width = 200 + step * 15;
+    const height = 120 + step * 10;
+    element.getBoundingClientRect = () =>
+      ({ left: 40, top: 60, right: 40 + width, bottom: 60 + height, width, height, x: 40, y: 60 }) as DOMRect;
+    // Base UI sizes a popup through its inline style; the reporter watches it.
+    element.style.width = `${width}px`;
+    await frames(1);
+    expect(reports.at(-1)?.[0]).toMatchObject({ right: 40 + width, bottom: 60 + height });
+  }
 });

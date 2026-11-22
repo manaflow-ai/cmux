@@ -88,13 +88,21 @@ pub(crate) fn name_matches(session: &Value, patterns: &[String]) -> bool {
     };
     let id = session.get("sessionId").and_then(Value::as_str);
     let qualified = session.get("qualifiedSessionId").and_then(Value::as_str);
+    let handle = session.get("handle").and_then(Value::as_str);
+    let handle_matches = |key| id.is_some_and(|id| crate::session_handle::matches(handle, id, key));
     patterns.iter().any(|pattern| {
         id == Some(pattern.as_str())
             || qualified == Some(pattern.as_str())
             || if pattern.contains('/') {
-                peer.is_some() && glob(pattern, name)
+                peer.is_some_and(|peer| {
+                    glob(pattern, name)
+                        || pattern
+                            .strip_prefix(peer)
+                            .and_then(|rest| rest.strip_prefix('/'))
+                            .is_some_and(handle_matches)
+                })
             } else {
-                glob(pattern, bare)
+                glob(pattern, bare) || handle_matches(pattern)
             }
     })
 }
