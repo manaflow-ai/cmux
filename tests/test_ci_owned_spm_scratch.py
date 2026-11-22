@@ -982,5 +982,35 @@ class SeedRoot(unittest.TestCase):
                      "Pack the exports for the PR autofix", "Regenerate stale files"):
             self.assertIn("steps.spm-root.outputs.root || github.workspace", block(name).split("working-directory:", 1)[-1].split("\n", 1)[0], name)
 
+    def test_pr_autofix_mac_exports_build_in_a_shared_root(self):
+        """note-411: the PR autofix's Mac exports job takes a shared root (no seed) after Select Xcode, and
+        bun, the web bundles and both regenerators run there, building plain only when a root was taken.
+        The workspace's .git is still discarded at the end."""
+        text = (ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text()
+        start = text.index("\n  action-exports:\n")
+        job = text[start:text.index("\n  repair:\n", start)]
+
+        def block(name):
+            found = job[job.index(f"- name: {name}\n"):]
+            end = found.find("\n      - ", 10)
+            return found if end < 0 else found[:end]
+
+        lease = block("Keep Swift package builds on this owned Mac")
+        self.assertIn("id: spm-root", lease)
+        self.assertIn("contains(runner.name, '-glaeda')", lease)
+        self.assertIn("continue-on-error: true", lease)
+        self.assertIn('owned_spm_scratch.py lease "$GITHUB_WORKSPACE"', lease)
+        self.assertNotIn("CMUX_FAST_TIER_OWNED_SEED", lease)
+        self.assertLess(job.index("- name: Select Xcode\n"), job.index("- name: Keep Swift package builds"))
+        for name in ("Give this job its own bun", "Install the restored web bundles", "Build the web bundles",
+                     "Regenerate the action exports", "Regenerate the settings exports"):
+            self.assertIn("${{ steps.spm-root.outputs.root || github.workspace }}",
+                          block(name).split("working-directory:", 1)[-1].split("\n", 1)[0], name)
+        self.assertIn('--from "$GITHUB_WORKSPACE/web-bundles-out"', block("Install the restored web bundles"))
+        for name in ("Regenerate the action exports", "Regenerate the settings exports"):
+            self.assertIn("CMUX_NEXT_JOB_BUILT: ${{ steps.spm-root.outputs.root && 'plain' || '' }}", block(name), name)
+        self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"',
+                      block("Discard the workspace repository (self-hosted reused workspace)"))
+
 if __name__ == "__main__":
     unittest.main()
