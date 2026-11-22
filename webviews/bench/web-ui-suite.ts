@@ -176,6 +176,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_500_000,
     ownPart: true,
   },
+  // A fast fling and clicks along the prompt rail in a 1,500-turn paged chat, with 200, 500 and 1,000 listed sessions
+  // and a busy daemon (Leo 2026-11-22: "lags on scrolling in general when he's scrolling really fast"). perf-cron.py's
+  // web-ui-scroll part runs it (`--only chat-fast-scroll`).
+  {
+    name: "chat-fast-scroll",
+    file: "chat-fast-scroll.bench.ts",
+    args: ["--sizes", "200,500,1000", "--turns", "1500", "--seconds", "4", "--clicks", "16"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
