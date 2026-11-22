@@ -484,6 +484,7 @@ struct FailureCard: View {
     /// (the Mac's error card, `errorRecovery.ts`). Both are acpmux's turn retry.
     var leadsWithContinue = false
     let retry: () -> Void
+    @Environment(\.drawsStillPicture) private var still
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -493,8 +494,13 @@ struct FailureCard: View {
             if let detail {
                 DisclosureGroup("Details") {
                     // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
-                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if still {
+                        Text(detail).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
                 .font(.footnote)
                 .tint(.secondary)

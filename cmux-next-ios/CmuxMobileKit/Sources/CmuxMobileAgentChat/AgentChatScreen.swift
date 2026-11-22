@@ -1233,7 +1233,9 @@ extension SentAttachments {
         let size = fill(image.size, side: side)
         let crop = crop(size, side: side)
         let scaled = image.preparingThumbnail(of: size)
-        guard crop.width < size.width - 0.5 || crop.height < size.height - 0.5 else { return scaled ?? image }
+        // Always drawn into a plain 8-bit bitmap, cropped or not: a prepared thumbnail returned
+        // as it is keeps its decoder's storage (a photo's is not a plain bitmap on a device),
+        // and a card's still picture must be able to draw it.
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false

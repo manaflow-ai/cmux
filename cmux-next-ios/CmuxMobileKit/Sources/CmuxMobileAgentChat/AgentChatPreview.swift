@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 
@@ -245,5 +246,11 @@ final class AgentChatPreviewModel {
             count = min(turns.count, count * 2)
         }
     }
+}
+extension View {
+    /// Marks this view as drawn once into a still picture (`ImageRenderer`): every row that
+    /// would use a UIKit-backed view draws in SwiftUI instead (`drawsStillPicture`), so the
+    /// picture never holds the system's yellow "cannot draw" mark.
+    public func drawnAsStillPicture() -> some View { environment(\.drawsStillPicture, true) }
 }
 #endif

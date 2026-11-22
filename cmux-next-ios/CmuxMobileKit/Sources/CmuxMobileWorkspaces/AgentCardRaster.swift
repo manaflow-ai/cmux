@@ -260,6 +260,7 @@ final class AgentCardRasterizer: NSObject {
             .clipped()
             .environment(\.colorScheme, key.colorScheme)
             .environment(\.dynamicTypeSize, key.textSize)
+            .drawnAsStillPicture()
         let renderer = ImageRenderer(content: content)
         renderer.scale = key.scale
         renderer.isOpaque = true
