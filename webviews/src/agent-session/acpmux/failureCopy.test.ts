@@ -8,6 +8,7 @@ import {
   isAuthenticationFailure,
   isTeamMachineSignIn,
   offersOwnRoute,
+  usageLimitReset,
 } from "./failureCopy";
 import { type Translate, translatorFor } from "./i18n";
 
@@ -160,10 +161,11 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     "429 Too Many Requests",
     "API Error: 429 rate_limit_error: This request would exceed your account's rate limit.",
     "unexpected status 429 Too Many Requests: Rate limit reached for gpt-5.5",
-    "usage limit reached, resets in 3h",
     "API Error: 529 overloaded_error",
   ])
     expect(failureKind(message, claude), message).toBe("rate-limited");
+  // A used-up usage window is its own kind (cmux#48665).
+  expect(failureKind("usage limit reached, resets in 3h", claude)).toBe("usage-limit");
   expect(failureKind(undefined, claude, "rate_limited")).toBe("rate-limited");
   expect(failureKind("Not enough cmux credits for this call. Add credits or use your own API key.")).toBe(
     "needs-credits",
@@ -333,4 +335,21 @@ test("a provider's expired API key is a key failure, not a sign-in", () => {
   }
   // Claude Code's own sign-in still reads as its login.
   expect(failureKind("Invalid API key · Please run /login")).toBe("subscription-login");
+});
+
+// cmux#48665: a used-up usage window is its own kind, told from a per-minute rate limit, and its
+// card says when it resets as the provider wrote it.
+test("a used-up usage window is not a rate limit, and names its reset", () => {
+  const codex =
+    "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 25th, 2026 5:20 PM.";
+  expect(failureKind(codex)).toBe("usage-limit");
+  // acpmux types every account limit `rate_limit`.
+  expect(failureKind(codex, undefined, "rate_limit")).toBe("usage-limit");
+  expect(failureRecovery("usage-limit")).toBe("switch-model");
+  expect(usageLimitReset(codex)).toBe("Nov 25, 2026 5:20 PM");
+  expect(usageLimitReset("You've hit your limit · resets 3pm (America/Los_Angeles)")).toBe("3pm (America/Los_Angeles)");
+  expect(usageLimitReset("You've hit your usage limit.")).toBeUndefined();
+  expect(failureKind("You've hit your limit · resets 3pm")).toBe("usage-limit");
+  for (const rate of ["API Error: 429 rate_limit_error", "API Error: 529 overloaded_error", "Too Many Requests"])
+    expect(failureKind(rate)).toBe("rate-limited");
 });

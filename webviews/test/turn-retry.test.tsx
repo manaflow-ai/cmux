@@ -339,7 +339,9 @@ test("a retried attempt that failed too says so on its card, and the first failu
     ["turn-2", false],
     ["turn-4", true],
   ]);
-  const note = () => card().querySelector(".cv-turn-error__note")?.textContent;
+  // The chat holds one card, the attempt's, which says it failed again (cmux#48665).
+  expect(summaries.map((summary) => summary.recovered === true)).toEqual([true, false]);
+  const note = () => host.querySelector(".cv-turn-error .cv-turn-error__note")?.textContent;
   for (const [summary, expected] of [
     [summaries[0]!, undefined],
     [summaries[1]!, "Failed again after retrying"],

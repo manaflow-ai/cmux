@@ -425,10 +425,10 @@ export type TurnView = {
   /// Where each next-step card is in `rows`, with the row as its turn shaped it
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
-  /// Where each failed turn's summary is in `rows`, and the last turn summary that completed
-  /// (`markRecovered`), -1 for none.
+  /// Where each failed turn's summary is in `rows`, and the last row that shows the chat went on
+  /// after a failure (`wentOn`, `markRecovered`), -1 for none.
   failures: number[];
-  lastCompleted: number;
+  lastWentOn: number;
   rows: AcpmuxRow[];
 };
 
@@ -657,7 +657,7 @@ export function turnViewFrom(
   let ends: TurnView["ends"];
   let nextSteps: NextStepAt[];
   let failures: number[];
-  let lastCompleted: number;
+  let lastWentOn: number;
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
@@ -671,7 +671,7 @@ export function turnViewFrom(
     ends = previous!.ends.slice(0, reuse);
     nextSteps = previous!.nextSteps.filter((card) => card.at < out.length);
     failures = previous!.failures.filter((at) => at < out.length);
-    lastCompleted = previous!.lastCompleted < out.length ? previous!.lastCompleted : -1;
+    lastWentOn = previous!.lastWentOn < out.length ? previous!.lastWentOn : -1;
   } else {
     out = [];
     index = 0;
@@ -694,10 +694,10 @@ export function turnViewFrom(
     nextSteps = [];
     // A failed turn paged in without its prompt is tracked too, so a later turn recovers it.
     failures = [];
-    lastCompleted = -1;
+    lastWentOn = -1;
     out.forEach((row, at) => {
       if (isFailed(row)) failures.push(at);
-      else if (row.kind === "turnSummary" && row.status === "completed") lastCompleted = at;
+      if (wentOn(row)) lastWentOn = at;
     });
   }
   const first = starts.length;
@@ -878,7 +878,7 @@ export function turnViewFrom(
     for (const row of drawn) {
       if (row.kind === NEXT_STEP && row.nextStep) nextSteps.push({ at: out.length, row });
       else if (isFailed(row)) failures.push(out.length);
-      else if (row.kind === "turnSummary" && row.status === "completed") lastCompleted = out.length;
+      if (wentOn(row)) lastWentOn = out.length;
       out.push(row);
     }
     ends.push({ count: out.length, row: out.at(-1), visible, ...(openRun && { openRun }) });
@@ -890,7 +890,7 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
-  reusedRows = Math.min(reusedRows, markRecovered(out, failures, lastCompleted));
+  reusedRows = Math.min(reusedRows, markRecovered(out, failures, lastWentOn));
   return {
     source: rows,
     expanded,
@@ -914,20 +914,34 @@ export function turnViewFrom(
     ends,
     nextSteps,
     failures,
-    lastCompleted,
+    lastWentOn,
     rows: out,
   };
 }
 
-/// Each failed turn's summary a later completed turn follows, marked `recovered`: the chat went on
-/// after it (Continue, a fork of it, a new message), so its error card is history, not a problem to
-/// act on, and no longer draws (cmux#48434: "if i somehow continue the chat ... and it works i
-/// shouldnt see this dialog again"). Returns the first index whose row it changed, or Infinity.
-function markRecovered(out: AcpmuxRow[], failures: readonly number[], lastCompleted: number): number {
+/// A row that shows the chat went on: a turn that ended after it, completed or failed too, or a
+/// reply the agent is writing. A stopped turn with no reply is not one.
+function wentOn(row: AcpmuxRow): boolean {
+  if (row.kind === "turnSummary") return row.status === "completed" || isFailed(row);
+  return row.kind === "assistant" && !isVisiblyEmptyMessage(row);
+}
+
+/// Each failed turn's summary the chat went on after, marked `recovered`, so a chat shows one error
+/// card at a time, its latest:
+/// - a later turn completed: the chat went on (Continue, a fork of it, a new message), so its error
+///   card is history, not a problem to act on (cmux#48434: "if i somehow continue the chat ... and
+///   it works i shouldnt see this dialog again");
+/// - the agent answers again (a retry, a switched model, the person's next prompt at work): the card
+///   goes as soon as something works, not only once it ends (cmux#48665);
+/// - a later turn failed too: its own card says so ("Failed again after retrying") in place of this
+///   one, never a second card of the same error under it (cmux#48665: the same "rate limited" card
+///   once per retry).
+/// Returns the first index whose row it changed, or Infinity.
+function markRecovered(out: AcpmuxRow[], failures: readonly number[], lastWentOn: number): number {
   let changed = Number.POSITIVE_INFINITY;
   for (const at of failures) {
     const row = out[at]!;
-    const recovered = at < lastCompleted;
+    const recovered = at < lastWentOn;
     if (recovered === (row.recovered === true)) continue;
     // A reused row marked in an earlier view whose later completed turn is gone draws its card again.
     let next: AcpmuxRow | undefined;

@@ -978,8 +978,9 @@ fn local_time(ms: u64) -> String {
     )
 }
 
+/// The machine's UTC offset, in seconds, at `secs` since the epoch (0 when unknown).
 #[cfg(unix)]
-fn local_offset(secs: i64) -> i64 {
+pub(crate) fn local_offset(secs: i64) -> i64 {
     let t: libc::time_t = secs;
     // SAFETY: tm is plain C data; all zeroes is a valid value that localtime_r overwrites.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -991,7 +992,7 @@ fn local_offset(secs: i64) -> i64 {
 }
 
 #[cfg(not(unix))]
-fn local_offset(_secs: i64) -> i64 {
+pub(crate) fn local_offset(_secs: i64) -> i64 {
     0
 }
 
