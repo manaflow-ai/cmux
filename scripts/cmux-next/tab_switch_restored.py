@@ -114,6 +114,12 @@ class FixtureServer:
             def log_message(self, *args):  # quiet: the hits are the log
                 pass
 
+            def handle(self):
+                try:
+                    super().handle()
+                except (ConnectionResetError, BrokenPipeError):  # the page closed its connection (a tab parked)
+                    pass
+
             def do_GET(self):  # noqa: N802 - http.server's name
                 path = self.path.split("?", 1)[0]
                 if path in server.pages:
