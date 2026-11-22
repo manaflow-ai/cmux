@@ -438,12 +438,119 @@ async fn a_new_socket_carries_every_live_link() {
         channel.send(b"both".to_vec()).await.unwrap();
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
     }
-    // Nothing is left on the dead socket: a network change has no session to move.
+    // A network change opens a new socket at once (#47353) and both live links move onto it
+    // together; each still answers afterwards.
     let marks =
         pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
-    assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
+    let names = names(&marks);
+    assert!(names.contains(&"signaling:signaling_open"), "{marks:?}");
+    assert!(names.contains(&"signaling:rehomed"), "{marks:?}");
+    for handle in [&first, &second] {
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        channel.send(b"moved".to_vec()).await.unwrap();
+        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"moved".to_vec() });
+    }
     first.close();
     second.close();
+    pool.reset().await;
+}
+
+/// A TCP relay to `target` whose connections can be silenced, as a network
+/// change silences the old network's sockets: bytes still go in, nothing
+/// comes out, and nothing closes.
+struct Blackholable {
+    base_url: String,
+    silenced: Arc<std::sync::atomic::AtomicU64>,
+    next: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Blackholable {
+    async fn start(target: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let target = target.trim_start_matches("http://").to_owned();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let silenced = Arc::new(AtomicU64::new(0));
+        let next = Arc::new(AtomicU64::new(0));
+        let (s, n) = (Arc::clone(&silenced), Arc::clone(&next));
+        tokio::spawn(async move {
+            while let Ok((inbound, _)) = listener.accept().await {
+                let id = n.fetch_add(1, Ordering::SeqCst);
+                let Ok(outbound) = tokio::net::TcpStream::connect(&target).await else { continue };
+                let (ri, wi) = inbound.into_split();
+                let (ro, wo) = outbound.into_split();
+                tokio::spawn(pump(ri, wo, id, Arc::clone(&s)));
+                tokio::spawn(pump(ro, wi, id, Arc::clone(&s)));
+            }
+        });
+        Self { base_url, silenced, next }
+    }
+
+    /// Every connection open now goes silent; new ones still work.
+    fn silence_open_connections(&self) {
+        use std::sync::atomic::Ordering;
+        self.silenced.store(self.next.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+}
+
+/// Copy `from` to `to` until either ends; once connection `id` is silenced,
+/// read and drop.
+async fn pump(
+    mut from: impl tokio::io::AsyncRead + Unpin,
+    mut to: impl tokio::io::AsyncWrite + Unpin,
+    id: u64,
+    silenced: Arc<std::sync::atomic::AtomicU64>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = vec![0u8; 16 * 1024];
+    while let Ok(read) = from.read(&mut buf).await {
+        if read == 0 {
+            return;
+        }
+        if id < silenced.load(std::sync::atomic::Ordering::SeqCst) {
+            continue;
+        }
+        if to.write_all(&buf[..read]).await.is_err() {
+            return;
+        }
+    }
+}
+
+/// After a network change the old network's signaling socket goes silent
+/// without closing. `network_changed` opens a new one at once, with no wait on
+/// the old one, and moves the link onto it: a roamed phone's new endpoints
+/// reach a Mac behind an address-filtering NAT only through signaling, so any
+/// wait here is the link's recovery time (the lab's Wi-Fi to cell row: a 1 s
+/// probe was 1.0 s of a 1.5 s recovery).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_change_replaces_a_silent_signaling_socket_quickly() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let relay = Blackholable::start(&server.base_url).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let pool = WarmPool::new();
+    let request = ConnectRequest {
+        base_url: relay.base_url.clone(),
+        transport: Transport::WireGuard,
+        ..request(&server, &device, &mac_id)
+    };
+    let handle = pool.connect(request, None).await.expect("connect");
+
+    relay.silence_open_connections();
+    let marks =
+        pool.network_changed(relay.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    let names = names(&marks);
+    assert!(!names.contains(&"signaling:stale"), "the roam waited on the old socket: {marks:?}");
+    assert!(names.contains(&"signaling:rehomed"), "the link moves onto the new socket: {marks:?}");
+    let opened = marks.iter().find(|m| m.name == "signaling:signaling_open").expect("a new socket opened");
+    assert!(opened.millis < 700.0, "the new socket waited out a long probe: {marks:?}");
+
+    // The link itself never needed the old socket.
+    let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+    channel.send(b"after".to_vec()).await.unwrap();
+    assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"after".to_vec() });
+    handle.close();
     pool.reset().await;
 }
 
