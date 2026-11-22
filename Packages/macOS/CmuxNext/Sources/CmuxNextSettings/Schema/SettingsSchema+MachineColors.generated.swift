@@ -17,7 +17,7 @@ nonisolated enum MachineColorsSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.machines.colors", "Machine Color"),
-                help: SettingsText.keyed("settings.machines.colors.help", "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."),
+                help: SettingsText.keyed("settings.machines.colors.help", "By machine name: \"#RRGGBB\" or an accent name, such as red or blue."),
                 kind: .stringMap,
                 default: MachineColorsSetting.fallback,
                 keywords: ["machine", "computer", "server", "ssh", "cloud", "color", "colour", "identity"]

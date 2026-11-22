@@ -43,16 +43,15 @@ enum CloudHandlers {
     /// Binds `id` with an availability reason and a throwing body.
     static func bind(_ id: ActionID, _ registry: ActionRegistry, reason: @escaping @MainActor () -> String?,
                      _ body: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let bound = registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
+        registry.bind(id, unavailable: reason, invoke: { [weak registry] invocation in
             do { try body(invocation) } catch { registry?.refuse(RefusalStrings.describe(error)) }
         })
-        assert(bound, "\(id) is not in the action catalog")
     }
 
     static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
         let signedOutCreation = cloud.signedOutCreation
-        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+        registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
@@ -103,7 +102,6 @@ enum CloudHandlers {
                 return nil
             }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
         }
-        assert(bound, "newCloudMachine is not in the action catalog")
     }
 
     // MARK: Resolution
@@ -141,7 +139,7 @@ enum CloudHandlers {
 
     /// Whether a machine change goes: a person's own run yes; an agent's or a script's once the person allows it (CloudChangeRequest, naming the machine and what was asked; `shown` gets its dialog's id).
     static func allows(_ id: ActionID, _ invocation: ActionInvocation, _ registry: ActionRegistry, _ context: AppActionContext, shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
-        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, asked: invocation.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
+        CloudChangeRequest(machine: (try? machine(invocation, context))?.machine.title, arguments: invocation.arguments).asking(registry.descriptor(for: id)?.title ?? id.rawValue, person: origin(of: invocation) == .user, in: { context.services.windows.active?.window }, shown: shown)
     }
 
     /// The origin of a connect an invocation starts: `user` only for the

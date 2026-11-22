@@ -137,7 +137,8 @@ test("Minimal keeps the home clear and shows create rows for a matching search",
   expect(host.querySelector(".nt-create")).toBeNull();
   expect(creates()).toEqual([]);
   await type("ff");
-  expect(rows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
+  // Return asks the chip's agent with no row of its own (David Beyer 2026-11-20).
+  expect(rows().map(label)).toEqual(["ff-scratch", "Search the web for ff"]);
   expect(rows().some((row) => row.dataset.type === "create")).toBe(false);
   await render([]);
   await type("new");
@@ -164,8 +165,9 @@ test("arrows visit suggestions and Return runs the highlighted row", async () =>
   await key(field, "ArrowDown");
   await key(field, "ArrowDown");
   expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Search the web for ff");
+  // Down on the last row wraps to the prompt, which has no row: nothing is lit and Return asks.
   await key(field, "ArrowDown");
-  expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Ask Claude Code");
+  expect(rows().some((row) => row.getAttribute("aria-selected") === "true")).toBe(false);
   await key(field, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
@@ -173,7 +175,8 @@ test("arrows visit suggestions and Return runs the highlighted row", async () =>
 test("Ask rows show each harness mark without action or Return hints", async () => {
   for (const harness of ["claude", "codex"]) {
     await render([], harness);
-    await type("ff");
+    // An address leads with Open, so Ask is a drawn row under it (a prompt's own Ask has no row).
+    await type("localhost:3000");
     const ask = rows().find((row) => row.dataset.type === "ask")!;
     expect(ask.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe(
       harness === "codex" ? "openai" : "claude",
@@ -218,7 +221,7 @@ test("command rows show catalog icons and live shortcut keycaps", async () => {
   ).toEqual(["⇧", "⌘", "J"]);
 });
 
-test("commands use the host's symbol image when the catalog has no override", async () => {
+test("commands use the host's symbol image when the cmux pack has no icon for the symbol", async () => {
   const asked: string[] = [];
   const src = "data:image/png;base64,iVBORw0KGgo=";
   const release = setHarnessSymbolHost(async (name) => {
@@ -226,11 +229,11 @@ test("commands use the host's symbol image when the catalog has no override", as
     return src;
   });
   try {
-    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "sparkles" }]);
+    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "tortoise" }]);
     await type("custom");
     const command = rows().find((row) => row.dataset.type === "action")!;
-    expect(asked).toEqual(["sparkles"]);
-    const symbol = command.querySelector<HTMLElement>("[data-symbol=sparkles]")!;
+    expect(asked).toEqual(["tortoise"]);
+    const symbol = command.querySelector<HTMLElement>("[data-symbol=tortoise]")!;
     expect(symbol.style.maskImage).toContain(src);
   } finally {
     release();

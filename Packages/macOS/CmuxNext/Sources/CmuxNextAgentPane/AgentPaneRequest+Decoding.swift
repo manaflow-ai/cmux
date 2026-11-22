@@ -47,8 +47,8 @@ extension AgentPaneRequest {
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
                   let text = params["data"] as? String,
-                  text.utf8.count <= (maximumUploadStageChunk / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
+                  // Its bytes are decoded where they are written, off the main thread (AgentPaneUploadWriter).
+                  let data = AgentPaneUploadChunk(base64: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
             return .uploadStage(.chunk(token: token, offset: offset, data: data))
         case "chat.upload.finish":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
@@ -342,8 +342,9 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.warm":
-            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
-               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+            // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
+            // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.
+            if let text = params?["warm"] as? String, !text.isEmpty, text.utf8.count <= AgentPaneNewTab.maximumWarmBytes {
                 self = .newTabWarm(text)
             } else {
                 self = .unsupported(method)
@@ -395,6 +396,9 @@ extension AgentPaneRequest {
             }
             self = .cloudHandoffTurn(sessionId: session)
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
+        case "cloud.plan.subscribe":
+            // Only the plans the cards may name; anything else is refused here.
+            if let plan = params?["plan"] as? String, AgentPaneCloudMachines.Plan.subscribable.contains(plan) { self = .cloudPlanSubscribe(plan: plan) } else { self = .unsupported(method) }
         case "cloud.signIn":
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
@@ -529,7 +533,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true, terminalSwitch: params?["terminalSwitch"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
                 self = .tabRowTools(width: width)
@@ -555,7 +559,7 @@ extension AgentPaneRequest {
                 self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
             } else { self = .unsupported(method) }
         case "pane.glass":
-            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"], zoom: params?["zoom"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }

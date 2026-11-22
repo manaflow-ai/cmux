@@ -85,6 +85,9 @@
         "ty": "uint64",
         "required": true
       },
+      "/terminal_id": {
+        "ty": "string"
+      },
       "/updated_at_ms": {
         "ty": "uint64",
         "required": true
@@ -254,6 +257,19 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:bell": {
@@ -8536,6 +8552,32 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:computer-use-approvals": {
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/app_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/id": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:computer-use-config": {
+      "/config": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:computer-use-endpoint": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -11441,6 +11483,32 @@
         "nullable": true
       }
     },
+    "request:quick-terminal": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/screen": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
     "request:read-screen": {
       "/surface": {
         "ty": "uint64",
@@ -11549,6 +11617,18 @@
       }
     },
     "request:remote-host-config": {
+      "/app_permissions": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/app_permissions/accessibility": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/app_permissions/screen_recording": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/computer_use": {
         "ty": "boolean",
         "nullable": true
@@ -11938,6 +12018,10 @@
       },
       "/flow": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/key": {
+        "ty": "string",
         "nullable": true
       },
       "/paste": {
@@ -12622,6 +12706,9 @@
       "/generation": {
         "ty": "string",
         "required": true
+      },
+      "/if_idle": {
+        "ty": "boolean"
       },
       "/keep_layout": {
         "ty": "boolean"
@@ -13969,6 +14056,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-approvals": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-endpoint": {
       "/data": {
         "ty": "json",
         "required": true
@@ -18017,6 +18122,9 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/agents/*/terminal_id": {
+        "ty": "string"
+      },
       "/data/agents/*/updated_at_ms": {
         "ty": "uint64",
         "required": true
@@ -19742,6 +19850,12 @@
       }
     },
     "response:put-session": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:quick-terminal": {
       "/data": {
         "ty": "json",
         "required": true

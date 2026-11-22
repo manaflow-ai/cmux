@@ -87,7 +87,6 @@ function App() {
           <TurnActionsContext.Provider
             value={{
               reauthenticate: () => undefined,
-              transferCloudCredentials: async () => undefined,
               route: { name: "Claude Code", harness: "claude", hostKind: "cloud" },
             }}
           >
@@ -154,11 +153,31 @@ function App() {
                 ...row,
                 id: "glyph-pending-prompt",
                 text: PENDING_TEXT,
+                delivery: {
+                  state: "sending",
+                  promptId: "glyph-pending",
+                  sessionId: "glyph-session",
+                  sentAt: PENDING_SENT_AT,
+                },
+              }}
+              text={PENDING_TEXT}
+            />
+          </div>
+        </div>
+        {/* A prompt queued behind the running turn says nothing of it in its footer (Leo, 2026-11-17:
+            "Queued, sends when the turn ends" / "it's not really useful to see ever"). */}
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-queued-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble
+              row={{
+                ...row,
+                id: "glyph-queued-prompt",
+                text: PENDING_TEXT,
                 steer: "waiting",
                 delivery: {
                   state: "sending",
                   queued: true,
-                  promptId: "glyph-pending",
+                  promptId: "glyph-queued",
                   sessionId: "glyph-session",
                   sentAt: PENDING_SENT_AT,
                 },

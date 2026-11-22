@@ -953,6 +953,36 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
   expect(folderName()).not.toContain("owl");
 });
 
+test("Cloud picked: the chip and the menu's Cloud row say only Cloud for every team (https://github.com/manaflow-ai/cmux/issues/45695)", async () => {
+  const cloud = await import("../src/agent-session/acpmux/cloudMachines");
+  for (const stripLayout of ["combined", "where-machine"] as const)
+    for (const team of [
+      { name: "Austin Wang's Team", personal: false },
+      { name: "Personal", personal: true },
+    ]) {
+      // The app's reply names the active team; nothing in the composer draws it.
+      cloud.setCloudTeamForTest(team);
+      await mount(true, {
+        stripLayout,
+        cloudSignedIn: true,
+        runMode: { mode: "cloud", onMode: () => undefined },
+      });
+      const chip = computerButton()!;
+      expect(chip.querySelector(".acpmux-team-tag")).toBeNull();
+      expect(chip.querySelector(".acpmux-location-label")?.textContent).toBe(t("composer.cloud"));
+      expect(chip.getAttribute("aria-label")).not.toContain(team.name);
+      await openPicker();
+      const row = doc().querySelector('.acpmux-env-popover [data-mode="cloud"]');
+      expect(row).not.toBeNull();
+      expect(row!.querySelector(".acpmux-team-tag")).toBeNull();
+      expect(row!.querySelector(".acpmux-menu-label")?.textContent).toBe(t("composer.cloud"));
+      expect(row!.textContent).not.toContain(team.name);
+      act(() => root?.unmount());
+      root = undefined;
+    }
+  cloud.setCloudTeamForTest(undefined);
+});
+
 test("without Labs, or once the chat started, there is no Sandboxed", async () => {
   const runMode = { mode: "persistent", onMode: () => undefined };
   await mount(false, { runMode });

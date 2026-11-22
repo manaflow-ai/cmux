@@ -4,10 +4,19 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // SAFETY: the first thing `main` does: no other thread exists yet.
+    let prepared = unsafe { cmux_rd_host::prepare_process_env(&args) };
     if std::env::current_exe()
         .is_ok_and(|executable| cmux_rd_host::is_launch_services_open(&args, &executable))
     {
         return;
     }
-    std::process::exit(cmux_rd_host::run_cli(&args));
+    let code = match prepared {
+        Ok(()) => cmux_rd_host::run_cli(&args),
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    };
+    std::process::exit(code);
 }
