@@ -6,7 +6,10 @@
 // 2026-11-17: "this is the issue here, it gets clipped", "where as chatgpt allows it like this").
 // So the mask gains a few layers over the stack's reach: each surface's two gutters down to the
 // next surface (or its own bottom), and the room outside each top corner's curve. Under a surface's
-// glass the rows stay out of sight, as before.
+// glass the rows stay out of sight, as before. A pinned "Needs your input" card (the asks stack,
+// PendingAsks.tsx) is a surface too, and the stack's gaps under it (to the next card, and its own
+// foot) paint nothing, so the rows stay in sight there across the whole width (`clearTo`). Leo,
+// 2026-11-17: "this needs your input dismiss row erases things behind it".
 
 /// One of the stack's surfaces (the tray, the composer card), in the scroller's own coordinates.
 export type StackSurface = {
@@ -16,6 +19,10 @@ export type StackSurface = {
   bottom: number;
   radiusLeft: number;
   radiusRight: number;
+  /// Where the room under the surface stops painting nothing: the rows stay in sight across the
+  /// whole width from its bottom down to this (or the next surface's top, if that comes first).
+  /// The asks stack's cards set it to the stack's bottom; the tray and the composer card leave it.
+  clearTo?: number;
 };
 
 /// The extra mask layers: as many images as sizes and positions, comma-joined, or undefined for none.
@@ -60,6 +67,11 @@ export function besideMask(surfaces: readonly StackSurface[], width: number): Be
     }
     add(solid, 0, foot, surface.left, end - foot);
     add(solid, surface.right, foot, width - surface.right, end - foot);
+    // The gap under a card that paints nothing (the asks stack's gap and foot), down to the next one.
+    if (surface.clearTo !== undefined) {
+      const until = next ? Math.min(next.top, surface.clearTo) : surface.clearTo;
+      add(solid, 0, surface.bottom, width, until - surface.bottom);
+    }
     const leftRoom = tucked ? Math.max(0, tucked.left - surface.left) : Infinity;
     const rightRoom = tucked ? Math.max(0, surface.right - tucked.right) : Infinity;
     const r = surface.radiusLeft;

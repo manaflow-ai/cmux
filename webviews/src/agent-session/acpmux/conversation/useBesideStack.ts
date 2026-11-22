@@ -6,11 +6,20 @@
 // The stack can also move with no size changing: Session Info pushing the chat over shifts it inside
 // a scroller of the same size. So an attribute change on any of the stack's ancestors, and the end of
 // an ancestor's own motion, read it again on the next frame (one read per frame at most).
+// The asks stack's pinned cards ("Needs your input", PendingAsks.tsx; a sub-session's ask, ChildAsk.tsx)
+// are surfaces too, and the stack's gaps under them paint nothing (besideStack.ts `clearTo`): the
+// transcript stays in sight beside and between them, as it does beside the composer card (Leo,
+// 2026-11-17: "this needs your input dismiss row erases things behind it").
 import { useLayoutEffect, type RefObject } from "react";
 import { besideMask } from "./besideStack";
 
 const VARIABLES = ["--acpmux-beside-images", "--acpmux-beside-sizes", "--acpmux-beside-positions"] as const;
-const SURFACE = ".acpmux-running-tray, .acpmux-composer-box";
+/// A pinned ask's card: the part of its section under the "Needs your input" line.
+const ASK_CARD = ".acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head)";
+/// The stack's surfaces, the asks stack's cards with the tray and the composer card.
+export const SURFACE = `.acpmux-running-tray, .acpmux-composer-box, ${ASK_CARD}`;
+/// What a surface's own motion plays on: a surface, or a pinned ask's section (its entrance, its fold).
+const MOVES = `${SURFACE}, .acpmux-asks-stack > .acpmux-pending-ask`;
 
 /// Keeps `scroller`'s beside-the-stack mask layers on `dock`'s surfaces. `ghostClass` marks the copy
 /// of a tray that left, which takes no room.
@@ -22,7 +31,8 @@ export function useBesideStack(
   useLayoutEffect(() => {
     const view = scroller.current;
     if (!dock || !view) return;
-    const surfaces = () => dock.querySelectorAll<HTMLElement>(`:scope > .acpmux-running-tray, .acpmux-composer-box`);
+    const surfaces = () =>
+      dock.querySelectorAll<HTMLElement>(`:scope > .acpmux-running-tray, .acpmux-composer-box, :scope > ${ASK_CARD}`);
     const paint = () => {
       const box = view.getBoundingClientRect();
       const stack = dock.getBoundingClientRect();
@@ -34,13 +44,25 @@ export function useBesideStack(
             .map((surface) => {
               const rect = surface.getBoundingClientRect();
               const style = getComputedStyle(surface);
+              // A pinned ask's card is drawn only inside its section (which clips it while it folds
+              // out) and the asks stack (its own scroller); the stack's room under it paints nothing.
+              const asks = surface.matches(ASK_CARD) ? surface.closest(".acpmux-asks-stack") : null;
+              const section = asks ? surface.parentElement : null;
+              const stack = asks?.getBoundingClientRect();
+              const stackBottom = stack ? Math.min(stack.bottom, box.bottom) : box.bottom;
+              const drawnBottom = Math.min(
+                rect.bottom,
+                section?.getBoundingClientRect().bottom ?? rect.bottom,
+                stackBottom,
+              );
               return {
                 left: rect.left - box.left,
-                top: rect.top - box.top,
+                top: Math.max(rect.top, stack?.top ?? rect.top) - box.top,
                 right: rect.right - box.left,
-                bottom: Math.min(rect.bottom, box.bottom) - box.top,
+                bottom: drawnBottom - box.top,
                 radiusLeft: Number.parseFloat(style.borderTopLeftRadius) || 0,
                 radiusRight: Number.parseFloat(style.borderTopRightRadius) || 0,
+                ...(asks && { clearTo: stackBottom - box.top }),
               };
             })
         : [];
@@ -77,7 +99,7 @@ export function useBesideStack(
     cards.observe(dock, { attributes: true, attributeFilter: ["data-card"], subtree: true });
     // Only a surface's own motion moves it; the composer's hovers and the tray's count rolls do not.
     const settled = (event: Event) => {
-      if (event.target instanceof Element && event.target.matches(SURFACE)) paint();
+      if (event.target instanceof Element && event.target.matches(MOVES)) paint();
     };
     dock.addEventListener("animationend", settled);
     dock.addEventListener("transitionend", settled);

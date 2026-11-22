@@ -46,3 +46,26 @@ test("a tray wider than the card keeps the rows under its foot hidden: the card'
   // No piece reaches into the tray's foot.
   expect(pieces).not.toContain("0px 460px 16px 96px");
 });
+
+test("a pinned ask's card keeps the rows in sight beside it and across the stack's gap under it", () => {
+  // The asks stack's card (PendingAsks.tsx) over the composer card: its gutters, and from its bottom
+  // (300) down to the stack's bottom (310) the whole width, where the stack paints nothing.
+  const ask = { left: 16, top: 220, right: 684, bottom: 300, radiusLeft: 12, radiusRight: 12, clearTo: 310 };
+  const mask = besideMask([ask, card], 700)!;
+  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
+  expect(pieces).toContain("0px 220px 16px 80px");
+  expect(pieces).toContain("684px 220px 16px 80px");
+  expect(pieces).toContain("0px 300px 700px 10px");
+});
+
+test("the gap under a pinned ask stops at the next card, and a surface with no clearTo keeps none", () => {
+  const first = { left: 16, top: 100, right: 684, bottom: 180, radiusLeft: 0, radiusRight: 0, clearTo: 310 };
+  const second = { left: 16, top: 220, right: 684, bottom: 300, radiusLeft: 0, radiusRight: 0, clearTo: 310 };
+  const mask = besideMask([first, second, card], 700)!;
+  const pieces = mask.sizes.split(", ").map((size, at) => `${mask.positions.split(", ")[at]} ${size}`);
+  // From the first card to the second (its "Needs your input" line is dockClear.ts's hole).
+  expect(pieces).toContain("0px 180px 700px 40px");
+  expect(pieces).toContain("0px 300px 700px 10px");
+  // The composer card, no clearTo: nothing under it.
+  expect(pieces.some((piece) => piece.startsWith("0px 556px"))).toBe(false);
+});
