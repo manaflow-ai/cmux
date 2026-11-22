@@ -99,7 +99,13 @@ import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
 import { keepTabOnScreen } from "../../ui/tabReach";
 import { useRowRepositories } from "./conversation/useRowRepositories";
-import { turnOpener } from "./conversation/bareReferences";
+import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
+  newReferenceScopeCache,
+  referenceScopes,
+  turnOpener,
+} from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
 import { FoldRide, type FoldRideOptions } from "./conversation/foldRide";
@@ -249,7 +255,7 @@ import {
 } from "./transcript/scrollAnchors";
 import { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
-import { type TranscriptReferences, LIST_PROPS, sameList, useTranscriptReferences } from "./transcript/references";
+import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
@@ -592,6 +598,41 @@ function TranscriptContext({
 }
 
 export type VirtualTranscriptProps = Omit<React.ComponentProps<typeof TranscriptView>, "references">;
+
+/// The bare `#N` scopes of `source` (referenceScopes), kept as the last value while every scope
+/// it gives is the one it gave: the same reading of every row before the last (the cache kept its
+/// prefix and evidence) and the same scope for the last row's turn.
+function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptReferences {
+  const cache = useRef<ReferenceScopeCache>(undefined as unknown as ReferenceScopeCache);
+  cache.current ??= newReferenceScopeCache();
+  const held = useRef<
+    | {
+        source: readonly AcpmuxRow[];
+        value: TranscriptReferences;
+        lastTurn?: string;
+        lastScope?: ReferenceScope;
+      }
+    | undefined
+  >(undefined);
+  const before = held.current;
+  if (before?.source === source) return before.value;
+  const kept = cache.current;
+  const { generation, prefixLength, evidence } = kept;
+  const scopeOf = referenceScopes(source, kept);
+  const lastId = source.at(-1)?.id;
+  const lastTurn = lastId === undefined ? undefined : kept.rowTurn.get(lastId);
+  const lastScope = lastTurn === undefined ? undefined : scopeOf(lastTurn);
+  const same =
+    before !== undefined &&
+    generation === kept.generation &&
+    prefixLength === kept.prefixLength &&
+    evidence === kept.evidence &&
+    before.lastTurn === lastTurn &&
+    before.lastScope === lastScope;
+  const value = same ? before.value : { cache: kept, scopeOf };
+  held.current = { source, value, lastTurn, lastScope };
+  return value;
+}
 
 /// The transcript, drawn again only when what it is handed changes. The pane renders on every
 /// snapshot, a running command's output update too (its rows feed the header's Preview, Session

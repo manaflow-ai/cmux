@@ -1,11 +1,4 @@
-import { useRef } from "react";
-import { type AcpmuxRow } from "../model";
-import {
-  type ReferenceScopeCache,
-  type ReferenceScope,
-  newReferenceScopeCache,
-  referenceScopes,
-} from "../conversation/bareReferences";
+import { type ReferenceScopeCache, type ReferenceScope } from "../conversation/bareReferences";
 
 /// Where the transcript reads each row's bare `#N` scope (conversation/bareReferences.ts): the
 /// reading of the client's rows and the cache it keeps. A new value only when a scope changed.
@@ -43,39 +36,4 @@ export function sameList(a: readonly unknown[], b: readonly unknown[]): boolean 
   for (let index = 0; index < a.length; index += 1)
     if (a[index] !== b[index] && !sameItem(a[index], b[index])) return false;
   return true;
-}
-
-/// The bare `#N` scopes of `source` (referenceScopes), kept as the last value while every scope
-/// it gives is the one it gave: the same reading of every row before the last (the cache kept its
-/// prefix and evidence) and the same scope for the last row's turn.
-export function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptReferences {
-  const cache = useRef<ReferenceScopeCache>(undefined as unknown as ReferenceScopeCache);
-  cache.current ??= newReferenceScopeCache();
-  const held = useRef<
-    | {
-        source: readonly AcpmuxRow[];
-        value: TranscriptReferences;
-        lastTurn?: string;
-        lastScope?: ReferenceScope;
-      }
-    | undefined
-  >(undefined);
-  const before = held.current;
-  if (before?.source === source) return before.value;
-  const kept = cache.current;
-  const { generation, prefixLength, evidence } = kept;
-  const scopeOf = referenceScopes(source, kept);
-  const lastId = source.at(-1)?.id;
-  const lastTurn = lastId === undefined ? undefined : kept.rowTurn.get(lastId);
-  const lastScope = lastTurn === undefined ? undefined : scopeOf(lastTurn);
-  const same =
-    before !== undefined &&
-    generation === kept.generation &&
-    prefixLength === kept.prefixLength &&
-    evidence === kept.evidence &&
-    before.lastTurn === lastTurn &&
-    before.lastScope === lastScope;
-  const value = same ? before.value : { cache: kept, scopeOf };
-  held.current = { source, value, lastTurn, lastScope };
-  return value;
 }
