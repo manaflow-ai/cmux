@@ -8,8 +8,13 @@
 //! worker to run on. Here a take tries the lock first. Only a wait for another holder runs off
 //! the runtime's workers ([`crate::qos::off_worker`]): the worker hands its other tasks to a
 //! new one, and only this task waits. A thread outside the runtime waits in place.
+//!
+//! [`RwLock`] is the same for a std RwLock, which on macOS queues every new reader behind a
+//! waiting writer: Leo's second sample, 6 min later, had 16 workers waiting to read
+//! `ForkView::dropping` (every chat's log read) behind one fork's meta save, itself behind a
+//! long read.
 
-use std::sync::{LockResult, MutexGuard, TryLockError};
+use std::sync::{LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
 #[derive(Default, Debug)]
 pub(crate) struct Mutex<T>(std::sync::Mutex<T>);
@@ -35,6 +40,40 @@ impl<T> Mutex<T> {
             Err(TryLockError::Poisoned(poisoned)) => Err(poisoned),
             Err(TryLockError::WouldBlock) => crate::qos::off_worker(|| self.0.lock()),
         }
+    }
+}
+
+/// A std RwLock whose waits leave the runtime's workers, as [`Mutex`]'s do.
+#[derive(Default, Debug)]
+pub(crate) struct RwLock<T>(std::sync::RwLock<T>);
+
+impl<T> RwLock<T> {
+    pub(crate) const fn new(value: T) -> Self {
+        Self(std::sync::RwLock::new(value))
+    }
+
+    /// [`std::sync::RwLock::read`], but a wait leaves the runtime's workers.
+    pub(crate) fn read(&self) -> LockResult<RwLockReadGuard<'_, T>> {
+        match self.0.try_read() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Err(poisoned),
+            Err(TryLockError::WouldBlock) => crate::qos::off_worker(|| self.0.read()),
+        }
+    }
+
+    /// [`std::sync::RwLock::write`], but a wait leaves the runtime's workers.
+    pub(crate) fn write(&self) -> LockResult<RwLockWriteGuard<'_, T>> {
+        match self.0.try_write() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Err(poisoned),
+            Err(TryLockError::WouldBlock) => crate::qos::off_worker(|| self.0.write()),
+        }
+    }
+
+    /// Whether a write would wait now (tests: a note before the wait).
+    #[cfg(test)]
+    pub(crate) fn write_would_wait(&self) -> bool {
+        matches!(self.0.try_write(), Err(TryLockError::WouldBlock))
     }
 }
 
@@ -79,6 +118,47 @@ mod tests {
         }
         holder.join().unwrap();
         assert_eq!(*lock.lock().unwrap(), 8);
+    }
+
+    /// A writer waits behind a long reader, and on macOS every new reader queues behind that
+    /// writer: those readers' waits leave the workers too.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rwlock_waiters_leave_the_workers_free() {
+        let lock = Arc::new(super::RwLock::new(()));
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn({
+            let lock = lock.clone();
+            move || {
+                let _held = lock.read().unwrap();
+                held_tx.send(()).unwrap();
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        });
+        held_rx.recv().unwrap();
+        let writer = tokio::spawn({
+            let lock = lock.clone();
+            async move { drop(lock.write().unwrap()) }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let readers: Vec<_> = (0..8)
+            .map(|_| {
+                let lock = lock.clone();
+                tokio::spawn(async move { drop(lock.read().unwrap()) })
+            })
+            .collect();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let started = Instant::now();
+        tokio::time::timeout(Duration::from_secs(5), tokio::spawn(async {}))
+            .await
+            .unwrap()
+            .unwrap();
+        let took = started.elapsed();
+        assert!(took < Duration::from_millis(500), "a task waited {took:?} for a free worker");
+        tokio::time::timeout(Duration::from_secs(5), writer).await.unwrap().unwrap();
+        for reader in readers {
+            tokio::time::timeout(Duration::from_secs(5), reader).await.unwrap().unwrap();
+        }
+        reader.join().unwrap();
     }
 
     #[test]
