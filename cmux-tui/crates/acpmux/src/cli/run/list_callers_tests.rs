@@ -313,6 +313,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     harness: "claude".into(),
                     state: "idle".into(),
                     last_seen_at: crate::store::now_ms(),
+                    ..Default::default()
                 };
                 hub.set_mesh_book(hosts, vec![row]);
             }
