@@ -100,6 +100,31 @@ public struct CmuxMobileChatBackdrop: View {
     }
 }
 
+extension Color {
+    /// The flat color of the chat's ground: the Mac theme's background while the chat follows the
+    /// Mac, else the stock background. Read in a body, the view redraws when the look changes.
+    public static var cmuxMobileChatGround: Color {
+        CmuxMobileChatLook.current.map { Color(uiColor: $0.groundColor) } ?? .cmuxMobileBackground
+    }
+}
+
+extension View {
+    /// The agent chat composer's glass, tinted with the chat's ground so the card sits at the chat's
+    /// tone and the glass rim marks it, not a lighter slab (Leo, 2026-11-22: "the composer is too
+    /// light? ... you already know its there bc of the wide blank expanse with a border around it.
+    /// dont draw unnecessary attention by making it light").
+    public func cmuxMobileChatComposerGlass<S: Shape>(in shape: S) -> some View {
+        glassEffect(.regular.tint(Color.cmuxMobileChatGround.opacity(CmuxMobileChatComposerGlassTint.groundOpacity)), in: shape)
+    }
+}
+
+/// How much of the chat's ground tints the composer's glass.
+public enum CmuxMobileChatComposerGlassTint {
+    /// Most of the ground: the glass keeps its rim and a trace of what scrolls under it, and reads
+    /// at the chat's own tone in both styles and under every Mac theme.
+    public static let groundOpacity: Double = 0.8
+}
+
 extension View {
     /// The chat's text, cards and composer in the light or dark style of the Mac's theme while the
     /// chat follows the Mac; unchanged otherwise.
