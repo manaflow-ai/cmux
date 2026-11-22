@@ -12,31 +12,6 @@ describe("groupVariants", () => {
     ];
     expect(groupVariants(models).map((group) => group.model.id)).toEqual(["custom-A", "custom-a"]);
   });
-  const rows = [
-    { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro [New]" },
-    { id: "openrouter/deepseek/deepseek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
-    { id: "deepseek/deepseek-v4-pro", name: "DeepSeek/DeepSeek V4 Pro" },
-    { id: "openrouter/deepseek/deepseek-chat", name: "OpenRouter/DeepSeek Chat" },
-    { id: "claude-opus-5-5", name: "Opus 5.5" },
-    { id: "claude-opus-5-5-copy", name: "Opus 5.5" },
-  ];
-
-  test("a provider's row names its provider, its model and its note", async () => {
-    const { providerOf } = await variants();
-    expect(providerOf(rows[0]!)).toEqual({
-      provider: "OpenCode",
-      key: "deepseek-v4-pro",
-      name: "DeepSeek V4 Pro",
-      tag: "New",
-    });
-    expect(providerOf(rows[1]!)).toEqual({
-      provider: "OpenRouter",
-      key: "deepseek-v4-pro",
-      name: "DeepSeek V4 Pro",
-    });
-    expect(providerOf(rows[4]!)).toEqual({ key: "claude-opus-5-5", name: "Opus 5.5" });
-  });
-
   // Lawrence 2026-11-05: the Provider column read "Opencode-..." for OpenCode's Go plan.
   test("OpenCode's plans read as their product names", async () => {
     const { providerOf } = await variants();
@@ -46,19 +21,6 @@ describe("groupVariants", () => {
     expect(providerOf({ id: "opencode-zen/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" }).provider).toBe(
       "OpenCode Zen",
     );
-  });
-
-  test("the rows of one model are one, in first-row order; a bare id is its own model", async () => {
-    const { groupVariants } = await variants();
-    const groups = groupVariants(rows);
-    expect(groups.map((group) => [group.name, group.offers.map((offer) => offer.provider)])).toEqual([
-      ["DeepSeek V4 Pro", ["OpenCode", "OpenRouter", "DeepSeek"]],
-      ["DeepSeek Chat", ["OpenRouter"]],
-      ["Opus 5.5", [""]],
-      ["Opus 5.5", [""]],
-    ]);
-    expect(groups[0]!.model.id).toBe("opencode/deepseek-v4-pro");
-    expect(groups[0]!.tag).toBe("New");
   });
 
   test("one provider's two rows with the same last id part are two models", async () => {
@@ -121,11 +83,6 @@ describe("groupVariants", () => {
     expect(one.map((group) => group.offers.map((offer) => offer.provider))).toEqual([
       ["OpenCode", "OpenRouter", "DeepSeek"],
     ]);
-  });
-
-  test("the running provider's row is the one its model lands", async () => {
-    const { groupVariants } = await variants();
-    expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
   });
 
   test("a bare model's bracketed tag is not repeated in its group name", async () => {

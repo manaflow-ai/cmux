@@ -5,7 +5,7 @@
 // with the real stylesheets, at every width that wraps the line near the reference, `cmux#29613` sits
 // on one line and no two words overlap.
 import { readFileSync } from "node:fs";
-import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser } from "playwright";
@@ -113,7 +113,7 @@ await requireBrowserLane("markdown-reference-wrap-browser.test.tsx", async () =>
         await page.close();
       }
     });
-    test("closes the browser", async () => {
+    afterAll(async () => {
       await browser.close();
     });
   });

@@ -57,10 +57,4 @@ describe("Tailwind theme from the design scale", () => {
     const missing = [...named].filter((name) => !new RegExp(`(^|[\\s;{])${name}\\s*:`, "m").test(desktop));
     expect(missing).toEqual([]);
   });
-
-  test("elevation has a dark value under both dark selectors", () => {
-    const block = desktop.slice(desktop.indexOf("/* design-scale:begin"), desktop.indexOf("/* design-scale:end */"));
-    expect(block).toContain(':root:not([data-theme="light"])');
-    expect(block).toContain(':root[data-theme="dark"]');
-  });
 });

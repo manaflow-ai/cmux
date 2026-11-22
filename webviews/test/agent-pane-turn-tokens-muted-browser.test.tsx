@@ -1,6 +1,6 @@
 // Both running-line layouts keep their themed words and elapsed time without token amounts,
 // resolved in Chromium from the real stylesheets under a host theme.
-import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -68,7 +68,7 @@ await requireBrowserLane("agent-pane-turn-tokens-muted-browser.test.tsx", async 
           await page.close();
         }
       });
-    test("closes the browser", async () => {
+    afterAll(async () => {
       await browser.close();
     });
   });

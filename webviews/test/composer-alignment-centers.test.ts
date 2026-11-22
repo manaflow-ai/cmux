@@ -9,8 +9,7 @@
 //     text) and the context ring (the spinner before usage is reported) share one vertical center.
 // Measured in Chromium on the gallery's composer row (agent-pane.composer-row, the idle chat with an
 // empty prompt), light and dark, at a normal and a narrow pane. Real Chromium from Playwright; CI
-// fails the file when it cannot launch (requireBrowserLane). The measurement and its numbers come
-// from composer-alignment-measure.test.ts.
+// fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";

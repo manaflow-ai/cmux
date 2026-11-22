@@ -54,32 +54,3 @@ test("changing run identity invalidates colliding step ids", () => {
   const next = cache.classify([tool("tell", { id: "a1", message: "Next run" })], "run2");
   expect(next.messages[0]!.message).not.toBe(first.messages[0]!.message);
 });
-
-// Same payload and update stream for the old classification loop and its cached replacement.
-// Report timing for review; the deterministic regression above gates reprocessing, not wall time.
-test("measure message classification during appended run updates", () => {
-  const payload = "patch content\n".repeat(2500);
-  const history = Array.from({ length: 300 }, (_, i) => ({
-    ...tool(`write-${i}`, { file_path: `file-${i}`, content: payload }),
-    tool: { name: "write_file", input: { file_path: `file-${i}`, content: payload }, files: [] },
-  }));
-  const updates = Array.from({ length: 30 }, (_, i) => tool(`tell-${i}`, { id: "a1", message: `Check ${i}` }));
-  const measure = (cached: boolean) => {
-    const cache = new RunMessageCache();
-    let steps: HomeRunStep[] = [...history];
-    if (cached) cache.classify(steps);
-    else steps.map(stepMessage);
-    const start = performance.now();
-    for (const update of updates) {
-      steps = [...steps, update];
-      if (cached) cache.classify(steps);
-      else steps.map(stepMessage);
-    }
-    return performance.now() - start;
-  };
-  const before = measure(false);
-  const after = measure(true);
-  console.log(
-    `Run message classification: 300 x ${payload.length} chars, 30 appends; before=${before.toFixed(2)}ms after=${after.toFixed(2)}ms delta=${(after - before).toFixed(2)}ms`,
-  );
-});
