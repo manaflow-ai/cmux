@@ -91,19 +91,49 @@ import Testing
         ]
         print("sidebar-hitmap", appearance.rawValue, numbers.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))
         #expect(numbers["resize@row"] ?? 0 >= 8)
+        #expect(numbers["resize@knob"] ?? 0 >= 8)
         return try Self.draw(f, knob: knob)
     }
 
-    /// The band's inner 4 pt lay over the list's scroller: a press on the outer part of the shown
-    /// knob (2 of its 7 pt wide, 2 of 3 pt thin) started a resize instead of a scroll.
-    @Test func everyPointOfTheShownKnobScrolls() throws {
+    /// The resize band, in root coordinates.
+    static func band(_ f: Fixture) -> CGRect { f.handle.convert(f.handle.bounds, to: f.root) }
+
+    /// https://github.com/manaflow-ai/cmux/issues/49654: the scroller's 14 pt grab strip ran to the
+    /// sidebar's surface edge in the gutter, under the whole band, and the band yielded to it, so with
+    /// an overflowing list a press on the edge scrolled instead of resizing. Every point of the band
+    /// now resizes, level with the shown knob too.
+    @Test func everyPointOfTheBandResizesLevelWithTheKnob() throws {
         let f = try Self.fixture()
         defer { f.window.close() }
         let knob = try Self.knob(f)
-        for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) {
+        let band = Self.band(f)
+        #expect(band.width >= SidebarResizeBand.minimumWidth)
+        for x in stride(from: band.minX + 0.25, to: band.maxX, by: 0.5) {
             for y in [knob.minY + 1, knob.midY, knob.maxY - 1] {
-                #expect(Self.target(atX: x, y: y, in: f) == .scroller, "a press at x \(x - f.root.sidebar.frame.maxX) pt from the edge")
+                #expect(Self.target(atX: x, y: y, in: f) == .resize, "a press at x \(x - f.root.sidebar.frame.maxX) pt from the edge")
             }
+        }
+        #expect(Self.width(of: .resize, atY: knob.midY, in: f) >= SidebarResizeBand.minimumWidth)
+    }
+
+    /// The scroller stays usable: its strip ends where the band begins, so the drawn knob and the
+    /// whole grab strip beside the band still take the press.
+    @Test func theScrollerEndsWhereTheBandBeginsAndKeepsItsKnob() throws {
+        let f = try Self.fixture()
+        defer { f.window.close() }
+        let knob = try Self.knob(f)
+        let band = Self.band(f)
+        let strip = try #require(f.scroller.superview).convert(f.scroller.grabZone, to: f.root)
+        #expect(strip.maxX <= band.minX + 0.001, "strip \(strip) overlaps band \(band)")
+        // Off the band it grabs only the wide knob's column, so it covers no more of a row's trailing
+        // button than the full 14 pt strip at the surface edge did, give or take the 2 pt of the knob's old edge inset.
+        #expect(strip.width == SidebarView.dividerScrollerGrab)
+        let surfaceEdge = f.root.sidebar.frame.maxX + f.root.sidebar.paneReach
+        #expect(strip.minX >= surfaceEdge - ThinScroller.width - 2 - 0.001)
+        #expect(knob.minX >= strip.minX - 0.001)
+        #expect(knob.maxX <= band.minX + 0.001)
+        for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) {
+            #expect(Self.target(atX: x, y: knob.midY, in: f) == .scroller, "a press on the knob at x \(x - band.minX) pt from the band")
         }
     }
 
@@ -121,17 +151,26 @@ import Testing
         #expect(Self.width(of: .resize, atY: y, in: f) >= 8)
     }
 
-    /// Over the knob the cursor is the arrow (the press scrolls); beside it, the resize cursor.
-    @Test func theCursorFollowsWhoTakesThePress() throws {
+    /// Every scroll view that runs to the divider keeps its scroller clear of the band; a right
+    /// sidebar's scrollers are at the window edge, away from its band, and stay put.
+    @Test func everyEdgeScrollerClearsTheBandOnTheDividerSideOnly() throws {
         let f = try Self.fixture()
         defer { f.window.close() }
-        let knob = try Self.knob(f)
-        let edge = f.root.sidebar.frame.maxX
-        let overKnob = f.root.convert(CGPoint(x: min(knob.maxX - 0.5, edge - 1), y: knob.midY), to: nil)
-        let besideY = knob.maxY + 40 < f.root.bounds.maxY - 40 ? knob.maxY + 40 : knob.minY - 40
-        let beside = f.root.convert(CGPoint(x: edge - 1, y: besideY), to: nil)
-        #expect(!f.handle.showsResizeCursor(at: overKnob))
-        #expect(f.handle.showsResizeCursor(at: beside))
+        let container = f.root.sidebar
+        let clearance = container.resizeBand.inside + container.paneReach
+        #expect(clearance > 0)
+        for scroll in container.sidebarView.dividerEdgeScrollViews {
+            #expect(scroll.scrollerInsets.right == clearance)
+        }
+        container.side = .right
+        for scroll in container.sidebarView.dividerEdgeScrollViews {
+            #expect(scroll.scrollerInsets.right == 0)
+            let scroller = try #require(scroll.verticalScroller as? ThinScroller)
+            #expect(scroller.grabZone == scroller.frame)
+            #expect(scroller.knobEdgeInset == 2)
+        }
+        container.side = .left
+        #expect(container.sidebarView.scrollView.scrollerInsets.right == clearance)
     }
 
     /// Renders the window around the edge at 4x with every point's click target tinted.

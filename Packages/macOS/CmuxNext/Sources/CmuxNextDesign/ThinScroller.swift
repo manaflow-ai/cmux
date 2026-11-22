@@ -60,6 +60,19 @@ public final class ThinScroller: NSScroller {
         set { update { $0.revealsNearPointerAtRest = newValue } }
     }
 
+    /// How far the drawn knob sits in from the scroller's trailing edge (a sideways scroller's bottom
+    /// edge), in points. 2 by default; a scroller pushed clear of a neighbor's hit area (the sidebar's,
+    /// beside its resize band) sets 0 so the knob sits at the strip's edge.
+    public var knobEdgeInset: CGFloat = 2 {
+        didSet { if knobEdgeInset != oldValue { placeKnob(animated: false) } }
+    }
+
+    /// The vertical grab zone's width from the trailing edge (``grabZone``); nil is the whole strip,
+    /// ``width``. The sidebar narrows it to the wide knob beside its resize band, so moving the scroller
+    /// off the band takes no more of a row's trailing button than the full strip at the edge did
+    /// (https://github.com/manaflow-ai/cmux/issues/49654). A sideways scroller always uses its whole strip.
+    public var grabThickness: CGFloat?
+
     /// True shows the knob while the user scrolls the scroll view (AppKit's live scroll: wheel,
     /// trackpad, a knob drag), never for a scroll the app makes or a layout. The terminal turns it
     /// off and calls ``flash()`` itself: output that only follows the bottom is not a scroll.
@@ -132,10 +145,10 @@ public final class ThinScroller: NSScroller {
     public func knobRect(for rect: CGRect, expanded: Bool = false) -> CGRect {
         let thickness = expanded ? Self.expandedKnobThickness : Self.knobThickness
         guard isHorizontal else {
-            return CGRect(x: bounds.maxX - thickness - 2, y: rect.minY + 2,
+            return CGRect(x: bounds.maxX - thickness - knobEdgeInset, y: rect.minY + 2,
                           width: thickness, height: max(0, rect.height - 4))
         }
-        let y = isFlipped ? bounds.maxY - thickness - 2 : bounds.minY + 2
+        let y = isFlipped ? bounds.maxY - thickness - knobEdgeInset : bounds.minY + knobEdgeInset
         return CGRect(x: rect.minX + 2, y: y, width: max(0, rect.width - 4), height: thickness)
     }
 
@@ -181,9 +194,12 @@ public final class ThinScroller: NSScroller {
 
     /// The one rect, in the scroll view's coordinates (the scroller's frame's space), where the
     /// pointer widens the knob and a press grabs it: the scroller's own strip at the trailing edge
-    /// (a sideways scroller's: at the bottom edge). Half-open, as `CGRect.contains` is, so a pixel
+    /// (a sideways scroller's: at the bottom edge), ``grabThickness`` wide when set. Half-open, as `CGRect.contains` is, so a pixel
     /// column is in it or not, for both.
-    public var grabZone: CGRect { frame }
+    public var grabZone: CGRect {
+        guard let grabThickness, !isHorizontal, grabThickness < frame.width else { return frame }
+        return CGRect(x: frame.maxX - grabThickness, y: frame.minY, width: grabThickness, height: frame.height)
+    }
 
     /// The knob is wide with the pointer in ``grabZone``: the content overflows and the pointer there
     /// would show it (``revealsNearPointerAtRest``, or the knob already shown).
