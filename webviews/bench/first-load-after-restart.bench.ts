@@ -70,6 +70,9 @@
 // FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
 // settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
+// ROWS_WINDOW=FILE puts the page on the row store (v2): the daemon advertises attach-hold-v1 and the host answers
+// `chat.rows.open` with this window (acpmux-core's `bench_first_window` writes it for the same REPLAY), one link round
+// trip after the open. The settled line's rowStore says every round drew from it.
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -228,6 +231,18 @@ function replayLatest(records: readonly { kind: string; msg: unknown }[]): strin
   if (!words) throw new Error("the replayed chat's last turn has no reply to wait for");
   return words;
 }
+/// ROWS_WINDOW=FILE: the store's first window for the replayed chat (a `ChatWindow`'s JSON, `.gz` too), whose
+/// `sid` the host sets to the page's own at each open.
+const ROWS_WINDOW = (() => {
+  const file = process.env.ROWS_WINDOW;
+  if (!file) return null;
+  const bytes = fs.readFileSync(file);
+  const text = new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+  const window = JSON.parse(text) as { sid: string; rows: unknown[]; open: unknown[] };
+  if (window.sid !== "bench") throw new Error("ROWS_WINDOW is not a bench_first_window window");
+  console.log(`rows window: ${window.rows.length} settled rows, ${window.open.length} open, ${text.length} bytes`);
+  return text;
+})();
 const LATEST =
   FIXTURE === "work" ? `Turn ${TURNS} done.` : FIXTURE === "replay" ? replayLatest(replayed) : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
@@ -370,7 +385,14 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "initialize":
       return {
         protocolVersion: 1,
-        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        _meta: {
+          acpmux: {
+            origin: "local",
+            extensions: [],
+            operations: [],
+            ...(ROWS_WINDOW ? { capabilities: ["attach-hold-v1"] } : {}),
+          },
+        },
       };
     case "_acpmux/watch":
       return { sessions: [session] };
@@ -434,7 +456,14 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
+  __benchHost: {
+    tailAskedAt: number;
+    tailCalls: number;
+    readyAnsweredAt: number;
+    asks: number[];
+    rowsOpens: number;
+    rowsTaken: number;
+  };
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
@@ -451,15 +480,18 @@ function installHost({
   readyDelayMs,
   refuseUntilMs,
   bridge,
+  rows,
 }: {
   tail: unknown;
   readyDelayMs: number;
   refuseUntilMs: number;
   bridge: boolean;
+  /// ROWS_WINDOW: the store's first window (its JSON) and how long after an open it comes.
+  rows: { window: string; delayMs: number } | null;
 }) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
-  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
+  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[], rowsOpens: 0, rowsTaken: 0 };
   (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   if (!bridge) {
     const Native = window.WebSocket;
@@ -479,6 +511,23 @@ function installHost({
       .__benchTransport;
     return call(method, params ?? {});
   };
+  /// The app host's row store (AgentPaneChatRows.swift), for ROWS_WINDOW: an open is answered with its sid at once
+  /// and its first window comes `delayMs` later as one batch; the window is the chat's whole state (an
+  /// offline chat: nothing comes after it). A page, blob or close is taken and answered with nothing.
+  let batch = 0;
+  const rowsCall = (method: string, params: Record<string, unknown> | undefined): Promise<Own> | undefined => {
+    if (!rows || !method.startsWith("chat.rows.")) return undefined;
+    if (method === "chat.rows.taken") asked.rowsTaken += 1;
+    if (method !== "chat.rows.open") return Promise.resolve({ ok: true, value: null });
+    asked.rowsOpens += 1;
+    const sid = String(params?.sid ?? "");
+    const change = `{"kind":"chatWindow","replaces":true,"window":${rows.window.replace('"sid":"bench"', `"sid":${JSON.stringify(sid)}`)}}`;
+    setTimeout(() => {
+      const receiver = (window as unknown as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows;
+      receiver?.receive({ batch: (batch += 1), changes: [change] });
+    }, rows.delayMs);
+    return Promise.resolve({ ok: true, value: { sid } });
+  };
   // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does; over the bridge
   // it names the app's transport (no endpoint, no token), and the socket calls go to this process.
   let webkit: unknown;
@@ -488,7 +537,7 @@ function installHost({
     set: (next) => {
       for (const name of ["agentSession", "cmuxPage"]) {
         const handler = next?.messageHandlers?.[name];
-        if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge)) continue;
+        if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge && !rows)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
         handler.postMessage = async (request: {
@@ -500,7 +549,7 @@ function installHost({
         }) => {
           if (envelope && request.t !== "call") return post(request);
           const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
-          const own = transport(method, request.params);
+          const own = rowsCall(method, request.params) ?? transport(method, request.params);
           if (own) {
             const reply = await own;
             if (envelope)
@@ -783,6 +832,8 @@ type Round = {
   lastAskMs: number | null;
   /// Bytes the daemon sent the page over the link this round.
   bytesDown: number;
+  /// ROWS_WINDOW: the row store's batches the page took (0: it drew the chat by v1).
+  rowsTaken: number;
 };
 
 const releases: [string, () => unknown][] = [];
@@ -1102,7 +1153,13 @@ try {
   const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, refuseUntilMs = 0) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    await page.addInitScript(installHost, {
+      tail,
+      readyDelayMs,
+      refuseUntilMs,
+      bridge: BRIDGE,
+      rows: ROWS_WINDOW ? { window: ROWS_WINDOW, delayMs: LINK.rttMs } : null,
+    });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -1292,6 +1349,7 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
+        rowsTaken: 0,
       };
     } finally {
       servingSpare = false;
@@ -1359,6 +1417,7 @@ try {
           readyAnsweredAt: w.__benchHost.readyAnsweredAt,
           liveLatestAt: w.__firstLoad.liveLatestAt,
           asks: w.__benchHost.asks,
+          rowsTaken: w.__benchHost.rowsTaken,
         };
       });
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
@@ -1383,6 +1442,7 @@ try {
         attachAnsweredMs: since(load.attachAnsweredAt),
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        rowsTaken: got.rowsTaken,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
           const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
@@ -1556,6 +1616,7 @@ try {
       goneFrames: median(settled.map((one) => one.goneFrames)),
       goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
+      rowStore: rounds.every((r) => r.rowsTaken > 0),
       settledEach: settled.map((one) => one.settledMs),
     };
     console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
