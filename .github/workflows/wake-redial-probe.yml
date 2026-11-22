@@ -55,6 +55,14 @@ jobs:
         with:
           name: wake-probe-cmux-tui-x86_64-unknown-linux-musl
           path: ${{ runner.temp }}/after-dl
+      - name: Delete the machines run 45026069578 left behind (its cleanup hit Stack's 429)
+        continue-on-error: true
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bun scripts/cmux-next/wake-redial-probe.ts --out "$RUNNER_TEMP/cleanup" --delete-only vm_0707a4a0b412496e0045,vm_b343a056ee1bea21e952,vm_6be0c11308aab4577519,vm_bbce7fa8a02ff602a930,vm_29a776086081761d7996,vm_084c3823d125ccd727a4,vm_6dd3ba3d94ab9a76f81c,vm_046dfbb23118c646e00a
       - name: Probe
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}

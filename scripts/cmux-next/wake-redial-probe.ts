@@ -31,11 +31,22 @@ const results: any = { backend: backend.name, trials: [], machines: [], notes: [
 const save = () => writeFileSync(path.join(OUT, "wake-probe.json"), JSON.stringify(results, null, 2));
 
 let token = "";
+let signedAt = 0;
+/** One sign-in reused for 5 min (the run before signed in per poll and hit Stack's 429); a 429 backs off up to ~10 min. */
 async function fresh(): Promise<string> {
-  const s = await passwordSignIn(STACK[backend.stack], email, password);
-  secrets.push(s.access, s.refresh);
-  api.bearer = token = s.access;
-  return token;
+  if (token && Date.now() - signedAt < 5 * 60_000) return token;
+  for (let attempt = 0, wait = 5_000; ; attempt++, wait = Math.min(wait * 2, 120_000)) {
+    try {
+      const s = await passwordSignIn(STACK[backend.stack], email, password);
+      secrets.push(s.access, s.refresh);
+      api.bearer = token = s.access;
+      signedAt = Date.now();
+      return token;
+    } catch (e) {
+      if (!String(e).includes("429") || attempt >= 8) throw e;
+      log("sign-in 429, retry in", wait, "ms"); await sleep(wait);
+    }
+  }
 }
 const get = async (id: string) => { await fresh(); return api.read("cloud.machine.get", { machine: id }); };
 
@@ -176,11 +187,14 @@ async function main() {
   save();
 }
 
-try { await main(); }
+// --delete-only ID,ID: delete machines an earlier run of this probe made and failed to delete, then stop.
+const deleteOnly = (arg("--delete-only", "") ?? "").split(/[\s,]+/).filter(Boolean);
+if (deleteOnly.length) created.push(...deleteOnly);
+try { if (!deleteOnly.length) await main(); }
 catch (e) { results.notes.push(`FATAL ${e}`); log("FATAL", String(e)); process.exitCode = 1; }
 finally {
   for (const id of created) {
-    try { await fresh(); await api.deleteMachine(id, `del-${id}`); results.notes.push(`deleted ${id}`); log("deleted", id); }
+    try { await fresh(); await api.deleteMachine(id, `del-${id}-${Date.now()}`); results.notes.push(`deleted ${id}`); log("deleted", id); }
     catch (e) { results.notes.push(`DELETE FAILED ${id}: ${e}`); log("DELETE FAILED", id, String(e)); process.exitCode = 1; }
   }
   save();
