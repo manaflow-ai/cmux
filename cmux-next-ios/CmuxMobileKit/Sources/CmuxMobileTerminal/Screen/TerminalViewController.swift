@@ -88,9 +88,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The held frame waits for the mirror reset of the reclaim's resize:
     /// output before it is the Mac's wider grid, never shown.
     private var holdAwaitsReset = false
-    /// The cell size when a zoom's still went up: the layout after Ghostty
-    /// measures the new size decides whether a resize (and its replay) follows.
-    private var zoomHoldCell: CGSize?
     private var freezeBatches = 0
     private var freezeStarted: CFTimeInterval = 0
     /// A reset's replay being fed: layout waits for all of it.
@@ -2439,62 +2436,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         freezeView = nil
         freezeBatches = 0
         holdAwaitsReset = false
-        zoomHoldCell = nil
-    }
-
-    // MARK: Zoom (magnifier keys)
-
-    /// Leo, 2026-11-22: "zoming in and out eith the magnifying glass layout
-    /// shifts unnecessarily when resizing." A zoom step changes the cell
-    /// size at once, but the Mac's grid follows only after the settle and a
-    /// round trip: the mirror showed the Mac's old columns at the new cell
-    /// size (wider or narrower than the page, panned), then the reset, then
-    /// the replay at the phone's new columns. The page as it was now stays up
-    /// until that replay is drawn: one step from the old size to the new.
-    /// Taps in a row keep the first still; the settle sends one resize.
-    func zoomWillChange() {
-        if freezeView != nil {
-            // Already held (an earlier tap, a reset): this step joins it.
-            if holdAwaitsReset || zoomHoldCell != nil { zoomHoldCell = cell }
-            return
-        }
-        guard view.window != nil, document != nil || model.isTUI, cell.width > 0,
-              !scrollView.isTracking, !scrollView.isDecelerating,
-              let still = view.snapshotView(afterScreenUpdates: false) else { return }
-        sizingLog.notice("zoom: the page holds until the Mac's grid at the new size is drawn")
-        still.frame = view.bounds
-        still.isUserInteractionEnabled = false
-        view.insertSubview(still, belowSubview: bottomBacking)
-        CATransaction.flush()
-        freezeView = still
-        freezeBatches = 0
-        placedSinceHold = false
-        freezeStarted = CACurrentMediaTime()
-        holdAwaitsReset = true
-        zoomHoldCell = cell
-        let held = ObjectIdentifier(still)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.freezeCap) { [weak self] in
-            guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
-            self.zoomHoldCell = nil
-            // No reset came (the Mac kept its grid): the live page shows.
-            if self.holdAwaitsReset {
-                self.unfreeze()
-            } else {
-                self.releaseHeldFrameAtCap(held, recover: true)
-            }
-        }
-    }
-
-    /// Ghostty measured the zoomed cells: no new grid for the Mac (its
-    /// columns are kept, or the phone's did not change) means no reset is
-    /// coming, so the live page shows now.
-    private func zoomGridMeasured(columns: Int, rows: Int) {
-        guard holdAwaitsReset, freezeView != nil else { return }
-        let size = TerminalResizeSettle.Size(columns: columns, rows: rows)
-        let resizeComing = resizeSettle.pending != nil || (columns > 0 && sentGrid != size)
-        guard !resizeComing else { return }
-        sizingLog.notice("zoom: same grid for the Mac (\(columns, privacy: .public)x\(rows, privacy: .public)); the live page shows")
-        unfreeze()
     }
 
     /// The app left (false) or is coming back to (true) the foreground.
@@ -2613,10 +2554,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The area keeps the grid on screen until the Mac's new one is in.
         applyTUIAreaHeight(cellHeight: cellHeight)
         if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
-        if let held = zoomHoldCell, cell != held {
-            zoomHoldCell = nil
-            zoomGridMeasured(columns: columns, rows: newTUIRows)
-        }
         applyContentWidth()
         applyTUIPlacement()
 
