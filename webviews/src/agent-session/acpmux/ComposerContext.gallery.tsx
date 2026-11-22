@@ -1513,7 +1513,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           harness: "claude",
           cwd: "/home/you/src/project",
           host: "studio",
-          hostKind: "ssh",
+          peer: "studio",
         },
       },
       play: openMoveTo,
