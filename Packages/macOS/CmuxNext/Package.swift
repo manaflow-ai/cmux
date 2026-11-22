@@ -21,6 +21,7 @@ import PackageDescription
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
+//   CmuxNextRelaunchCover -> CCmuxAppFFI (cmux-launch-shell relaunch_cover), Compat, Design, DesignTokens, Settings, Wakeups
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
@@ -426,6 +427,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
                 "CmuxNextProcessEnvironment",
+                "CmuxNextRelaunchCover",
                 "CmuxNextRemote",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextRemoteFetch",
@@ -1345,6 +1347,28 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextKeepAwake",
                 "CmuxNextSettings",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Relaunch cover (launch.relaunchCoverSwap): an update's relaunch or a keep quit saves each window's
+        // picture; the next launch shows the pictures at their frames until each window's panes paint. Every
+        // decision (stale, mismatched, which part goes when) is cmux-launch-shell's relaunch_cover in Rust.
+        .target(
+            name: "CmuxNextRelaunchCover",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextDesign",
+                "CmuxNextDesignTokens",
+                "CmuxNextSettings",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRelaunchCoverTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextRelaunchCover",
             ],
             swiftSettings: uiSwiftSettings
         ),

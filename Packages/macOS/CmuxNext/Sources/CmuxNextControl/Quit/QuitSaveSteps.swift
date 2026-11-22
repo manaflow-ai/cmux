@@ -5,7 +5,7 @@
 /// (browser records, the window records, the sidebar, Home's drafts and
 /// unsent sends, the chat composers), the launch pictures after it. Cloud's
 /// network work starts first and runs beside the saves, so a slow network
-/// never delays one. If every step hangs they take ``worstCase`` (2.6 s), which fits
+/// never delays one. If every step hangs they take ``worstCase`` (2.8 s), which fits
 /// a keep quit's deadline (``QuitDeadline/keepQuitLimit``) with the quit mark
 /// before them; in practice a few hundred ms.
 ///
@@ -23,6 +23,9 @@ public struct QuitSaveSteps {
     public var agentImages: @MainActor () async -> Void
     /// And terminals their last frame.
     public var terminalFrames: @MainActor () async -> Void
+    /// An update's relaunch or a keep quit: each window's picture for the next launch's cover (the
+    /// relaunch cover, cmux-launch-shell `relaunch_cover`); nothing for any other quit.
+    public var relaunchCover: @MainActor () async -> Void
     /// Browser tabs reopen at their recorded page (before any session ends,
     /// while the daemon still answers).
     public var browserRecords: @MainActor () async -> Void
@@ -54,7 +57,8 @@ public struct QuitSaveSteps {
                 stopSavingWindows: @escaping @MainActor () -> Void,
                 sidebar: @escaping @MainActor () async -> Void,
                 homeCache: @escaping @MainActor () async -> Void,
-                cloud: @escaping @MainActor () async -> Void) {
+                cloud: @escaping @MainActor () async -> Void,
+                relaunchCover: @escaping @MainActor () async -> Void) {
         self.remoteSnapshots = remoteSnapshots
         self.agentComposers = agentComposers
         self.agentImages = agentImages
@@ -65,6 +69,7 @@ public struct QuitSaveSteps {
         self.sidebar = sidebar
         self.homeCache = homeCache
         self.cloud = cloud
+        self.relaunchCover = relaunchCover
     }
 
     /// One step: its name (the `quit.<name>` launch mark), its limit and its work.
@@ -84,6 +89,7 @@ public struct QuitSaveSteps {
          Step(name: "agent_composers", limit: .milliseconds(400), body: agentComposers),
          Step(name: "terminal_frames", limit: .milliseconds(200), body: terminalFrames),
          Step(name: "agent_images", limit: .milliseconds(200), body: agentImages),
+         Step(name: "relaunch_cover", limit: .milliseconds(200), body: relaunchCover),
          Step(name: "remote_snapshots", limit: .milliseconds(200), body: remoteSnapshots)]
     }
 

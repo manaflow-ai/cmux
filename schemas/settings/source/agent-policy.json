@@ -155,6 +155,13 @@
     },
     {
       "agent": "settable",
+      "why": "How a relaunch swaps each window's saved picture for live content (looks only); ends no work.",
+      "keys": [
+        "launch.relaunchCoverSwap"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "tabs.overflow",
         "tabs.shellIconTheme"

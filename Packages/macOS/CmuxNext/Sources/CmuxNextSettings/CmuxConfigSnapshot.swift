@@ -259,6 +259,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserToolbarPosition: ToolbarPosition = ChromePlacementSetting.browserToolbarPositionDefault
     /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `launch.relaunchCoverSwap`; off when unset or invalid. Read when a relaunch reveals its windows.
+    public var relaunchCoverSwap: RelaunchCoverSwap = RelaunchCoverSwapSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.nativeNewTabPage`: the native (Swift) New Tab page instead of the web one; off when unset or invalid.
@@ -491,6 +493,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
+        snapshot.take(RelaunchCoverSwapSetting.parse(root), \.relaunchCoverSwap)
         snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root)
             + MachineColorsSetting().parse(root).1
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1

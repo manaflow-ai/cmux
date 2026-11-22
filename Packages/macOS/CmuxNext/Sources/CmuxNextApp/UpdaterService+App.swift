@@ -31,7 +31,11 @@ extension UpdaterService {
         // The windows leave the screen when Sparkle commits to the relaunch,
         // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        // The relaunch cover's pictures are taken here, while the windows still show (the hide is next).
+        willRelaunch = { [weak services] in
+            services?.windows.captureRelaunchCover(.update)
+            services?.quit.origins.record(.explicit(.keep))
+        }
         hidesForRelaunch = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }

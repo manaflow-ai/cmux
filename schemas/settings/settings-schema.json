@@ -2341,6 +2341,16 @@
             }
           },
           {
+            "key" : "settings.group.relaunchCover",
+            "rows" : [
+              "launch.relaunchCoverSwap"
+            ],
+            "title" : {
+              "key" : "settings.group.relaunchCover",
+              "text" : "App Relaunch"
+            }
+          },
+          {
             "key" : "settings.group.macScreen",
             "rows" : [
               "macScreen.debug.relayOnly"
@@ -114062,6 +114072,180 @@
       "title" : {
         "key" : "settings.internalDeveloperMode",
         "text" : "Internal Developer Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "instant",
+        "crossfade",
+        "progressive"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.instant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.crossfade",
+            "text" : "Crossfade"
+          },
+          "value" : "crossfade"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.progressive",
+            "text" : "Progressive"
+          },
+          "value" : "progressive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "crossfade",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.relaunchCover",
+        "text" : "App Relaunch"
+      },
+      "help" : {
+        "key" : "settings.launch.relaunchCoverSwap.help",
+        "text" : "How a relaunched window swaps its saved picture for live content."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "launch.relaunchCoverSwap",
+      "keywords" : [
+        "relaunch",
+        "restart",
+        "update",
+        "launch",
+        "cover",
+        "snapshot",
+        "picture",
+        "screenshot",
+        "crossfade",
+        "fade",
+        "swap",
+        "restore",
+        "debug"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "launch",
+        "relaunchCoverSwap"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "development",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:launch.relaunchCoverSwap"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.launch.relaunchCoverSwap",
+        "text" : "Relaunch Cover Swap"
       },
       "validation" : "portable"
     },
