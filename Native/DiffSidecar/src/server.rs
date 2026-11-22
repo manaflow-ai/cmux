@@ -2494,10 +2494,9 @@ mod tests {
         let staged = DiffSource::Staged {
             repo_root: repo.to_string_lossy().into_owned(),
         };
-        assert!(
-            git_generated_paths(&staged, Whitespace::Show, &session_git(&repo).await)
-                .await
-                .is_empty()
+        assert_eq!(
+            git_generated_paths(&staged, Whitespace::Show, &session_git(&repo).await).await,
+            Vec::<String>::new()
         );
         let _ = std::fs::remove_dir_all(root);
     }

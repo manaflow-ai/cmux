@@ -350,7 +350,7 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
                     if key.confirmed_at.is_none() {
                         key.confirmed_at = Some(next_frame(now));
                     }
-                    if key.bytes == [b'\r'] && mode == Mode::Shell && bytes.ends_with(b"\r\n$ ") {
+                    if key.bytes == *b"\r" && mode == Mode::Shell && bytes.ends_with(b"\r\n$ ") {
                         fresh_prompt = true;
                     }
                     if waiting_for_output_of == Some(index) {

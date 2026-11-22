@@ -519,7 +519,7 @@ fn diff_git_lines_split_only_when_unambiguous() {
     assert_eq!(diff_git_names("a/x.txt b/x.txt"), ["x.txt"]);
     assert_eq!(diff_git_names("a/a b.txt b/a b.txt"), ["a b.txt"]);
     // A rename with a space can not be split by length; its other lines name it.
-    assert!(diff_git_names("a/old b/new name").is_empty());
+    assert_eq!(diff_git_names("a/old b/new name"), Vec::<String>::new());
     assert_eq!(
         diff_git_names("\"a/q\\\"x\" \"b/q\\\"y\""),
         ["q\"x", "q\"y"]
