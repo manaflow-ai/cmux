@@ -42,18 +42,13 @@ fn a_plan_is_read_leniently_and_a_set_strictly() {
     );
     assert_eq!(plan_items(&json!({"sessionUpdate": "plan"})), None);
     assert!(
-        set_items(&json!([{"content": "x", "status": "weird"}]))
-            .unwrap_err()
-            .contains("status")
+        set_items(&json!([{"content": "x", "status": "weird"}])).unwrap_err().contains("status")
     );
     assert!(
-        set_items(&json!([{"content": " ", "status": "pending"}]))
-            .unwrap_err()
-            .contains("content")
+        set_items(&json!([{"content": " ", "status": "pending"}])).unwrap_err().contains("content")
     );
-    let many: Vec<Value> = (0..=MAX_ITEMS)
-        .map(|n| json!({"content": n.to_string(), "status": "pending"}))
-        .collect();
+    let many: Vec<Value> =
+        (0..=MAX_ITEMS).map(|n| json!({"content": n.to_string(), "status": "pending"})).collect();
     assert!(set_items(&Value::Array(many)).is_err());
 }
 
@@ -68,9 +63,8 @@ fn an_empty_plan_clears_only_a_harness_list() {
     assert_eq!(after_plan(Some(&kept), vec![], 2, 4), None);
     let harness = TaskList { source: TaskListSource::Harness, ..kept.clone() };
     assert_eq!(after_plan(Some(&harness), vec![], 2, 4), Some(None));
-    let replaced = after_plan(Some(&kept), vec![item("y", TaskStatus::InProgress)], 3, 4)
-        .unwrap()
-        .unwrap();
+    let replaced =
+        after_plan(Some(&kept), vec![item("y", TaskStatus::InProgress)], 3, 4).unwrap().unwrap();
     assert_eq!(replaced.source, TaskListSource::Harness);
     // The same steps again in the same turn change nothing, not even the time.
     assert_eq!(after_plan(Some(&harness), harness.items.clone(), 9, 4), None);
@@ -85,10 +79,7 @@ fn an_empty_plan_clears_only_a_harness_list() {
 fn a_list_expires_once_a_turn_that_never_touched_it_ends() {
     let list = TaskList {
         source: TaskListSource::Harness,
-        items: vec![item(
-            "08:41Z merge cmux#45744 pinned; then close #45720",
-            TaskStatus::Pending,
-        )],
+        items: vec![item("08:41Z merge cmux#45744 pinned; then close #45720", TaskStatus::Pending)],
         updated_at: 1,
         turn: 5,
     };
