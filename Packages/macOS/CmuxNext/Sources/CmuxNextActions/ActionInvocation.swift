@@ -112,6 +112,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// equivalent: AppKit runs a chosen item's action after the menu's tracking, outside any input event's dispatch, so no
     /// event names the person; the run's focus choices count as theirs (`FocusState.personMoveSeq`). In-app only.
     public var menuPick = false
+    /// The right-click menu the person picked this run from (`ActionMenuPayload.menu`), nil for any other run. One
+    /// action placed in several menus tells them apart by it (Point at Element: a native tab's menu or the chat page's,
+    /// whose targets are both the tab). In-app only: the control socket never sets it.
+    public var menuContext: ActionMenuContext?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false, keyContext: ActionContext? = nil) {
