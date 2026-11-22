@@ -294,6 +294,7 @@
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
+        "appearance.cornerFlush",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
@@ -422,6 +423,9 @@
         "notifications.sources.agent.dismissal",
         "notifications.sources.terminal.dismissal",
         "notifications.sources.cli.dismissal",
+        "notifications.delivery.permissionRequest",
+        "notifications.delivery.question",
+        "notifications.delivery.taskComplete",
         "notifications.desktop",
         "notifications.sound",
         "notifications.quietHours",
@@ -472,7 +476,9 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
-        "experiments.composerV2"
+        "experiments.composerV2",
+        "experiments.agentBadges",
+        "experiments.agentBadgesBeam"
       ]
     },
     {
@@ -994,6 +1000,13 @@
       "keys": [
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.",
+      "keys": [
+        "agents.chats.archiveInactive"
       ]
     },
     {
