@@ -10,7 +10,6 @@ import {
 import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
-import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import type { RaceRecord, RaceStart } from "./races/model";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
@@ -22,21 +21,16 @@ import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from ".
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { CACHE_EXPIRY_REASON, isCacheCompaction } from "./conversation/cacheCompaction";
-import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
-  AcpmuxFileDiff,
-  AcpmuxLocation,
   AcpmuxPermission,
-  AcpmuxPermissionScope,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
   AcpmuxBackgroundState,
-  AcpmuxBackgroundTask,
   AcpmuxBackgroundTurn,
   AcpmuxBackgroundReaction,
   AcpmuxBackgroundSource,
@@ -55,7 +49,6 @@ import type {
   QueuedPromptImage,
   PromptDelivery,
   PromptDeliveryHop,
-  StartSource,
   TurnTokenSplit,
   AcpmuxRecap,
 } from "./model";
@@ -106,7 +99,6 @@ import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type Acp
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
-import { agentName } from "./agents";
 import { forkHistoryTail, sameForkHistory } from "./forkTail";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -155,14 +147,14 @@ import type { EventRecord } from "./eventRecord";
 import {
   appendThought,
   backgroundTask,
-  inputDiffs,
   mergeToolItem,
   objectValue,
-  shellCommand,
   textFromContent,
-  toolDiffs,
   type BackgroundUpdate,
 } from "./toolActivity";
+import { permissionFromMessage } from "./permissionMessage";
+import { isTrustRefusal, trustRefusal, type TrustRefusal } from "./trustRefusal";
+import { catalogModel } from "./harnessCatalog";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -256,8 +248,7 @@ import {
 import { markOneRowChange } from "./rowChanges";
 import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
-import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
-import { liveModes, permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
+import { liveModes, permissionModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
@@ -442,6 +433,9 @@ export {
   textFromContent,
   toolDiffs,
 } from "./toolActivity";
+export { isTrustRefusal, trustRefusal, type TrustRefusal } from "./trustRefusal";
+export { catalogModel, harnessRefusal, normalizeCatalog } from "./harnessCatalog";
+export { permissionDiffs, permissionFromMessage, permissionPlan } from "./permissionMessage";
 /// The one place the pane takes acpmux's records as `EventRecord`s.
 const records = (events: SessionEvent[] | undefined): EventRecord[] => (events ?? []) as EventRecord[];
 type Session = Record<string, any> & { sessionId: string };
@@ -880,115 +874,6 @@ const SECRET_GONE = ["no secret request with that id", "the agent stopped waitin
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
 const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
-
-const stringValue = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() ? value.trim() : undefined;
-
-/** Keep only the stable ACP subject fields that make an approval's target legible. */
-function permissionScopeFromMessage(raw: any, toolCall: any): AcpmuxPermissionScope | undefined {
-  const subject = objectValue(raw?.subject);
-  const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
-  const call = subjectTool ?? objectValue(toolCall);
-  const input = objectValue(call?.rawInput);
-  const app = stringValue(input?.app) ?? stringValue(input?.application) ?? stringValue(input?.appName);
-  if (app) return { kind: "app", value: app };
-  const locations = (Array.isArray(call?.locations) ? call.locations : [])
-    .map((location: unknown) => stringValue(objectValue(location)?.path))
-    .filter((path: string | undefined): path is string => path !== undefined);
-  const resource = locations[0] ?? stringValue(input?.file_path) ?? stringValue(input?.path) ?? stringValue(input?.url);
-  if (resource && call?.kind !== "execute") return { kind: "resource", value: resource };
-  const cwd = (subject?.type === "command" ? stringValue(subject.cwd) : undefined) ?? stringValue(input?.cwd);
-  return cwd ? { kind: "directory", value: cwd } : undefined;
-}
-
-export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
-  const envelope = message ?? {};
-  const raw = envelope?.request ?? envelope;
-  const sessionId = envelope?.sessionId ?? raw?.sessionId;
-  const permissionId = envelope?.permissionId ?? raw?.permissionId;
-  if (!permissionId || sessionId !== selectedSessionId) return undefined;
-  const question = questionFromPermission({
-    permissionId: String(permissionId),
-    session: sessionId,
-    request: raw,
-  });
-  const claudeMeta =
-    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
-      ? raw.toolCall._meta.claude
-      : undefined;
-  const subject = objectValue(raw.subject);
-  const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
-  const subjectCommand = subject?.type === "command" ? subject : undefined;
-  const toolCall = raw.toolCall ?? subjectTool;
-  const suggestions = Array.isArray(claudeMeta?.suggestions)
-    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
-        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
-        if (!suggestion || typeof suggestion !== "object") return [];
-        const rules = (suggestion as { rules?: unknown }).rules;
-        return Array.isArray(rules)
-          ? rules.flatMap((rule: unknown) => {
-              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
-              if (!rule || typeof rule !== "object") return [];
-              const value = rule as { toolName?: unknown; ruleContent?: unknown };
-              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
-              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
-              return [content || tool].filter(Boolean);
-            })
-          : [];
-      })
-    : [];
-  return {
-    ...(question ? { question } : {}),
-    permissionId: String(permissionId),
-    groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
-    turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
-    // ACP v2's request title names the approval itself; a subject tool title is its operation fallback.
-    title: raw.title ?? toolCall?.title,
-    // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
-    command:
-      typeof toolCall?.command === "string"
-        ? toolCall.command
-        : (shellCommand(toolCall?.rawInput) ??
-          stringValue(subjectCommand?.command) ??
-          (typeof raw.command === "string" ? raw.command : undefined)),
-    description:
-      typeof claudeMeta?.description === "string"
-        ? claudeMeta.description
-        : typeof toolCall?.description === "string"
-          ? toolCall.description
-          : typeof raw.description === "string"
-            ? raw.description
-            : undefined,
-    rule:
-      suggestions.length > 0
-        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
-        : typeof toolCall?.rule === "string"
-          ? toolCall.rule
-          : typeof raw.rule === "string"
-            ? raw.rule
-            : undefined,
-    kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
-    ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
-    scope: permissionScopeFromMessage(raw, toolCall),
-    externalAccess: externalAccessFromRequest(raw),
-    diffs: permissionDiffs(toolCall),
-    plan: permissionPlan(toolCall, claudeMeta),
-    pending: true,
-    options: (raw.options ?? []).map((option: any) => ({
-      id: String(option.optionId ?? option.id),
-      name: String(option.name ?? option.optionId),
-      allow: String(option.kind ?? "").startsWith("allow"),
-      kind: typeof option.kind === "string" ? option.kind : undefined,
-      description: typeof option.description === "string" ? option.description : undefined,
-      rule:
-        typeof option.rule === "string"
-          ? option.rule
-          : typeof option.suggestion === "string"
-            ? option.suggestion
-            : undefined,
-    })),
-  };
-}
 
 /// A queue row's entry. acpmux's ask to resume a failed subagent (`retry`) comes from its `queued`
 /// record (`subagentRetryNotice`) or a listing (`listedRetry`); every rebuild of the entry passes it on.
@@ -1654,40 +1539,6 @@ export function initialSession(
 ): string | undefined {
   if (selected) return selected;
   return newSession ? undefined : sessions[0]?.sessionId;
-}
-
-/// The ask's proposed edits. Explicit ACP diffs win over input fragments, including acpmux's Write
-/// fragment with no old text, which shows the text the Write will put there (`toolFiles`). An edit
-/// tool's input is read only when no diff came: there a Write's content is left out, since before
-/// approval there is no result proving it creates a new file.
-export function permissionDiffs(
-  tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
-): AcpmuxFileDiff[] | undefined {
-  return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
-}
-
-/// The plan a plan approval asks about: one acpmux attached (`_meta.acpmux.plan.markdown`, as for
-/// Gemini's plan file), Claude Code's ExitPlanMode input `plan`, or the plan acpmux puts in a
-/// `switch_mode` ask it builds from Grok's and Cursor's own plan approvals (hub xai.rs,
-/// cursor_ext.rs), from its input or else its text content. Undefined for any other ask, and for a
-/// plan approval with no plan text.
-export function permissionPlan(
-  tool: { kind?: unknown; content?: unknown; rawInput?: unknown; _meta?: unknown } | undefined,
-  claudeMeta?: { tool?: unknown },
-): string | undefined {
-  const attached = stringValue(objectValue(objectValue(objectValue(tool?._meta)?.acpmux)?.plan)?.markdown)?.trim();
-  if (attached) return attached;
-  if (claudeMeta?.tool !== "ExitPlanMode" && tool?.kind !== "switch_mode") return undefined;
-  const input = stringValue(objectValue(tool?.rawInput)?.plan)?.trim();
-  if (input) return input;
-  const text = Array.isArray(tool?.content)
-    ? tool.content
-        .map((item: any) => (item?.type === "content" && item.content?.type === "text" ? item.content.text : ""))
-        .filter((part: unknown): part is string => typeof part === "string" && part.trim() !== "")
-        .join("\n\n")
-        .trim()
-    : "";
-  return text || undefined;
 }
 
 const CLAIM_KINDS = new Set(["tests", "build", "lint", "typecheck", "ran"]);
@@ -16991,30 +16842,8 @@ export type FailedPromptCopy = {
   promptId?: string;
 };
 
-export function isTrustRefusal(error: unknown): boolean {
-  // The reasons acpmux's trust gate writes (trust_gate.rs; checked against trust_gate.json).
-  const reason = (error as { reason?: unknown } | null)?.reason;
-  return reason === "trust.pending" || reason === "trust.untrusted";
-}
-
-/// What a trust refusal names: its reason and the folder acpmux asks about.
-export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: string };
 /// The pane's handler of every trust refusal (`AcpmuxDirectClient.onTrustRefused`).
 export type TrustRoute = (refusal: TrustRefusal, again?: () => void, declined?: () => void) => void;
-
-export function trustRefusal(error: unknown): TrustRefusal | undefined {
-  if (!isTrustRefusal(error)) return undefined;
-  const fields = error as { reason: TrustRefusal["reason"]; cwd?: unknown };
-  return {
-    reason: fields.reason,
-    ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}),
-  };
-}
-
-export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
-  for (const reason of [entry?.unavailable, entry?.probeError]) if (typeof reason === "string" && reason) return reason;
-  return undefined;
-}
 
 const FOLDER_STATES = ["enabled", "needs-enable", "needs-trust", "error"] as const;
 
@@ -17135,96 +16964,6 @@ function planEntries(entries: unknown): AcpmuxPlanEntry[] {
     const status = entry.status === "completed" || entry.status === "in_progress" ? entry.status : "pending";
     return [{ content, status }];
   });
-}
-
-/// One `_acpmux/models` entry: id and name, plus the metadata a declared profile model carries.
-export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["models"][number] {
-  const entry: AcpmuxSnapshot["catalog"][number]["models"][number] = {
-    id: String(model?.id ?? model?.modelId),
-    name: typeof model?.name === "string" ? model.name : undefined,
-  };
-  if (typeof model?.unavailable === "string") entry.unavailable = model.unavailable;
-  for (const key of ["curated", "declared"] as const) if (typeof model?.[key] === "boolean") entry[key] = model[key];
-  for (const key of ["shortName", "family", "defaultEffort"] as const)
-    if (typeof model?.[key] === "string" && model[key]) entry[key] = model[key];
-  if (Array.isArray(model?.efforts))
-    entry.efforts = model.efforts.filter((value: unknown) => typeof value === "string");
-  if (typeof model?.fast === "boolean") entry.fast = model.fast;
-  if (Number.isInteger(model?.contextWindow) && model.contextWindow > 0) entry.contextWindow = model.contextWindow;
-  return entry;
-}
-
-/// A harness map's entries in acpmux's order: its default (`defaultHarness`) first, then by id. The
-/// native relay re-encodes the reply, so the map's own key order means nothing (a first launch
-/// asked the model router instead of Claude Code).
-function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown): any[] {
-  const ids = Object.keys(harnesses).sort((a, b) =>
-    a === preferred ? -1 : b === preferred ? 1 : a < b ? -1 : a > b ? 1 : 0,
-  );
-  return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
-}
-
-/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
-/// known fields.
-function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
-  if (!value || typeof value !== "object") return undefined;
-  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
-  const source = (raw: unknown) =>
-    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
-  const start = {
-    ...(typeof model === "string" && model ? { model } : {}),
-    ...(typeof effort === "string" && effort ? { effort } : {}),
-    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
-    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
-  };
-  return start.model || start.effort ? start : undefined;
-}
-
-export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
-  const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
-  const catalog = entries.map(catalogEntry);
-  // Every AgentMark given a harness id draws its icon (shared/harnessIcons.ts).
-  rememberHarnessIcons(catalog);
-  return catalog;
-}
-
-function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
-  const iconSpec = parseHarnessIconSpec(harness.iconSpec);
-  return {
-    id: String(harness.id ?? harness.name),
-    name: agentName(
-      String(harness.id ?? harness.name),
-      typeof harness.displayName === "string" && harness.displayName
-        ? harness.displayName
-        : harness.name == null
-          ? undefined
-          : String(harness.name),
-    ),
-    models: (harness.models ?? []).map((model: any) => catalogModel(model)),
-    ...(typeof harness.kind === "string" ? { kind: harness.kind } : {}),
-    ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
-    ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
-    ...(iconSpec ? { iconSpec } : {}),
-    // Terminals and model routers are not chat harness choices. A real launcher can still have
-    // a cmux-prefixed ID: only the declared kind determines whether it belongs in the picker.
-    // acpmux's `pickerHidden`: the cmux model router profile, Claude's automatic fallback.
-    ...(harness.kind === "terminal" || isModelRouterKind(harness.kind) || harness.pickerHidden === true
-      ? { pickable: false }
-      : {}),
-    ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
-    // Its chats report no permission modes (`reported`): a new chat on it draws no Mode chip.
-    ...(reportsNoModes(harness.reported) ? { modeless: true as const } : {}),
-    // Its chats (or its startup probe) report permission modes: a new chat holds its Mode chip.
-    ...(reportsModes(harness.reported) ? { reportsModes: true as const } : {}),
-    ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
-      ? { auth: { login: harness.auth.login.trim() } }
-      : {}),
-    // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
-    // failed model probe (`probeError`).
-    ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
-    ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
-  };
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,

@@ -10,9 +10,9 @@ import { ChildRowView, type ChildEntry } from "./childRows";
 import { SUBAGENTS, type Subagent, type SubagentStopReason } from "./subagent";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
 import { toolForName } from "../toolNames";
-import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
+import { applyRetry, applyRetryStep } from "./retryState";
 import { applyResume } from "./resumeState";
-import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
+import { mergeWorkflowAgents, workflowPhases } from "./workflowAgents";
 import {
   type AgentRun,
   agentRun,
