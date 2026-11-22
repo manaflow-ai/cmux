@@ -71,7 +71,7 @@ if [[ "$only" != terminal ]]; then
   cd "$root/webviews"
   [[ -d node_modules ]] || bun install --frozen-lockfile >/dev/null
   [[ -n "${CMUX_CHROME_HEADLESS_SHELL:-}" ]] || [[ ! -x "$root/scripts/ci/ensure-system-chrome.sh" ]] ||
-    eval "$("$root/scripts/ci/ensure-system-chrome.sh" --print-env 2>/dev/null || true)"
+    eval "$("$root/scripts/ci/ensure-system-chrome.sh" 2>/dev/null | grep '^CMUX_CHROME_HEADLESS_SHELL=' | sed 's/^/export /' || true)"
   IFS=, read -r -a each <<<"$links"
   for link in "${each[@]}"; do
     LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" FIXTURE="$fixture" OPEN="$open" CPU="$cpu" \
