@@ -22,6 +22,7 @@
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
 //! `cloud_folder_too_broad`, `cloud_vm_kind`;
+//! `cloud_start_readiness`: what a failed start is missing and its repair;
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
@@ -498,6 +499,21 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     request.vm_kind.as_deref(),
                 ))
                 .map_err(|_| ERR_INVALID)?
+            }
+            b"cloud_start_readiness" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    code: String,
+                    #[serde(default)]
+                    message: Option<String>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let readiness = cmux_cloud_start_core::readiness::classify(
+                    &request.code,
+                    request.message.as_deref(),
+                );
+                serde_json::to_vec(&serde_json::json!({ "readiness": readiness }))
+                    .map_err(|_| ERR_INVALID)?
             }
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =

@@ -89,9 +89,9 @@ struct CloudStartChat {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
-            let plan = CloudMachineCreation.proRefusal(error) != nil
-            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed", message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : nil, retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
+            // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView); any other names its repair (missing Git access, a secret, a dependency, the image; cmux-cloud-start-core `readiness`).
+            let plan = CloudMachineCreation.proRefusal(error) != nil, code = plan ? "cloud_plan_required" : (error as? CloudMove.Failure)?.code ?? "cloud_start_failed"
+            return AgentPaneReply.failure(code: code, message: message, details: plan ? AgentPaneCloudMachines.Plan.requiredDetails(services.cloud.auth.planRefusalTeams) : CloudStartCore().readinessDetails(code: code, message: message), retryable: (error as? CloudMove.Failure).map { $0.retry != nil || $0.sendAgain } ?? false, origin: "native")
         }
     }
 

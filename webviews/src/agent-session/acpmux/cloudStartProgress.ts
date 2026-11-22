@@ -108,7 +108,42 @@ export type CloudStartProgress = {
   /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
   /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
   sizeLocked?: CloudSizeLocked;
+  /// What the failed start is missing and its one repair (`cloud.startChat`'s `details.readiness`, decided by
+  /// cmux-cloud-start-core `readiness`): the card names it over the kept draft, offers the repair, then Retry, which
+  /// runs this same start (its key kept), so no second machine.
+  readiness?: CloudStartReadiness;
 };
+
+/// The host's readiness summary of a failed start (cmux-cloud-start-core `readiness::Readiness`).
+export type CloudStartReadiness = {
+  need: "git_access" | "personal_secret" | "dependency" | "unsupported_image";
+  repair: "connect_github" | "environment_secrets" | "environment_script" | "environment_image";
+  /// The missing secret's name, when the failure named one.
+  secret?: string;
+};
+
+const READINESS_REPAIRS: Record<CloudStartReadiness["need"], CloudStartReadiness["repair"]> = {
+  git_access: "connect_github",
+  personal_secret: "environment_secrets",
+  dependency: "environment_script",
+  unsupported_image: "environment_image",
+};
+
+/// The host's `details.readiness`, each field checked; undefined for anything else (the card keeps its own words).
+/// The repair is the need's own, so a page never offers a repair the host did not mean.
+export function readCloudStartReadiness(details: unknown): CloudStartReadiness | undefined {
+  const raw = asRecord(asRecord(details)?.readiness);
+  const need = raw?.need;
+  if (typeof need !== "string" || !Object.hasOwn(READINESS_REPAIRS, need)) return undefined;
+  const known = need as CloudStartReadiness["need"];
+  if (raw?.repair !== READINESS_REPAIRS[known]) return undefined;
+  const secret = typeof raw.secret === "string" && /^[A-Z_][A-Z0-9_]{2,63}$/.test(raw.secret) ? raw.secret : undefined;
+  return {
+    need: known,
+    repair: READINESS_REPAIRS[known],
+    ...(secret && known === "personal_secret" ? { secret } : {}),
+  };
+}
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
 export type CloudFolderTooBig = {
@@ -617,11 +652,13 @@ export function cloudStartEnded(
     stalled: _stalled,
     cloudSetup: _cloudSetup,
     sizeLocked: _sizeLocked,
+    readiness: _readiness,
     ...ended
   } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
   const plans = answer.code === "cloud_plan_required" ? cloudPlansNamed(answer.details) : undefined;
   const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
+  const readiness = refusedHere ? undefined : readCloudStartReadiness(answer.details);
   return {
     ...ended,
     state: "failed",
@@ -632,6 +669,7 @@ export function cloudStartEnded(
     ...(planTeam ? { planTeam } : {}),
     ...(plans ? { plans } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(readiness ? { readiness } : {}),
   };
 }
 
@@ -693,6 +731,8 @@ const RETRY_REFUSALS = new Set(["transport.gesture_required", "cloud_team_switch
 export function cloudStartWayOn(start: CloudStartProgress): readonly CloudStartWayOn[] {
   const code = start.code ?? "";
   if (start.state !== "failed" || start.retryable || OWN_RECOVERY.has(code)) return [];
+  // A readiness summary's repair comes first (CloudStartView); then the same start again, or this Mac.
+  if (start.readiness) return ["retry", "run-here"];
   if (FOLDER_REFUSALS.has(code)) return ["pick-folder", "no-folder"];
   if (code === "unavailable_now") return ["new-cloud-chat"];
   if (RETRY_REFUSALS.has(code)) return ["retry"];

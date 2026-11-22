@@ -168,3 +168,29 @@ fn the_capability_ops_answer() {
     assert_eq!(after, json!({"header": null, "fetch": true}));
     call(c"cloud_capability_drop", &json!({}));
 }
+
+/// A failed start's readiness summary (cmux-cloud-start-core `readiness`): the repair the card offers.
+#[test]
+fn a_failed_start_names_what_it_is_missing() {
+    assert_eq!(
+        call(c"cloud_start_readiness", &json!({"code": "seed.needs_github"})).1,
+        json!({"readiness": {"need": "git_access", "repair": "connect_github"}})
+    );
+    assert_eq!(
+        call(
+            c"cloud_start_readiness",
+            &json!({"code": "cloud_start_failed", "message": "missing secret NPM_TOKEN"})
+        )
+        .1,
+        json!({"readiness": {"need": "personal_secret", "repair": "environment_secrets", "secret": "NPM_TOKEN"}})
+    );
+    assert_eq!(
+        call(
+            c"cloud_start_readiness",
+            &json!({"code": "cloud_start_failed", "message": "timed out"})
+        )
+        .1,
+        json!({"readiness": null})
+    );
+    assert_eq!(call(c"cloud_start_readiness", &json!({})).0, ERR_INVALID);
+}

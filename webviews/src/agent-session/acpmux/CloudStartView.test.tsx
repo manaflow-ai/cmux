@@ -12,6 +12,7 @@ import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
 import { createGitHubPicker } from "./githubRepos";
+import { cloudEnvironmentRequest } from "./cloudEnvironment";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -740,4 +741,31 @@ test("every failed start offers a way on in the card: the folder, a new Cloud ch
     ),
   );
   expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
+});
+
+test("a failed start that names what it is missing shows it, its repair and Retry, and the repair opens its section", async () => {
+  const failed: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_start_failed",
+    message: "secret NPM_TOKEN is not set",
+    readiness: { need: "personal_secret", repair: "environment_secrets", secret: "NPM_TOKEN" },
+  };
+  const container = installDom();
+  let retried = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={failed} onRetry={() => void retried++} />);
+  });
+  const summary = container.querySelector('.acpmux-cloud-start__readiness[data-need="personal_secret"]');
+  expect(summary?.textContent).toContain("NPM_TOKEN");
+  const repair = container.querySelector<HTMLButtonElement>('[data-action="environment_secrets"]');
+  expect(repair?.textContent).toBe("Add Secret");
+  await act(async () => repair?.click());
+  expect(cloudEnvironmentRequest()?.section).toBe("secrets");
+  const plain = renderToStaticMarkup(
+    <CloudStartView start={{ ...failed, readiness: undefined }} onRetry={() => undefined} />,
+  );
+  expect(plain).not.toContain("acpmux-cloud-start__readiness");
+  expect(retried).toBe(0);
 });
