@@ -138,37 +138,6 @@ fn splice(held: &[u64], hashes: &[u64], now: &[Value]) -> Option<Value> {
     Some(json!({"$splice": [from, keep, &now[keep..]]}))
 }
 
-/// Applies `patch` (this module's form) to `target`: the client's side of the contract, kept here
-/// so the tests check the two against each other.
-#[cfg(test)]
-pub(crate) fn apply(target: &mut Value, patch: &Value) {
-    match patch {
-        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
-            let args = &p["$splice"];
-            let (from, keep) =
-                (args[0].as_u64().unwrap() as usize, args[1].as_u64().unwrap() as usize);
-            let held = target.as_array().cloned().unwrap_or_default();
-            let mut out: Vec<Value> = held[from..from + keep].to_vec();
-            out.extend(args[2].as_array().unwrap().iter().cloned());
-            *target = Value::Array(out);
-        }
-        Value::Object(p) => {
-            if !target.is_object() {
-                *target = Value::Object(Map::new());
-            }
-            let obj = target.as_object_mut().unwrap();
-            for (k, v) in p {
-                if v.is_null() {
-                    obj.remove(k);
-                } else {
-                    apply(obj.entry(k.clone()).or_insert(Value::Null), v);
-                }
-            }
-        }
-        other => *target = other.clone(),
-    }
-}
-
 /// The last row of a chat one connection was sent.
 #[derive(Debug)]
 struct Sent {
@@ -258,6 +227,36 @@ pub(super) fn forget(conn: &Conn, key: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Applies `patch` (this module's form) to `target`: the client's side of the contract, kept here
+    /// so the tests check the two against each other.
+    fn apply(target: &mut Value, patch: &Value) {
+        match patch {
+            Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
+                let args = &p["$splice"];
+                let (from, keep) =
+                    (args[0].as_u64().unwrap() as usize, args[1].as_u64().unwrap() as usize);
+                let held = target.as_array().cloned().unwrap_or_default();
+                let mut out: Vec<Value> = held[from..from + keep].to_vec();
+                out.extend(args[2].as_array().unwrap().iter().cloned());
+                *target = Value::Array(out);
+            }
+            Value::Object(p) => {
+                if !target.is_object() {
+                    *target = Value::Object(Map::new());
+                }
+                let obj = target.as_object_mut().unwrap();
+                for (k, v) in p {
+                    if v.is_null() {
+                        obj.remove(k);
+                    } else {
+                        apply(obj.entry(k.clone()).or_insert(Value::Null), v);
+                    }
+                }
+            }
+            other => *target = other.clone(),
+        }
+    }
 
     fn roundtrip(old: Value, new: Value) -> Value {
         let mut rows = SentRows::default();
