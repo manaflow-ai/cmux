@@ -7,8 +7,9 @@
 //!
 //! The path is picked here, cheapest first:
 //! 1. **Live.** CI signs `cmux-tui/<sha>/mac-live.json` per merge: the
-//!    commit's Mac binaries and `live_from`, every app commit that can take
-//!    them without the app changing. When the app's CMUXCommit is listed, each
+//!    commit's Mac binaries, `live_from` for daemon compatibility and
+//!    `native_from` for unchanged app content outside those binaries. When both
+//!    cover the app's CMUXCommit (or it is already the target commit), each
 //!    binary is downloaded into the store and checked (size, sha256), the prior
 //!    files are kept by sha256, the new ones are renamed into
 //!    `Contents/Resources/bin`, and the app's daemon is handed over (SIGTERM to
@@ -21,6 +22,10 @@
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
+//!
+//! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
+//! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
+//! the code that went in, `--stop` deletes the clone. The running app is never changed.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -34,6 +39,7 @@ use super::nightly::{self, Switched, Target};
 use crate::localization::TryMessages;
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
+mod copy;
 mod live;
 mod resolve;
 
@@ -45,6 +51,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(35);
 pub(crate) enum Command {
     Help,
     Try { target: String, dry_run: bool, app: Option<PathBuf> },
+    Copy { tree: PathBuf, from: Option<PathBuf>, action: copy::Action, dry_run: bool },
     Undo { dry_run: bool },
     Status,
 }
@@ -70,6 +77,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
     let mut dry_run = false;
     let mut app = None;
+    let mut from = None;
+    let mut copy_flags: Vec<(&str, copy::Action)> = Vec::new();
     let mut words = Vec::new();
     let mut iter = rest.iter();
     while let Some(word) = iter.next() {
@@ -82,9 +91,43 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             other if other.starts_with("--app=") => {
                 app = other.strip_prefix("--app=").map(PathBuf::from);
             }
+            "--from" => {
+                let value = iter.next().ok_or_else(|| UsageError::new(messages().usage))?;
+                from = Some(PathBuf::from(value));
+            }
+            other if other.starts_with("--from=") => {
+                from = other.strip_prefix("--from=").map(PathBuf::from);
+            }
+            flag @ ("--stop" | "--delete") => copy_flags.push((flag, copy::Action::Stop)),
+            flag @ "--extract" => copy_flags.push((flag, copy::Action::Extract)),
             other if other.starts_with('-') => return Err(unexpected(other)),
             other => words.push(other.to_owned()),
         }
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if let [word] = words.as_slice()
+        && let Some(tree) = copy::dir_target(word, home.as_deref())
+    {
+        let action = match copy_flags.as_slice() {
+            [] => copy::Action::Run,
+            [(_, action)] => *action,
+            [_, (extra, _), ..] => return Err(unexpected(extra)),
+        };
+        if from.is_some() && app.is_some() {
+            return Err(unexpected("--app"));
+        }
+        let from = from.or(app);
+        if action != copy::Action::Run && (dry_run || from.is_some()) {
+            return Err(UsageError::new(messages().usage));
+        }
+        return Ok(Command::Copy { tree, from, action, dry_run });
+    }
+    // --from, --extract and --stop belong to the working-tree form.
+    if from.is_some() {
+        return Err(unexpected("--from"));
+    }
+    if let Some(&(flag, _)) = copy_flags.first() {
+        return Err(unexpected(flag));
     }
     match words.as_slice() {
         [verb] if verb == "status" => {
@@ -120,6 +163,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Try { target, dry_run, app } = command {
         return run_try(global, target, *dry_run, app.as_deref());
     }
+    if let Command::Copy { tree, from, action, dry_run } = command {
+        return copy::run(global, tree, from.as_deref(), *action, *dry_run);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -127,7 +173,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     };
     match command {
         Command::Undo { dry_run } => undo(global, &store, *dry_run),
-        Command::Help | Command::Try { .. } | Command::Status => status(global, &store),
+        Command::Help | Command::Try { .. } | Command::Copy { .. } | Command::Status => {
+            status(global, &store)
+        }
     }
 }
 
@@ -164,7 +212,7 @@ impl Plan {
 }
 
 /// The cheapest path to `commit` for an app at `app_commit`: live when the
-/// signed file lists the app; else a switchable build of the commit in the
+/// signed file proves daemon compatibility and native equality; else a build in the
 /// feed listing `builds`; else none, with every reason.
 fn choose(
     commit: &str,
@@ -180,15 +228,17 @@ fn choose(
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            if live::takes(&payload.live_from, app_commit) {
+            if !live::takes(&payload.live_from, app_commit) {
+                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
+            } else if !live::native_matches(payload, app_commit) {
+                why.push(messages.why_native_unproven.to_owned());
+            } else {
                 match live::wanted(payload, base) {
                     Ok(files) => return Plan::Live { files },
                     Err(error) => {
                         why.push(messages.why_live_refused.replace("{error}", &error));
                     }
                 }
-            } else {
-                why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
             }
         }
     }
@@ -414,8 +464,22 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         phases.add("plan", t);
     }
     let planned = plan_json(&plan, &commit, &app, app_commit.as_deref());
+    let mut receipt = json!({
+        "schema": 1, "action": "try", "target": target, "commit": commit,
+        "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
+        "at": now(),
+    });
     if dry_run || matches!(plan, Plan::None { .. }) {
         let code = i32::from(matches!(plan, Plan::None { .. }));
+        if let (false, Plan::None { why }) = (dry_run, &plan) {
+            // A try that found no build is a failed try: history keeps why, last.json stays.
+            set(&mut receipt, "ok", json!(false));
+            set(&mut receipt, "why", json!(why));
+            set(&mut receipt, "phases", phases.json());
+            if let Ok(_lock) = store.lock() {
+                let _ = store.append_history(&receipt);
+            }
+        }
         if global.output == OutputMode::Human {
             println!("{}", plan_human(&plan, &commit, &app, app_commit.as_deref()));
             if dry_run {
@@ -437,35 +501,40 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
         Ok(lock) => lock,
         Err(error) => return failure("try.state", &error, global.output),
     };
-    let mut receipt = json!({
-        "schema": 1, "action": "try", "target": target, "commit": commit,
-        "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
-        "at": now(),
-    });
     match plan {
         Plan::None { .. } => 1,
         Plan::Full { build, from } => {
             set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
             set(&mut receipt, "from_build", json!(from));
-            set(&mut receipt, "ok", json!(true));
-            set(&mut receipt, "phases", phases.json());
-            if let Err(error) = store.record(&receipt) {
-                return failure("try.state", &error, global.output);
-            }
-            if global.output == OutputMode::Human {
-                println!(
-                    "{}",
-                    plan_human(&Plan::Full { build: build.clone(), from }, &commit, &app, None)
-                );
-            }
             let Some(mut stream) = stream else {
+                set(&mut receipt, "ok", json!(false));
+                set(&mut receipt, "error", json!("no app answers on its control socket"));
+                let _ = store.append_history(&receipt);
                 return failure(
                     "app.transport",
                     "no app answers on its control socket",
                     global.output,
                 );
             };
-            switch(global, &mut stream, &build)
+            if global.output == OutputMode::Human {
+                println!(
+                    "{}",
+                    plan_human(&Plan::Full { build: build.clone(), from }, &commit, &app, None)
+                );
+            }
+            let code = switch(global, &mut stream, &build);
+            set(&mut receipt, "ok", json!(code == 0));
+            set(&mut receipt, "phases", phases.json());
+            // Only a switch that went through becomes the receipt undo reads; a refused one
+            // leaves the last good try (and its undo) in place.
+            if code == 0 {
+                if let Err(error) = store.record(&receipt) {
+                    return failure("try.state", &error, global.output);
+                }
+            } else {
+                let _ = store.append_history(&receipt);
+            }
+            code
         }
         Plan::Live { files } => {
             let daemon = app_daemon(&app);
@@ -489,7 +558,7 @@ fn try_live(
     for wanted in files {
         let to = store.fetch(wanted)?;
         let sha = wanted.binary.as_ref().map(|binary| binary.sha256.clone());
-        changes.push(Change { file: wanted.file.clone(), to: to.zip(sha) });
+        changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
     }
     phases.add("fetch", t);
     live::apply(app, &changes, store, daemon, phases)
@@ -643,8 +712,11 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         if global.output == OutputMode::Human {
             println!("{text}");
         }
-        let _ = store.record(&json!({ "schema": 1, "action": "undo", "path": "full", "commit": commit, "build": build.get("build"), "app": app.to_string_lossy(), "at": now(), "ok": true }));
-        return switch(global, &mut stream, &build);
+        let code = switch(global, &mut stream, &build);
+        let receipt = json!({ "schema": 1, "action": "undo", "path": "full", "commit": commit, "build": build.get("build"), "app": app.to_string_lossy(), "at": now(), "ok": code == 0 });
+        // As for a try: only a switch that went through replaces the receipt.
+        let _ = if code == 0 { store.record(&receipt) } else { store.append_history(&receipt) };
+        return code;
     }
     let files = last
         .get("undo")
@@ -652,6 +724,12 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    // Locked before the files are checked, so no other try or undo moves them in between.
+    let _lock = match (dry_run, store.lock()) {
+        (true, _) => None,
+        (false, Ok(lock)) => Some(lock),
+        (false, Err(error)) => return failure("try.state", &error, global.output),
+    };
     let changes = match live::undo_changes(&app, &last) {
         Ok(changes) => changes,
         Err(error) => return failure("try.undo_refused", &error, global.output),
@@ -671,10 +749,6 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         }
         return super::super::wire::print_local_success(&value, global.output);
     }
-    let _lock = match store.lock() {
-        Ok(lock) => lock,
-        Err(error) => return failure("try.state", &error, global.output),
-    };
     let mut phases = Phases::default();
     let daemon = app_daemon(&app);
     let result = live::apply(&app, &changes, store, &daemon, &mut phases);

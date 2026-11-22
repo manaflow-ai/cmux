@@ -71,7 +71,7 @@ fn codex_normalized_context_limit(state_label: &str, limit: Option<u64>) -> Opti
 /// Absent optional fields (matcher, commandWindows, statusMessage,
 /// additionalContextLimit) are omitted, exactly as codex's TOML round trip
 /// omits them. Keys are inserted in sorted order to match the canonical form.
-fn codex_identity_trust_hash(
+pub(super) fn codex_identity_trust_hash(
     state_label: &str,
     matcher: Option<&str>,
     command: &str,

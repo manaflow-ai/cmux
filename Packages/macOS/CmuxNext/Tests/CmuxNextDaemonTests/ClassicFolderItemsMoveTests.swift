@@ -165,6 +165,79 @@ struct ClassicFolderItemsMoveTests {
         #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux-next").path))
     }
 
+    /// The Computer Use helper's runtime folder (its agent token and state) leaves classic's
+    /// `cmux/cmux-cua/runtime/<scope>` once; other scopes' folders and the shared `helper` copies stay.
+    @Test func theComputerUseRuntimeFolderMovesOnceWithALinkBack() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        // The scope the nightly probe found in classic's folder (2026-11-15): the name must not change,
+        // so the helper keeps its agent token across the move.
+        #expect(NextSupport.computerUseScope("com.cmuxterm.app.nightly") == "73ff36dc45525a51")
+        let old = support.appending(path: "cmux/cmux-cua/runtime/73ff36dc45525a51")
+        try Self.write("token", old.appending(path: "agent-token"))
+        try Self.write("s", old.appending(path: "state/x"))
+        try Self.write("other", support.appending(path: "cmux/cmux-cua/runtime/0000000000000000/agent-token"))
+        try Self.write("copy", support.appending(path: "cmux/cmux-cua/helper/next-73ff36dc45525a51/x"))
+
+        let move = ClassicFolderItemsMove(applicationSupport: support)
+        #expect(move.moveComputerUseRuntime(bundleID: "com.cmuxterm.app.nightly") == .moved)
+        let new = NextSupport(applicationSupport: support).computerUseRuntime(bundleID: "com.cmuxterm.app.nightly")
+        #expect(new.path == support.appending(path: "cmux-next/cmux-cua/runtime/73ff36dc45525a51").path)
+        #expect(try Self.read(new.appending(path: "agent-token")) == "token")
+        #expect(try Self.read(new.appending(path: "state/x")) == "s")
+        // A helper an older app started still finds its state through the old path.
+        #expect(try Self.read(old.appending(path: "state/x")) == "s")
+        #expect(try Self.read(support.appending(path: "cmux/cmux-cua/runtime/0000000000000000/agent-token")) == "other")
+        #expect(try Self.read(support.appending(path: "cmux/cmux-cua/helper/next-73ff36dc45525a51/x")) == "copy")
+        #expect(move.moveComputerUseRuntime(bundleID: "com.cmuxterm.app.nightly") == .nothing)
+    }
+
+    /// The helper copies this build staged in classic's `cmux/cmux-cua/helper` move once to `cmux-next`, with no
+    /// link left: an older build refuses a staging folder behind a link, and with none it just stages again.
+    /// Classic's own copies and other scopes' stay.
+    @Test func theComputerUseHelperCopiesMoveOnceWithNoLink() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let helper = support.appending(path: "cmux/cmux-cua/helper")
+        try Self.write("legacy", helper.appending(path: "next-73ff36dc45525a51/cmux Computer Use.app/x"))
+        try Self.write("v2", helper.appending(path: "next-v2-73ff36dc45525a51/v2.app/x"))
+        try Self.write("classic", helper.appending(path: "cmux Computer Use.app/x"))
+        try Self.write("other", helper.appending(path: "next-0000000000000000/x"))
+
+        let move = ClassicFolderItemsMove(applicationSupport: support)
+        #expect(move.moveComputerUseCopies(bundleID: "com.cmuxterm.app.nightly") == [.moved, .moved])
+        let new = NextSupport(applicationSupport: support).folder.appending(path: "cmux-cua/helper")
+        #expect(try Self.read(new.appending(path: "next-73ff36dc45525a51/cmux Computer Use.app/x")) == "legacy")
+        #expect(try Self.read(new.appending(path: "next-v2-73ff36dc45525a51/v2.app/x")) == "v2")
+        var info = stat()
+        #expect(lstat(helper.appending(path: "next-73ff36dc45525a51").path, &info) != 0)
+        #expect(lstat(helper.appending(path: "next-v2-73ff36dc45525a51").path, &info) != 0)
+        #expect(try Self.read(helper.appending(path: "cmux Computer Use.app/x")) == "classic")
+        #expect(try Self.read(helper.appending(path: "next-0000000000000000/x")) == "other")
+        #expect(move.moveComputerUseCopies(bundleID: "com.cmuxterm.app.nightly") == [.nothing, .nothing])
+    }
+
+    @Test func aComputerUseCopyAlreadyStagedInNextIsNeverReplaced() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        try Self.write("old", support.appending(path: "cmux/cmux-cua/helper/next-73ff36dc45525a51/x"))
+        try Self.write("new", support.appending(path: "cmux-next/cmux-cua/helper/next-73ff36dc45525a51/y"))
+        let outcomes = ClassicFolderItemsMove(applicationSupport: support).moveComputerUseCopies(bundleID: "com.cmuxterm.app.nightly")
+        guard case .kept = outcomes[0] else {
+            Issue.record("a move over a staged copy: \(outcomes)")
+            return
+        }
+        #expect(try Self.read(support.appending(path: "cmux-next/cmux-cua/helper/next-73ff36dc45525a51/y")) == "new")
+    }
+
+    @Test func aFreshHomeGetsNoComputerUseFolderInClassics() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        #expect(ClassicFolderItemsMove(applicationSupport: support).moveComputerUseRuntime(bundleID: "com.cmuxterm.app.nightly") == .nothing)
+        #expect(ClassicFolderItemsMove(applicationSupport: support).moveComputerUseCopies(bundleID: "com.cmuxterm.app.nightly") == [.nothing, .nothing])
+        #expect(!FileManager.default.fileExists(atPath: support.appending(path: "cmux").path))
+    }
+
     /// A link socket's name hashes its root: a moved root keeps the name from before the move.
     @Test func aMovedBundleFolderPathKeepsItsNameFromBeforeTheMove() {
         let before = "/Users/a/Library/Application Support/cmux/com.cmuxterm.app.nightly/ssh-next"

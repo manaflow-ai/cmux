@@ -213,3 +213,54 @@ test("a commit at rest reads a few frames, not IDLE_FRAMES; frames that keep mis
   expect(again.minimal).toBe(true);
   again.dispose();
 });
+
+// Leo, 2026-11-16, on his NIGHTLY at 4 fps: "it shuold be instant even under load". A loaded chat
+// gets a record every few seconds; two idle seconds between them took the minimal mark away, so each
+// record came back in on its fade, held invisible through its first frame (entranceClock.ts).
+test("a chat that goes idle while its frames still miss stays minimal for its next record", () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id=chat class=acpmux-shell></div></body></html>", {
+    pretendToBeVisual: true,
+  });
+  const chat = dom.window.document.getElementById("chat")!;
+  const queue: ((time: number) => void)[] = [];
+  const timers: { at: number; callback: () => void }[] = [];
+  let now = 0;
+  const budget = createFrameBudget(chat, {
+    now: () => now,
+    frame: (callback) => queue.push(callback),
+    cancel: () => {},
+    later: (callback, ms) => timers.push({ at: now + ms, callback }) - 1,
+    cancelLater: (handle) => {
+      timers[handle] = { at: Infinity, callback: () => {} };
+    },
+  });
+  const run = (gap: number) => {
+    now += gap;
+    const next = queue.splice(0);
+    for (const callback of next) callback(now);
+    return next.length;
+  };
+  // Records 3 s apart on a page drawing 4 frames a second: each poke reads its frames to IDLE_FRAMES.
+  for (let record = 0; record < 3; record += 1) {
+    budget.poke();
+    let frames = 0;
+    while (run(250) > 0 && frames < 200) frames += 1;
+    expect(budget.minimal).toBe(true);
+    now += 3000;
+    for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+    // The next record lands minimal: no fade, drawn in the frame it comes.
+    expect(chat.getAttribute("data-chat-motion")).toBe("minimal");
+  }
+  // The load ends: a record whose first frame misses once, then frames in budget. The loop stops on QUIET_FRAMES and
+  // the mark goes HEALTHY_FOR later, though that one frame is still in the window (review of #44367).
+  budget.poke();
+  run(FRAME);
+  run(40);
+  let settling = 0;
+  while (run(FRAME) > 0 && settling < 200) settling += 1;
+  expect(settling).toBeLessThan(IDLE_FRAMES);
+  now += HEALTHY_FOR;
+  for (const timer of timers.splice(0)) if (timer.at <= now) timer.callback();
+  expect(chat.hasAttribute("data-chat-motion")).toBe(false);
+  budget.dispose();
+});

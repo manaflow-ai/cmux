@@ -23,6 +23,7 @@ import {
   titleTail,
   withoutWorkCodes,
 } from "./readableChange";
+import { intl } from "../../ui/intl";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
 
@@ -564,7 +565,7 @@ export function dayLabel(date: string, language: string, now: Date = new Date())
   const diff = Math.round((day - today) / 86_400_000);
   if (diff === 0 || diff === -1) {
     try {
-      const text = new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(diff, "day");
+      const text = intl.RelativeTimeFormat(language, { numeric: "auto" }).format(diff, "day");
       return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
     } catch {
       return formatReleaseDate(date, language, now);
@@ -580,12 +581,14 @@ export function formatReleaseDate(date: string, language: string, now: Date = ne
   const value = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   const sameYear = value.getUTCFullYear() === now.getUTCFullYear();
   try {
-    return new Intl.DateTimeFormat(language, {
-      month: "short",
-      day: "numeric",
-      year: sameYear ? undefined : "numeric",
-      timeZone: "UTC",
-    }).format(value);
+    return intl
+      .DateTimeFormat(language, {
+        month: "short",
+        day: "numeric",
+        year: sameYear ? undefined : "numeric",
+        timeZone: "UTC",
+      })
+      .format(value);
   } catch {
     return date;
   }

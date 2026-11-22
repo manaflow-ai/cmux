@@ -25,24 +25,24 @@ extension CreationInputBuffer {
         public init(tab: String, machine: String?, madeSurface: UInt64? = nil) { self.tab = tab; self.machine = machine; self.madeSurface = madeSurface }
     }
 
-    /// Held keys at the hold's end, in typing order (``take(focused:)``).
+    /// Held keys at the hold's end, in typing order (``take(focused:)``). `pane`, `panes`: the pane that had the focus at each key's press.
     public enum HeldKey {
         /// Keys of a lane whose terminal is not the focused one, in order, typed as one run (one daemon send when its
         /// view is gone, so no key passes another): that terminal's own key encoding, never the focused terminal (a held
         /// Ctrl-C must not stop another process). Chords that are no app shortcut (Ctrl-C, Ctrl-U) stay in the run.
-        case type([NSEvent], lane: HeldLane)
+        case type([NSEvent], lane: HeldLane, panes: [String?])
         /// An app shortcut (Cmd-D, Ctrl-`, Ctrl-Tab) typed for a lane whose terminal is not the focused one: it runs with
         /// that terminal's tab as its target, as a key press there.
-        case command(NSEvent, lane: HeldLane)
+        case command(NSEvent, lane: HeldLane, pane: String?)
         /// A key that runs again as typed: the focused lane's (`lane`), or a key typed for no creation (nil).
-        case run(NSEvent, lane: HeldLane?)
+        case run(NSEvent, lane: HeldLane?, pane: String?)
 
-        /// Each key with the terminal it was typed for, in order (to hold them again, ``prepend(_:issuer:)``).
-        public var keys: [(event: NSEvent, lane: HeldLane?)] {
+        /// Each key with the terminal it was typed for and the pane of its press, in order (to hold them again, ``prepend(_:issuer:)``).
+        public var keys: [(event: NSEvent, lane: HeldLane?, pane: String?)] {
             switch self {
-            case .type(let events, let lane): events.map { ($0, lane) }
-            case .command(let event, let lane): [(event, lane)]
-            case .run(let event, let lane): [(event, lane)]
+            case .type(let events, let lane, let panes): zip(events, panes).map { ($0, lane, $1) }
+            case .command(let event, let lane, let pane): [(event, lane, pane)]
+            case .run(let event, let lane, let pane): [(event, lane, pane)]
             }
         }
 
@@ -92,7 +92,7 @@ extension CreationInputBuffer {
     public func takeForClosedWindow(window: Int) -> [([NSEvent], HeldLane)] {
         var runs: [([NSEvent], HeldLane)] = [], lost = -untypedTerminalKeys
         for key in take(focused: nil, isShortcut: { _, _ in false }) {
-            if case .type(let events, let lane) = key { runs.append((events, lane)) } else { lost += key.keys.count }
+            if case .type(let events, let lane, _) = key { runs.append((events, lane)) } else { lost += key.keys.count }
         }
         lost += untypedTerminalKeys // and the keys of a new workspace asked for over no terminal
         if lost > 0 {

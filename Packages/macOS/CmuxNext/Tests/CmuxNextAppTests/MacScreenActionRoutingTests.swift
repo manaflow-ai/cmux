@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextDevices
 @testable import CmuxNextApp
 import CmuxNextWakeups
 @testable import CmuxNextMacScreen
@@ -46,6 +47,42 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// `cmux action run macScreen.open --device X --autoconnect` (a control-socket run, as a CLI read-back of a
+    /// release build sends it) opens the tab connecting, with no Connect click: the bound effect asks for `.view` and
+    /// confirms the record, so `makeHubPane` resumes the scope. Without `autoconnect`, or with it false, the same run
+    /// still opens at Connect. Leo, 2026-11-16: "At least like Linux to Mac".
+    @Test func autoconnectOpensASocketRunConnecting() throws {
+        let pages = pages()
+        let opened = OpenedTabs()
+        let actions = MacScreenActions(pages: pages, selectedTab: { nil }, providerKey: { id, _ in id },
+                                       open: { record, _, byPerson in
+                                           // As the app's open does (AgentHandlers): the tab's record, then its view.
+                                           let key = "tab-\(opened.items.count)"
+                                           opened.items.append(key)
+                                           pages.prepare(key, record: try record(), byPerson: byPerson)
+                                           _ = pages.makeView(for: key)
+                                       }, refusal: { Issue.record("refused: \($0)") })
+        let registry = ActionRegistry.standard()
+        actions.bind(into: registry)
+        defer { opened.items.forEach(pages.tabClosed) }
+        func run(_ autoconnect: ActionValue?) throws -> SessionScope? {
+            var arguments: [String: ActionValue] = ["device": .string(device)]
+            arguments["autoconnect"] = autoconnect
+            var invocation = ActionInvocation(arguments: arguments, origin: .cli)
+            invocation.viaControlSocket = true
+            #expect(registry.perform("macScreen.open", invocation: invocation))
+            let key = try #require(opened.items.last)
+            return try #require(pages.tab(key)?.pane?.model.hub).resumeScope
+        }
+        #expect(try run(nil) == nil, "default off: the tab waits at Connect")
+        #expect(try run(.bool(false)) == nil)
+        #expect(pages.pendingScopes.isEmpty)
+        #expect(try run(.bool(true)) == .view, "autoconnect: the tab connects to view")
+        #expect(pages.pendingScopes.isEmpty, "the tab took the scope it asked for")
+        #expect(try run(.string("true")) == .view, "--autoconnect=true")
+        #expect(opened.items.count == 4)
+    }
+
     @Test func aMalformedDeviceDoesNotBecomeTheHomePage() {
         let pages = pages()
         for value: ActionValue in [.string(""), .string("ssh:studio"), .int(1)] {
@@ -54,6 +91,79 @@ struct MacScreenActionRoutingTests {
             }
         }
         #expect(pages.pendingScopes.isEmpty)
+    }
+
+    private let other = "5d1e0f2a-6b7c-4d8e-9f01-23456789abcd"
+    private let third = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+
+    private func failure(_ body: () throws -> Void) -> String? {
+        do { try body(); return nil } catch let failure as ActionFailure { return failure.message } catch { return "\(error)" }
+    }
+
+    /// `cmux action run macScreen.open --device mac-mini`: a hub device's name (the Mac's Computer Name) resolves at
+    /// the action boundary, without case and, failing that, without punctuation or spacing (a `cmux device list` name).
+    @Test func aUniqueDeviceNameResolvesToItsHubID() throws {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Leo’s Mac Studio")]
+        for name in ["Mac Mini", "mac mini", "  MAC MINI ", "mac-mini"] {
+            let record = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string(name)], origin: .cli), pages: pages, devices: devices)
+            #expect(record.deviceID == device, "\(name)")
+        }
+        #expect(try MacScreenActions.deviceID(named: "leo-s-mac-studio", among: devices) == other)
+        #expect(try MacScreenActions.deviceID(named: device.uppercased(), among: []) == device)
+        // A non-person invocation opens the tab at Connect: it asks for no scope.
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
+    @Test func anAmbiguousNameFailsListingTheDevicesItCouldMean() {
+        let devices = [HubDevice(id: device, name: "Studio"), HubDevice(id: other, name: "studio"), HubDevice(id: third, name: "Mac Mini")]
+        let message = failure { _ = try MacScreenActions.deviceID(named: "STUDIO", among: devices) }
+        #expect(message?.contains("Studio (\(device))") == true)
+        #expect(message?.contains("studio (\(other))") == true)
+        #expect(message?.contains(third) == false)
+        // An exact-case-insensitive match wins over a looser one: "mac-mini" is unique among slugs too.
+        let looser = [HubDevice(id: device, name: "mac-mini"), HubDevice(id: other, name: "Mac Mini")]
+        #expect((try? MacScreenActions.deviceID(named: "Mac-Mini", among: looser)) == device)
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "mac mini!", among: looser) }?.contains(other) == true)
+    }
+
+    /// One machine registered several times under one name (a reinstall, an old hub record): the one registration
+    /// that is online and shares is the one a person means. Two live ones, or none, stay ambiguous.
+    @Test func aNameWithOneLiveRegistrationOpensThatOne() {
+        let stale = HubDevice(id: device, name: "studio")
+        let live = HubDevice(id: other, name: "studio", macScreenShared: true, online: true)
+        let notShared = HubDevice(id: third, name: "studio", online: true)
+        #expect((try? MacScreenActions.deviceID(named: "Studio", among: [stale, live, notShared])) == other)
+        var second = live
+        second.id = third
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, live, second]) } != nil)
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, notShared]) } != nil)
+    }
+
+    @Test func anUnknownNameFailsListingEveryDeviceAsNameAndID() {
+        let pages = pages()
+        let devices = [HubDevice(id: device, name: "Mac Mini"), HubDevice(id: other, name: "Studio")]
+        let message = failure {
+            _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": .string("office-imac")]), pages: pages, devices: devices)
+        }
+        #expect(message?.contains("office-imac") == true)
+        #expect(message?.contains("Mac Mini (\(device))") == true)
+        #expect(message?.contains("Studio (\(other))") == true)
+        #expect(message?.contains("Choose a device from Screen Sharing") == false)
+        let none = failure { _ = try MacScreenActions.deviceID(named: "office-imac", among: []) }
+        #expect(none?.contains("sign in to cmux") == true)
+        for value: ActionValue in [.string(""), .string("   "), .int(1)] {
+            let missing = failure {
+                _ = try MacScreenActions.record(ActionInvocation(arguments: ["device": value]), pages: pages, devices: devices)
+            }
+            #expect(missing?.contains("Mac Mini (\(device))") == true, "\(value)")
+        }
+        #expect(pages.pendingScopes.isEmpty)
+    }
+
+    @Test func noDeviceStillOpensTheHomePage() throws {
+        let record = try MacScreenActions.record(ActionInvocation(), pages: pages(), devices: [HubDevice(id: device, name: "Mac Mini")])
+        #expect(record.isHome)
     }
 
     private func screenTree() -> DaemonTree {
@@ -144,4 +254,9 @@ struct MacScreenActionRoutingTests {
             #expect(actions.viewer(invocation) === firstPane)
         }
     }
+}
+
+/// The tabs an `open` made, in order (autoconnectOpensASocketRunConnecting).
+@MainActor private final class OpenedTabs {
+    var items: [String] = []
 }

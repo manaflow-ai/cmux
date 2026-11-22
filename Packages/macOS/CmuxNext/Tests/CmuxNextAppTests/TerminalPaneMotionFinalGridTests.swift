@@ -7,10 +7,14 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Cmd-D and Cmd-W resize the program in the terminal at the start of the pane's spring, not after it
-/// (Lawrence 2026-10-23: "trigger TUI resize much faster, even before animation starts or finishes
-/// playing"). A real terminal surface sits in a pane; a split or a close sends its final grid to the PTY
-/// owner in the key's turn, once, and the landing sends nothing more.
+/// When the program in a terminal gets its grid for a change of its pane's size. A real terminal surface sits
+/// in a pane.
+///
+/// A split and a close (Cmd-D, Cmd-W) are one commit: the key's turn changes no pane on screen and sends no
+/// grid, and the frame that shows the change sends the terminal's final grid to the PTY owner, once.
+/// A ratio change springs (an equalize, a width preset, another client's divider drag): the spring's start
+/// sends the grid the pane will rest at, once, the surface keeps that size while the pane moves, and the
+/// landing sends nothing more.
 ///
 /// The IO's grid requests come through the session's ordered input stream. A focus report sent after
 /// a step is a marker: once the IO has it, every request sent before it has arrived, so the test reads
@@ -84,9 +88,16 @@ import Testing
     nonisolated static let pair: SplitNode = .split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
     nonisolated static let stack: SplitNode = .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
 
-    /// Cmd-D: the terminal that shrinks to make room sends its final grid in the key's turn.
+    /// `tree` (``pair`` or ``stack``) with its one divider at `ratio`: the same panes, so a change to it springs.
+    static func resized(_ tree: SplitNode, to ratio: Double) -> SplitNode {
+        guard let split = tree.splits.first else { return tree }
+        return tree.settingRatio(ratio, for: split)
+    }
+
+    /// Cmd-D: the key's turn sends no grid, the split shows in the first frame, and the terminal that shrinks to
+    /// make room sends its final grid by then, one time.
     @Test(arguments: [Self.pair, Self.stack])
-    func aSplitSendsTheShrinkingTerminalsFinalGridAtTheStartAndNothingAtTheLanding(split: SplitNode) async throws {
+    func aSplitSendsNoGridInTheKeysTurnAndTheShrinkingTerminalsFinalGridOnceWhenItShows(split: SplitNode) async throws {
         let screen = Screen(.leaf("p1"), terminal: "p1")
         defer { screen.close() }
         try #require(screen.surface.surface != nil, "libghostty created no surface")
@@ -94,31 +105,32 @@ import Testing
         let before = try #require(screen.restGrid)
 
         screen.show(split)
-        let atStart = await screen.grids()
+        let inTheKeysTurn = await screen.grids()
         let frames = screen.settle()
-        let atLanding = await screen.grids()
+        let shown = await screen.grids()
         let final = try #require(screen.restGrid)
 
-        #expect(frames > 3, "the split did not spring")
+        #expect(frames == 0, "the split did not show in one frame: \(frames) frames moved after it")
         #expect(final != before, "the split did not change the terminal's grid")
-        #expect(atStart == [final], "the key's turn asked for \(atStart), not the final grid \(final)")
-        #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
+        #expect(inTheKeysTurn.isEmpty, "the key's turn asked for \(inTheKeysTurn): the grid goes with the frame that shows the split")
+        #expect(shown == [final], "the frame that shows the split asked for \(shown), not the final grid \(final) one time")
     }
 
-    /// A split's spring retargeted mid-flight (the window resizes while it springs, 95870e0f9d5): the
-    /// terminal sends the grid of its new rest size at the retarget, not its held size plus the change
-    /// against the pane's live size, and the landing sends nothing more (two resizes in all).
+    /// A pane spring retargeted mid-flight (the window resizes while a divider is on its way to another ratio,
+    /// 95870e0f9d5): the terminal sends the grid of its new rest size at the retarget, not its held size plus
+    /// the change against the pane's live size, and the landing sends nothing more (two resizes in all).
     @Test(arguments: [Self.pair, Self.stack])
-    func aSplitRetargetedMidSpringSendsTheNewRestGridAtTheRetargetAndNothingAtTheLanding(split: SplitNode) async throws {
-        let screen = Screen(.leaf("p1"), terminal: "p1")
+    func aPaneSpringRetargetedMidFlightSendsTheNewRestGridAtTheRetargetAndNothingAtTheLanding(tree: SplitNode) async throws {
+        let screen = Screen(tree, terminal: "p1")
         defer { screen.close() }
         try #require(screen.surface.surface != nil, "libghostty created no surface")
         _ = await screen.grids()
 
-        screen.show(split)
+        // The divider goes to 30 %: the terminal's pane shrinks on a spring.
+        screen.show(Self.resized(tree, to: 0.3))
         let atStart = await screen.grids()
         for _ in 1...3 {
-            #expect(screen.root.advanceFrame(1.0 / 120), "the split stopped springing within 3 frames")
+            #expect(screen.root.advanceFrame(1.0 / 120), "the pane stopped springing within 3 frames")
             screen.root.layoutSubtreeIfNeeded()
         }
         screen.window.setContentSize(NSSize(width: 1600, height: 1000))
@@ -132,27 +144,28 @@ import Testing
         // The grid `ghostty_surface_fit_grid` gives the surface at the size it landed at: the new rest size.
         let final = try #require(screen.restGrid)
 
-        #expect(frames > 3, "the retargeted split did not spring")
-        #expect(atStart.count == 1 && atStart != [final], "the key's turn asked for \(atStart); the retarget must change the grid")
+        #expect(frames > 3, "the retargeted spring did not go on")
+        #expect(atStart.count == 1 && atStart != [final], "the spring's start asked for \(atStart); the retarget must change the grid")
         #expect(atRetarget == [final], "the retarget asked for \(atRetarget), not the new rest grid \(final)")
         #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the retarget")
         #expect(atStart.count + atRetarget.count + atLanding.count == 2, "the PTY was resized \(atStart + atRetarget + atLanding)")
     }
 
-    /// A hidden terminal (an unselected tab, a parked workspace) does no resize work during a split's spring
+    /// A hidden terminal (an unselected tab, a parked workspace) does no resize work during a pane spring
     /// or its retarget (d9b3e832d5b: "hidden terminals do no resize work"); shown after the landing, it sends
     /// the grid it rests at, once.
-    @Test func aHiddenTerminalSendsNoGridDuringASplitOrItsRetargetAndItsRestGridWhenShown() async throws {
-        let screen = Screen(.leaf("p1"), terminal: "p1")
+    @Test func aHiddenTerminalSendsNoGridDuringAPaneSpringOrItsRetargetAndItsRestGridWhenShown() async throws {
+        let screen = Screen(Self.pair, terminal: "p1")
         defer { screen.close() }
         try #require(screen.surface.surface != nil, "libghostty created no surface")
         _ = await screen.grids()
         screen.session.view.isHidden = true
         try #require(!screen.surface.isShown, "hiding the terminal's host did not hide the terminal")
 
-        screen.show(Self.pair)
+        // The divider goes to 30 %: the terminal's pane shrinks on a spring.
+        screen.show(Self.resized(Self.pair, to: 0.3))
         for _ in 1...3 {
-            #expect(screen.root.advanceFrame(1.0 / 120), "the split stopped springing within 3 frames")
+            #expect(screen.root.advanceFrame(1.0 / 120), "the pane stopped springing within 3 frames")
             screen.root.layoutSubtreeIfNeeded()
         }
         let atStart = await screen.grids()
@@ -161,10 +174,10 @@ import Testing
         #expect(screen.root.advanceFrame(1.0 / 120), "the resize snapped the spring to its end")
         screen.root.layoutSubtreeIfNeeded()
         let atRetarget = await screen.grids()
-        #expect(screen.settle() > 3, "the retargeted split did not spring")
+        #expect(screen.settle() > 3, "the retargeted spring did not go on")
         let atLanding = await screen.grids()
 
-        #expect(atStart.isEmpty, "the hidden terminal asked for \(atStart) at the split's start")
+        #expect(atStart.isEmpty, "the hidden terminal asked for \(atStart) at the spring's start")
         #expect(atRetarget.isEmpty, "the hidden terminal asked for \(atRetarget) at the retarget")
         #expect(atLanding.isEmpty, "the hidden terminal asked for \(atLanding) at the landing")
 
@@ -176,8 +189,8 @@ import Testing
     }
 
     /// A composer taller than a short pane (the accessory takes the whole pane) in a pane that grows on a
-    /// close: the spring's start sends the grid the landing fits, measuring the accessory against the size the
-    /// host rests at, and the landing sends nothing more.
+    /// spring (the divider under it goes down): the spring's start sends the grid the landing fits, measuring
+    /// the accessory against the size the host rests at, and the landing sends nothing more.
     @Test func aTallAccessoryInAShortPaneThatGrowsSendsTheLandingGridAtTheStart() async throws {
         final class TallAccessory: NSView {
             override var fittingSize: NSSize { NSSize(width: 100, height: 500) }
@@ -191,22 +204,23 @@ import Testing
         _ = await screen.grids()
         try #require(screen.session.view.bounds.height < 500, "the pane is \(screen.session.view.bounds.height) pt tall, not shorter than the accessory")
 
-        _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
-        screen.root.syncWithModel()
+        // The divider goes to 75 %: the terminal's pane grows down on a spring.
+        screen.show(Self.resized(Self.stack, to: 0.75))
         let atStart = await screen.grids()
         let frames = screen.settle()
         let atLanding = await screen.grids()
         let final = try #require(screen.restGrid)
 
-        #expect(frames > 3, "the close did not spring")
+        #expect(frames > 3, "the pane did not spring")
         #expect(screen.session.view.bounds.height > 500, "the pane did not grow past the accessory")
-        #expect(atStart == [final], "the close's start asked for \(atStart), not the landing's grid \(final)")
+        #expect(atStart == [final], "the spring's start asked for \(atStart), not the landing's grid \(final)")
         #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
     }
 
-    /// Cmd-W: the terminal that grows into the closed pane's space sends its final grid in the key's turn.
+    /// Cmd-W: the key's turn sends no grid, the close shows in the first frame, and the terminal that grows into
+    /// the closed pane's space sends its final grid by then, one time.
     @Test(arguments: [Self.pair, Self.stack])
-    func aCloseSendsTheGrowingTerminalsFinalGridAtTheStartAndNothingAtTheLanding(tree: SplitNode) async throws {
+    func aCloseSendsNoGridInTheKeysTurnAndTheGrowingTerminalsFinalGridOnceWhenItShows(tree: SplitNode) async throws {
         let screen = Screen(tree, terminal: "p1")
         defer { screen.close() }
         try #require(screen.surface.surface != nil, "libghostty created no surface")
@@ -215,19 +229,20 @@ import Testing
 
         _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
         screen.root.syncWithModel()
-        let atStart = await screen.grids()
+        let inTheKeysTurn = await screen.grids()
         let frames = screen.settle()
-        let atLanding = await screen.grids()
+        let shown = await screen.grids()
         let final = try #require(screen.restGrid)
 
-        #expect(frames > 3, "the close did not spring")
+        #expect(frames == 0, "the close did not show in one frame: \(frames) frames moved after it")
         #expect(final != before, "the close did not change the terminal's grid")
-        #expect(atStart == [final], "the key's turn asked for \(atStart), not the final grid \(final)")
-        #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
+        #expect(inTheKeysTurn.isEmpty, "the key's turn asked for \(inTheKeysTurn): the grid goes with the frame that shows the close")
+        #expect(shown == [final], "the frame that shows the close asked for \(shown), not the final grid \(final) one time")
     }
 
-    /// A pane that grows downward keeps its prompt in view: a shell whose cursor is on the last row (the
-    /// owner pulls scrollback down as the grid grows) rides the bottom of the moving pane, not the top.
+    /// A pane that grows downward on a spring (the divider under it goes down) keeps its prompt in view: a shell
+    /// whose cursor is on the last row (the owner pulls scrollback down as the grid grows) rides the bottom of
+    /// the moving pane, not the top.
     @Test func aTerminalWithItsPromptAtTheBottomRidesTheBottomOfAPaneThatGrowsDown() async throws {
         let screen = Screen(Self.stack, terminal: "p1")
         defer { screen.close() }
@@ -236,8 +251,7 @@ import Testing
         screen.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
         await screen.io.nextWrite()
 
-        _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
-        screen.root.syncWithModel()
+        screen.show(Self.resized(Self.stack, to: 0.75))
         var checked = 0
         for _ in 1...240 {
             let moving = screen.root.advanceFrame(1.0 / 120)
@@ -256,8 +270,8 @@ import Testing
         #expect(checked > 3, "the held terminal was taller than its pane on \(checked) frames only")
     }
 
-    /// A full-screen program (the alternate screen) keeps its top-left origin in a pane that grows down:
-    /// its first row is at the top of the moving pane on every frame, even with the cursor on its last row.
+    /// A full-screen program (the alternate screen) keeps its top-left origin in a pane that grows down on a
+    /// spring: its first row is at the top of the moving pane on every frame, even with the cursor on its last row.
     @Test func aFullScreenProgramRidesTheTopOfAPaneThatGrowsDown() async throws {
         let screen = Screen(Self.stack, terminal: "p1")
         defer { screen.close() }
@@ -266,8 +280,7 @@ import Testing
         screen.io.send(.output(Data("\u{1b}[?1049h\u{1b}[999;1H~\u{1b}[c".utf8)))
         await screen.io.nextWrite()
 
-        _ = try #require(screen.model.showPaneClose("p2"), "p2 did not close in the key's turn")
-        screen.root.syncWithModel()
+        screen.show(Self.resized(Self.stack, to: 0.75))
         var checked = 0
         for _ in 1...240 {
             let moving = screen.root.advanceFrame(1.0 / 120)

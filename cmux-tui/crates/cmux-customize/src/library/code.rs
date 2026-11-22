@@ -1,5 +1,7 @@
-//! Code layers: a library entry that is an unmerged pull request's code,
-//! not settings or files (cmuxterm-hq `docs/design/experiments-shelf.md`).
+//! Code layers: a library entry that is code not in your build, not settings
+//! or files (cmuxterm-hq `docs/design/experiments-shelf.md`). The code comes
+//! from a pull request, a branch or commit of manaflow-ai/cmux, a folder on
+//! this computer, or a fork's own published layer ([`CodeKind`]).
 //!
 //! ```text
 //! <state dir>/layers/<key>/      one PR's web bundles, as an overlay folder
@@ -34,20 +36,66 @@ use crate::{Customize, Error};
 pub const WEB_KEY: &str = "code:web";
 /// The file the app watches for an overlay (WebDevOverride.swift).
 pub const WEB_DEV: &str = "web-dev.json";
+/// Where a web-dev.json that did not read is kept when the library writes it.
+pub const WEB_DEV_UNREADABLE: &str = "web-dev.json.unreadable";
 /// What an overlay folder holds once its install is complete.
 pub const LAYER_MANIFEST: &str = "manifest.json";
 
-/// An unmerged pull request as a library entry.
+/// Where a code layer's code comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeKind {
+    /// A pull request of manaflow-ai/cmux (`pr:N`): CI publishes its layer.
+    #[default]
+    Pr,
+    /// A branch of manaflow-ai/cmux (`branch:NAME`): CI publishes its tip's layer.
+    Branch,
+    /// A commit on a branch of manaflow-ai/cmux (`sha:SHA`).
+    Sha,
+    /// A working copy on this computer (`dir:PATH`), built here.
+    Dir,
+    /// A fork's branch (`OWNER/REPO@REF`): the fork's own CI publishes its
+    /// layer as a release of the fork; our CI never builds fork code.
+    Fork,
+}
+
+impl CodeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodeKind::Pr => "pr",
+            CodeKind::Branch => "branch",
+            CodeKind::Sha => "sha",
+            CodeKind::Dir => "dir",
+            CodeKind::Fork => "fork",
+        }
+    }
+
+    fn is_pr(&self) -> bool {
+        *self == CodeKind::Pr
+    }
+}
+
+/// Code not in your build as a library entry: a pull request, a branch, a
+/// commit, a local folder or a fork.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodeLayer {
+    /// Where the code comes from; absent in older entries, which are PRs.
+    #[serde(default, skip_serializing_if = "CodeKind::is_pr")]
+    pub kind: CodeKind,
+    /// The branch, the full commit, the folder's absolute path, or
+    /// `OWNER/REPO@REF`; empty for a PR.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source: String,
     /// `owner/name`.
     pub repo: String,
+    /// The pull request; 0 for every other kind.
+    #[serde(default)]
     pub pr: u64,
     #[serde(default)]
     pub title: String,
-    /// The PR head this layer was built from.
+    /// The commit this layer was built from (a folder's HEAD).
     pub head: String,
-    /// The commit CI merged the head onto.
+    /// The commit the change was applied onto.
     #[serde(default)]
     pub base: String,
     /// The published web bundle key (files.cmux.com/cmux-next-web/<key>); empty
@@ -72,15 +120,81 @@ impl CodeLayer {
         format!("pr-{pr}")
     }
 
+    /// The entry name this layer gets: `pr-N`, `branch-NAME`, `sha-XXXXXXX`,
+    /// `dir-NAME` (the folder's name) or `fork-OWNER-REF`.
+    pub fn name(&self) -> String {
+        let name = match self.kind {
+            CodeKind::Pr => return CodeLayer::entry_name(self.pr),
+            CodeKind::Branch => format!("branch-{}", slug(&self.source)),
+            CodeKind::Sha => format!("sha-{}", self.source.chars().take(7).collect::<String>()),
+            CodeKind::Dir => format!(
+                "dir-{}",
+                slug(
+                    &Path::new(&self.source)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                )
+            ),
+            CodeKind::Fork => {
+                let (repo, reference) = self.source.split_once('@').unwrap_or((&self.source, ""));
+                let owner = repo.split('/').next().unwrap_or(repo);
+                format!("fork-{}-{}", slug(owner), slug(reference))
+            }
+        };
+        let name: String = name.chars().take(64).collect();
+        name.trim_end_matches('-').to_owned()
+    }
+
+    /// How a person names the source: `#43496`, `branch feat-x`, `commit
+    /// dbb1e3e`, `folder ~/cmux`, `fork someone/cmux@main`.
+    pub fn source_label(&self) -> String {
+        match self.kind {
+            CodeKind::Pr => format!("#{}", self.pr),
+            CodeKind::Branch => format!("branch {}", self.source),
+            CodeKind::Sha => format!("commit {}", self.source.chars().take(7).collect::<String>()),
+            CodeKind::Dir => format!("folder {}", self.source),
+            CodeKind::Fork => format!("fork {}", self.source),
+        }
+    }
+
+    /// The source and its title, one line: `#43496 cat icon`.
+    pub fn label(&self) -> String {
+        let label = self.source_label();
+        if self.title.is_empty() { label } else { format!("{label} {}", self.title) }
+    }
+
     /// Whether the entry has a web part to serve.
     pub fn has_web(&self) -> bool {
         !self.web.is_empty()
     }
 
-    /// The same PR at the same head.
-    pub fn same(&self, other: &CodeLayer) -> bool {
-        self.repo == other.repo && self.pr == other.pr && self.head == other.head
+    /// The same source (the same PR, branch, commit, folder or fork ref).
+    pub fn same_source(&self, other: &CodeLayer) -> bool {
+        self.kind == other.kind
+            && self.repo == other.repo
+            && self.pr == other.pr
+            && self.source == other.source
     }
+
+    /// The same source at the same head.
+    pub fn same(&self, other: &CodeLayer) -> bool {
+        self.same_source(other) && self.head == other.head
+    }
+}
+
+/// `Feat/Night Theme` -> `feat-night-theme`: lowercase letters and digits,
+/// everything else one `-`.
+pub fn slug(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_owned()
 }
 
 /// What `overlay` and `enabled` were in web-dev.json before the library
@@ -124,7 +238,7 @@ impl Customize {
     /// `overlay` and `enabled` as web-dev.json has them now.
     pub(crate) fn web_dev_now(&self) -> Result<WebBase, Error> {
         let path = self.web_dev_path();
-        let object = read_object(&path)?;
+        let (object, _) = read_object(&path)?;
         Ok(WebBase {
             overlay: object.get("overlay").cloned(),
             enabled: object.get("enabled").cloned(),
@@ -144,7 +258,16 @@ impl Customize {
             .open(self.roots().config_dir.join(".web-dev.lock"))?;
         let _lock = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)?;
         (|| {
-            let mut object = read_object(&path)?;
+            let (mut object, unreadable) = read_object(&path)?;
+            // A file that reads as neither JSON nor JSONC is kept beside, never
+            // written over unseen (the app reads it as empty, so none of it
+            // was live).
+            if let Some(text) = unreadable {
+                cmux_config::fsio::write_atomic(
+                    &self.roots().config_dir.join(WEB_DEV_UNREADABLE),
+                    text.as_bytes(),
+                )?;
+            }
             let (overlay, enabled) = match target {
                 WebTarget::Layer(dir) => (
                     Some(Value::String(dir.to_string_lossy().into_owned())),
@@ -179,14 +302,23 @@ pub fn valid_key(key: &str) -> bool {
     key.len() == 64 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn read_object(path: &Path) -> Result<Map<String, Value>, Error> {
+/// web-dev.json's keys. A file with comments or trailing commas reads as
+/// JSONC, so its other keys are kept. One that reads as neither is empty
+/// (web-overlay.sh reads a broken file as empty too) and its text comes back
+/// second, for a write to keep beside.
+pub(crate) fn read_object(path: &Path) -> Result<(Map<String, Value>, Option<String>), Error> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Ok(match serde_json::from_str::<Value>(&text) {
-            Ok(Value::Object(object)) => object,
-            // web-overlay.sh reads a broken file as empty too.
-            _ => Map::new(),
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Map::new()),
+        Ok(text) => {
+            let parsed = serde_json::from_str::<Value>(&text)
+                .ok()
+                .or_else(|| cmux_config::jsonc::parse(&text).ok());
+            Ok(match parsed {
+                Some(Value::Object(object)) => (object, None),
+                _ if text.trim().is_empty() => (Map::new(), None),
+                _ => (Map::new(), Some(text)),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((Map::new(), None)),
         Err(error) => Err(error.into()),
     }
 }

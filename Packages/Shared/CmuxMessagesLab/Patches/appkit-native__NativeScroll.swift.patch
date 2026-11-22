@@ -1,6 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -73,6 +73,36 @@
+@@ -36,6 +36,8 @@
+     private(set) var liveScrolling = false
+     /// Counts for the bench (clip-to-model and model-to-clip syncs).
+     static var clipSyncs = 0, modelSyncs = 0
++    /// cmux: the clip origin the model last set or took from a move: a bounds notice at this origin is no move.
++    private var knownOrigin: CGFloat?
+ 
+     override init(frame: NSRect) {
+         super.init(frame: frame)
+@@ -73,6 +75,36 @@
      /// The shared window view's transcript list (a layer-only scroll view).
      var collection: UIScrollView? { demo?.collection }
  
@@ -37,7 +46,49 @@
      func attach(_ demo: MessagesWindowView) {
          self.demo = demo
          // The window view stays the list's delegate through this bridge.
-@@ -418,6 +448,9 @@
+@@ -132,7 +164,12 @@
+         if PacingLog.shared.isOn { logClip() }
+         pinContent()
+         guard applyingModel == 0, let demo, let cv = collection else { return }
+-        let y = clip.bounds.origin.y - shift
++        // cmux: the clip where the model left it is no move, even when the model's offset is past the document's
++        // end (AppKit stopped the clip there in a resize, before the window view laid out at the new size).
++        let origin = clip.bounds.origin.y
++        guard origin != knownOrigin else { return }
++        knownOrigin = origin
++        let y = origin - shift
+         guard y != cv.contentOffset.y else { return }
+         TranscriptScrollView.clipSyncs += 1
+         applyingClip = true
+@@ -278,15 +315,27 @@
+         if document.frame != f { document.frame = f }
+         applyingModel -= 1
+         pushOffset()
++        knownOrigin = clip.bounds.origin.y // cmux
+     }
++
++    /// cmux: the offset the model last pushed and where AppKit left the clip for it, with the document and clip
++    /// heights that decide that place. A push of the same offset into the same geometry, the clip still there, is no
++    /// move: pinned to the bottom, the offset is past the document's end and AppKit stops the clip short of it, and
++    /// each key set the origin again, marking the window's tracking areas dirty (a walk of every view in the next
++    /// display; HomeKeyTranscriptSyncTests).
++    private var pushed: (target: CGFloat, origin: CGFloat, document: CGFloat, clip: CGFloat)?
+ 
+     private func pushOffset() {
+         guard let cv = collection else { return }
+         let y = cv.contentOffset.y + shift
+         guard clip.bounds.origin.y != y else { return }
++        if let p = pushed, p.target == y, p.origin == clip.bounds.origin.y, p.document == document.frame.height,
++           p.clip == clip.bounds.height { return }
+         TranscriptScrollView.modelSyncs += 1
+         applyingModel += 1
+         clip.setBoundsOrigin(NSPoint(x: 0, y: y))
++        knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
++        pushed = (y, clip.bounds.origin.y, document.frame.height, clip.bounds.height)
+         reflectScrolledClipView(clip)
+         pinContent()
+         applyingModel -= 1
+@@ -418,6 +467,9 @@
      /// following click (or a scroll) shows first are ready when it comes.
      private func prerenderPage(beyond dir: Int) {
          guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
@@ -47,7 +98,26 @@
          let b = r.bounds, h = b.height
          let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
          let n = r.layout.model.count
-@@ -531,7 +564,10 @@
+@@ -477,6 +529,18 @@
+         super.layout()
+         applyingModel -= 1
+         if !tiling { tiling = true; syncFromModel(); tiling = false }
++    }
++
++    /// cmux: runs `change`, a geometry change of the host (Home's zoom: its bounds scale), as the model's. AppKit
++    /// realigns the clip view to the new pixel grid inside it, and a realignment is not the reader's scroll: in a
++    /// window shrunk on screen it met a clip held 13.5 pt short of the bottom by the document's old end, and
++    /// clipMoved unpinned the chat, so no send or reply followed again (first-run audit row 8, cmux-shots/first-run
++    /// at 4:49). The model's offset is placed again after it, as after layout() and tile().
++    func placing(_ change: () -> Void) {
++        applyingModel += 1
++        change()
++        applyingModel -= 1
++        syncFromModel()
+     }
+ 
+     override func tile() {
+@@ -531,7 +595,10 @@
          window?.firstResponder?.keyDown(with: event)
      }
      private func hostPoint(_ e: NSEvent) -> CGPoint { controller?.host.convert(e.locationInWindow, from: nil) ?? .zero }
@@ -59,7 +129,7 @@
      override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
      override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
      override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
-@@ -563,6 +599,29 @@
+@@ -563,6 +630,29 @@
          get { super.knobProportion }
          set { super.knobProportion = fixed?.proportion ?? newValue }
      }

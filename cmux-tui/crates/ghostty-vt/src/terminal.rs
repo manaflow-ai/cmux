@@ -64,6 +64,9 @@ mod logical_text;
 
 mod clear_history;
 
+mod command_output;
+pub use command_output::CommandOutput;
+
 mod program_status;
 pub use program_status::{
     ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState,
@@ -622,9 +625,7 @@ impl Terminal {
         self.ensure_history_anchor();
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
-        let normalized = self.c1_normalizer.normalize(data);
-        let normalized = self.empty_kitty_probe_filter.write(normalized);
-        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
+        let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -1577,23 +1578,45 @@ impl Terminal {
 
         for y in start..end {
             let mut row = Vec::with_capacity(cols as usize);
+            // A history lookup walks the page list from the top of the
+            // history, so the row is looked up once and each cell is the same
+            // row's ref at its column. The row's last column is looked up too:
+            // only when both ends resolve to the same page row is every
+            // column in between on it; a row whose page is narrower than the
+            // terminal (a reflow not done yet) takes the checked lookup for
+            // each cell, as before.
+            let first = if cols == 0 { None } else { Some(self.history_grid_ref(0, y)?) };
+            let whole_row = first.filter(|first| {
+                cols == 1
+                    || self.history_grid_ref(cols - 1, y).is_ok_and(|last| {
+                        last.node == first.node && last.y == first.y && last.x == cols - 1
+                    })
+            });
             for x in 0..cols {
-                let point = sys::GhosttyPoint {
-                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
-                    value: sys::GhosttyPointValue {
-                        coordinate: sys::GhosttyPointCoordinate { x, y },
-                    },
+                let grid_ref = match whole_row {
+                    Some(first) => sys::GhosttyGridRef { x, ..first },
+                    None => self.history_grid_ref(x, y)?,
                 };
-                let mut grid_ref = sys::GhosttyGridRef {
-                    size: size_of::<sys::GhosttyGridRef>(),
-                    ..Default::default()
-                };
-                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
                 row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
             }
             rows.push(row);
         }
         Ok(rows)
+    }
+
+    /// The grid ref of history cell (`x`, `y`), `y` from the oldest
+    /// retained row.
+    fn history_grid_ref(&self, x: u16, y: u32) -> Result<sys::GhosttyGridRef> {
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut grid_ref =
+            sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
+        #[cfg(test)]
+        HISTORY_GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
+        check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+        Ok(grid_ref)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
@@ -3295,7 +3318,13 @@ thread_local! {
     static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: lay the text out twice, as before the reuse.
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: history grid lookups `styled_history_rows` made.
+    static HISTORY_GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+
+#[cfg(test)]
+#[path = "styled_history_tests.rs"]
+mod styled_history_tests;
 
 #[cfg(test)]
 #[path = "replay_layout_tests.rs"]
@@ -3316,3 +3345,7 @@ mod window_replay_tests;
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[cfg(test)]
+#[path = "vt_write_breakdown_tests.rs"]
+mod vt_write_breakdown_tests;

@@ -20,6 +20,12 @@ extension CEFTab: BrowserFreezing {
         return runtime.postDevTools(browserID, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"])
     }
 
+    /// An enabled extension of the tab's profile can script its web page (Bitwarden's passkey scripts:
+    /// two live copies after a frozen worker restart failed every sign-in).
+    public var freezeDropsExtensionEvents: Bool {
+        runtime.extensionStores.scriptsPage(at: state.url, profile: profileID)
+    }
+
     /// Freezes a page that is never shown (the spare window's about:blank placeholder) through DevTools
     /// `Page.setWebLifecycleState`, which hides it to Chromium first (`WasHidden`): the fork's
     /// `cmux_shim_tab_set_frozen` freezes only pages Chromium already counts hidden, and

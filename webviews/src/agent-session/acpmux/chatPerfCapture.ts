@@ -8,11 +8,15 @@
 // capture's window and are removed when it ends, also when it throws.
 //
 // Per record, arrival-to-paint is the time from when the selected chat's record reached the
-// client (before it is applied) to the first frame painted after it: a frame callback posts a
-// message, which runs as a task once that frame has rendered (test/support/paintedFrames.ts says
-// why). A page that draws no frames (a hidden or fully covered page) has no such time, so the
+// client (before it is applied) to the paint of the frame that drew the transcript's first DOM
+// change after it: a frame callback posts a message, which runs as a task once that frame has
+// rendered (test/support/paintedFrames.ts says why). A change made in a frame's callbacks is in
+// that frame; one made in a task between frames is in the next. It counted the first frame after
+// arrival before, drawn or not, so a record the pane drew a frame late read as on time. A record
+// that changes no DOM counts as `unpainted`. A page that draws no frames (a hidden or fully covered page) has no such time, so the
 // result says it measured nothing instead of returning numbers no person saw.
 
+import { type FrameOwners, startFrameOwners } from "./frameOwners";
 import { percentile, round2, summary } from "./perf";
 
 /** The record kinds the capture reports apart; any other kind is `other`. */
@@ -170,15 +174,23 @@ export type CaptureEnv = {
   /** Starts an observer of `type`, or returns undefined when the page has none. */
   observe(type: string, onEntries: (entries: unknown[]) => void): { disconnect(): void } | undefined;
   supportedEntryTypes(): readonly string[];
+  /** Starts the window's frame-owner tally (frameOwners.ts); a test that does not ask has none. */
+  startOwners?(): FrameOwners;
+  /** Calls `onDraw` after each change to the transcript's DOM (a MutationObserver); without it a record
+   *  counts as drawn by the first frame after it arrived. */
+  watchDraws?(onDraw: () => void): { disconnect(): void } | undefined;
 };
 
-/** The page's own environment. */
+/** The page's own environment. Its frame and timer functions are the page's as they were before
+ * the window, so the capture's own loop is never counted among the page's frame owners. */
 export function browserEnv(): CaptureEnv {
+  const requestFrame = window.requestAnimationFrame.bind(window);
+  const setTimer = window.setTimeout.bind(window);
   return {
     now: () => performance.now(),
-    requestFrame: (callback) => requestAnimationFrame(callback),
+    requestFrame: (callback) => requestFrame(callback),
     cancelFrame: (handle) => cancelAnimationFrame(handle),
-    setTimer: (callback, ms) => setTimeout(callback, ms),
+    setTimer: (callback, ms) => setTimer(callback, ms),
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     channel(onMessage) {
       const channel = new MessageChannel();
@@ -209,6 +221,14 @@ export function browserEnv(): CaptureEnv {
     },
     supportedEntryTypes: () =>
       typeof PerformanceObserver === "undefined" ? [] : (PerformanceObserver.supportedEntryTypes ?? []),
+    startOwners: () => startFrameOwners(),
+    watchDraws(onDraw) {
+      if (typeof MutationObserver === "undefined") return undefined;
+      const root = document.querySelector(".acpmux-scroll") ?? document.body;
+      const observer = new MutationObserver(onDraw);
+      observer.observe(root, { childList: true, subtree: true, characterData: true });
+      return observer;
+    },
   };
 }
 
@@ -246,18 +266,39 @@ export class ChatPerfCapture {
     const start = env.now();
     visibility.push({ at: start, state: env.visibility() });
     try {
+      // A frame's batch is open from its frame callback until its paint: a transcript change made in that frame's
+      // callbacks (the pane commits a frame's records there, drawInFrame.ts) is in that frame's paint; one made in a
+      // task between frames is in the next frame's. With no draw watch, a record counts as drawn on arrival.
+      let open: PendingArrival[] | undefined;
+      let drawn: PendingArrival[] = [];
+      const draws = env.watchDraws?.(() => {
+        if (!this.pending.length) return;
+        if (open) open.push(...this.pending);
+        else drawn.push(...this.pending);
+        this.pending = [];
+      });
+      if (draws) cleanups.push(() => draws.disconnect());
       const channel = env.channel(() => {
         const painted = env.now();
+        open = undefined;
         for (const arrival of painting.shift() ?? [])
           arrivals.push({ kind: arrival.kind, apply: arrival.apply, paint: painted - arrival.at });
       });
       cleanups.push(() => channel.close());
       let frame = 0;
+      const owners = env.startOwners?.();
+      if (owners) cleanups.push(() => owners.restore());
       const onFrame = (time: number) => {
         frames.push(time);
-        if (this.pending.length) {
-          painting.push(this.pending);
+        owners?.frame();
+        if (!draws) {
+          drawn = this.pending;
           this.pending = [];
+        }
+        if (draws || drawn.length) {
+          open = drawn;
+          drawn = [];
+          painting.push(open);
           channel.post();
         }
         frame = env.requestFrame(onFrame);
@@ -291,7 +332,10 @@ export class ChatPerfCapture {
       const frameReport = frameSummary(frames);
       const reason = unmeasuredReason(seconds, frames.length, visible);
       // Records still waiting for a frame never painted inside the window.
-      const unpainted = this.pending.length + painting.reduce((total, batch) => total + batch.length, 0);
+      const unpainted = this.pending.length + drawn.length + painting.reduce((total, batch) => total + batch.length, 0);
+      // `frames` counts this capture's own loop, so it is the display's rate whatever the page does;
+      // `owners` says which page code asked for frames, timers and animations meanwhile.
+      const ownerReport = owners ? await owners.report((end - start) / 1000) : null;
       return {
         seconds,
         duration_ms: round2(end - start),
@@ -302,6 +346,7 @@ export class ChatPerfCapture {
         long_tasks: longTaskSummary(longEntries, longType as "long-animation-frame" | "longtask" | null),
         layout_shift: layoutShiftSummary(shifts),
         records: { ...arrivalSummary(arrivals), unpainted },
+        owners: ownerReport,
       };
     } finally {
       this.active = false;

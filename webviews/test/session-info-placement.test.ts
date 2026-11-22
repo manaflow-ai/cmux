@@ -17,6 +17,11 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-placement.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -70,13 +75,13 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
       ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
     );
-    const panel = page.locator("aside.acpmux-session-info");
-    const toggle = page.locator("button.acpmux-session-info-toggle");
+    const panel = page.locator(SESSION_INFO);
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
     await toggle.waitFor({ timeout: 10_000 });
     // Pressed while it shows: a pane that waits for the person (SessionInfo.tsx sessionInfoFits, a short
     // pane's popover) leaves it closed, its card possibly still leaving.
     if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
-    await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+    await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
     // The chat's shift beside it settles.
     await page.evaluate(() =>
       Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
@@ -85,7 +90,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
   };
   /// The panel's rect.
   const rect = async (page: Page): Promise<Box> =>
-    page.locator("aside.acpmux-session-info").evaluate((element) => {
+    page.locator(SESSION_INFO).evaluate((element) => {
       const { left, right, top, bottom } = element.getBoundingClientRect();
       return { left, right, top, bottom };
     });
@@ -103,11 +108,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
-        const toggle = page.locator("button.acpmux-session-info-toggle");
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor({ timeout: 10_000 });
         // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
         if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-        await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
+        await page.locator(SESSION_INFO).waitFor({ state: "detached", timeout: 5_000 });
         const before = await transcript(page);
         const { panel } = await openSessionInfo(page);
         const box = await rect(page);
@@ -151,7 +156,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           const chat = () => page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
           const column = () =>
             page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().left);
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await page.evaluate(() =>
             (
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
@@ -160,7 +165,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           await toggle.waitFor({ timeout: 10_000 });
           // Pressed while it shows; a pane that waits for the person (SessionInfo.tsx sessionInfoFits) has it closed already.
           if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-          await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 5_000 });
+          await page.locator(SESSION_INFO).waitFor({ state: "detached", timeout: 5_000 });
           const before = await chat();
           const columnBefore = await column();
           const { panel } = await openSessionInfo(page);
@@ -200,7 +205,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
               window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
             ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
           );
-          const toggle = page.locator("button.acpmux-session-info-toggle");
+          const toggle = page.locator(SESSION_INFO_TOGGLE);
           await toggle.waitFor({ timeout: 10_000 });
           // A new chat starts with Session Info closed (#37576), whatever the pane's room: never unasked.
           const unasked = (await toggle.getAttribute("aria-pressed")) === "true";
@@ -286,9 +291,9 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           const { panel } = await openSessionInfo(page);
           const box = await rect(page);
           const foot = await page.evaluate(
-            ([x, y]) =>
-              document.elementFromPoint(x!, y!)?.closest("aside.acpmux-session-info") ? "the panel" : "the page",
-            [(box.left + box.right) / 2, 700 - 24],
+            ({ x, y, SESSION_INFO }) =>
+              document.elementFromPoint(x, y)?.closest(SESSION_INFO) ? "the panel" : "the page",
+            { x: (box.left + box.right) / 2, y: 700 - 24, SESSION_INFO },
           );
           expect({
             placement: await panel.getAttribute("data-placement"),
@@ -315,23 +320,26 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
         const page = await pane!.open({ width: from, height: 700 });
         try {
           await openSessionInfo(page);
-          await page.evaluate((to) => {
-            const w = window as unknown as {
-              __placed?: { width: number; placement?: string; inset: number; overChat: boolean };
-            };
-            window.cmuxAfterPaint(() => {
-              if (window.innerWidth !== to) return true;
-              const panel = document.querySelector("aside.acpmux-session-info")!.getBoundingClientRect();
-              const aside = document.querySelector<HTMLElement>("aside.acpmux-session-info");
-              w.__placed = {
-                width: window.innerWidth,
-                placement: aside?.dataset.placement,
-                inset: Math.round(window.innerWidth - panel.right),
-                overChat: aside?.hasAttribute("data-over-chat") ?? false,
+          await page.evaluate(
+            ({ to, SESSION_INFO }) => {
+              const w = window as unknown as {
+                __placed?: { width: number; placement?: string; inset: number; overChat: boolean };
               };
-              return false;
-            });
-          }, to);
+              window.cmuxAfterPaint(() => {
+                if (window.innerWidth !== to) return true;
+                const panel = document.querySelector(SESSION_INFO)!.getBoundingClientRect();
+                const aside = document.querySelector<HTMLElement>(SESSION_INFO);
+                w.__placed = {
+                  width: window.innerWidth,
+                  placement: aside?.dataset.placement,
+                  inset: Math.round(window.innerWidth - panel.right),
+                  overChat: aside?.hasAttribute("data-over-chat") ?? false,
+                };
+                return false;
+              });
+            },
+            { to, SESSION_INFO },
+          );
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
           const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
@@ -358,7 +366,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           if (height < 520) {
             await panel.waitFor({ state: "detached", timeout: 5_000 });
             await toggle.click();
-            await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 5_000 });
+            await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 5_000 });
           } else {
             expect(await panel.getAttribute("data-presence")).toBe("shown");
           }

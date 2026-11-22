@@ -157,7 +157,8 @@ class SigningVariableTests(unittest.TestCase):
     def test_the_switch_reads_the_one_list(self) -> None:
         self.assertIs(switch.SIGNING_VARIABLES, signing.EPHEMERAL_RUNNER_VARIABLES)
         self.assertIn("MACOS_RUNNER_26", switch.SIGNING_VARIABLES)
-        self.assertIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
+        # LINUX_RUNNER names our own Linux runners since 2026-11-19; no signing job reads it (rule 7 refuses one).
+        self.assertNotIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
         overrides = ("", json.dumps({"MACOS_RUNNER_26": "glaeda-std-xcode-26.6",
@@ -170,7 +171,7 @@ class SigningVariableTests(unittest.TestCase):
                         self.assertTrue(signing.ephemeral_label(values[name]), (pin, override, name, values[name]))
                 if override:
                     self.assertTrue(any("signing jobs run on MACOS_RUNNER_26" in p for p in problems))
-                    self.assertTrue(any("signing jobs run on LINUX_RUNNER" in p for p in problems))
+                    self.assertFalse(any("signing jobs run on LINUX_RUNNER" in p for p in problems))
         self.assertNotIn("MACOS_RUNNER_26", switch.failover_values(PIN, "")[0])
 
     def test_an_ephemeral_override_is_kept(self) -> None:
@@ -198,9 +199,11 @@ class SigningVariableTests(unittest.TestCase):
         # GitHub reads variable names without regard to case.
         record = {"changed": {"macos_runner_26": {"before": None, "after": "glaeda-std-xcode-26.6"},
                               "Linux_Runner": {"before": None, "after": "cmux-linux-owned"}}}
-        resumes = switch.plan_resume(record, {})
+        resumes = {item.name: item for item in switch.plan_resume(record, {})}
         self.assertEqual(len(resumes), 2)
-        self.assertTrue(all(item.skipped for item in resumes))
+        self.assertTrue(resumes["macos_runner_26"].skipped)
+        # LINUX_RUNNER is no signing variable, in any case: its owned value is put back like any other.
+        self.assertFalse(resumes["Linux_Runner"].skipped)
         self.assertFalse(signing.allowed_value("macos_runner_26", "glaeda-std-xcode-26.6"))
 
     def test_restore_still_puts_back_a_recorded_value(self) -> None:
@@ -418,7 +421,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
+        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1), and GitHub-hosted
+        # starts nothing in manaflow-ai (Leo, 2026-11-21: "the ci must flow"): a one-job owned JIT VM.
+        self.assertIn("runs-on: cmux-gcp-repair-jit-x64 #", self.text)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -450,8 +455,16 @@ class WorkflowTests(unittest.TestCase):
 
 class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
-                "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
+        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\n"
+                                            "LINUX_RUNNER=blacksmith-2vcpu-ubuntu-2404\n",
+                "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN,
+                "RUNNER_POOLS": '{"linux": "blacksmith-2vcpu-ubuntu-2404"}', **extra}
+
+    def test_a_hosted_linux_value_is_drift_unless_the_switch_wrote_it(self) -> None:
+        hosted = self.env(CMUX_CI_RUNNER_VARIABLES="LINUX_RUNNER=ubuntu-24.04\n")
+        self.assertTrue(any("GitHub-hosted" in p for p in check.problems(hosted)))
+        record = {"changed": {"LINUX_RUNNER": {"before": None, "after": "ubuntu-24.04"}}}
+        self.assertEqual(check.problems({**hosted, "CI_CLOUD_OVERFLOW_SAVED": json.dumps(record)}), [])
 
     def test_an_owned_label_is_drift_without_the_record(self) -> None:
         self.assertTrue(check.problems(self.env()))
