@@ -118,6 +118,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// it opened, as UIKit's do.
     @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
+    @Environment(\.tabsKitOverviewColumns) private var overviewColumns
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
     private var tabs: [TabsKitTab] { source.tabs }
@@ -140,7 +141,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private var overviewLayout: OverviewLayout {
         OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
-                       pinned: pinnedCount)
+                       pinned: pinnedCount, columns: overviewColumns)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -468,7 +469,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -533,7 +534,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func zoomEndpoint() -> CGRect {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1, columns: overviewColumns)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -542,7 +543,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount, columns: overviewColumns)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -600,7 +601,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         source.overviewWillAppear()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount, columns: overviewColumns)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
