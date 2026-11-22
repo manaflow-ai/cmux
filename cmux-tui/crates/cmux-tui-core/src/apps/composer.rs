@@ -165,8 +165,7 @@ impl Supervisor {
                 }
             }
         }
-        let mut result =
-            json!({ "commands": commands, "mentions": mentions, "toolbarButtons": toolbar_buttons });
+        let mut result = json!({ "commands": commands, "mentions": mentions, "toolbarButtons": toolbar_buttons });
         if let Some((_, _, options)) =
             places(&inner, "cmux.composer.model.picker/1").into_iter().next()
         {
