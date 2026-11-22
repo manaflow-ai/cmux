@@ -29,6 +29,7 @@ extension SettingsSchema {
         "sidebar.workspaceRow.lines": "domain:sidebar_row_lines",
         "sidebar.workspaceRow.linesByKind": "domain:sidebar_row_lines_by_kind",
         "sidebar.workspaceRow.linesByAgent": "domain:sidebar_row_lines_by_agent",
+        "agentPane.display.transcriptTokens": "domain:transcript_tokens",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",

@@ -1,0 +1,12 @@
+[Unit]
+Description=cmux Cloud Chief self-update (newest published optchat-chief; restart between turns)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/cmux/chief.env
+ExecStart=/usr/local/sbin/cmux-chief-update
+TimeoutStartSec=15min
+Nice=10
