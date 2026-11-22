@@ -505,7 +505,7 @@ fn arrive(global: &GlobalArgs, route: &Route) -> Result<(), Refusal> {
 fn print(global: &GlobalArgs, answer: &Value, dry_run: bool) -> i32 {
     match global.output {
         OutputMode::Human => {
-            for described in answer["moves"].as_array().into_iter().flatten() {
+            for described in answer.get("moves").and_then(Value::as_array).into_iter().flatten() {
                 println!("{}", human_line(described, dry_run));
             }
             if let Some(timings) = answer.get("timings") {
