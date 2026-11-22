@@ -412,6 +412,14 @@ async fn a_gateway_with_no_record_takes_the_port_its_home_derives() {
     assert_eq!(read_record(home.path()).port, g.port());
 }
 
+/// The mask stands in for the span, so a port is derived without a remainder: they must agree, or
+/// a derived port could land outside the dynamic range.
+#[test]
+fn the_derived_port_mask_is_the_span() {
+    assert_eq!(DERIVED_PORT_MASK + 1, u64::from(DERIVED_PORT_SPAN));
+    assert!(DERIVED_PORT_SPAN.is_power_of_two(), "a mask only stands in for a power of two");
+}
+
 /// Two homes on one machine derive different ports, and one home derives the same port every time.
 #[test]
 fn the_port_a_home_derives_is_its_own_and_does_not_move() {
