@@ -797,15 +797,22 @@ pub enum Command {
     /// `acpmux send` takes the first step itself, as claude-desktop-<first 8 of its session id>,
     /// so a chat that messages an agent gets the code without asking
     #[command(
-        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'\n  # In a Claude Code SessionStart and Stop hook: reachable again after a restart\n  acpmux register --renew"
     )]
     Register {
         /// The name, e.g. desktop-zoe.
-        name: String,
+        #[arg(required_unless_present = "renew")]
+        name: Option<String>,
         /// The one-time code acpmux delivered into this session's inbox after a first
         /// `acpmux register NAME`: the second step, run by the session that received it.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "renew")]
         code: Option<String>,
+        /// For a Claude Code hook (SessionStart, Stop): hand a registered chat's new token to
+        /// acpmux after Claude Code restarted with `--resume`, so its name reaches it again with
+        /// no one running `register`. Silent, never fails, and delivers nothing to a chat that
+        /// never registered.
+        #[arg(long)]
+        renew: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
