@@ -13,6 +13,8 @@ mod agent_message;
 #[cfg(unix)]
 mod agent_move;
 #[cfg(unix)]
+mod agent_move_cloud;
+#[cfg(unix)]
 mod agent_names;
 #[cfg(unix)]
 mod agent_start;
