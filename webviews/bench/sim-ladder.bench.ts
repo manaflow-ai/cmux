@@ -52,10 +52,30 @@ const RUNGS = (flag("--rungs") ?? "1,10,100")
   .split(",")
   .map(Number)
   .sort((a, b) => a - b);
-const SESSIONS = Number(flag("--sessions") ?? 3000);
+const PROFILE_FILE = flag("--profile");
+/// A profile's value by key, wherever its schema nests it (v0 and v1 group keys under pages, sessions, metrics, ...).
+type Json = Record<string, unknown>;
+const PROFILE: Json | undefined = PROFILE_FILE ? JSON.parse(fs.readFileSync(PROFILE_FILE, "utf8")) : undefined;
+function fromProfile(...keys: string[]): number | null {
+  const search = (node: unknown, depth: number): number | null => {
+    if (!node || typeof node !== "object" || depth > 3) return null;
+    for (const key of keys) {
+      const value = (node as Json)[key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+    }
+    for (const child of Object.values(node as Json)) {
+      const found = search(child, depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  };
+  return search(PROFILE, 0);
+}
+const SESSIONS = Number(flag("--sessions") ?? fromProfile("listed_sessions", "listed") ?? 3000);
 const ROWS = Number(flag("--rows") ?? 120);
 const WINDOW_MS = Number(flag("--window") ?? 5000);
-const RATE = Number(flag("--rate") ?? 20);
+const changesPerMin = fromProfile("sessions_changed_per_min");
+const RATE = Number(flag("--rate") ?? (changesPerMin !== null ? changesPerMin / 60 : 20));
 const FREEZE = argv.includes("--freeze");
 const SETTLE_MS = Number(flag("--settle") ?? 20_000);
 // Extra Chrome switches, comma-separated (e.g. --disable-features=IntensiveWakeUpThrottling), for experiments.
@@ -64,6 +84,12 @@ const CHROME_ARGS = (flag("--chrome-args") ?? "").split(",").filter(Boolean);
 // top sources after the last rung (what a hidden chat wakes for).
 const TIMER_CENSUS = argv.includes("--timer-census");
 const JSON_OUT = flag("--json");
+// --profile FILE (read above): the fidelity mode. Instead of the ladder, build one scene from a profile of a running app
+// (cmux-app-profile, from leo-workspace tools/perf_sensor.py): its agent pages, browser tabs, listed sessions, change
+// rate and load, then compare the sim's frame p95, keydown, script ms/s and agent renderer RSS with the app's.
+// --hogs N: CPU-bound processes beside the scene while it is measured (the app's machine load). Default: the
+// profile's load per core over this machine's cores, at most one per core.
+const HOGS = flag("--hogs");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const VERSION = 3;
@@ -164,7 +190,10 @@ setInterval(() => { document.getElementById("clock").textContent = new Date().to
 
 /// A Chrome of this bench's own (so a descendant of this process, its renderers ours to read), its DevTools endpoint
 /// from stderr: the patched headless shell when CI fetched one, else the installed Chrome headless.
-async function launchChrome(): Promise<{ browser: Browser; close: () => Promise<void> }> {
+async function launchChrome(): Promise<{
+  browser: Browser;
+  close: () => Promise<void>;
+}> {
   const shell = process.env.CMUX_CHROME_HEADLESS_SHELL;
   const exe = shell || Bun.which("google-chrome") || Bun.which("google-chrome-stable");
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
@@ -316,6 +345,19 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     `SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")} | js heap ${heapMB("JSHeapUsedSize")}/${heapMB("JSHeapTotalSize")} MB`,
   );
   const script1 = await script();
+  // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
+  // read 4583 MB in one run and 5331 in the next, at the same pages).
+  await Promise.all(
+    // One collection per renderer: the chats share one isolate (the focused chat's), each tab has its own.
+    items
+      .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
+      .map((item) =>
+        Promise.race([
+          item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
+          new Promise((resolve) => setTimeout(resolve, 10_000)),
+        ]),
+      ),
+  );
   return {
     cpu_ms_per_s: Math.round(Math.min(...thirds)),
     script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
@@ -345,7 +387,20 @@ const report: Record<string, unknown> = {
 };
 const ratios: Record<string, number> = {};
 
-async function runAxis(axis: "chats" | "tabs") {
+/// The resident set of one process, MB.
+function rssMB(pid: number): number {
+  try {
+    return Number(/^VmRSS:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/status`, "utf8"))?.[1] ?? 0) / 1024;
+  } catch {
+    return 0;
+  }
+}
+
+/// A profile's scene: its pages, sessions and load. `mix` set, runAxis builds this one scene and measures it once.
+type Mix = { chats: number; tabs: number; hogs: number };
+type Scene = { sample: Sample; agentRssMB: number; churn: boolean };
+
+async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undefined> {
   const chrome = await launchChrome();
   const browser = chrome.browser;
   // The launched Chrome is this process's descendant, and one axis runs at a time: its renderers are ours.
@@ -393,7 +448,9 @@ async function runAxis(axis: "chats" | "tabs") {
     const url = `http://127.0.0.1:${port}/?mock`;
     const focused = context.pages()[0] ?? (await context.newPage());
     await focused.goto(url);
-    await focused.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+    await focused.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, {
+      timeout: 60_000,
+    });
     const seed = async (page: Page) => {
       const seeded = (await page.evaluate(
         (turns) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light: true }),
@@ -417,13 +474,15 @@ async function runAxis(axis: "chats" | "tabs") {
       )[0];
     const hasChurn = await focused.evaluate(() => typeof (window as any).cmuxAcpmuxDebug.sessionChurn === "function");
     report.churn = hasChurn;
-    const add = async (index: number) => {
+    const add = async (index: number, kind: "chats" | "tabs" = axis) => {
       let page: Page;
-      if (axis === "chats") {
+      if (kind === "chats") {
         // Same site, so --process-per-site keeps it in the focused chat's renderer.
         page = await tabPage();
         await page.goto(url);
-        await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+        await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, {
+          timeout: 60_000,
+        });
         await seed(page);
       } else {
         page = await tabPage();
@@ -434,23 +493,46 @@ async function runAxis(axis: "chats" | "tabs") {
       await focused.bringToFront();
       const [state, frames] = await visibility(page);
       if (state !== "hidden" || frames > 0)
-        throw new Error(`sim-ladder: ${axis} #${index} reads ${state} at ${frames} frames, not hidden`);
+        throw new Error(`sim-ladder: ${kind} #${index} reads ${state} at ${frames} frames, not hidden`);
       if (FREEZE) await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
       items.push({ page, cdp, awake: !FREEZE });
     };
+    const startChurn = (rate: number) => {
+      if (hasChurn && !churn)
+        churn = focused
+          .evaluate((o) => (window as any).cmuxAcpmuxDebug.sessionChurn(o), {
+            seconds: 3600,
+            changes_per_second: rate,
+            start_every: 10,
+          })
+          .catch(() => undefined);
+    };
+    if (mix) {
+      for (let index = 1; index < mix.chats; index += 1) await add(index, "chats");
+      // Every chat shares one renderer (--process-per-site): the app's agent renderer. Before tabs it is the largest.
+      const agentPid = renderers(rootPid).sort((a, b) => rssMB(b) - rssMB(a))[0]!;
+      for (let index = 0; index < mix.tabs; index += 1) await add(index, "tabs");
+      await focused.bringToFront();
+      startChurn(RATE);
+      const hogs = Array.from({ length: mix.hogs }, () => Bun.spawn(["yes"], { stdout: "ignore" }));
+      try {
+        const sample = await measure(rootPid, items, focused);
+        return {
+          sample,
+          agentRssMB: Math.round(rssMB(agentPid)),
+          churn: hasChurn,
+        };
+      } finally {
+        for (const hog of hogs) hog.kill();
+        await Promise.all(hogs.map((hog) => hog.exited));
+      }
+    }
     // The chats axis counts the focused chat as the first; the tabs axis counts tabs beside it.
     let count = axis === "chats" ? 1 : 0;
     for (const rung of RUNGS) {
       while (count < rung) await add(count++);
       await focused.bringToFront();
-      if (hasChurn && !churn)
-        churn = focused
-          .evaluate((o) => (window as any).cmuxAcpmuxDebug.sessionChurn(o), {
-            seconds: 3600,
-            changes_per_second: RATE,
-            start_every: 10,
-          })
-          .catch(() => undefined);
+      startChurn(RATE);
       samples[rung] = await measure(rootPid, items, focused);
       console.log(
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
@@ -493,15 +575,112 @@ async function runAxis(axis: "chats" | "tabs") {
   }
 }
 
-try {
-  for (const axis of AXES) await runAxis(axis);
-  const worst = Object.entries(ratios).sort((a, b) => b[1] - a[1])[0];
-  report.ratios = ratios;
-  report.ratio_max = worst?.[1] ?? null;
+/// The fidelity mode: one scene at the profile, each metric's divergence max(sim/app, app/sim); a pair either side
+/// cannot measure reads null with its reason.
+async function runProfile() {
+  const chats = Math.max(1, fromProfile("agent_total", "agent_pages") ?? 1);
+  const tabs = fromProfile("browser_tabs") ?? 0;
+  const load = fromProfile("load_1m", "load1");
+  const appCores = fromProfile("cores", "ncpu");
+  const cores = os.cpus().length;
+  const hogs =
+    HOGS !== undefined
+      ? Number(HOGS)
+      : load !== null && appCores
+        ? Math.min(cores, Math.round(Math.max(0, load / appCores - 1) * cores))
+        : 0;
+  report.profile = {
+    file: PROFILE_FILE,
+    chats,
+    tabs,
+    sessions: SESSIONS,
+    rate: RATE,
+    hogs,
+  };
+  console.log(`SIM-FIDELITY scene ${JSON.stringify(report.profile)}`);
+  const scene = (await runAxis("chats", { chats, tabs, hogs }))!;
+  console.log(`SIM-FIDELITY sim ${JSON.stringify(scene)}`);
+  const longTasks = fromProfile("long_tasks_ms_per_10s");
+  const pairs: Record<string, { sim: number | null; app: number | null; why?: string }> = {
+    frame_p95_ms: {
+      sim: scene.sample.frame_p95_ms,
+      app: fromProfile("frame_p95_ms"),
+    },
+    keydown_p95_ms: {
+      sim: null,
+      app: fromProfile("keydown_p95_ms", "keydown_to_frame_p95_ms"),
+      why: "UNMEASURED: the app has no passive keydown-to-frame read, and the sim types nothing without one to match",
+    },
+    script_ms_per_s: {
+      sim: scene.sample.script_ms_per_s,
+      app: fromProfile("script_ms_per_s"),
+      why:
+        longTasks !== null
+          ? `UNMEASURED: the app's profile gives long frames (${longTasks} ms per 10 s), not script time`
+          : "UNMEASURED: the app's profile gives no script time",
+    },
+    renderer_rss_mb: {
+      sim: scene.agentRssMB,
+      app: fromProfile("renderer_rss_mb", "agent_renderer_rss_mb"),
+    },
+  };
+  const divergences: Record<string, number | null> = {};
+  for (const [metric, pair] of Object.entries(pairs)) {
+    const measured = pair.sim !== null && pair.app !== null && pair.sim > 0 && pair.app > 0;
+    const value = measured ? Math.round(Math.max(pair.sim! / pair.app!, pair.app! / pair.sim!) * 100) / 100 : null;
+    divergences[metric] = value;
+    console.log(
+      `SIM-FIDELITY ${metric} sim ${pair.sim} app ${pair.app} divergence ${value ?? pair.why ?? "UNMEASURED"}`,
+    );
+    if (value !== null)
+      perfRow({
+        name: `sim_fidelity.${metric}.divergence`,
+        p95: value,
+        unit: "x",
+        target: 1.5,
+        floor: 0.1,
+        version: VERSION,
+      });
+  }
+  report.pairs = pairs;
+  report.divergences = divergences;
+  report.churn = scene.churn;
+  const worst = Object.entries(divergences)
+    .filter((entry): entry is [string, number] => entry[1] !== null)
+    .sort((a, b) => b[1] - a[1])[0];
+  report.divergence_max = worst?.[1] ?? null;
   report.worst = worst?.[0] ?? null;
-  console.log(`SIM-LADDER ratio_max ${worst?.[1]} (${worst?.[0]})`);
+  console.log(`SIM-FIDELITY divergence_max ${worst?.[1]} (${worst?.[0]})`);
   if (worst)
-    perfRow({ name: "sim_ladder.ratio_max", p95: worst[1], unit: "x", target: 1.2, floor: 0.1, version: VERSION });
+    perfRow({
+      name: "sim_fidelity.divergence_max",
+      p95: worst[1],
+      unit: "x",
+      target: 1.5,
+      floor: 0.1,
+      version: VERSION,
+    });
+}
+
+try {
+  if (PROFILE) await runProfile();
+  else for (const axis of AXES) await runAxis(axis);
+  const worst = PROFILE ? undefined : Object.entries(ratios).sort((a, b) => b[1] - a[1])[0];
+  if (!PROFILE) report.ratios = ratios;
+  if (!PROFILE) {
+    report.ratio_max = worst?.[1] ?? null;
+    report.worst = worst?.[0] ?? null;
+  }
+  if (!PROFILE) console.log(`SIM-LADDER ratio_max ${worst?.[1]} (${worst?.[0]})`);
+  if (worst)
+    perfRow({
+      name: "sim_ladder.ratio_max",
+      p95: worst[1],
+      unit: "x",
+      target: 1.2,
+      floor: 0.1,
+      version: VERSION,
+    });
   console.log(`SIM-LADDER-JSON ${JSON.stringify(report)}`);
   if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify(report, null, 2));
 } finally {

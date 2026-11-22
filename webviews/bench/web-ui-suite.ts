@@ -175,6 +175,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_700_000,
     ownPart: true,
   },
+  // The same sim at a profile of Leo's running NIGHTLY (goal sim-fidelity-flat-ladder): its pages, tabs, listed chats,
+  // change rate and load, against its frame p95, keydown, script ms/s and agent renderer RSS; divergence past 1.5x is
+  // red. perf-cron.py's web-ui-fidelity part runs it.
+  {
+    name: "sim-fidelity",
+    file: "sim-ladder.bench.ts",
+    args: ["--profile", "bench/profiles/leo-nightly.json"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
   // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
   // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
