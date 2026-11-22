@@ -211,6 +211,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     block: number;
     gap: number;
     work: number;
+    /** The longest opacity animation on the folded work's rows (ms), 0 for none. */
+    fadeMs: number;
     worked: boolean;
     folding: boolean;
   };
@@ -220,6 +222,7 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     family: string,
     openGroup: boolean,
     reducedMotion: "reduce" | "no-preference" = "no-preference",
+    look?: string,
   ) {
     summary.harness = family;
     summary.family = family;
@@ -233,6 +236,8 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("random jitter (part 6)").waitFor();
+    // A look set over the pane (turnEndFold.ts `turnEndLook` reads the nearest `data-turn-end-fold`).
+    if (look) await page.evaluate((set) => document.documentElement.setAttribute("data-turn-end-fold", set), look);
 
     // Every painted frame of the running turn: the rows and calls drawn, and any the view showed
     // that left it (a row the virtualizer drops out of view, history above, is not one).
@@ -325,6 +330,16 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
                 .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
                 .map((row) => Number(getComputedStyle(row).opacity)),
             ),
+            fadeMs: Math.max(
+              0,
+              ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+                .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
+                .flatMap((row) => row.getAnimations())
+                .filter((animation) =>
+                  (animation.effect as KeyframeEffect | null)?.getKeyframes().some((frame) => "opacity" in frame),
+                )
+                .map((animation) => Number(animation.effect?.getComputedTiming().duration) || 0),
+            ),
             worked: Boolean(scroller.querySelector("button.cv-worked")),
             folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
           });
@@ -351,15 +366,16 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       await page.close();
     });
 
+    // The slide (the `fade` look's mechanics; the shipped `wipe` slides nothing and has its own test below).
     test(`${family}: at its end the work folds in one motion, the bottom pinned`, async () => {
-      const { page, samples } = await playTurn(family, false);
+      const { page, samples } = await playTurn(family, false, "no-preference", "fade");
       const from = samples.findIndex((sample) => sample.worked);
       expect(from).toBeGreaterThan(0);
       const before = samples[from - 1]!;
       const after = samples.at(-1)!;
       const folding = samples.slice(from - 1);
       console.log(
-        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.block, sample.gap, sample.work]))}`,
+        `TURN_END_FOLD ${JSON.stringify(folding.map((sample) => [sample.prompt, sample.answer, sample.block, sample.gap, sample.work, sample.fadeMs]))}`,
       );
       // The prompt comes down to the folded line over several frames, not in one step. The asides
       // between the runs stay outside the fold as the agent's own paragraphs (#42279, #42247) and
@@ -373,12 +389,13 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       expect(between).toBeGreaterThanOrEqual(3);
       const steps = folding.slice(1).map((sample, index) => sample.prompt - folding[index]!.prompt);
       expect(Math.max(...steps)).toBeLessThan((after.prompt - before.prompt) * 0.75);
-      // The work the fold takes away fades over several frames where it was, never gone in one. A
-      // copy is gone by COPY_GONE_AT (0.6) of the fold's progress on the settle curve
-      // (turnEndFold.ts; cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), which reaches it in the
-      // fold's first three frames at 60 Hz: two frames draw it part-faded (0.52, then 0.17).
+      // The work the fold takes away fades where it was, never gone in one frame: drawn whole on the swap's
+      // frame, its copy fades over the exit lead (exitLead.ts, a third of the fold at most: Leo, 2026-11-21,
+      // "we must hide text faster and sooner"), at least two 60 Hz frames long. Read off the animation, not
+      // by counting part-faded samples: this test's frames come as fast as the page answers, so a fade of a
+      // few frames' length drew 0 to 2 part-faded samples from run to run.
       expect(samples[from]!.work).toBeGreaterThan(0.5);
-      expect(folding.filter((sample) => sample.work > 0.05 && sample.work < 0.95).length).toBeGreaterThanOrEqual(2);
+      expect(Math.max(...folding.map((sample) => sample.fadeMs))).toBeGreaterThanOrEqual(2 * (1000 / 60));
       expect(after.work).toBe(0);
       // The bottom stays pinned on every frame of the fold: the view stays at its end.
       for (const sample of folding) expect(sample.gap).toBeLessThanOrEqual(2);
@@ -397,6 +414,26 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
       const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
       expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       // Closed: the folded turn's line.
+      expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
+      await page.close();
+    });
+
+    test(`${family}: at its end the shipped wipe swaps the work in place, the bottom pinned, nothing growing`, async () => {
+      const { page, samples } = await playTurn(family, false);
+      const from = samples.findIndex((sample) => sample.worked);
+      expect(from).toBeGreaterThan(0);
+      const before = samples[from - 1]!;
+      const after = samples.at(-1)!;
+      expect(samples.some((sample) => sample.folding)).toBe(true);
+      // Folded: the prompt comes down to the folded line, and the work's rows are gone at the end.
+      expect(after.prompt - before.prompt).toBeGreaterThan(8);
+      expect(after.work).toBe(0);
+      // The bottom stays pinned on every frame.
+      for (const sample of samples.slice(from - 1)) expect(sample.gap).toBeLessThanOrEqual(2);
+      // No false grow: from the turn's end on, the work between the prompt and the answer never gets taller.
+      const blocks = samples.map((sample) => sample.block).filter((block) => Number.isFinite(block));
+      const grows = blocks.slice(1).map((block, index) => block - Math.min(...blocks.slice(0, index + 1)));
+      expect(Math.max(0, ...grows)).toBeLessThanOrEqual(1);
       expect(await page.locator("button.cv-worked").first().getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
