@@ -308,7 +308,12 @@ async function releaseAcpmux(
   const manifestUrl = `${LINUX_RELEASE_FILES_PREFIX}${release.commit}/manifest.json`;
   const text = await fetchText(manifestUrl);
   if (text === null) return none;
-  const manifest = parseCmuxTuiManifest(manifestUrl, JSON.parse(text) as unknown, provider);
+  let manifest: CmuxTuiSource;
+  try {
+    manifest = parseCmuxTuiManifest(manifestUrl, JSON.parse(text) as unknown, provider);
+  } catch {
+    return none;
+  }
   if (manifest.commit !== release.commit) return none;
   return { acpmuxUrl: manifest.acpmuxUrl ?? null, acpmuxSha256: manifest.acpmuxSha256 ?? null, acpmuxSize: null };
 }
