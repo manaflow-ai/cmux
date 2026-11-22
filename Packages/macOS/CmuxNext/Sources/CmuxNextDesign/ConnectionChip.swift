@@ -1,5 +1,6 @@
 public import CmuxNextDesignTokens
 public import SwiftUI
+import CmuxNextWakeups
 
 /// A connection state drawn as a small chip over the content, never a row or a sentence that pushes it (Leo,
 /// 2026-11-21: "typically for these connection indicstors you can just put a small unobtrusive thing somewhere
@@ -23,7 +24,7 @@ public struct ConnectionChip: View {
     public var body: some View {
         Label(word, systemImage: symbol)
             .labelStyle(.titleAndIcon)
-            .font(.system(size: 11, weight: .medium))
+            .font(Font(Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize()
@@ -42,24 +43,34 @@ extension EnvironmentValues {
 }
 
 /// Whether `active` has lasted ``NoticeTiming/connectionQuiet`` (the environment's `connectionQuietDelay`). One
-/// sleep per stretch, cancelled when the state ends; nothing runs while connected.
+/// ``QuietHold`` (a ``DemandTimer``) per stretch, cancelled when the state ends; nothing runs while connected.
 struct ConnectionLasting: ViewModifier {
     let active: Bool
     @Binding var lasted: Bool
     @Environment(\.connectionQuietDelay) private var delay
+    @State private var hold: QuietHold?
 
     func body(content: Content) -> some View {
-        content.task(id: active) {
-            guard active else {
-                lasted = false
-                return
-            }
-            if delay > .zero {
-                try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
-            }
-            lasted = true
+        content
+            .onAppear { follow(active) }
+            .onChange(of: active) { _, now in follow(now) }
+            .onDisappear { hold?.update(false) {} }
+    }
+
+    private func follow(_ now: Bool) {
+        guard now else {
+            hold?.update(false) {}
+            lasted = false
+            return
         }
+        guard delay > .zero else {
+            lasted = true
+            return
+        }
+        let quiet = hold ?? QuietHold(owner: "ConnectionChip.lasting", delay: delay)
+        hold = quiet
+        let shown = $lasted
+        quiet.update(true) { shown.wrappedValue = true }
     }
 }
 
@@ -77,7 +88,6 @@ private struct ConnectionChipOverlay: ViewModifier {
                     ConnectionChip(word, symbol: symbol, detail: detail)
                         .padding(6)
                         .allowsHitTesting(false)
-                        .transition(.opacity)
                 }
             }
             .modifier(ConnectionLasting(active: word != nil, lasted: $lasted))
