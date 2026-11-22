@@ -343,6 +343,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::WarmParams>(method::MUX_WARM, Request),
         keyed::<params::PrewarmParams>(method::MUX_PREWARM, Request),
         keyed::<params::StartModeParams>(method::MUX_START_MODE, Request),
+        keyed::<params::ComposerParams>(method::MUX_COMPOSER, Request),
         keyed::<params::QueueRemoveParams>(method::MUX_QUEUE_REMOVE, Request),
         keyed::<params::QueueEditParams>(method::MUX_QUEUE_EDIT, Request),
         keyed::<params::QueueApproveParams>(method::MUX_QUEUE_APPROVE, Request),

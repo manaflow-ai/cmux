@@ -101,6 +101,38 @@ pub(super) fn profile_sets_model(
     in_argv || in_env(&profile.env) || in_env(defaults_env)
 }
 
+/// The main model a profile chooses itself ([`profile_sets_model`]), as its argv or its env
+/// names it: the model its chats run, which the composer names (`composer_view.rs`).
+pub(super) fn profile_model(
+    profile: &HarnessProfile,
+    defaults_env: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    if !profile_sets_model(profile, defaults_env) {
+        return None;
+    }
+    let argv = &profile.argv;
+    let after = |flags: &[&str]| {
+        argv.iter().position(|a| flags.contains(&a.as_str())).and_then(|i| argv.get(i + 1))
+    };
+    let joined = argv.iter().find_map(|a| a.strip_prefix("--model=")).map(str::to_owned);
+    let configured = argv.iter().enumerate().find_map(|(i, a)| {
+        let value = argv.get(i + 1).filter(|_| a == "-c" || a == "--config")?;
+        Some(value.trim_start().strip_prefix("model=")?.trim_matches('"').to_owned())
+    });
+    let from_env = |env: &std::collections::BTreeMap<String, String>| {
+        env.iter()
+            .find(|(k, _)| MAIN_MODEL_ENV.contains(&k.to_ascii_uppercase().as_str()))
+            .map(|(_, v)| v.clone())
+    };
+    joined
+        .or_else(|| after(&["--model"]).cloned())
+        .or(configured)
+        .or_else(|| after(&["-m"]).cloned())
+        .or_else(|| from_env(&profile.env))
+        .or_else(|| from_env(defaults_env))
+        .filter(|model| !model.is_empty())
+}
+
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StartSource {
@@ -137,11 +169,28 @@ fn usable(value: &str) -> bool {
     !value.is_empty() && value.len() <= MAX_VALUE && value != "default"
 }
 
+/// The catalog's entry for the model a chat names `model`: its id, one of its aliases, or either
+/// with a variant suffix (Claude Code's `[1m]`), which changes no effort. One rule for every
+/// effort question, so a model named another way still starts on, and shows, its default effort.
+pub(super) fn catalog_model<'a>(
+    curated: Option<&'a CatalogHarness>,
+    model: &str,
+) -> Option<&'a crate::catalog::HarnessModel> {
+    let models = &curated?.models;
+    let named = |name: &str| {
+        models.iter().find(|m| m.id == name || m.aliases.iter().flatten().any(|a| a == name))
+    };
+    named(model).or_else(|| {
+        let base =
+            model.strip_suffix(']').and_then(|m| m.rsplit_once('[')).map(|(base, _)| base)?;
+        named(base)
+    })
+}
+
 /// Whether the curated catalog lists `effort` for `model` (true when the
 /// catalog does not describe the model's efforts: the harness decides).
 fn effort_fits(curated: Option<&CatalogHarness>, model: Option<&str>, effort: &str) -> bool {
-    let Some(entry) = curated.and_then(|c| c.models.iter().find(|m| Some(m.id.as_str()) == model))
-    else {
+    let Some(entry) = model.and_then(|m| catalog_model(curated, m)) else {
         return true;
     };
     // Claude Code's Ultracode runs at xhigh.
@@ -330,8 +379,7 @@ impl Hub {
         // A saved effort the running model lacks (a pick made on another
         // model) gives way to that model's own default; a model the catalog
         // does not describe (a router's own model) takes no saved effort.
-        let described =
-            |m: &str| curated.as_ref().is_none_or(|c| c.models.iter().any(|x| x.id == m));
+        let described = |m: &str| curated.is_none() || catalog_model(curated.as_ref(), m).is_some();
         let fits =
             |e: &String| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e);
         let start_effort = saved
@@ -353,9 +401,7 @@ impl Hub {
                     .map(|value| StartValue { value, source: StartSource::Harness })
             })
             .or_else(|| {
-                curated
-                    .as_ref()
-                    .and_then(|c| c.models.iter().find(|m| Some(m.id.as_str()) == runs))
+                runs.and_then(|m| catalog_model(curated.as_ref(), m))
                     .and_then(|m| m.default_effort.clone())
                     .map(|value| StartValue { value, source: StartSource::Catalog })
             });
@@ -385,7 +431,9 @@ impl Hub {
     }
 
     /// `start` for one `_acpmux/harnesses` row: `{model?, effort?,
-    /// modelSource?, effortSource?}`, what a new chat there starts on.
+    /// modelSource?, effortSource?}`, what a new chat there starts on. A profile that chooses
+    /// its model itself (its argv or env) names no model here, and still names the effort
+    /// `new_session` sets on its chats, so the row never hides an effort the chat runs at.
     pub(super) fn start_view(
         &self,
         cfg: &crate::config::Config,
@@ -393,12 +441,13 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> Option<Value> {
         let saved = cfg.defaults_for(agent);
-        if profile_sets_model(profile, &saved.env) {
-            return None;
-        }
-        let pinned = profile.model.clone();
+        let sets_model = profile_sets_model(profile, &saved.env);
+        // As `new_session` pins it: the profile's own model, or for a profile that sets its
+        // model itself, the saved one its effort follows.
+        let pinned = if sets_model { saved.model.clone() } else { profile.model.clone() };
         let (model, effort) = self.start_defaults(agent, profile, &saved, pinned.as_deref());
         let model = match pinned {
+            _ if sets_model => None,
             Some(value) => Some(StartValue { value, source: StartSource::Profile }),
             None => model,
         };

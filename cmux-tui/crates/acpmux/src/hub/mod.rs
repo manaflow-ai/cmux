@@ -63,6 +63,7 @@ mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
+mod composer_view;
 pub mod composers;
 mod cursor_ext;
 mod digest;
@@ -1070,6 +1071,10 @@ pub struct Hub {
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    /// The permission mode each harness profile's newest plain chat reported at its
+    /// `session/new`, before acpmux set any: the harness's own start mode, which a chat acpmux
+    /// sets no mode on runs in. `_acpmux/start_mode` names it (`start_mode.rs` `runs_in`).
+    pub(super) own_start_modes: StdMutex<HashMap<String, String>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1575,6 +1580,7 @@ impl Hub {
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
+            own_start_modes: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),

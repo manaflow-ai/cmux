@@ -73,6 +73,7 @@ pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
 pub mod complete;
+pub mod composer_selection;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;

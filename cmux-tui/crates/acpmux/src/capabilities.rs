@@ -255,6 +255,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "start-mode-v1",
         wire: &[method::MUX_START_MODE, method::MUX_START_MODE_CHANGED],
     },
+    // The new-chat composer's selection (`hub/composer_view.rs`).
+    Capability { id: "composer-selection-v1", wire: &[method::MUX_COMPOSER] },
     // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
     Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).

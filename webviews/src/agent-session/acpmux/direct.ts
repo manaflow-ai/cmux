@@ -15666,9 +15666,11 @@ export class AcpmuxDirectClient {
       release: true,
     }).catch(() => undefined);
   }
-  /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
-  /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
-  /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
+  /// The permission mode a new chat on `harness` in `cwd` runs in (cx-wx93i), as acpmux decides
+  /// it: the mode cmux sets, or the harness's own when cmux sets none (the answer's `setBy` says
+  /// which; the chip names the mode either way, so it is not read). Undefined when acpmux does not
+  /// know (a harness with no modes) or predates the method. Rejects when it could not be asked (no
+  /// socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
     const ticket = fullAccessTicket();
     try {

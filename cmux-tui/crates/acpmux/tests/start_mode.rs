@@ -411,7 +411,7 @@ async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
 
-    // A preset's chat: its pick is no start mode, and its own start is none.
+    // A preset's chat: its pick is no start mode, and its own start is the harness's own mode.
     let r = app
         .call(
             "session/new",
@@ -427,7 +427,9 @@ async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
             json!({"harness": "claude", "preset": "p", "cwd": dir.join("work")}),
         )
         .await;
-    assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
+    assert_eq!(r["result"]["modeId"], "auto", "{r}");
+    assert_eq!(r["result"]["setBy"], "harness", "{r}");
+    assert_eq!(r["result"]["level"], Value::Null, "{r}");
 
     // A Web chat viewed in the app: its pick is no start mode either. (Codex: a
     // remote chain runs Claude Code only inside the macOS sandbox.)
@@ -557,10 +559,13 @@ async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
     assert!(r.get("error").is_none(), "{r}");
     assert_eq!(r["result"]["harness"], "acme", "{r}");
     assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
-    // A profile that pins its mode in argv: none either.
+    // A profile that pins its mode in argv: acpmux sets none, and the chat runs in the pinned one.
     let answer = start_mode(&mut app, &dir, "pinned").await;
-    assert_eq!(answer["modeId"], Value::Null, "{answer}");
+    assert_eq!(answer["modeId"], "default", "{answer}");
+    assert_eq!(answer["name"], "Manual", "{answer}");
+    assert_eq!(answer["setBy"], "harness", "{answer}");
     assert_eq!(answer["level"], Value::Null, "{answer}");
+    assert_eq!(app.chat(&dir, "pinned").await.1, "default");
     // Codex before any chat of it: the level, but no mode id yet.
     let answer = start_mode(&mut app, &dir, "codex").await;
     assert_eq!(answer["modeId"], Value::Null, "{answer}");
@@ -570,6 +575,44 @@ async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     assert_eq!(start_mode(&mut app, &dir, "codex").await["modeId"], "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Leo 2026-11-22: "dont make it show mode if auto is the default. the same goes for codexes."
+/// At every start level, for every harness, the answer names the mode the next new chat
+/// reports: what a client's Mode control shows is what the chat runs in. Claude Code's is named
+/// before any chat of it; another harness's from its first chat on.
+#[tokio::test]
+async fn start_mode_answer_names_the_mode_the_next_chat_runs_in_at_every_level() {
+    for level in [None, Some("fullAccess"), Some("standard"), Some("ask")] {
+        let extra = level.map_or(json!({}), |l| json!({"defaultPermissionMode": l}));
+        let dir = home(&format!("runs-{}", level.unwrap_or("unset")), extra);
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let first = start_mode(&mut app, &dir, "claude").await;
+        assert!(first["modeId"].is_string(), "{level:?}: {first}");
+        assert!(first["name"].is_string(), "{level:?}: {first}");
+        for harness in ["claude", "codex", "plain", "asker"] {
+            let (_, ran) = app.chat(&dir, harness).await;
+            if harness == "claude" {
+                assert_eq!(first["modeId"], ran, "{level:?}: {first}");
+            }
+            let answer = start_mode(&mut app, &dir, harness).await;
+            assert_eq!(answer["modeId"], ran, "{level:?} {harness}: {answer}");
+            assert!(answer["setBy"].is_string(), "{level:?} {harness}: {answer}");
+            // A pick in that chat is no start mode: the next chat runs in the answer too.
+            let (_, again) = app.chat(&dir, harness).await;
+            assert_eq!(answer["modeId"], again, "{level:?} {harness}: {answer}");
+        }
+        // The harness's own level: acpmux sets none, and the answer still names the mode.
+        if level == Some("standard") {
+            let answer = start_mode(&mut app, &dir, "claude").await;
+            assert_eq!(answer["modeId"], "auto", "{answer}");
+            assert_eq!(answer["name"], "Auto", "{answer}");
+            assert_eq!(answer["setBy"], "harness", "{answer}");
+            assert_eq!(start_mode(&mut app, &dir, "codex").await["modeId"], "agent");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 impl Client {
@@ -1867,4 +1910,83 @@ async fn pi_keeps_no_modes_that_only_copy_its_thinking_option() {
     let start = start_mode(&mut app, &dir, "pi").await;
     assert!(start["modeId"].is_null(), "no start mode: {start}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `_acpmux/composer` on `harness`, with `more` merged into the params: its result.
+async fn composer(c: &mut Client, dir: &Path, harness: &str, more: Value) -> Value {
+    let mut params = json!({"harness": harness, "cwd": dir.join("work")});
+    if let (Some(params), Some(more)) = (params.as_object_mut(), more.as_object()) {
+        params.extend(more.clone());
+    }
+    let r = c.call("_acpmux/composer", params).await;
+    assert!(r.get("error").is_none(), "{r}");
+    r["result"].clone()
+}
+
+/// At every start level, on every harness: the composer's first selection names the mode the
+/// next chat runs in, a pick it does not offer changes nothing, and a harness pick lands on
+/// that harness's own first selection (Leo 2026-11-22: "dont make it show mode if auto is the
+/// default").
+#[tokio::test]
+async fn the_composer_selection_is_what_the_next_chat_runs() {
+    const HARNESSES: [&str; 4] = ["claude", "codex", "plain", "asker"];
+    for level in [None, Some("fullAccess"), Some("standard"), Some("ask")] {
+        let extra = level.map_or(json!({}), |l| json!({"defaultPermissionMode": l}));
+        let dir = home(&format!("composer-{}", level.unwrap_or("unset")), extra);
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        // Claude Code's start is named before any chat of it.
+        let first = composer(&mut app, &dir, "claude", json!({})).await;
+        assert_eq!(first["selection"]["harness"], "claude", "{level:?}: {first}");
+        assert_eq!(first["selection"]["mode"], app.chat(&dir, "claude").await.1, "{level:?}");
+        for harness in HARNESSES {
+            // Another harness's modes are known from its first chat on.
+            let _ = app.chat(&dir, harness).await;
+            let shown = composer(&mut app, &dir, harness, json!({})).await;
+            let selection = &shown["selection"];
+            assert_eq!(selection["harness"], harness, "{level:?}: {shown}");
+            let (id, ran) = app.chat(&dir, harness).await;
+            assert_eq!(selection["mode"], ran, "{level:?} {harness}: {shown}");
+            // The model too, where the chat names one the composer offers (a stand-in agent
+            // names its own).
+            let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+            let options = info["result"]["configOptions"].as_array().cloned().unwrap_or_default();
+            let ran_model = options
+                .iter()
+                .find(|o| o["id"] == "model")
+                .map(|o| o["currentValue"].clone())
+                .filter(|m| m.is_string())
+                .unwrap_or_else(|| info["result"]["models"]["currentModelId"].clone());
+            let offered = shown["offer"]["models"].as_array().cloned().unwrap_or_default();
+            if offered.iter().any(|m| m["id"] == ran_model) {
+                assert_eq!(selection["model"], ran_model, "{level:?} {harness}: {shown}");
+            }
+            assert_eq!(shown["offer"]["startMode"], ran, "{level:?} {harness}: {shown}");
+            assert!(shown["flaw"].is_null(), "{level:?} {harness}: {shown}");
+            // The same selection sent back settles to itself.
+            let held = composer(&mut app, &dir, harness, json!({"selection": selection})).await;
+            assert_eq!(held["selection"], *selection, "{level:?} {harness}: {held}");
+            // A mode the harness lacks is no pick.
+            let more = json!({"selection": selection, "pick": {"mode": "no-such-mode"}});
+            let kept = composer(&mut app, &dir, harness, more).await;
+            assert_eq!(kept["selection"], *selection, "{level:?} {harness}: {kept}");
+        }
+        // Every harness has had a chat: a harness pick from any selection is that harness's
+        // own first selection, never the values of the one it left.
+        for from in HARNESSES {
+            let held = composer(&mut app, &dir, from, json!({})).await["selection"].clone();
+            for to in HARNESSES {
+                let more = json!({"selection": held, "pick": {"harness": to}});
+                let moved = composer(&mut app, &dir, from, more).await;
+                let own = composer(&mut app, &dir, to, json!({})).await;
+                assert_eq!(moved["selection"], own["selection"], "{level:?} {from}->{to}");
+            }
+        }
+        // A harness that is gone settles onto the one a new chat uses.
+        let more = json!({"selection": {"harness": "no-such-harness", "mode": "auto"}});
+        let fell = composer(&mut app, &dir, "claude", more).await;
+        assert!(fell["selection"]["harness"].is_string(), "{level:?}: {fell}");
+        assert_ne!(fell["selection"]["harness"], "no-such-harness", "{level:?}: {fell}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

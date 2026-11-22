@@ -317,6 +317,14 @@ export interface ChatRouteSetParams {
   when?: unknown;
 }
 
+export interface ComposerParams {
+  _meta?: RequestMeta;
+  cwd?: unknown;
+  harness?: unknown;
+  pick?: unknown;
+  selection?: unknown;
+}
+
 export type CoverageLabel = "acp_requests_only";
 
 /**

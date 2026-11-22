@@ -554,6 +554,11 @@ impl Hub {
             // The permission mode a new chat starts in (start_mode.rs): full
             // access unless the person picked or set otherwise. Soft.
             // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
+            // The mode the harness itself started this plain chat in, before acpmux sets any:
+            // what `_acpmux/start_mode` names for a chat acpmux sets no mode on (`runs_in`).
+            if mode_plain && !remote && !keep_harness_mode {
+                self.note_own_start_mode(agent, &session.meta());
+            }
             let start_mode = if mode_eligible {
                 // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
                 Box::pin(self.start_mode_for(&session, limits_from.as_deref())).await

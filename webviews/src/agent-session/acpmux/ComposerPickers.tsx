@@ -895,10 +895,13 @@ export function ComposerPickers({
       ? openingEntry?.effort
       : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort;
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
-  const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
+  // The level acpmux starts the chat on comes first: what this harness's last chat showed is only a
+  // guess, and a chip that named it while the chat started on another level was a bad state (Leo
+  // 2026-11-22: "it shouldnt just show plain opus 5.5 if it's going to go to medium by default").
+  const pendingEffort = (startEffortKey ? t(startEffortKey) : undefined) ?? lastChips?.effort;
   // The button names a level, never the word Reasoning (Leo 2026-10-20): the listed level, else the
-  // level the effort value is (one the model's row does not list), else what this harness's chats
-  // last showed, else the level acpmux starts it on. Unknown, the button names the model alone.
+  // level the effort value is (one the model's row does not list), else the level acpmux starts
+  // it on, else what this harness's chats last showed. Unknown, the button names the model alone.
   const effortLabel =
     effort && efforts.length > 1
       ? ultracodeOn

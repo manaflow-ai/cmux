@@ -1,18 +1,22 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-/// The permission mode acpmux would start a new chat on a harness in (`_acpmux/start_mode`,
-/// hub/start_mode.rs, cx-wx93i): the mode id, and its name when acpmux knows it. acpmux alone
-/// decides it (a preset, a profile that pins its mode, the settings); a mode picked in a chat holds
-/// for that chat only. The pane only asks, and names no mode it has no answer for.
+/// The permission mode a new chat on a harness runs in (`_acpmux/start_mode`, hub/start_mode.rs,
+/// cx-wx93i): the mode id, and its name when acpmux knows it. acpmux alone decides it (a preset, a
+/// profile that pins its mode, the settings); a mode picked in a chat holds for that chat only. The
+/// answer names the mode the chat really runs in, also when cmux sets none and the harness's own
+/// applies (Claude Code's Auto at the Harness Default level; acpmux's `setBy: "harness"`), so the
+/// chip names it rather than the bare word Mode (Leo 2026-11-22). The pane only asks, and names no
+/// mode it has no answer for.
 export type StartMode = { modeId: string; name?: string };
 
-/// Asks the connected acpmux; undefined when it sets no mode, cannot know, or predates the method.
+/// Asks the connected acpmux; undefined when it names no mode (a harness with no modes, an older
+/// acpmux that answered null for a harness's own mode), cannot know, or predates the method.
 /// Rejects when it could not ask (the socket closed, the request failed): no answer to keep.
 export type AskStartMode = (harness: string, cwd?: string) => Promise<StartMode | undefined>;
 
 /// acpmux's last answers, per harness and folder, kept per viewer: a pending chat draws the last
 /// answer on its first frame (cx-uq9xi), then the one it asks for replaces it. Never the mode a
-/// chat ran: only what acpmux answered. `null`: acpmux answered that it sets none there. A folder
+/// chat ran: only what acpmux answered. `null`: acpmux answered with no mode there. A folder
 /// acpmux has not answered for yet borrows the harness's latest answer anywhere, so the access chip
 /// still holds its place on the first frame, naming no mode; that folder's answer then replaces it.
 const STORAGE_KEY = "cmux.acpmux.startModes.v1";
@@ -277,8 +281,9 @@ export function onStartModeAskAgain(asker: () => void): () => void {
 }
 
 /// The mode a new chat on `harness` in `cwd` starts in, while `enabled`: acpmux's kept answer from
-/// the first frame, asked again on mount and whenever it may have changed. `null`: acpmux sets no
-/// mode there; `undefined`: no answer yet (or not `enabled`).
+/// the first frame, asked again on mount and whenever it may have changed. `null`: acpmux named no
+/// mode there (a harness with no modes, an older acpmux); `undefined`: no answer yet (or not
+/// `enabled`).
 export function useStartMode(
   harness: string | undefined,
   cwd: string | undefined,

@@ -669,6 +669,10 @@ pub mod method {
     /// The permission mode a plain new chat on a harness would start in
     /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
     pub const MUX_START_MODE: &str = "_acpmux/start_mode";
+    /// What a new-chat composer holds (harness, account, model, effort, permission mode) and
+    /// what its harness offers, by the rules `session/new` starts a chat with
+    /// (`hub/composer_view.rs`, `composer_selection.rs`). Read only.
+    pub const MUX_COMPOSER: &str = "_acpmux/composer";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
