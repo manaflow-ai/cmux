@@ -50,8 +50,8 @@ import Testing
     /// Extension's Menu Row runs the row an extension added to a right-click menu, which passes it, #43369;
     /// List Team Cloud Sessions, Show Team Cloud Session, List Team Members and List, Add and Remove Cloud
     /// Group Member are `cmux cloud` commands that answer a record to the CLI and MCP, and the catalog's
-    /// data gives each the `familyMember` exemption, #40159; View Screen is a machine header's menu row, whose
-    /// screens the palette reaches through cloud open-desktop and Screen Sharing, #47230).
+    /// data gives each the `familyMember` exemption, #40159; View Screen is a machine header menu's row
+    /// that the header's View screen button and the palette's Screen Sharing rows already reach, #47230).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption

@@ -2,8 +2,18 @@
 // that event's rows and the next one's, wherever the rows around it came from (OrderedRows.placeAfter, setAt).
 import { expect, test } from "bun:test";
 import { OrderedRows } from "./direct";
-import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
+import {
+  LANE_NOTICE_BATCH,
+  MESSAGE_RUN,
+  PENDING_MESSAGES,
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+  layoutConversation,
+  type AcpmuxRow,
+} from "./model";
 import { sessionEntry } from "./sessionList";
+import { SINCE_NEWS_REACH, isNews, sinceNews } from "./conversation/sinceNews";
+import { SUBAGENT_STARTED } from "./subagents/subagentRows";
 
 const reply = (seq: number): AcpmuxRow => ({
   id: `row-${seq}`,
@@ -114,4 +124,76 @@ test("a reply the person left mid-stream goes under the divider, so the rest of 
   done.current = undefined;
   done.setAt(done.placeAfter(4), divider(4, 1));
   expect(done.sorted().map((row) => row.id)).toEqual(["row-1", "row-2", "reply", SINCE_DIVIDER, "row-6"]);
+});
+
+// Leo, 2026-11-22, on the line over a subagent's "started working" and nothing else: "this is a bad
+// new. it shouldnt just do this like this when there's nothing".
+const started = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: SUBAGENT_STARTED, subagents: [] });
+const prompt = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "user", text: "go on" });
+const message = (id: string): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 0,
+  kind: "user",
+  text: "From the coordinator",
+  incoming: { kind: "notice", text: "From the coordinator" },
+});
+
+test("a line over status lines and the person's own prompts has nothing new under it", () => {
+  expect(sinceNews([reply(1), divider(1, 1), started("s1"), prompt("p1"), started("s2")], 1)).toBe(false);
+  expect(sinceNews([reply(1), divider(1, 1)], 1)).toBe(false);
+  // A reply with no words yet is not news; one with words is.
+  expect(isNews({ ...reply(2), text: "  " })).toBe(false);
+  expect(sinceNews([reply(1), divider(1, 1), started("s1"), reply(2)], 1)).toBe(true);
+  // Another agent's message to this chat is news; a recap on the line is too.
+  expect(sinceNews([reply(1), divider(1, 1), message("m1")], 1)).toBe(true);
+  const recapped: AcpmuxRow = {
+    ...divider(1, 1),
+    since: { key: "s:1", seq: 1, turns: 1, recap: { key: "r", text: "Done." } },
+  };
+  expect(sinceNews([reply(1), recapped, started("s1")], 1)).toBe(true);
+  // Not a line at that index: nothing.
+  expect(sinceNews([reply(1), divider(1, 1)], 0)).toBe(false);
+});
+
+// A running turn folds the messages that started it (or that arrived during it) into its own rows;
+// they are still news, so the line shows over them.
+test("messages folded into a run, a batch, the queue or the turn's prompt are news", () => {
+  const row = (kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id: kind,
+    version: 1,
+    at: 1,
+    kind,
+    ...extra,
+  });
+  const run = (received: number): AcpmuxRow =>
+    row(MESSAGE_RUN, { messageRun: { sent: 1, received, work: [], failed: 0, running: false, rows: [] } });
+  expect(isNews(run(2))).toBe(true);
+  expect(isNews(run(0))).toBe(false);
+  expect(isNews(row(LANE_NOTICE_BATCH))).toBe(true);
+  expect(isNews(row(QUEUED_MESSAGE))).toBe(true);
+  expect(isNews(row(PENDING_MESSAGES))).toBe(true);
+  expect(isNews({ ...started("s1"), foldedPrompt: message("m1") })).toBe(true);
+  expect(isNews({ ...started("s1"), foldedPrompt: prompt("p1") })).toBe(false);
+});
+
+test("the news scan is bounded: a run of status lines past its reach counts as news", () => {
+  const statuses = Array.from({ length: SINCE_NEWS_REACH + 4 }, (_, at) => started(`s${at}`));
+  expect(sinceNews([divider(1, 1), ...statuses], 0)).toBe(true);
+  expect(sinceNews([divider(1, 1), ...statuses.slice(0, SINCE_NEWS_REACH)], 0)).toBe(false);
+});
+
+// Leo, 2026-11-22: "probably also not layout shift this". The line takes no height and no gap, so
+// every other row is placed where it is with no line (it was a 28 px row with its gaps: 52 px).
+test("the line moves no row: the rows' tops are the same with and without it", () => {
+  const before = [prompt("p0"), reply(1), reply(2)];
+  const after = [message("m3"), reply(4), started("s5"), reply(6)];
+  const plain = layoutConversation([...before, ...after], 720);
+  const lined = layoutConversation([...before, divider(2, 1), ...after], 720);
+  expect(lined.heights[before.length]).toBe(0);
+  const shift = Math.max(
+    ...[...before, ...after].map((_, at) => Math.abs(lined.tops[at < before.length ? at : at + 1]! - plain.tops[at]!)),
+  );
+  expect(shift).toBe(0);
+  expect(lined.totalHeight).toBe(plain.totalHeight);
 });
