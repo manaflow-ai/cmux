@@ -3414,6 +3414,40 @@ class SideLanes(unittest.TestCase):
         # vars.CI_BLACKSMITH_MACOS is unset here (off), so attempt 3 rejoins the side label (cmux#45612 item 4)
         self.assertIn("attempt 3 rejoins glaeda-side-std-xcode-26.6: vars.CI_BLACKSMITH_MACOS is not on", summary)
 
+    def test_a_completed_attempt_someone_else_re_ran_ends_at_the_first_look(self):
+        # Run 44961464126 (2026-11-21): the `completed` watch of 44957702876's attempt 1 found its refusal, then
+        # read the run's status, which was attempt 2's (someone else's re-run, still going), and looked every
+        # IDLE_POLL_SECONDS for 60 minutes before saying "someone else already re-ran the run". It ends at once,
+        # and a finished run is looked at without FIRST_LOOK_SECONDS' wait.
+        refused = refused_job("cmux-next fast tier", seconds=68, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"}, {"name": "Set up runner", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [refused])
+        api.run = lambda run_id: (api.calls.append("run"), {"status": "in_progress", "run_attempt": 2})[1]
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        code, summary = run_main(api, clock, payload=pull)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("someone else already re-ran the run (attempt 2)", summary)
+        self.assertNotIn("waiting for the rest of the run to finish", summary)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertLess(clock.seconds, rescue.FIRST_LOOK_SECONDS, summary)
+
+    def test_a_completed_attempt_still_the_latest_keeps_its_refusal_rescue(self):
+        # The same refusal with no newer attempt: the run is finished, so it is re-run at the first look.
+        refused = refused_job("cmux-next fast tier", seconds=68, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"}, {"name": "Set up runner", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [refused], finished=lambda seconds: True, conclusion="failure")
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        code, summary = run_main(api, clock, payload=pull)
+        self.assertEqual(code, 0, summary)
+        self.assertNotIn("someone else already re-ran", summary)
+        self.assertTrue({"rerun", "rerun-failed"} & set(api.calls), summary)
+
     def test_a_failed_cmux_next_pull_request_or_tip_suite_run_is_watched_when_it_completes(self):
         # A pull request's swift test the runner hook refused (run 40671913126) and the tip Swift suite's
         # dispatch had no `completed` wake: they stayed red until the two-hourly sweeper reached them.
