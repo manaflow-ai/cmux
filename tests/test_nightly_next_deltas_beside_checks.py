@@ -20,8 +20,12 @@ SCRIPT = ROOT / "scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh"
 
 FETCH = """#!/usr/bin/env python3
 import os, sys
+if "--save" in sys.argv:
+    open(os.environ["LOG"], "a").write("save\\n")
+    sys.exit(0)
 out = sys.argv[sys.argv.index("--out") + 1]
 open(os.environ["LOG"], "a").write("fetch\\n")
+open(os.environ["LOG"] + ".args", "a").write(" ".join(sys.argv[1:]) + "\\n")
 for build in ("300", "200"):
     open(os.path.join(out, f"cmux-nightly-next-macos-arm64-{build}.dmg"), "w").write(build)
 """
@@ -96,6 +100,56 @@ class DeltasBesideChecksTest(unittest.TestCase):
         self.assertIn(f"prebuilt={prebuilt}/deltas", calls[0])
         self.assertIn(f"previous={prebuilt}/bases", calls[0])
         self.assertIn("Taking the bases and deltas the keyless prebuild made for 400", keyed.stdout)
+
+    def test_the_prebuild_and_the_keyed_fetch_use_the_kept_dmgs(self) -> None:
+        self.assertEqual(self.run_script("prebuild").returncode, 0)
+        cache = f"--cache-dir {self.tmp}/.cmux-nightly-next-dmg-cache "
+        self.assertIn(cache, Path(str(self.log) + ".args").read_text())
+
+    def test_the_deltas_after_the_feed_sign_what_the_prebuild_built(self) -> None:
+        self.assertEqual(self.run_script("prebuild").returncode, 0)
+        self.log.unlink()
+        after = self.run_script("after-feed")
+        self.assertEqual(after.returncode, 0, after.stderr)
+        calls = self.calls()
+        self.assertEqual(calls[0], "save", "the final DMG is kept for the next build first")
+        self.assertNotIn("fetch", calls, "the post-feed run fetches no base the prebuild has")
+        prebuilt = self.tmp / "temp/nightly-next-prebuilt"
+        self.assertIn(f"prebuilt={prebuilt}/deltas", calls[1])
+        self.assertIn("key=yes", calls[1])
+
+    def test_the_deltas_after_the_feed_build_what_a_stopped_prebuild_left(self) -> None:
+        after = self.run_script("after-feed")
+        self.assertEqual(after.returncode, 0, after.stderr)
+        calls = self.calls()
+        self.assertEqual(calls[:3], ["save", "fetch", "drop"])
+        self.assertIn("prebuilt= ", calls[3])
+
+    def test_the_feed_waits_for_the_notes_only_when_the_deltas_follow_it(self) -> None:
+        tooling = self.tmp / "tooling/ci"
+        tooling.mkdir(parents=True)
+        (tooling / "background_build.py").write_text(
+            "#!/usr/bin/env python3\nimport os, sys\n"
+            "open(os.environ['LOG'], 'a').write(sys.argv[1] + ' ' + sys.argv[-1] + '\\n')\n")
+        state = self.tmp / "temp/nightly-helper-builds"
+        state.mkdir(parents=True)
+        for name in ("nearest-deltas", "notes-span"):
+            (state / f"{name}.pid").write_text("1")
+        script = ROOT / "scripts/ci/nightly-steps/one-job.sh"
+
+        def join(**extra: str) -> list[str]:
+            self.log.unlink(missing_ok=True)
+            done = subprocess.run(["bash", str(script), "deltas-join"], cwd=self.tmp, capture_output=True, text=True,
+                                  env={**self.env, "PUBLISH_TOOLING": str(self.tmp / "tooling"), **extra}, timeout=60)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return self.calls()
+
+        self.assertEqual(join(), ["join 900", "join 900"], "the split path waits for both")
+        # stop's last argument is the name; join's is the timeout, and the notes are the second name.
+        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true"), ["stop nearest-deltas", "join 900"])
+        (state / "nearest-deltas.status").write_text("0")
+        self.assertEqual(join(NIGHTLY_NEXT_DELTAS_AFTER_FEED="true"), ["join 900", "join 900"],
+                         "a prebuild that finished in time is joined, and its work signed after the feed")
 
     def test_the_prebuild_refuses_a_key(self) -> None:
         pre = self.run_script("prebuild", SPARKLE_PRIVATE_KEY="leaked")

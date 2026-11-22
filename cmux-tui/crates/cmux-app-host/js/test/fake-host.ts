@@ -141,7 +141,16 @@ export class FakeHost {
           const n = nodes.get(op.id)!
           for (const [k, v] of Object.entries(op.props!)) if (v === null) delete n.props[k]; else n.props[k] = v
         } else if (op.op === "children") nodes.get(op.id)!.children = op.children!
-        else if (op.op === "remove") nodes.delete(op.id)
+        else if (op.op === "remove") {
+          // The scene protocol removes a whole subtree with one op, just as the native host does.
+          const pending = [op.id]
+          while (pending.length) {
+            const id = pending.pop()!
+            const node = nodes.get(id)
+            if (node) pending.push(...node.children)
+            nodes.delete(id)
+          }
+        }
         else if (op.op === "root") root = op.id
       }
     }

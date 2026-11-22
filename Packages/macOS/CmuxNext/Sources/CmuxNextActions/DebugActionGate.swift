@@ -10,7 +10,7 @@ public import Foundation
 public nonisolated struct DebugActionGate {
     /// A debug-only action's title in the palette: "Debug: Tab Bar Playground" (`%@` is its name).
     public static var titleFormat: String {
-        String(localized: "action.debug.titleFormat", defaultValue: "Debug: %@", bundle: .module)
+        String(localized: "action.debug.titleFormat", defaultValue: "Debug: %@", bundle: .localizedModule)
     }
 
     /// This build has developer tools (`DevTools.isEnabled`; tests pass a Release bundle's answer).

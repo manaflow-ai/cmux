@@ -347,7 +347,7 @@ impl EngineParts {
 pub struct Engine {
     desktop: Arc<dyn Desktop>,
     config: Arc<RwLock<PolicyConfig>>,
-    sessions: Sessions,
+    sessions: Arc<Sessions>,
     /// Every cursor event goes through [`crate::cursor::Lifecycle`], which
     /// knows which sessions' Computer Use is active.
     cursor: Arc<crate::cursor::Lifecycle>,
@@ -369,6 +369,8 @@ pub struct Engine {
     sleep: Arc<dyn Fn(Duration) + Send + Sync>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     stops: Arc<Stops>,
+    /// The display recordings ([`crate::record`], the `record` tool).
+    recorder: Arc<crate::record::Recorder>,
 }
 
 /// What a capture checks before it reads a window.
@@ -428,7 +430,8 @@ impl Engine {
         let preview =
             Arc::new(crate::preview::PreviewHub::new(parts.preview, previews_on(&parts.config)));
         Self {
-            sessions: Sessions::open(parts.state_dir.as_deref()),
+            sessions: Arc::new(Sessions::open(parts.state_dir.as_deref())),
+            recorder: crate::record::Recorder::open(parts.state_dir.as_deref()),
             desktop: parts.desktop,
             config,
             cursor: Arc::new(crate::cursor::Lifecycle::new(parts.cursor, preview.clone())),
@@ -871,6 +874,7 @@ impl Engine {
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
             "screenshot" => self.screenshot(&config, ctx, args),
+            "record" => self.record(&config, ctx, args),
             "get_ui_tree" => {
                 let window = self.window(need(args, "window_id")?)?;
                 let app = self.app_of(&window);
@@ -2229,6 +2233,9 @@ mod observe_glue;
 #[path = "engine_batch.rs"]
 mod batch_glue;
 
+#[path = "engine_record.rs"]
+mod record_glue;
+
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod tests;
@@ -2248,3 +2255,7 @@ mod observe_tests;
 #[cfg(test)]
 #[path = "engine_batch_tests.rs"]
 mod batch_tests;
+
+#[cfg(test)]
+#[path = "engine_record_tests.rs"]
+mod record_tests;

@@ -1,0 +1,44 @@
+// Gilded: Klimt's The Kiss behind dark glass, gold-leaf accent on cards, serif pages.
+// Black-brown ground (#17130b) and gold leaf (#d4a537). ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Gilded",
+  "description": "Klimt's The Kiss behind dark glass, gold-leaf accent on cards, serif pages.",
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#17130b",
+    "foreground": "#f1e7cf",
+    "selection": "#3b3220",
+    "accent": "#d4a537"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #17130b",
+    "foreground = #f1e7cf",
+    "cursor-color = #d4a537",
+    "cursor-text = #17130b",
+    "selection-background = #3b3220",
+    "selection-foreground = #f1e7cf",
+    "palette = 0=#332f27",
+    "palette = 1=#e18881",
+    "palette = 2=#77b779",
+    "palette = 3=#bfa14c",
+    "palette = 4=#74a7e8",
+    "palette = 5=#cc8bc5",
+    "palette = 6=#35b9c0",
+    "palette = 7=#b4b8be",
+    "palette = 8=#6e7278",
+    "palette = 9=#feaba4",
+    "palette = 10=#9cd69c",
+    "palette = 11=#ddc277",
+    "palette = 12=#98c7ff",
+    "palette = 13=#e9ade3",
+    "palette = 14=#6dd8dd",
+    "palette = 15=#f1e7cf"
+  ],
+  "appearance.background": "klimt-the-kiss",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.7,
+  "appearance.chromeStyle": "card"
+}

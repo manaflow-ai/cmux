@@ -7,6 +7,8 @@
 
   // The terminal theme, and its own colors.
   "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#424242", "accent": "#b4b4b4" },
   "appearance.accent": "neutral",
 
