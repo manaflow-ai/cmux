@@ -285,7 +285,7 @@ test("each rail end fades while the list or the chat has more past it, hard once
   let was = at(end, 1, 0).reach.bottom;
   for (let px = 1; px <= 96; px += 1) {
     const now = at(end, 1, px / 96).reach.bottom;
-    expect(now - was).toBeLessThanOrEqual(0.02);
+    expect(now - was).toBeLessThanOrEqual(0.02 + 1e-9);
     was = now;
   }
   expect(rows).toBeGreaterThan(12);

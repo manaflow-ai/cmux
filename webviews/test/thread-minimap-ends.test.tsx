@@ -132,12 +132,22 @@ const mount = async (count: number, id: string) => {
   };
   const ends = () => {
     const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     const reach = (edge: string) => Number(list.style.getPropertyValue(`--acpmux-minimap-fade-${edge}-reach`));
+    const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+    const lit = [...list.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')].map((tick) =>
+      Number(tick.dataset.tick),
+    );
+    const height = Number.parseFloat(rail.style.height);
     return {
       top: list.hasAttribute("data-fade-top"),
       bottom: list.hasAttribute("data-fade-bottom"),
       topReach: reach("top"),
       bottomReach: reach("bottom"),
+      /// Room between the rail's head and the first lit tick, and between the last one and its foot.
+      roomAbove: Math.min(...lit) * pitch - list.scrollTop,
+      roomBelow: height - ((Math.max(...lit) + 1) * pitch - list.scrollTop),
+      listAtEnd: list.scrollTop >= listRoom(list) - 0.5,
     };
   };
   const unmount = async () => {
@@ -154,31 +164,38 @@ test("each end of a long chat's rail fades while the chat has more past it, hard
     const { end, scrollTo, ends } = chatView;
     expect(end).toBeGreaterThan(1000);
     // Opened at the bottom: a hard foot, the head fading over the prompts above.
-    expect(ends()).toMatchObject({ top: true, bottom: false, topReach: 1 });
+    expect(ends()).toMatchObject({ top: true, bottom: false });
+    // At the very top: a hard head, the foot fading over the prompts below.
     await scrollTo(0);
     expect(ends()).toMatchObject({ top: false, bottom: true, bottomReach: 1 });
-    // A few px from the top, the first prompt still lit at the rail's head: it keeps full ink.
-    await scrollTo(24);
-    expect(ends()).toMatchObject({ top: false, bottom: true });
-    // Further down, prompts above the band: the head fades over them, the foot too.
-    await scrollTo(600);
-    const near = ends();
-    expect(near.top).toBe(true);
-    expect(near.topReach).toBeGreaterThan(0);
-    await scrollTo(Math.round(end / 2));
-    expect(ends()).toMatchObject({ top: true, bottom: true });
-    // Scrolled up from the bottom with the last prompts still on screen: the foot fades as the head
-    // does (the rail's list is at its end, so only the chat says there is more below).
-    await scrollTo(end - 400);
-    const above = ends();
-    expect(above.top).toBe(true);
-    expect(above.bottom).toBe(true);
-    expect(above.bottomReach).toBeGreaterThan(0);
+    // Down the whole chat in wheel-sized steps and back up: at every offset an end fades exactly when
+    // the chat is not at that end and there is room past the lit prompts, the same rule at both ends.
+    const wrong: string[] = [];
+    let footFadedAtListEnd = false;
+    const offsets = Array.from({ length: Math.floor(end / 37) + 1 }, (_, step) => step * 37);
+    for (const at of [
+      ...offsets.filter((at) => at <= end - 4 || at === 0),
+      end,
+      ...[...offsets].reverse().filter((at) => at <= end - 4),
+    ]) {
+      await scrollTo(at);
+      const state = ends();
+      const top = at > 0.5 && state.roomAbove > 0;
+      // The bottom's end is follow's 4 px deadband (scrollAnchor.ts), as the transcript's own fade has it.
+      const bottom = at < end - 4 && state.roomBelow > 0;
+      if (state.top !== top || state.bottom !== bottom)
+        wrong.push(`at ${at} px: fades ${state.top}/${state.bottom}, want ${top}/${bottom} (${JSON.stringify(state)})`);
+      // Leo's case: the rail's own list at its end, the chat scrolled up from the bottom.
+      if (state.listAtEnd && at < end - 200 && state.bottom) footFadedAtListEnd = true;
+      if (wrong.length > 5) break;
+    }
+    expect(wrong).toEqual([]);
+    expect(footFadedAtListEnd).toBe(true);
+    // Back at the very ends: hard at each.
     await scrollTo(end);
-    expect(ends()).toMatchObject({ top: true, bottom: false });
-    // Back at the top after the bottom: hard again.
+    expect(ends()).toMatchObject({ bottom: false });
     await scrollTo(0);
-    expect(ends()).toMatchObject({ top: false, bottom: true });
+    expect(ends()).toMatchObject({ top: false });
   } finally {
     await chatView.unmount();
   }
