@@ -32,6 +32,8 @@ export type SendSeat = {
   index?: number;
   lost?: true;
   swept?: true;
+  /// The rise the sweep started with, while the send's own effect in the same commit is still to run.
+  rise?: number;
 };
 
 const isPrompt = (row: AcpmuxRow, isLine: (row: AcpmuxRow) => boolean) => row.kind === "user" && !isLine(row);

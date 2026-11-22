@@ -5674,9 +5674,12 @@ function TranscriptView({
             !bottomStacking &&
             !resizing &&
             !heightFoldPlaying() &&
-            !turnEnding
+            !turnEnding &&
+            followGlide.current?.swept(thread.current, rose)
           )
-            followGlide.current?.swept(thread.current, rose);
+            // The send's own effect runs after this pass in a commit that brings the send and its row
+            // together (an optimistic prompt), and ends the follow motion there: it sweeps again then.
+            seatNow.rise = sends !== seenSends.current ? rose : undefined;
         }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Away from the latest row nothing chases: the next followed pass measures from scratch.
@@ -6503,6 +6506,13 @@ function TranscriptView({
           chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
         } else if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
+      // A seat's sweep the placement pass started in this commit (`seat`): the follow motion just
+      // ended above took it, so it starts again from the same place, before the frame paints.
+      const seatNow = seat.current;
+      if (seatNow?.rise !== undefined) {
+        if (fromLatest) followGlide.current?.swept(thread.current, seatNow.rise);
+        seatNow.rise = undefined;
+      }
     }
     // The kept place is the latest message again: a relaunch opens there.
     if (onAnchor) {
