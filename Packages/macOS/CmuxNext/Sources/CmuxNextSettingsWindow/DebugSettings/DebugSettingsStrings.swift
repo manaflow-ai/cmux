@@ -25,8 +25,10 @@ nonisolated enum DebugSettingsStrings {
         text("debugSettings.footer", "Changes apply live, except where a row says it needs a relaunch, and persist for this build. Defaults stay in code: copy the changed values for an agent to bake in.")
     }
     static func defaultIs(_ value: String) -> String { format("debugSettings.defaultIs", "Default: %@", value) }
-    /// Under the control of a tunable the app reads once at launch.
+    /// Under the control of a launch-time tunable whose stored value this launch is not using.
     static var needsRelaunch: String { text("debugSettings.needsRelaunch", "Needs a relaunch") }
+    /// Under the control of a launch-time tunable this launch is using, or has not read yet.
+    static var readAtLaunch: String { text("debugSettings.readAtLaunch", "Read once when the app starts") }
     static func copiedJSON(_ count: Int) -> String { format("debugSettings.copiedJSON", "Copied changed values as JSON (%lld).", count) }
     static func copiedSwift(_ count: Int) -> String { format("debugSettings.copiedSwift", "Copied Swift defaults (%lld).", count) }
     static func didReset(_ section: String) -> String { format("debugSettings.didReset", "Reset %@.", section) }

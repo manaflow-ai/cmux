@@ -12,7 +12,9 @@ import CmuxNextSettingsWindow
 // - `activate`: turns on a store that launch left off (bench builds), for this launch, in memory only (debug-settings.md);
 // - `list` (`query`, `section`, `changed`): tunables with value and default;
 // - `get` / `set` (`key`, `value` JSON; null resets) / `reset` (`key`, `section`, or `all: true`); every row carries
-//   `read_cadence` and `applies`, which is false for a key this process read at launch (relaunch to use the new value);
+//   `read_cadence` and `applies_state` (`yes` / `no` / `unknown`), with `applies` as a flag for the first two: `no`
+//   for a key this process read at launch with another value (relaunch to use the stored one), and `unknown`, with
+//   no `applies` at all, for a launch-time key nothing has read this launch;
 // - `export` (`format`: json | swift): the hand-off text;
 // - `open` (`query`, `section`), `query` (`text`), `section` (`id`, or `all` / `changed`), `close`: the window.
 enum DebugTunables {

@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesignTokens
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import Testing
 
 /// A tunable's read cadence, and what `debug.tunables` says about it.
@@ -44,6 +45,7 @@ struct TunableReadCadenceTests {
         _ = Self.call(["action": "activate"], store, services)
         let row = Self.call(["action": "set", "key": .string(BrowserPageTunables.uiPointer.key), "value": true], store, services)
         #expect(row["read_cadence"]?.stringValue == "live")
+        #expect(row["applies_state"]?.stringValue == "yes")
         #expect(row["applies"]?.boolValue == true)
         #expect(row["applies_why"] == nil)
     }
@@ -56,6 +58,7 @@ struct TunableReadCadenceTests {
         _ = Self.call(["action": "activate"], store, services, catalog)
         let row = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
         #expect(row["read_cadence"]?.stringValue == "launch")
+        #expect(row["applies_state"]?.stringValue == "no")
         #expect(row["applies"]?.boolValue == false)
         #expect(row["applies_why"]?.stringValue?.contains("relaunch") == true)
         // The store still took the value: the next launch is the one that uses it.
@@ -63,16 +66,22 @@ struct TunableReadCadenceTests {
         #expect(Self.launchRead.value(in: store) == true)
     }
 
-    /// Nothing has read the key this launch: the row says so, rather than claiming the value is in
-    /// use, and carries no `launch_value` to measure against.
-    @Test func anUnreadLaunchKeySaysNothingHasReadIt() {
+    /// Nothing has read the key this launch, so the row says `unknown` and carries no `applies`
+    /// flag and no `launch_value`: a read still ahead of it takes the stored value and a read
+    /// already past does not, and the row knows neither. Answering `applies: false` here would
+    /// report a read that did not happen as a verdict on the value
+    /// (docs/handbook/missing-read-counted-as-a-value.md).
+    @Test func anUnreadLaunchKeyIsUnknownNotUnapplied() {
         let services = Self.services(), store = TunableStore()
         let catalog = [Self.launchRead.descriptor]
         _ = Self.call(["action": "activate"], store, services, catalog)
         let row = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
-        #expect(row["applies"]?.boolValue == false)
+        #expect(row["applies_state"]?.stringValue == "unknown")
+        #expect(row["applies"] == nil)
         #expect(row["applies_why"]?.stringValue?.contains("nothing has read it") == true)
+        #expect(row["applies_why"]?.stringValue?.contains("unknown") == true)
         #expect(row["launch_value"] == nil)
+        #expect(DebugSettingsModel.appliesState(Self.launchRead.descriptor, store) == .unknown)
     }
 
     /// A bench build reads the key at launch with the store still inactive, then activates it. The
@@ -86,10 +95,12 @@ struct TunableReadCadenceTests {
 
         _ = Self.call(["action": "activate"], store, services, catalog)
         let launchArm = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
+        #expect(launchArm["applies_state"]?.stringValue == "yes")
         #expect(launchArm["applies"]?.boolValue == true)
         #expect(launchArm["launch_value"]?.boolValue == false)
 
         let changed = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
+        #expect(changed["applies_state"]?.stringValue == "no")
         #expect(changed["applies"]?.boolValue == false)
         #expect(changed["launch_value"]?.boolValue == false)
     }
@@ -106,20 +117,28 @@ struct TunableReadCadenceTests {
         #expect(store.settledOverride("test.launchRead") == nil)
 
         let launchArm = Self.call(["action": "get", "key": "test.launchRead"], store, services, catalog)
+        #expect(launchArm["applies_state"]?.stringValue == "yes")
         #expect(launchArm["applies"]?.boolValue == true)
         #expect(launchArm["applies_why"] == nil)
         #expect(launchArm["launch_value"]?.boolValue == false)
+        #expect(DebugSettingsModel.appliesState(Self.launchRead.descriptor, store) == .yes)
 
         // A `set` away from it does not apply to this launch, and names the value in use.
         let changed = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
+        #expect(changed["applies_state"]?.stringValue == "no")
         #expect(changed["applies"]?.boolValue == false)
         #expect(changed["launch_value"]?.boolValue == false)
         #expect(changed["applies_why"]?.stringValue?.contains("launch_value") == true)
+        // The row caption reads the same answer, so "Needs a relaunch" and `applies_state` cannot
+        // disagree about a launch-time key.
+        #expect(DebugSettingsModel.appliesState(Self.launchRead.descriptor, store) == .no)
 
         // Set back to the launch value: this launch is using it again.
         let restored = Self.call(["action": "set", "key": "test.launchRead", "value": false], store, services, catalog)
+        #expect(restored["applies_state"]?.stringValue == "yes")
         #expect(restored["applies"]?.boolValue == true)
         #expect(restored["applies_why"] == nil)
+        #expect(DebugSettingsModel.appliesState(Self.launchRead.descriptor, store) == .yes)
     }
 }
 #endif
