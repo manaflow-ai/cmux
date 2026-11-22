@@ -41,7 +41,7 @@ private final class LiveStub: TerminalSession {
         #expect(chosen is PendingTerminalSession)
         #expect(!(chosen is MockTerminalSession))
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
-        #expect(chosen.connectionState.label == "Connecting to Aziz's Mac Studio…")
+        #expect(chosen.connectionState.quietLine == "Connecting to Aziz's Mac Studio…")
         #expect(chosen.programName == "zsh")
     }
 
@@ -112,7 +112,7 @@ private final class LiveStub: TerminalSession {
         session.send(Data("ls\r".utf8))
         session.resize(columns: 80, rows: 24)
         #expect(events == [.connection(.connecting(mac: nil))])
-        #expect(session.connectionState.label == "Connecting…")
+        #expect(session.connectionState.quietLine == "Connecting to your Mac…")
     }
 }
 
