@@ -444,6 +444,7 @@ export function MenuPopup({
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          data-surface-role="menu"
           className={cx(
             "ui-popup ui-glass ui-menu",
             scroll && "ui-popup-scroll-shell",

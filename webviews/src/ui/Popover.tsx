@@ -151,6 +151,7 @@ export function Popover({
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass={hostGlass ? "popover" : undefined}
+            data-surface-role="popover"
             data-host-glass-cover={hostGlass ? "" : undefined}
             id={id}
             aria-label={label}
