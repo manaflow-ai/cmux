@@ -300,6 +300,8 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
 RELEASE_COMMIT = "c" * 40
 # 2026-11-09 07:00:12 UTC.
 COMMITTED_AT = 1794207612
+# 2026-11-22 11:05:00 UTC.
+PUBLISHED_AT = 1795345500
 RELEASE = ("--purpose", "linux-release", "--channel", "feat-cmux-next")
 
 
@@ -308,7 +310,9 @@ def served_linux_build(directory, generation="1"):
     directory.mkdir(parents=True, exist_ok=True)
     sha = {}
     for target in channel.LINUX_RELEASE_TARGETS:
-        for name in channel.NAMES:
+        for name in channel.LINUX_RELEASE_NAMES:
+            if name in channel.LINUX_RELEASE_MUSL_ONLY and not target.endswith("-musl"):
+                continue  # the detector is required on musl only; its glibc-named copy is optional
             data = f"{name}-{target} build {generation}".encode()
             (directory / f"{name}-{target}").write_bytes(data)
             sha[f"{name}-{target}"] = hashlib.sha256(data).hexdigest()
@@ -327,7 +331,7 @@ class LinuxReleasePayload(unittest.TestCase):
         # file does not carry.
         self.built = self.tmp / "built"
         shutil.copytree(self.served, self.built)
-        (self.built / "cmux-tui-acpmux-x86_64-unknown-linux-gnu").write_bytes(b"acpmux")
+        (self.built / "cmux-tui-cloud-server-x86_64-unknown-linux-gnu").write_bytes(b"cloud server")
         self.downloads = []
 
     def download(self, argv, check=False, **kwargs):
@@ -347,17 +351,23 @@ class LinuxReleasePayload(unittest.TestCase):
         self.assertEqual(raw, json.dumps(value, sort_keys=True, separators=(",", ":")).encode(), "not compact sorted JSON")
         return value
 
-    def test_the_payload_names_every_linux_binary_and_a_commit_time_version(self):
-        value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
+    def test_the_payload_names_every_linux_binary_and_a_publish_order_version(self):
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
         self.assertEqual(sorted(value), ["channel", "commit", "committed_at", "expires_at", "published_at", "purpose",
-                                         "schema", "targets", "version"])
+                                         "schema", "sequence", "targets", "version"])
         self.assertEqual((value["schema"], value["purpose"], value["channel"]), (1, "cmux-linux-release", "feat-cmux-next"))
-        self.assertEqual(value["version"], "1.0.0+20261109070012.cccccccccccc")
+        # sequence is the publish time, the version carries it (installers and dpkg/rpm order by it).
+        self.assertEqual(value["sequence"], 20261122110500)
+        self.assertEqual(value["version"], "1.0.0+20261122110500.cccccccccccc")
         self.assertEqual((value["commit"], value["committed_at"]), (RELEASE_COMMIT, COMMITTED_AT))
         self.assertEqual(value["expires_at"] - value["published_at"], 30 * 24 * 3600)
         self.assertEqual(sorted(value["targets"]), sorted(channel.LINUX_RELEASE_TARGETS))
         for target, files in value["targets"].items():
-            self.assertEqual(sorted(files), ["cmux-tui", "cmux-tui-hook"])
+            names = ["cmux-tui", "cmux-tui-acpmux", "cmux-tui-app-host", "cmux-tui-hook"]
+            if target.endswith("-musl"):
+                names.append("cmux-tui-agent-screen-detection")
+            self.assertEqual(sorted(files), sorted(names))
             for name, entry in files.items():
                 self.assertEqual(entry["url"], f"https://files.cmux.com/cmux-tui/{RELEASE_COMMIT}/{name}-{target}")
                 self.assertEqual(entry["sha256"], self.sha[f"{name}-{target}"])
@@ -381,9 +391,31 @@ class LinuxReleasePayload(unittest.TestCase):
         self.assertFalse((self.tmp / "payload.json").exists())
 
     def test_the_version_defaults_to_the_cmux_tui_cargo_version(self):
-        value = self.run_payload(*RELEASE)
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE)
         base = channel.nightly_version.next_base(str(ROOT))
-        self.assertEqual(value["version"], f"{base}+20261109070012.cccccccccccc")
+        self.assertEqual(value["version"], f"{base}+20261122110500.cccccccccccc")
+
+    def test_the_sequence_rises_above_the_channel_and_never_below_the_commit(self):
+        # A clock that would not exceed the channel's current sequence: one more than it.
+        with mock.patch.object(channel.time, "time", return_value=PUBLISHED_AT):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0", "--min-sequence", "20261122120000")
+        self.assertEqual((value["sequence"], value["version"]), (20261122120000, "1.0.0+20261122120000.cccccccccccc"))
+        # A clock behind the commit: the commit time's stamp, which a phase-1 file of this commit carried.
+        with mock.patch.object(channel.time, "time", return_value=COMMITTED_AT - 60):
+            value = self.run_payload(*RELEASE, "--cargo-version", "1.0.0")
+        self.assertEqual(value["sequence"], 20261109070012)
+
+    def test_the_glibc_detector_goes_in_when_built_and_the_musl_one_is_required(self):
+        (self.built / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-gnu").write_bytes(b"detector gnu")
+        (self.served / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-gnu").write_bytes(b"detector gnu")
+        value = self.run_payload(*RELEASE)
+        self.assertIn("cmux-tui-agent-screen-detection", value["targets"]["x86_64-unknown-linux-gnu"])
+        self.assertNotIn("cmux-tui-agent-screen-detection", value["targets"]["aarch64-unknown-linux-gnu"])
+        (self.built / "cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl").unlink()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(*RELEASE)
+        self.assertIn("no sha256 for cmux-tui-agent-screen-detection-aarch64-unknown-linux-musl", err.getvalue())
 
     def test_the_cloud_machine_payload_is_unchanged(self):
         manifest = self.tmp / "musl.json"
@@ -398,6 +430,7 @@ class LinuxReleasePayload(unittest.TestCase):
             (("--purpose", "linux-release"), "needs --channel"),
             (("--purpose", "linux-release", "--channel", "every-merge"), "needs --channel"),
             (("--channel", "feat-cmux-next"), "are for --purpose linux-release"),
+            (("--min-sequence", "20261122110500"), "are for --purpose linux-release"),
             (("--purpose", "linux-release", "--channel", "nightly", "--cargo-version", "1.0"),
              "not MAJOR.MINOR.PATCH"),
         ]
