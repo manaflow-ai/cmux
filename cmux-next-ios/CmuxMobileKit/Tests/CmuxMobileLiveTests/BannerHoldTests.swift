@@ -6,7 +6,7 @@ import Testing
 /// said "Not connected"'at the top but i dont think it shoildve said anything".
 ///
 /// The banner over Workspaces and chats (`LiveCoordinator.phaseChanged`): a link coming up or
-/// coming back shows nothing inside the shared bounds (1 s first connect, 10 s reconnect), and
+/// coming back shows nothing inside the shared 10 s bound (first connect and reconnect alike), and
 /// "Connected" answers only a banner that was on screen. Measured on an injected clock: how long
 /// a banner is on screen in each case, with the old policy (no hold) and the new one.
 @MainActor
@@ -22,7 +22,7 @@ import Testing
         }
         var flash: Task<Void, Never>?
         let state: ConnectionBannerState = firstConnect ? .connecting(to: "Mac") : .reconnecting(to: "Mac")
-        let delay: Duration = held ? (firstConnect ? HeldNotice<ConnectionBannerState>.comingUp : QuietStatusGate.threshold) : .zero
+        let delay: Duration = held ? QuietStatusGate.threshold : .zero
         notice.hold(state, for: delay)
         await advance(clock, by: outage)
         // .connected: "Connected" for 1.5 s only if a banner was on screen (the old rule
@@ -67,6 +67,11 @@ import Testing
     @Test func aFirstConnectUnderASecondShowsNothing() async {
         #expect(await exposure(outage: .milliseconds(800), firstConnect: true, held: false) == 800, "before")
         #expect(await exposure(outage: .milliseconds(800), firstConnect: true, held: true) == 0)
+    }
+
+    @Test func aSlowFirstConnectInsideTheBoundShowsNothing() async {
+        #expect(await exposure(outage: .seconds(5), firstConnect: true, held: false) == 5000, "before")
+        #expect(await exposure(outage: .seconds(5), firstConnect: true, held: true) == 0)
     }
 
     @Test func aReconnectUnderTenSecondsShowsNothing() async {

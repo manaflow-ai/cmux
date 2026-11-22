@@ -1,19 +1,16 @@
 import Foundation
 
 /// One notice slot whose quiet notices wait before they show. A link coming
-/// up or a reconnect the person can do nothing about shows nothing until it
-/// lasted its delay (``comingUp`` for a first connect, ``QuietStatusGate/threshold``
-/// for a reconnect); a notice with an action (offline with Retry, can't reach,
-/// sign in) shows at once. ``shown`` is what is on screen now.
+/// up or coming back, which the person can do nothing about, shows nothing
+/// until it lasted the shared bound (``QuietStatusGate/threshold``, 10 s, for a
+/// first connect and a reconnect alike); a notice with an action (offline with
+/// Retry, can't reach, sign in) shows at once. ``shown`` is what is on screen now.
 ///
 /// Leo, 2026-11-16: "it took like 7 seconds to reconnect or whatever to this
 /// chat on ios and it said "Not connected"'at the top but i dont think it
 /// shoildve said anything".
 @MainActor
 public final class HeldNotice<Value: Equatable> {
-    /// How long a first connect stays silent (the shared coming-up bound).
-    public static var comingUp: Duration { .seconds(1) }
-
     /// The notice on screen now (nil: none).
     public private(set) var shown: Value?
     private var held: Value?

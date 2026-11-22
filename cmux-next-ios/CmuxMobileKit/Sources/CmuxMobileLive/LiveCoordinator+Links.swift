@@ -1052,7 +1052,7 @@ extension LiveCoordinator {
         bannerTask?.cancel()
         let name = session.link.target?.name ?? "Mac"
         // A link coming up or coming back shows nothing until it took longer than
-        // the shared bounds (1 s first connect, 10 s reconnect); a state with an
+        // the shared 10 s bound (QuietStatusGate.threshold); a state with an
         // action (offline with Retry, can't reach, sign in) shows at once.
         switch phase {
         case .idle:
@@ -1076,7 +1076,7 @@ extension LiveCoordinator {
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
             if attempt == 1, !everConnected {
-                bannerHold.hold(.connecting(to: name, identity: session.macID), for: HeldNotice<ConnectionBannerState>.comingUp)
+                bannerHold.hold(.connecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             } else {
                 bannerHold.hold(.reconnecting(to: name, identity: session.macID), for: QuietStatusGate.threshold)
             }
