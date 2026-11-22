@@ -1073,16 +1073,16 @@ button.acpmux-attachment-pasted-open:hover {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 16px;
-  height: 16px;
+  min-width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
   padding: 0 4px;
-  border-radius: 8px;
-  /* The accent and the text the theme draws on it: the accent is the text color by default, white in dark. */
-  background: var(--agent-accent, #0a84ff);
+  border-radius: 999px;
+  /* The accent role and the text the theme draws on it. */
+  background: var(--agent-accent);
   color: var(--agent-on-accent, var(--agent-page-bg, #fff));
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
-  line-height: 16px;
+  line-height: var(--ds-icon-16);
   font-variant-numeric: tabular-nums;
 }
 .acpmux-paste-chip__title > .acpmux-paste-chip__part[data-part="comment"] {

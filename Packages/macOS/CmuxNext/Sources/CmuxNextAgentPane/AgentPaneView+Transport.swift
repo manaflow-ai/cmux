@@ -45,9 +45,12 @@ extension AgentPaneView {
             var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
                                           "optionId": option, "answers": answers]
             if let annotations { params["annotations"] = annotations }
+            var refusal: String?
             let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
-                "params": params]])
+                "params": params]], refusal: &refusal)
             guard let intent else {
+                AgentPaneRefusalLog.log(.gestureParse, method: "_acpmux/permission_respond", session: snapshot.target.sessionID,
+                                        cause: refusal ?? "intent not parsed")
                 self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
                                                              target: snapshot.target, error: .intentInvalid)
                 return
@@ -104,6 +107,10 @@ extension AgentPaneView {
         let pacer = AgentPaneFramePacer(view: self)
         transportPacer = pacer
         model.transport.pacer = pacer
+        // A pane nobody sees hears no other chat's row until it shows (AcpmuxPaneSocket.setAsleep).
+        let transport = model.transport
+        pacer.onSightChange = { [weak transport] sight in transport?.pageSight = sight }
+        pacer.reportSight()
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
         model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
