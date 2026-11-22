@@ -1312,7 +1312,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
             // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
             if !draft { rebuildThread(state, at: t) }
-            updateThumb()
+            // cmux: a draft key moves no row and no scroll: the thumb stays where it is.
+            if !draft { updateThumb() }
             CATransaction.commit()
             phase("caCommit")
             return
