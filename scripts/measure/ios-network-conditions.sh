@@ -139,8 +139,10 @@ bench() {
   local filter=()
   [[ "$mode" == duress && "$surface" == terminal ]] && filter=(--exact open_path_under_duress)
   [[ "$mode" == links && "$surface" == terminal ]] && filter=(--exact terminal_attach_under_link_profiles)
-  # One target directory for every leg: the dependencies build once.
-  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target" \
+  # A target directory per leg: cargo keys a workspace's path crates by their path inside the
+  # workspace, so a before tree and an after tree in one directory share artifact names, and the
+  # leg built second can link the first leg's crates (a stale cmux-rd-proto failed an after build).
+  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
     NETCOND_DURESS_PROFILES="$duress_profiles" NETCOND_DURESS_WORKSPACES="$duress_workspaces" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
