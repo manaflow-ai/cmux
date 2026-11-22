@@ -950,15 +950,19 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
-/* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio
-   itself is visually hidden (it keeps focus, arrows and the accessibility role); the label draws
-   the choice, and a checked choice gets the accent rim. Cards (shipping): the two ways to work side
-   by side, named background tiles. Rows: the ways to work stacked as list rows, tiles unnamed. */
+/* Make cmux Yours (cmux#48416, cmux#49636): three groups of native radios in the body. The radio
+   itself is visually hidden (it keeps focus, arrows and the accessibility role); the label draws the
+   choice. One selection language for the whole screen: a checked card or tile gets a thin accent ring
+   drawn outside its border (box-shadow, so nothing moves), and the two segmented tracks (Density,
+   Material) carry one raised plate that slides to the pick. Cards (shipping): the ways to work side by
+   side, paintings as bare thumbnails with the picked one named in the legend. Rows: the ways to work
+   stacked as list rows. */
 .onb-make {
-  --onb-make-tile-h: 40px;
+  --onb-make-tile-h: 44px;
+  --onb-make-ring: 0 0 0 1.5px var(--ds-color-accent);
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-4);
+  gap: var(--ds-space-5);
   min-height: 0;
 }
 .onb-make-group {
@@ -968,6 +972,10 @@
   border: 0;
 }
 .onb-make-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
   margin-bottom: var(--ds-space-2);
   padding: 0;
   color: var(--page-text-2);
@@ -975,6 +983,14 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
   font-weight: var(--weight-emphasis);
+}
+.onb-make-label-value {
+  overflow: hidden;
+  margin-left: auto;
+  color: var(--page-text-2);
+  font-weight: var(--weight-regular, 400);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .onb-make input[type="radio"] {
   position: absolute;
@@ -984,33 +1000,33 @@
   pointer-events: none;
 }
 .onb-make-option,
-.onb-make-segment,
 .onb-make-tile {
   position: relative;
   border: 1px solid var(--onb-card-rim);
   background: var(--onb-card-fill);
   cursor: default;
+  transition:
+    box-shadow var(--cmux-motion-micro) var(--cmux-ease-out),
+    background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .onb-make-option:hover,
-.onb-make-segment:hover,
 .onb-make-tile:hover {
   background: var(--ds-color-hover);
 }
 .onb-make-option:active,
-.onb-make-segment:active,
 .onb-make-tile:active {
   background: var(--ds-color-pressed);
 }
 .onb-make-option[data-checked],
-.onb-make-segment[data-checked],
 .onb-make-tile[data-checked] {
   border-color: var(--ds-color-accent);
-  box-shadow: inset 0 0 0 1px var(--ds-color-accent);
+  box-shadow: var(--onb-make-ring);
 }
 .onb-make-option:has(input:focus-visible),
 .onb-make-segment:has(input:focus-visible),
-.onb-make-tile:has(input:focus-visible) {
-  outline: 2px solid var(--ds-color-focus);
+.onb-make-tile:has(input:focus-visible),
+.onb-make-chip:has(input:focus-visible) {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 2px;
 }
 
@@ -1018,7 +1034,7 @@
 .onb-make-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--ds-space-2);
+  gap: var(--ds-space-3);
 }
 .onb-make-option {
   display: flex;
@@ -1043,11 +1059,12 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A quiet tag, not a second button: the accent's ink on a faint wash of it. */
 .onb-make-badge {
-  padding: 0 var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-sm);
-  background: var(--ds-color-accent);
-  color: var(--ds-color-on-accent);
+  background: color-mix(in srgb, var(--ds-color-accent) 12%, transparent);
+  color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: var(--weight-emphasis);
@@ -1074,28 +1091,55 @@
   gap: var(--ds-space-3);
 }
 
-/* Density: one segmented control. */
-.onb-make-segments {
+/* Density and Material: segmented tracks (the app's segmented look, ui/controls.css): one sunken
+   track, the pick on a raised plate that slides there. */
+.onb-make-segments,
+.onb-make-chips {
   display: grid;
-  grid-template-columns: repeat(var(--onb-make-count, 5), minmax(0, 1fr));
-  gap: var(--ds-space-2);
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
+  background: var(--ds-color-hover);
+  --ui-slide-radius: var(--ds-radius-md);
+  --ui-slide-fill: var(--ds-color-surface);
 }
-.onb-make-segment {
+.onb-make-thumb {
+  box-shadow: var(--elevation-1);
+}
+.onb-make-segment,
+.onb-make-chip {
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: 0;
-  height: 32px;
+  height: var(--ds-control-compact);
   padding-inline: var(--ds-space-1);
-  border-radius: var(--ds-radius-control);
+  border-radius: var(--ds-radius-md);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   white-space: nowrap;
+  cursor: default;
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.onb-make-segment > span {
+.onb-make-segment > span,
+.onb-make-chip > span {
+  position: relative;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.onb-make-segment:hover,
+.onb-make-chip:hover {
+  color: var(--page-text);
+}
+.onb-make-segment[data-checked],
+.onb-make-chip[data-checked] {
+  color: var(--page-text);
+  font-weight: var(--weight-emphasis);
+}
 
-/* Background: None, Shuffle, then the paintings. */
+/* Background: None, Shuffle, then the paintings, as bare thumbnails. */
 .onb-make-tiles {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1105,15 +1149,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-1);
-  padding: var(--grid-half-step);
+  padding: 0;
+  overflow: hidden;
   border-radius: var(--ds-radius-md);
   min-width: 0;
 }
 .onb-make-tile-image {
   display: block;
   height: var(--onb-make-tile-h);
-  border-radius: var(--ds-radius-sm);
-  background-color: color-mix(in srgb, var(--ds-color-fg) 8%, transparent);
+  background-color: color-mix(in srgb, var(--ds-color-fg) 6%, transparent);
   background-size: cover;
   background-position: center;
 }
@@ -1129,37 +1173,46 @@ img.onb-make-tile-image {
     transparent calc(50% + 0.5px)
   );
 }
+/* The name is in the legend; a tile keeps it for the Named-tiles variant and its tooltip. */
 .onb-make-tile-name {
+  display: none;
   overflow: hidden;
-  padding-inline: var(--grid-half-step);
+  padding: 0 var(--ds-space-1) var(--grid-half-step);
   color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.onb-make[data-look="rows"] .onb-make-tiles {
-  --onb-make-tile-h: 40px;
-}
 
-/* Under the tiles, Settings > Appearance's two rows for a background: Opacity and Material. */
+/* Under the tiles, Settings > Appearance's two rows for a background: Opacity and Material, labels
+   in one column. With no picture they stay where they are, dimmed and inert. */
 .onb-make-adjust {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--ds-space-4);
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--ds-space-4);
+  row-gap: var(--ds-space-2);
+  align-items: center;
   margin-top: var(--ds-space-3);
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.onb-make-adjust[data-off] {
+  opacity: 0.4;
+  pointer-events: none;
 }
 .onb-make-adjust-row {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  min-width: 0;
+  display: contents;
 }
 .onb-make-adjust-label {
-  flex: none;
+  grid-column: 1;
   color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+}
+.onb-make-slider-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 .onb-make-adjust-value {
   flex: none;
@@ -1176,46 +1229,17 @@ img.onb-make-tile-image {
   accent-color: var(--ds-color-accent);
 }
 .onb-make-slider:focus-visible {
-  outline: 2px solid var(--ds-color-focus);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 2px;
 }
-.onb-make-chips {
-  display: flex;
-  flex: 1;
-  gap: var(--grid-half-step);
-  min-width: 0;
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-make-option,
+  .onb-make-tile,
+  .onb-make-segment,
+  .onb-make-chip,
+  .onb-make-adjust {
+    transition: none;
+  }
 }
-.onb-make-chip {
-  position: relative;
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  height: 24px;
-  padding-inline: var(--ds-space-1);
-  border: 1px solid var(--onb-card-rim);
-  border-radius: var(--ds-radius-control);
-  background: var(--onb-card-fill);
-  font-size: var(--text-caption);
-  white-space: nowrap;
-  cursor: default;
-}
-.onb-make-chip > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.onb-make-chip:hover {
-  background: var(--ds-color-hover);
-}
-.onb-make-chip:active {
-  background: var(--ds-color-pressed);
-}
-.onb-make-chip[data-checked] {
-  border-color: var(--ds-color-accent);
-  box-shadow: inset 0 0 0 1px var(--ds-color-accent);
-}
-.onb-make-chip:has(input:focus-visible) {
-  outline: 2px solid var(--ds-color-focus);
-  outline-offset: 2px;
-}
+

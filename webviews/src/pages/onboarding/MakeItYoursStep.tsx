@@ -5,7 +5,10 @@
 //   2. Density: every density Settings has, by Settings' names (the host sends them).
 //   3. Background: None, Shuffle Paintings or one of a few calm built-in works, then the two rows
 //      Settings > Appearance draws under its own picker: Opacity (how much of the theme color covers
-//      the picture) and Material (None, Frosted, Glass, Clear Glass).
+//      the picture) and Material (None, Frosted, Glass, Clear Glass). With no picture they stay in
+//      place, dimmed and inert, so picking one never moves the window's layout.
+// Density and Material are segmented tracks whose selection plate slides (ui/motion/SlidingIndicator);
+// the tiles show only the paintings, and the legend names the one picked (no truncated names).
 // No theme row: windows follow macOS's light or dark mode, and the terminal theme stays in Settings.
 // Each choice is a group of native radios (the browser owns roles, arrows and focus); a pick is sent
 // at once and the host writes it, so the app behind the window changes while the person watches.
@@ -15,6 +18,7 @@ import { useRef, useState, type CSSProperties } from "react";
 import { cx } from "../../ui/cx";
 import type { MakeItYoursState, WorkStyle, MakeItYoursMaterial } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
+import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 
 /** The two looks of the screen (the gallery's variant switch): `cards` ships. */
 export type MakeItYoursLook = "cards" | "rows";
@@ -42,7 +46,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 /** Opacity, as Settings' row: a drag previews in the slider and is written once on release (the host
  * takes one write per click or key); an arrow key writes its step at once. A value sent shows until the
  * host's state answers it, so the thumb never jumps back and two quick keys step twice. */
-function OpacitySlider({ value, label }: { value: number; label: string }) {
+function OpacitySlider({ value, label, disabled }: { value: number; label: string; disabled: boolean }) {
   const { store } = useOnboarding();
   const [drag, setDrag] = useState<number | null>(null);
   // The value sent while the host still shows `base`.
@@ -69,35 +73,38 @@ function OpacitySlider({ value, label }: { value: number; label: string }) {
       <span className="onb-make-adjust-label" id="onb-make-opacity-label">
         {label}
       </span>
-      <input
-        type="range"
-        className="onb-make-slider"
-        min={0}
-        max={1}
-        step={OPACITY_STEP}
-        value={shown}
-        aria-labelledby="onb-make-opacity-label"
-        aria-valuetext={percent(shown)}
-        onPointerDown={() => {
-          dragging.current = true;
-        }}
-        onChange={(event) => {
-          const next = Number(event.currentTarget.value);
-          if (dragging.current) {
-            pending.current = next;
-            setDrag(next);
-            return;
-          }
-          // A key (or an assistive app's step): its own gesture, written now.
-          send(next);
-        }}
-        onPointerUp={release}
-        onPointerCancel={release}
-        onLostPointerCapture={release}
-        onBlur={release}
-      />
-      <span className="onb-make-adjust-value" aria-hidden="true">
-        {percent(shown)}
+      <span className="onb-make-slider-cell">
+        <input
+          type="range"
+          className="onb-make-slider"
+          min={0}
+          max={1}
+          step={OPACITY_STEP}
+          value={shown}
+          aria-labelledby="onb-make-opacity-label"
+          aria-valuetext={percent(shown)}
+          disabled={disabled}
+          onPointerDown={() => {
+            dragging.current = true;
+          }}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value);
+            if (dragging.current) {
+              pending.current = next;
+              setDrag(next);
+              return;
+            }
+            // A key (or an assistive app's step): its own gesture, written now.
+            send(next);
+          }}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onLostPointerCapture={release}
+          onBlur={release}
+        />
+        <span className="onb-make-adjust-value" aria-hidden="true">
+          {percent(shown)}
+        </span>
       </span>
     </div>
   );
@@ -119,6 +126,10 @@ export function MakeItYoursStep({
       : id === "daily"
         ? strings.t("onboarding.makeItYours.background.shuffle")
         : name;
+  const pickedId = choices.background ?? NO_BACKGROUND;
+  const picked = backgroundLabel(pickedId, backgrounds.find((background) => background.id === pickedId)?.name ?? "");
+  // Opacity and Material only change a picture: with None they stay in place, dimmed and inert.
+  const noPicture = pickedId === NO_BACKGROUND;
   return (
     <div className="onb-make" data-look={look}>
       <fieldset className="onb-make-group onb-make-work">
@@ -149,11 +160,15 @@ export function MakeItYoursStep({
       </fieldset>
       <fieldset className="onb-make-group onb-make-density">
         <legend className="onb-make-label">{strings.t("onboarding.makeItYours.density.label")}</legend>
-        <div className="onb-make-segments" style={{ "--onb-make-count": choices.densities.length } as CSSProperties}>
+        <div
+          className="onb-make-segments ui-slide-host"
+          style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
+        >
+          <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
           {choices.densities.map((density) => (
             <label
               key={density.id}
-              className="onb-make-segment"
+              className="onb-make-segment ui-slide-item"
               data-checked={choices.density === density.id || undefined}
             >
               <input
@@ -170,7 +185,12 @@ export function MakeItYoursStep({
         </div>
       </fieldset>
       <fieldset className="onb-make-group onb-make-background">
-        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.background.label")}</legend>
+        <legend className="onb-make-label">
+          {strings.t("onboarding.makeItYours.background.label")}
+          <span className="onb-make-label-value" aria-hidden="true">
+            {picked}
+          </span>
+        </legend>
         <div className="onb-make-tiles">
           {backgrounds.map((background) => {
             const label = backgroundLabel(background.id, background.name);
@@ -199,24 +219,33 @@ export function MakeItYoursStep({
                   image={background.preview}
                   className={cx("onb-make-tile-image", background.id === NO_BACKGROUND && "is-none")}
                 />
-                {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
+                {look === "cards" && (
+                  <span className="onb-make-tile-name" aria-hidden="true">
+                    {label}
+                  </span>
+                )}
               </label>
             );
           })}
         </div>
-        <div className="onb-make-adjust">
+        <div className="onb-make-adjust" data-off={noPicture || undefined}>
           {choices.opacity !== null && (
-            <OpacitySlider value={choices.opacity} label={strings.t("onboarding.makeItYours.opacity")} />
+            <OpacitySlider
+              value={choices.opacity}
+              label={strings.t("onboarding.makeItYours.opacity")}
+              disabled={noPicture}
+            />
           )}
           <div className="onb-make-adjust-row" role="radiogroup" aria-labelledby="onb-make-material-label">
             <span className="onb-make-adjust-label" id="onb-make-material-label">
               {strings.t("onboarding.makeItYours.material")}
             </span>
-            <div className="onb-make-chips">
+            <div className="onb-make-chips ui-slide-host">
+              <SlidingIndicator selected={choices.material} selector="[data-checked]" className="onb-make-thumb" />
               {choices.materials.map((material) => (
                 <label
                   key={material}
-                  className="onb-make-chip"
+                  className="onb-make-chip ui-slide-item"
                   data-checked={choices.material === material || undefined}
                 >
                   <input
@@ -225,6 +254,7 @@ export function MakeItYoursStep({
                     value={material}
                     aria-label={strings.t(MATERIAL_KEYS[material])}
                     checked={choices.material === material}
+                    disabled={noPicture}
                     onChange={() => store.call("cmux.onboarding.makeItYours.material", { value: material })}
                   />
                   <span>{strings.t(MATERIAL_KEYS[material])}</span>
