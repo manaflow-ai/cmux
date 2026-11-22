@@ -397,7 +397,7 @@ function pendingFiles(): Record<string, string> {
   } catch {
     // No manifest (a fixture root): only this script's backlog.
   }
-  return { ...(manifest.web_floating_pending ?? {}), ...PENDING };
+  return { ...manifest.web_floating_pending, ...PENDING };
 }
 
 // ---------------------------------------------------------------------------------------------------

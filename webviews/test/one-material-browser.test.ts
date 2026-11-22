@@ -120,7 +120,7 @@ await requireBrowserLane("one-material-browser.test.ts", async () => {
     return page.evaluate(
       ({ primitive, root, attributes }) => {
         const html = document.documentElement;
-        for (const name of [...html.getAttributeNames()])
+        for (const name of html.getAttributeNames())
           if (name.startsWith("data-") && name !== "data-harness-ready") html.removeAttribute(name);
         for (const [name, value] of Object.entries(root)) html.setAttribute(name, value);
         const stage = document.getElementById("stage")!;
@@ -146,7 +146,7 @@ await requireBrowserLane("one-material-browser.test.ts", async () => {
         const style = getComputedStyle(element);
         // A material inside it: anything with a backdrop filter or a glass class of its own, or a
         // group of controls framed all round (a capsule that reads as a second glass on the frost).
-        const seen = (color: string) => !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(color) && !/\/ 0\)$/.test(color);
+        const seen = (color: string) => !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(color) && !color.endsWith("/ 0)");
         const framed = (own: CSSStyleDeclaration) =>
           (["Top", "Right", "Bottom", "Left"] as const).every(
             (side) =>

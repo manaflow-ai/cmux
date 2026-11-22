@@ -133,7 +133,7 @@ function lengths(part: string): number[] {
   const out: number[] = [];
   for (const token of topLevel(part, " ")) {
     if (/^-?(\d*\.?\d+)(px|rem|em)?$/.test(token)) out.push(Number.parseFloat(token));
-    else if (/^calc\(/.test(token) || /^var\(--[\w-]*(hairline|width|spread|blur|size|line)[\w-]*/.test(token))
+    else if (token.startsWith("calc(") || /^var\(--[\w-]*(hairline|width|spread|blur|size|line)[\w-]*/.test(token))
       out.push(1);
   }
   return out;
