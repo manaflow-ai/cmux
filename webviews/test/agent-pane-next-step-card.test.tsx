@@ -87,7 +87,7 @@ describe("NextStepCard", () => {
     expect(html).toContain("Add a hook that pushes them to the background?");
     expect(html.match(/acpmux-next-step__answer\b(?!s)/g)).toHaveLength(3);
     expect(html).toContain('aria-keyshortcuts="Meta+Enter"');
-    expect(html).toContain("⌘ return");
+    expect(html).toContain('class="ui-key-hint" data-keys="⌘↩"');
   });
 
   test("a pane that cannot send draws no buttons", () => {

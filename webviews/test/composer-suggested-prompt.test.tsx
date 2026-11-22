@@ -119,7 +119,7 @@ const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
 const menuDocument = () => dom.window.document;
 /** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
 const IDLE = "Type / for commands";
-const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
+const key = () => host.querySelector(".acpmux-md-placeholder .ui-key-hint")?.textContent;
 const field = () => host.querySelector<HTMLElement>(".acpmux-md")!;
 const press = (name: string, init: KeyboardEventInit = {}) =>
   act(async () => {
@@ -150,7 +150,7 @@ const fresh = (sessions: AcpmuxSessionEntry[]) => noChat(sessions, { summary: { 
 test("an open PR from another chat here is suggested, with a Tab keycap", async () => {
   await render(fresh([prChat()]));
   expect(shown()).toBe("Continue PR #123: Retry failed uploadsTab");
-  expect(key()).toBe("Tab");
+  expect(key()).toBe("tab");
 });
 
 test("failing checks and drafts get their own wording", async () => {
@@ -564,7 +564,7 @@ const typeText = (text: string) =>
 test("an existing chat's agent suggestion shows as the empty prompt's ghost text with the Tab keycap", async () => {
   await render(afterTurn());
   expect(shown()).toBe(`${AGENT_SUGGESTION}Tab`);
-  expect(key()).toBe("Tab");
+  expect(key()).toBe("tab");
 });
 
 test("an older acpmux that sends none, or a turn running, shows the plain placeholder", async () => {

@@ -51,6 +51,7 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
@@ -881,7 +882,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     label: (
       <>
         {label}
-        <span className="ui-menu-shortcut">{key}</span>
+        <span className="ui-menu-shortcut">
+          <KeyHint keys={key} />
+        </span>
       </>
     ),
     onSelect,

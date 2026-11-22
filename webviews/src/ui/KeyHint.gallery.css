@@ -1,0 +1,130 @@
+/* The key hint gallery's stage (KeyHint.gallery.tsx). The looks other than `plain` restyle the one
+   component here only, so the sheet compares them on the same specimens. */
+.khg {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px 28px;
+  padding: 20px;
+  color: var(--ui-fg, var(--cmux-text, CanvasText));
+  font: var(--text-body, 13px) / 1.4 var(--font-ui, system-ui);
+}
+.khg h3 {
+  margin: 0 0 8px;
+  color: var(--ui-fg-2, GrayText);
+  font-size: var(--text-caption, 11px);
+  font-weight: var(--weight-emphasis, 600);
+}
+.khg section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.khg-tooltip {
+  position: static;
+  max-width: 320px;
+}
+.khg-menu {
+  box-sizing: border-box;
+  width: 260px;
+  padding: 4px;
+  border: 1px solid var(--ui-line, color-mix(in srgb, currentColor 14%, transparent));
+  border-radius: 10px;
+  background: var(--ui-popup, color-mix(in srgb, Canvas 92%, currentColor));
+}
+.khg-row {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.khg-row.is-selected {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.khg-row > :last-child {
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
+}
+.khg-row .ui-menu-shortcut {
+  color: var(--ui-fg-2, color-mix(in srgb, currentColor 60%, transparent));
+}
+.khg-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--ui-line, color-mix(in srgb, currentColor 14%, transparent));
+  margin-top: 4px;
+  color: var(--ui-fg-2, GrayText);
+  font-size: var(--text-caption, 11px);
+}
+.khg-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.khg-answer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.khg-answer.is-primary {
+  border-color: transparent;
+  background: var(--ui-fg, CanvasText);
+  color: var(--ui-bg, Canvas);
+}
+
+/* key-hint-allow: the gallery's rejected looks, drawn on the one component to compare them. */
+[data-key-hint-look="plate"] .ui-key-hint {
+  align-items: center;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-weight: var(--weight-emphasis, 600);
+}
+/* key-hint-allow: a rejected look, for comparison. */
+[data-key-hint-look="chip"] .ui-key-hint {
+  gap: 3px;
+  align-items: center;
+}
+/* key-hint-allow: a rejected look, for comparison. */
+[data-key-hint-look="chip"] .ui-key-hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-weight: 500;
+}
+/* key-hint-allow: a rejected look, for comparison. */
+[data-key-hint-look="outline"] .ui-key-hint {
+  gap: 3px;
+  align-items: center;
+}
+/* key-hint-allow: a rejected look, for comparison. */
+[data-key-hint-look="outline"] .ui-key-hint-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 35%, transparent);
+}

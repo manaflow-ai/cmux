@@ -21,6 +21,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { KeyHint } from "./KeyHint";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
@@ -530,7 +531,10 @@ export interface MenuItemProps {
   /** Stable action id for automation and gallery fixtures. */
   "data-value"?: string;
   disabled?: boolean;
-  shortcut?: ReactNode;
+  /** The row's keyboard shortcut ("⌘C", "↩"), drawn with the one key hint (ui/KeyHint). */
+  shortcut?: string | undefined;
+  /** Text in the shortcut's column that is not a key (a count). */
+  trailing?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
   onPointerLeave?(event: PointerEvent<HTMLElement>): void;
@@ -547,6 +551,7 @@ export function MenuItem({
   "data-value": dataValue,
   disabled,
   shortcut,
+  trailing,
   onPointerMove,
   onPointerEnter,
   onPointerLeave,
@@ -603,7 +608,9 @@ export function MenuItem({
       }}
     >
       {children}
-      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
+      {shortcut || trailing != null ? (
+        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
+      ) : null}
     </BaseMenu.Item>
   );
 }
@@ -667,6 +674,7 @@ export function MenuRadioItem({
   className,
   disabled,
   shortcut,
+  trailing,
   closeOnClick,
   label,
   title,
@@ -702,7 +710,9 @@ export function MenuRadioItem({
         </BaseMenu.RadioItemIndicator>
       </span>
       {children}
-      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
+      {shortcut || trailing != null ? (
+        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
+      ) : null}
     </BaseMenu.RadioItem>
   );
 }

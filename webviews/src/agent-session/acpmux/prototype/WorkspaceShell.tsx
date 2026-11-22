@@ -5,6 +5,7 @@
 // until Cmd-O promotes them into the workspace. Rows are minimal unless `sidebar.rowDetail` (the
 // sliders button, or `?rowDetail=everything&rowDetailItems=agents,-branch`) asks for more.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
 import { sessionEntry, sessionMark, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
@@ -662,7 +663,7 @@ function MiniBrowser({
         <button type="button" className="proto-mini-promote" onClick={onPromote}>
           <PromoteIcon />
           Open as tab
-          <kbd>⌘O</kbd>
+          <KeyHint keys="⌘O" />
         </button>
       </footer>
     </section>

@@ -115,10 +115,10 @@ async function renderCard(
 }
 
 const submitButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-question-submit")!;
-/// The button's words, without its keycaps (⌘ and ↩ are one each, as the permission card's).
+/// The button's words, without its key hint (⌘↩, one KeyHint, as the permission card's).
 const buttonLabel = (container: HTMLElement) => {
   const button = submitButton(container).cloneNode(true) as HTMLElement;
-  for (const key of button.querySelectorAll(".acpmux-keycap")) key.remove();
+  for (const key of button.querySelectorAll(".ui-key-hint")) key.remove();
   return button.textContent?.trim() ?? "";
 };
 const activePosition = (container: HTMLElement) =>
