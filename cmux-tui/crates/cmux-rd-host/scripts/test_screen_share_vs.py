@@ -92,6 +92,29 @@ class BudgetTable(unittest.TestCase):
         self.assertIn("null", rows["Present"]["cmux"])
         self.assertEqual(rows["Total"]["cmux"]["to"], "decoded")  # no presented_us: not the ledger
 
+    def test_run_stage_ledger_fills_rows_no_sample_ledger_does(self):
+        def summary(frames, reassembly_p95):
+            return {"schema": vs.LEDGER_SCHEMA, "clock": "host monotonic", "frames": frames,
+                    "stages": [
+                        {"stage": "Reassembly", "n": frames, "p50_ms": 1.234, "p95_ms": reassembly_p95},
+                        {"stage": "Input", "n": 0, "p50_ms": None, "p95_ms": None},
+                        {"stage": "Total", "n": frames, "p50_ms": 30.0, "p95_ms": 40.0}]}
+        b = vs.build_budget({"rows": [breakdown_row()],
+                             "summaries": [summary(50, 9.0), summary(400, 5.5), {"schema": "other"}]},
+                            None)
+        rows = rows_named(b)
+        cell = rows["Reassembly"]["cmux"]
+        self.assertEqual((cell["source"], cell["n"], cell["p50"], cell["p95"], cell["trials"]),
+                         ("ledger", 400, 1.23, 5.5, 2))
+        # A stage the summary did not measure keeps the breakdown; Total is never the summary's.
+        self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
+        self.assertEqual(rows["Total"]["cmux"]["source"], "total")
+        # A per-sample ledger, when there is one, still wins.
+        b = vs.build_budget({"rows": [breakdown_row()], "ledgers": [{"Reassembly": 0.5}],
+                             "summaries": [summary(400, 5.5)]}, None)
+        self.assertEqual(rows_named(b)["Reassembly"]["cmux"]["p50"], 0.5)
+        self.assertNotIn("trials", rows_named(b)["Reassembly"]["cmux"])
+
     def test_skipped_stacks_say_why(self):
         b = vs.build_budget(None, {"skipped": "skipped: no --vnc-user"})
         rows = rows_named(b)
