@@ -890,6 +890,9 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.dev.dir, PathBuf::from("."));
     assert!(options.dev.once && !options.dev.install, "one reload, no install card");
     assert_eq!(options.out, None);
+    assert!(!options.record);
+    let Ok(Request::Shot(options)) = parse(&words("shot --record")) else { panic!("--record") };
+    assert!(options.record);
     let Ok(Request::Shot(options)) = parse(&words("shot ext/x --out a.png --build make")) else {
         panic!("shot with options")
     };
@@ -897,6 +900,13 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.out, Some(PathBuf::from("a.png")));
     assert_eq!(options.dev.build.as_deref(), Some("make"));
     assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
+    assert_eq!(
+        parse(&words("design --listing ext/x")),
+        Ok(Request::DesignListing { dir: PathBuf::from("ext/x") })
+    );
+    for bad in ["design --listing", "design --listing x a.json", "design --listing x --widget"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
     for bad in [
         "shot --out",
         "shot --out -",
@@ -1009,15 +1019,35 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(outcome.to_json(&dir)["scene"][1], "  Text text=\"Hello from hello\" font=headline");
     // Not installed: it rendered as a preview, which no window shows.
     assert!(!shot::shown(&outcome));
-    let (text, code) = shot::report(&outcome, &dir, None, false);
+    let (text, code) = shot::report(&outcome, &dir, None, None, false);
     assert_eq!(code, exit::SHOT_FAILED);
     assert!(text.contains("rendered cmux.section/1:\n  VStack\n    Text"), "{text}");
     assert!(text.contains("no picture: cmux apps install local/pic"), "{text}");
-    let (json_text, _) = shot::report(&outcome, &dir, None, true);
+    let (json_text, _) = shot::report(&outcome, &dir, None, None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(false), json!("shot")));
     assert_eq!(json["exitCode"], exit::SHOT_FAILED);
     assert!(json["shot"]["error"].as_str().unwrap().starts_with("no picture"));
+    // `ext shot --json` carries the design check, as `ext dev --once --json` does: the
+    // skill's loop reads it there (`hello_scene` is clean, so an empty list, not a missing key).
+    assert_eq!(json["design"], outcome.to_json(&dir)["design"]);
+    assert_eq!(json["design"], json!([]));
+
+    // `--record`: the scene goes into preview/scenes.json by name, beside the file's others.
+    std::fs::create_dir_all(dir.join("preview")).unwrap();
+    std::fs::write(dir.join("preview/scenes.json"), r#"{"cmux.pane/1":{"ops":[]}}"#).unwrap();
+    let recorded = shot::record(&dir, &outcome);
+    assert_eq!(recorded, Ok(dir.join("preview/scenes.json")));
+    let file: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("preview/scenes.json")).unwrap())
+            .unwrap();
+    assert_eq!(file["cmux.section/1"]["ops"], hello_scene());
+    assert_eq!(file["cmux.pane/1"]["ops"], json!([]));
+    let (text, _) = shot::report(&outcome, &dir, None, Some(&recorded), false);
+    assert!(text.contains("recorded the scene in"), "{text}");
+    let (json_text, _) = shot::report(&outcome, &dir, None, Some(&recorded), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["recorded"], json!(dir.join("preview/scenes.json")));
 
     // Installed and shown: the picture is reported with where the extension is.
     let fake = FakeDaemon::start(&local, "local/pic", true);
@@ -1025,13 +1055,13 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert!(shot::shown(&outcome), "{:?}", outcome.placed);
     let picture =
         Ok(shot::Picture { path: "/tmp/p.png".into(), width: Some(10), height: Some(20) });
-    let (text, code) = shot::report(&outcome, &dir, Some(&picture), false);
+    let (text, code) = shot::report(&outcome, &dir, Some(&picture), None, false);
     assert_eq!(code, exit::OK);
     assert!(
         text.ends_with("picture of the window (10x20): /tmp/p.png; the extension is in the sidebar, bottom region"),
         "{text}"
     );
-    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), true);
+    let (json_text, _) = shot::report(&outcome, &dir, Some(&picture), None, true);
     let json: Value = serde_json::from_str(&json_text).unwrap();
     assert_eq!((json["ok"].clone(), json["phase"].clone()), (json!(true), json!("done")));
     assert_eq!(json["shot"]["path"], "/tmp/p.png");
@@ -1039,7 +1069,7 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     // A failed load is reported as ext dev reports it: its own exit code, no picture.
     std::fs::write(dir.join("dist/main.js"), "// THROW_AT_INIT\n").unwrap();
     let broken = dev::once(&global(&fake.socket), &dev_options(&dir), false);
-    let (_, code) = shot::report(&broken, &dir, None, false);
+    let (_, code) = shot::report(&broken, &dir, None, None, false);
     assert_eq!(code, exit::LOAD_FAILED);
 }
 

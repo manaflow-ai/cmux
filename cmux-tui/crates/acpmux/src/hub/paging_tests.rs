@@ -917,3 +917,103 @@ fn subagent_page_perf() {
         std::fs::remove_dir_all(&root).ok();
     }
 }
+
+/// A Codex chat as the app server logs it: per turn a prompt, an answer, and the app server's
+/// raw lines (`codex_app_server::tap_kind`): a `codex.response` of `raw_bytes` (a resumed
+/// thread's answer holds its whole history) and a notification.
+fn codex_raw_chat(turns: usize, raw_bytes: usize) -> Vec<EventRecord> {
+    let mut out = Vec::new();
+    let history = "h".repeat(raw_bytes);
+    for turn in 0..turns {
+        let seq = out.len() as u64;
+        out.push(EventRecord {
+            seq: seq + 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg: json!({"text": format!("prompt {turn}")}),
+            host_seq: None,
+        });
+        out.push(EventRecord {
+            seq: seq + 2,
+            at: 0,
+            dir: "in".into(),
+            kind: "codex.response".into(),
+            msg: json!({"id": turn, "result": {"thread": {"history": history}}}),
+            host_seq: None,
+        });
+        out.push(agent(seq + 3, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("answer {turn}")}})));
+        out.push(EventRecord {
+            seq: seq + 4,
+            at: 0,
+            dir: "in".into(),
+            kind: "codex.thread/tokenUsage/updated".into(),
+            msg: json!({"method": "thread/tokenUsage/updated", "params": {"total": turn}}),
+            host_seq: None,
+        });
+    }
+    out
+}
+
+/// A Codex chat's newest page parses its transcript records, never the app server's raw lines it
+/// drops: the open of a long Codex chat parsed 84 to 148 MB of `codex.response` lines for 200
+/// records, 0.5 to 12.6 s cold on a lane's daemon (Leo, 2026-11-19, ask-9720e28f94: why is it
+/// this slow).
+#[test]
+fn a_codex_chats_open_page_parses_no_raw_app_server_lines() {
+    let filter = transcript(true);
+    assert!(filter.surely_skips(b"in", b"codex.response"));
+    assert!(filter.surely_skips(b"in", b"codex.thread/tokenUsage/updated"));
+    assert!(!filter.surely_skips(b"in", b"agent_message_chunk"));
+    let root = std::env::temp_dir().join(format!("acpmux-codex-raw-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_raw_chat(50, 4096);
+    write_chat(&sessions, &mut log, 64 << 10);
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let page = hub.events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &filter).unwrap();
+    let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+    let want: Vec<u64> =
+        log.iter().filter(|r| !r.kind.starts_with("codex.")).map(|r| r.seq).collect();
+    assert_eq!(page.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want);
+    assert!(
+        parsed <= want.len() as u64,
+        "the page parsed {parsed} lines for {} transcript records",
+        want.len()
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The newest page of a long Codex chat (the PR's Performance table): run with
+/// `cargo test -p acpmux --release --lib -- --ignored --nocapture codex_raw_open_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn codex_raw_open_perf() {
+    // 400 turns, each with a 256 KB raw answer: about 100 MB of raw lines behind 800 records,
+    // as the lane's slow chats hold.
+    let root = std::env::temp_dir().join(format!("acpmux-codex-raw-perf-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_raw_chat(400, 256 << 10);
+    let bytes = write_chat(&sessions, &mut log, 8 << 20);
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let mut runs = Vec::new();
+    let mut parsed = 0;
+    for _ in 0..5 {
+        let before = PARSED_LINES.with(std::cell::Cell::get);
+        let started = std::time::Instant::now();
+        let page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        runs.push(started.elapsed().as_secs_f64() * 1000.0);
+        parsed = PARSED_LINES.with(std::cell::Cell::get) - before;
+        assert!(!page.events.is_empty());
+    }
+    runs.sort_by(f64::total_cmp);
+    println!(
+        "codex chat of {} MB: newest page median {:.1} ms (min {:.1}), {parsed} lines parsed",
+        bytes >> 20,
+        runs[2],
+        runs[0]
+    );
+    std::fs::remove_dir_all(&root).ok();
+}

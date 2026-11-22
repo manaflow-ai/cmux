@@ -148,7 +148,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
@@ -494,6 +495,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Extension chat widgets draw installed extensions' cards in agent chat; only the person turns them on.",
+      "keys": [
+        "experiments.chatWidgets"
+      ]
+    },
+    {
       "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
@@ -531,6 +539,14 @@
       "keys": [
         "agentPane.newChatsIn",
         "agentPane.sessionWorktrees"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.",
+      "keys": [
+        "agentPane.composerLook",
+        "agentPane.emptyChatComposerPosition"
       ]
     },
     {
@@ -789,6 +805,8 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.transcriptLook",
+        "agentPane.display.transcriptTokens",
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
@@ -1301,6 +1319,13 @@
       "why": "On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.",
       "keys": [
         "labs.machineJoin"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether new nonpersistent Cloud agent machines opt into the Mac pause/resume experiment: the person decides this lifecycle change.",
+      "keys": [
+        "labs.pauseAgentMachines"
       ]
     },
     {
