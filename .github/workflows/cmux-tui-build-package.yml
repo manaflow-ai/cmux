@@ -492,9 +492,9 @@ jobs:
       # into cmux-tui/target, which actions/checkout's clean empties every job, so every one
       # compiled cold: run 44947539922's fallback took 2h01m here and the job timeout cancelled
       # it before it shipped. On an owned Mac it now starts from an APFS clone of the target the
-      # last feat-cmux-next native build kept ("Keep the warm Mac target" below);
+      # last successful native build on that Mac kept ("Keep the warm Mac target" below);
       # scripts/ci/cmux-tui-mac-warm-target.sh prints "mac warm target: hit, ..." or "miss (...)".
-      - name: Start from feat-cmux-next's warm Mac target
+      - name: Start from this Mac's warm target
         if: matrix.cross == false && runner.os == 'macOS'
         env:
           LTO: ${{ inputs.lto }}
@@ -1022,11 +1022,14 @@ jobs:
           scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
             || echo "warning: warm target record failed" >&2
 
-      # A feat-cmux-next push or dispatch's native Mac build, once staged, becomes the base tree every later
-      # native leg on that Mac (a lane's macOS fallback included) clones before it builds. A lane
-      # never writes it. scripts/ci/cmux-tui-mac-warm-target.sh.
-      - name: Keep the warm Mac target (feat-cmux-next)
-        if: success() && matrix.cross == false && runner.os == 'macOS' && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
+      # Any successful native Mac build from this repository (a push, a dispatch, a same-repository
+      # pull request, a lane's macOS fallback included), once staged, becomes the one base tree every
+      # later native leg on that Mac clones before it builds; a fork's pull request never writes it.
+      # The fallback lands on any of several Macs, so each builds cold once, on its first native leg
+      # (bounded by scripts/ci/cmux-tui-mac-cargo-builds.sh), and warm after.
+      # scripts/ci/cmux-tui-mac-warm-target.sh.
+      - name: Keep the warm Mac target
+        if: success() && matrix.cross == false && runner.os == 'macOS' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
           LTO: ${{ inputs.lto }}
         shell: bash

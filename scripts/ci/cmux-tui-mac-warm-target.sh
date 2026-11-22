@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Warm cargo target for the cmux-tui leg built natively on an owned Mac ("Build cmux-tui
 # (native)" in .github/workflows/cmux-tui-build-package.yml): the macOS fallback build of
-# cmux-tui-artifacts.yml, and a feat-cmux-next push leg placed on a free mini.
+# cmux-tui-artifacts.yml, and a push leg placed on a free mini.
 #
 # usage: scripts/ci/cmux-tui-mac-warm-target.sh restore|record TRIPLE
 #
@@ -15,15 +15,21 @@
 # Mac cannot mount one.
 #
 # restore (before the build, owned Mac only): this runner's tree under ROOT/KEY becomes an APFS
-# clone (cp -c: copy on write, no data copied) of the base tree feat-cmux-next builds keep
-# there, cmux-tui/target links to it, and every source file whose content equals the one the
-# base built gets its recorded mtime back (scripts/blacksmith-testbox-source-mtimes.py), so
-# cargo rebuilds only what the commit changed. A changed file keeps its fresh mtime:
-# correctness never depends on the base tree. With no base tree yet it builds cold, as before.
+# clone (cp -c: copy on write, no data copied) of the Mac's base tree, cmux-tui/target links to
+# it, and every source file whose content equals the one the base built gets its recorded mtime
+# back (scripts/blacksmith-testbox-source-mtimes.py), so cargo rebuilds only what the commit
+# changed. A changed file keeps its fresh mtime: correctness never depends on the base tree.
+# With no base tree yet it builds cold, as before.
 #
-# record (after "Stage binary", feat-cmux-next only, never a pull request): record the source mtimes and the
-# commit next to the build output, then clone this runner's tree as the new base and swap it in.
-# A lane never writes the base.
+# record (after "Stage binary" of a native build that succeeded, from this repository: any push,
+# dispatch or same-repository pull request, a fallback's own build included; never a fork's
+# pull request, which the workflow's condition keeps out): record the source mtimes and the
+# commit next to the build output, then clone this runner's tree as the Mac's new base. The base
+# is a symlink ROOT/KEY/base to a tree beside it, replaced with one rename(2), so a restore reads
+# the old tree or the new one, never half of either. One base per Mac: record deletes the trees
+# it replaced and every other KEY's base (an older toolchain or Xcode), and HQ's disk-pressure
+# pass ages out idle runner trees. So each Mac builds cold once per KEY, on its first native
+# leg; the fallback lands on any of several Macs, and each warms on its own first fallback.
 #
 # KEY: the pinned toolchain, the selected Xcode and SDK (build scripts' C compiler, which
 # cargo's fingerprints do not see), the triple and LTO (fat and thin objects never mix).
@@ -55,7 +61,7 @@ sdk_build="$(xcrun --sdk macosx --show-sdk-build-version 2>/dev/null || echo non
 key="$( { cat "$repo/cmux-tui/rust-toolchain.toml"; uname -m; echo "$developer_dir"; echo "$xcode_version";
   echo "$sdk_build"; echo "$triple"; echo "lto=${LTO:-}"; } | sha)"
 root="${CMUX_TUI_MAC_WARM_ROOT:-${HOME:?}/Library/Caches/cmux-next-ci/cmux-tui-package}/$key"
-base="$root/base"
+base="$root/base"  # a symlink to base.<runner>.<epoch> beside it
 # One runner runs one job at a time, so no other job writes this runner's tree.
 mine="$root/runner-$(printf '%s\n' "$RUNNER_NAME" | sha)"
 manifest_name=.cmux-testbox-source-mtimes.tsv
@@ -78,17 +84,19 @@ restore() {
   fi
   mkdir -p "$root"
   rm -rf -- "$mine"
-  if [[ -f "$base/$source_name" && ! -L "$base/$source_name" ]]; then
+  local tree=""
+  if [[ -L "$base" ]]; then tree="$root/$(readlink "$base")"; fi
+  if [[ -n "$tree" && "$tree" == "$root"/base.* && -f "$tree/$source_name" && ! -L "$tree/$source_name" ]]; then
     local from started=$SECONDS
-    from="$(head -c 40 "$base/$source_name" | tr -cd '0-9a-f')"
-    if clone "$base" "$mine"; then
-      echo "mac warm target: hit, feat-cmux-next's target built from $from (cloned in $((SECONDS - started)) s)"
+    from="$(head -c 40 "$tree/$source_name" | tr -cd '0-9a-f')"
+    if clone "$tree" "$mine"; then
+      echo "mac warm target: hit, this Mac's base built from $from (cloned in $((SECONDS - started)) s)"
     else
       echo "warning: mac warm target: cloning the base failed; cold build" >&2
       rm -rf -- "$mine"
     fi
   else
-    echo "mac warm target: miss (no feat-cmux-next target kept under $root yet); cold build"
+    echo "mac warm target: miss (no base kept under $root on this Mac yet); cold build, recorded as the base if it succeeds"
   fi
   mkdir -p "$mine"
   ln -s "$mine" "$link"
@@ -105,13 +113,29 @@ record() {
   rm -f "$mine/$source_name"
   python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$mine/$manifest_name"
   git -C "$repo" rev-parse HEAD > "$mine/$source_name"
-  local next="$root/base.next.$$" old="$root/base.old.$$"
-  rm -rf -- "$next" "$old"
-  clone "$mine" "$next"
-  if [[ -d "$base" ]]; then mv "$base" "$old"; fi
-  mv "$next" "$base"
-  rm -rf -- "$old"
-  echo "mac warm target: kept as feat-cmux-next's base, built from $(cat "$base/$source_name")"
+  local name old="" link_tmp
+  name="base.$(basename "$mine" | cut -c8-).$(date +%s).$$"
+  rm -rf -- "${root:?}/$name"
+  clone "$mine" "$root/$name"
+  if [[ -L "$base" ]]; then old="$(readlink "$base")"; fi
+  link_tmp="$root/.base.link.$$"
+  rm -f -- "$link_tmp"
+  ln -s "$name" "$link_tmp"
+  # rename(2) over the old symlink: atomic, and never into the directory it points at (mv would).
+  python3 -I -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' "$link_tmp" "$base"
+  # The trees this one replaced (a concurrent record's included) and other keys' bases. A restore
+  # cloning one of them right now fails its clone and builds cold, which it already handles.
+  local entry
+  for entry in "$root"/base.*; do
+    [[ -e "$entry" && "${entry##*/}" != "$name" ]] || continue
+    rm -rf -- "$entry"
+  done
+  # Other keys keep their runner trees (a job may be building in one); their bases go.
+  for entry in "${root%/*}"/*; do
+    [[ -d "$entry" && "$entry" != "$root" ]] || continue
+    rm -rf -- "$entry"/base "$entry"/base.*
+  done
+  echo "mac warm target: kept as this Mac's base ($key), built from $(cat "$base/$source_name")${old:+, replacing $old}"
 }
 
 "$command"
