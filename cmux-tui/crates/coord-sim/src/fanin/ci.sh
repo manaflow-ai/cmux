@@ -27,6 +27,13 @@ SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-si
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
 RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
 chmod 700 "$RUN"
+# Each ramp starts its daemons from the binary path again, and a runner's target dir can be
+# shared: another job's build there swapped a later ramp's controller to another commit's acpmux
+# (cmux#49864 run29: n=2000 read build 3ded5d2ce while n=50 read this head). Run private copies.
+mkdir -p "$RUN/bin" && cp "$BIN" "$RUN/bin/acpmux" && cp "$SIM" "$RUN/bin/coord-sim" \
+  || { echo "FANIN: cannot copy the binaries into $RUN/bin"; exit 1; }
+BIN=$RUN/bin/acpmux SIM=$RUN/bin/coord-sim
+echo "FANIN: acpmux $("$BIN" --version 2>/dev/null | head -1)"
 # The largest ramp's controller, found by the home in its environment (`fanin/fleet.rs` env_for).
 profile() {
   local top=${RAMPS##*,} pid="" p
