@@ -165,10 +165,12 @@ describe("the fold keeps a subagent's retry", () => {
   test("the summary card's started-chat rows and counts read it", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
-    expect(sessionStateText(translate, chat)).toEqual({
+    expect(sessionStateText(translate, chat, () => true)).toEqual({
       text: "Retrying (2/4) after a capacity error",
       working: true,
     });
+    // Before the retry has waited the shared bound, the row reads running (retryWords).
+    expect(sessionStateText(translate, chat, () => false)).toEqual({ text: "Running", working: true });
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 

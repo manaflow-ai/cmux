@@ -58,6 +58,7 @@ import { ChangesSection } from "./ChangesSection";
 import { visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { summarizeConnectors } from "./connectorState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -633,7 +634,8 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const connectorSummary = summarizeConnectors(mcp);
+  // A connect waits out the shared bound before the summary says so (connectorState.ts).
+  const connectorSummary = summarizeConnectors(mcp, useConnectionQuietKeys());
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.

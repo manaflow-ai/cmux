@@ -4,6 +4,8 @@
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
 import { useState } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
+import { connectingShown } from "./connectorState";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -26,28 +28,32 @@ export function ConnectorsSection({
   imessage?: IMessageView;
 }) {
   const t = useT();
+  // A server's connect waits out the shared bound before its row says so (connectorState.ts).
+  const connectionQuiet = useConnectionQuietKeys();
   return (
     <ul className="acpmux-session-info-list">
       {imessage && <IMessageConnector view={imessage} />}
-      {servers.map((server) => (
-        <li key={server.name} className="acpmux-session-info-row">
-          <Icon name="extension" size={ROW_ICON} row />
-          <span className="acpmux-session-info-row__name">{server.name}</span>
-          {server.status === "failed" && onReconnect ? (
-            <ReconnectButton name={server.name} reconnect={onReconnect} />
-          ) : (
-            <span className="acpmux-session-info-row__end" data-state={server.status}>
-              {t(
-                server.status === "failed"
-                  ? "sessionInfo.connectors.needsReconnect"
-                  : server.status === "pending"
-                    ? "rail.connectorPending"
-                    : "composer.envConnected",
-              )}
-            </span>
-          )}
-        </li>
-      ))}
+      {servers
+        .map((server) => [server, connectingShown(server, connectionQuiet)] as const)
+        .map(([server, connecting]) => (
+          <li key={server.name} className="acpmux-session-info-row">
+            <Icon name="extension" size={ROW_ICON} row />
+            <span className="acpmux-session-info-row__name">{server.name}</span>
+            {server.status === "failed" && onReconnect ? (
+              <ReconnectButton name={server.name} reconnect={onReconnect} />
+            ) : server.status === "pending" && !connecting ? null : (
+              <span className="acpmux-session-info-row__end" data-state={server.status}>
+                {t(
+                  server.status === "failed"
+                    ? "sessionInfo.connectors.needsReconnect"
+                    : server.status === "pending"
+                      ? "rail.connectorPending"
+                      : "composer.envConnected",
+                )}
+              </span>
+            )}
+          </li>
+        ))}
     </ul>
   );
 }

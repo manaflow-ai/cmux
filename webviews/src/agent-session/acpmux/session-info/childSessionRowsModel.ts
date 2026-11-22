@@ -1,5 +1,5 @@
 import { type StringKey, type Translate } from "../i18n";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { retryWords, sessionRetry, sessionRetryKey, type RetryQuiet } from "../subagents/retryState";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 
@@ -28,11 +28,17 @@ const retryOf = (child: StartedSession) => {
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
   retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
-/// its row says it, and whether it works (the turning ring) while acpmux retries it.
-export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
-  const retry = retryOf(child);
-  return retry ? { text: retryLabel(t, retry), working: true } : { text: t(stateOf(child).word), working: false };
+/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error" once
+/// the retry has waited the shared bound, ``retryWords``), as its row says it, and whether it works
+/// (the turning ring) while acpmux retries it. `connectionQuiet`: the drawing component's
+/// `useConnectionQuietKeys`.
+export function sessionStateText(
+  t: Translate,
+  child: StartedSession,
+  connectionQuiet: RetryQuiet,
+): { text: string; working: boolean } {
+  const words = retryWords(t, retryOf(child), sessionRetryKey(child.sessionId), connectionQuiet);
+  return words !== undefined ? { text: words, working: true } : { text: t(stateOf(child).word), working: false };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,

@@ -10,7 +10,7 @@ const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
 /// no clock, since nothing works on the reply while it waits.
 export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
   const words = retry.error?.replaceAll("_", " ");
-  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+  const busy = retryBusy(retry);
   const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
   const count =
     retry.attempt === undefined
@@ -20,6 +20,20 @@ export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: strin
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
   return { label, count, ...(error && { error }) };
+}
+
+/// Whether the harness retries because the model is busy (a rate limit, an overload), not out of reach.
+export function retryBusy(retry: AcpmuxTurnRetry): boolean {
+  const words = retry.error?.replaceAll("_", " ");
+  return retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+}
+
+/// Whether the live line says the retry: "Can't reach the model" heals on its own and offers nothing
+/// to do, so it waits out the shared bound (`unreachableLasting`, ui/lasting.ts `useConnectionQuiet`)
+/// and the line reads as it did meanwhile (Leo, 2026-11-14: "i also want all our connectivity stuff
+/// to shut up"); a busy model says so at once.
+export function retryShown(retry: AcpmuxTurnRetry | undefined, unreachableLasting: boolean): boolean {
+  return retry !== undefined && (retryBusy(retry) || unreachableLasting);
 }
 
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
