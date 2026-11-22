@@ -16,7 +16,9 @@
 //! (`sort_session_summaries`).
 
 use std::collections::{HashSet, VecDeque};
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use acpmux_book::index::Summary;
 use acpmux_client::tokio_list::{self, KEYS_PER_PAGE, ListConnection, Opened, Read};
@@ -154,6 +156,35 @@ pub(crate) struct Form<'f> {
     /// The fetch's `withTools` and `usage`, as the v1 read asked the list.
     pub(crate) with_tools: bool,
     pub(crate) usage: bool,
+    /// The most one page of the walk or one fetch may take with no answer, or `None` for no
+    /// bound. A walk of many pages, each in time, is bounded by its caller's total, never this.
+    pub(crate) page_bound: Option<Duration>,
+}
+
+/// One page of the walk or one fetch got no answer within [`Form::page_bound`].
+#[derive(Debug)]
+pub(crate) struct PageStalled(pub(crate) Duration);
+
+impl std::fmt::Display for PageStalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "a page of the session list got no answer in {:.0?}", self.0)
+    }
+}
+
+impl std::error::Error for PageStalled {}
+
+/// `future`, one page's read, within `bound` when there is one.
+async fn paced<T, E: Into<anyhow::Error>>(
+    bound: Option<Duration>,
+    future: impl Future<Output = Result<T, E>>,
+) -> Result<T> {
+    let read = match bound {
+        Some(bound) => tokio::time::timeout(bound, future)
+            .await
+            .map_err(|_| anyhow::Error::new(PageStalled(bound)))?,
+        None => future.await,
+    };
+    read.map_err(Into::into)
 }
 
 /// `--limit N`: the first N kept rows in v1's order, and whether the v1 list reads more after
@@ -317,7 +348,8 @@ impl Source {
         let mut ended = false;
         // Rows of the walk past the boundary, still to judge for `nextCursor`.
         let mut past: Vec<Summary> = Vec::new();
-        while let Some(page) = reading.next().await? {
+        let bound = form.page_bound;
+        while let Some(page) = paced(bound, reading.next()).await? {
             let mut candidates = Vec::new();
             let mut summaries = page.rows.into_iter();
             while let Some(summary) = summaries.next() {
@@ -349,7 +381,7 @@ impl Source {
                 };
                 let batch: Vec<Summary> = queue.drain(..queue.len().min(room)).collect();
                 let keys = batch.iter().map(row_key).collect();
-                let rows = fetch(&client, keys, form.with_tools, form.usage).await?;
+                let rows = paced(bound, fetch(&client, keys, form.with_tools, form.usage)).await?;
                 let kept_keys: HashSet<(String, Option<String>)> = rows
                     .iter()
                     .filter(|row| (form.keeps)(row) && !too_old(row, form.cutoff))
@@ -414,10 +446,10 @@ impl Source {
                 None => unsure.push(row_key(&summary)),
             }
         }
-        if lists_any(&client, unsure, want, form.with_tools).await? {
+        if paced(bound, lists_any(&client, unsure, want, form.with_tools)).await? {
             return Ok(Fetched { rows: kept, next: Some(Value::String(cursor)) });
         }
-        while let Some(page) = reading.next().await? {
+        while let Some(page) = paced(bound, reading.next()).await? {
             let mut unsure = Vec::new();
             for summary in page.rows {
                 match (want.lists)(&summary) {
@@ -428,7 +460,7 @@ impl Source {
                     None => unsure.push(row_key(&summary)),
                 }
             }
-            if lists_any(&client, unsure, want, form.with_tools).await? {
+            if paced(bound, lists_any(&client, unsure, want, form.with_tools)).await? {
                 return Ok(Fetched { rows: kept, next: Some(Value::String(cursor)) });
             }
         }
@@ -450,6 +482,7 @@ impl Source {
             want: None,
             with_tools: false,
             usage: false,
+            page_bound: None,
         };
         Ok(self.read(form).await?.rows)
     }
