@@ -29,7 +29,9 @@ extension SidebarListViewComponents {
         var ids = Set<WorkspaceID>()
         for index in displayed.rowIndices(from: rect.minY, to: rect.maxY) {
             switch displayed.rows[index].key {
-            case let .workspace(id), let .tab(id, _):
+            case let .workspace(id):
+                ids.insert(id)
+            case let .tab(id, _):
                 ids.insert(id)
             case let .group(id):
                 for member in groupSubtrees[id] ?? [id] {

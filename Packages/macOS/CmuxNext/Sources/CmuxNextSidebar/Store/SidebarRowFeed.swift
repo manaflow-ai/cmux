@@ -406,7 +406,7 @@ public final class SidebarRowFeed {
         }
         for id in offscreenNew {
             guard let entry = entries[id] else { continue }
-            entry.row = entry.make()
+            if let row = entry.make() { entry.row = row }
         }
         let due = named.filter { id in
             guard observes(id), let entry = entries[id] else { return false }
