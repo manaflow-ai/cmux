@@ -353,6 +353,15 @@
   :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
     --acpmux-composer-shadow: var(--glass-material-depth-composer);
   }
+  /* Wallpaper lighting (glass.css WALLPAPER LIGHTING): a soft bloom of the picture's most colorful
+     color round the card, leaning toward the key light. An outer shadow, so it never covers the text,
+     and it moves only with the light field. */
+  :root[data-wallpaper-light]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+    --acpmux-composer-shadow:
+      var(--glass-material-depth-composer),
+      calc(14px * var(--wl-dx)) calc(10px * var(--wl-dy)) 56px 6px
+        color-mix(in srgb, var(--wl-bloom) calc(100% * var(--wl-bloom-alpha)), transparent);
+  }
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
     > .acpmux-composer-box.ui-glass-material {

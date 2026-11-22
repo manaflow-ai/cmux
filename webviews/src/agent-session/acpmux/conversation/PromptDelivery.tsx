@@ -10,7 +10,7 @@
 // (sendFailure.ts), under the last of them: one plain sentence, the fix when there is one (Trust
 // folder), Retry, Edit, Remove and Details: the hop it stopped at, the refuser's own words and
 // code, each hop's time and the ids, and Copy debug info.
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useId, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
 import { isTrustCause, retryHelps, sendCause } from "../sendFailure";
@@ -70,6 +70,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const sends = useContext(FailedSendsContext);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const retryWhy = useId();
   const readOnly = useTranscriptReadOnly();
   const delivery = row.delivery;
   if (!row.failed || readOnly) return null;
@@ -100,12 +101,18 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
           </button>
         )}
         {/* A prompt too large to send is refused the same way again: Edit takes an attachment out. */}
+        {/* A disabled Retry gets no hover, so why it waits is text beside it (Chief, 2026-11-21). */}
+        {retryHelps(cause) && retryWaits && (
+          <span className="cv-user__retry-wait" id={retryWhy}>
+            {t(retryWaits)}
+          </span>
+        )}
         {retryHelps(cause) && (
           <button
             type="button"
             className="cv-user__cancel"
             disabled={retryWaits !== undefined}
-            title={retryWaits && t(retryWaits)}
+            aria-describedby={retryWaits ? retryWhy : undefined}
             onClick={() => act("chat.retryPrompt")}
           >
             {t("turn.retry")}
