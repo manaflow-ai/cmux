@@ -399,7 +399,6 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "looksGallery",
           "themeStudio",
           "backdrops",
           "density"
@@ -1272,7 +1271,6 @@
             "key" : "chat.4",
             "rows" : [
               "agentPane.links.outsideRoots",
-              "agentPane.links.openCitationsInEditor",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows",
@@ -1325,6 +1323,7 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.links.openCitationsInEditor",
               "agentPane.newChatsIn",
               "agentPane.sessionWorktrees",
               "agents.defaultPermissionMode",
@@ -2261,7 +2260,7 @@
               "experiments.composerV2",
               "experiments.agentBadges",
               "experiments.agentBadgesBeam",
-              "experiments.toastsV2"
+              "experiments.chatWidgets"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -52636,38 +52635,12 @@
     },
     {
       "accepts" : [
-        "narrow",
-        "medium",
-        "wide",
         480,
         4000,
         2240
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.width.narrow",
-            "text" : "Narrow"
-          },
-          "value" : "narrow"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.editor.medium",
-            "text" : "Medium"
-          },
-          "value" : "medium"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.width.wide",
-            "text" : "Wide"
-          },
-          "value" : "wide"
-        }
-      ],
       "consumers" : [
         "cmux-next"
       ],
@@ -52695,7 +52668,7 @@
         "measure",
         "wide"
       ],
-      "kind" : "choice_or_number",
+      "kind" : "number",
       "page_hidden" : false,
       "path" : [
         "agentPane",
@@ -52711,8 +52684,6 @@
         "unit" : "points"
       },
       "refuses" : [
-        "__not_a_choice__",
-        true,
         -3040,
         7520,
         "1"
@@ -108703,8 +108674,8 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -108715,25 +108686,27 @@
         "text" : "Experiments"
       },
       "help" : {
-        "key" : "settings.experiments.toastsV2.help",
-        "text" : "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."
+        "key" : "settings.experiments.chatWidgets.help",
+        "text" : "Installed extensions can show a card under a finished tool call in agent chat."
       },
       "kept_on_reset_all" : false,
-      "key" : "experiments.toastsV2",
+      "key" : "experiments.chatWidgets",
       "keywords" : [
-        "labs",
         "experiments",
         "experimental",
-        "toasts",
-        "toast",
-        "undo",
-        "spinner"
+        "prototype",
+        "extension",
+        "extensions",
+        "chat",
+        "widget",
+        "tool",
+        "card"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "experiments",
-        "toastsV2"
+        "chatWidgets"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -108767,7 +108740,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -108779,11 +108752,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -108802,7 +108773,7 @@
             "palette.toggleSetting"
           ],
           "reason" : null,
-          "row" : "setting:experiments.toastsV2"
+          "row" : "setting:experiments.chatWidgets"
         },
         "socket" : {
           "aliases" : [
@@ -108829,8 +108800,8 @@
         }
       },
       "title" : {
-        "key" : "settings.experiments.toastsV2",
-        "text" : "Toasts v2"
+        "key" : "settings.experiments.chatWidgets",
+        "text" : "Extension Chat Widgets"
       },
       "validation" : "portable"
     },
@@ -109280,7 +109251,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -109341,7 +109312,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -109353,11 +109324,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {

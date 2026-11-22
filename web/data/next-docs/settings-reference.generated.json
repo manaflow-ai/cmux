@@ -7205,6 +7205,14 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.chatWidgets",
+          "title": "Extension Chat Widgets",
+          "help": "Installed extensions can show a card under a finished tool call in agent chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.composerV2",
           "title": "Composer Refresh",
           "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
