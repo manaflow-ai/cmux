@@ -64,7 +64,7 @@ public protocol MacTabsSink: AnyObject {
 /// The phone's side of a Mac's `tabs` service (the `cmux-tab-snapshots` crate): the Mac lists
 /// every open tab with the hashes of its favicon, card picture and terminal screen, and the
 /// phone asks for the blobs it lacks, the cards near the open tab first. What to ask, in which
-/// order, when to resume and what to delete is Rust's (`TabsMirror`); this reads and writes the
+/// order, when to resume, what to delete and where a frame ends is Rust's (`TabsMirror`); this reads and writes the
 /// channel and hands the bytes to the sink. A Mac whose host predates the service refuses the
 /// channel, and the phone keeps the pictures it took itself.
 @MainActor
@@ -138,8 +138,17 @@ public final class MacTabsFeed {
         write(session.mirror.linkUp(viewport: viewport), to: session)
         if let near = near[macID], !near.isEmpty { write(session.mirror.setNear(tabIds: near), to: session) }
         do {
-            while let frame = try await channel.receive() {
-                apply(session.mirror.receive(frame: frame), session: session, macID: macID)
+            // The link cuts the stream where it likes: Rust keeps the partial frame and
+            // answers with one event per frame a chunk completes.
+            read: while let chunk = try await channel.receive() {
+                for event in session.mirror.receive(chunk: chunk) {
+                    if case .broken(let reason) = event {
+                        log.error("tabs stream unreadable: \(reason, privacy: .public)")
+                        await channel.close(code: "protocol", reason: reason)
+                        break read
+                    }
+                    apply(event, session: session, macID: macID)
+                }
             }
             if let closed = channel.closedBy, closed.code != "eof" {
                 log.info("tabs closed: \(closed.code, privacy: .public)")
@@ -166,6 +175,9 @@ public final class MacTabsFeed {
             write(send, to: session)
         case .dropped(let reason):
             log.info("tabs frame dropped: \(reason, privacy: .public)")
+        case .broken:
+            // Handled where the channel is read: it closes there.
+            break
         }
     }
 }

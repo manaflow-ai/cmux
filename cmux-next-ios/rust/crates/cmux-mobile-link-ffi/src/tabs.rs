@@ -12,14 +12,28 @@
 //!   tab, a whole card at a time, then the other cards' favicons, then their pictures;
 //! - which blobs on disk no card shows any more ([`TabsMirror::unreferenced`]).
 //!
-//! Swift only binds: it writes the frames these return, saves a blob's bytes under its
+//! and the stream framing: a link channel splits writes, so every frame travels behind a
+//! 4-byte length (`cmux_tab_snapshots::stream`). What this returns to write is already
+//! prefixed, and [`TabsMirror::receive`] takes the channel's chunks as they come.
+//!
+//! Swift only binds: it writes the bytes these return, saves a blob's bytes under its
 //! hash and hands the rows to the overview.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use cmux_tab_snapshots::wire::Viewport;
-use cmux_tab_snapshots::{Applied, BlobHash, Message, Mirror, MirrorError, Row};
+use cmux_tab_snapshots::{Applied, BlobHash, Deframer, Message, Mirror, MirrorError, Row, length_prefixed};
+
+/// The longest frame taken from the Mac: a page-size picture with room to spare. A longer
+/// one cannot be skipped on a stream, so it ends the channel ([`TabsEvent::Broken`]).
+const MAC_FRAME_CAP: usize = 32 << 20;
+
+/// `frame` behind its length, as it is written to the channel.
+fn framed(frame: &[u8]) -> Vec<u8> {
+    // The phone's frames are a hash list or a few numbers: never near `u32::MAX`.
+    length_prefixed(frame).unwrap_or_default()
+}
 
 /// The phone's card geometry, so the Mac cuts thumbnails at the card's pixel size.
 #[derive(Debug, Clone, Default, PartialEq, uniffi::Record)]
@@ -55,7 +69,8 @@ pub struct TabsRow {
     pub filled: bool,
 }
 
-/// What one frame from the Mac did. `send` is what to write back, in order.
+/// What one frame from the Mac did. `send` is what to write back, in order, each already
+/// behind its length.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum TabsEvent {
     /// The rows changed (a manifest or a delta): show them. `send` asks for what is missing.
@@ -69,6 +84,9 @@ pub enum TabsEvent {
     /// A frame that does not decode, a blob whose bytes do not hash to its name, or a kind a
     /// newer Mac sends: dropped, and the link stays up.
     Dropped { reason: String },
+    /// The stream cannot be read further (a frame announced longer than the cap): close the
+    /// channel. The next link-up resumes from the phone's rev.
+    Broken { reason: String },
 }
 
 fn hex(hash: Option<BlobHash>) -> Option<String> {
@@ -107,13 +125,25 @@ pub(crate) fn want_order(rows: &[Row], near: &[String], holds: impl Fn(&BlobHash
     out
 }
 
-#[derive(Default)]
 struct State {
     mirror: Mirror,
+    /// The channel's bytes that are not a whole frame yet.
+    deframer: Deframer,
     /// Tab ids nearest the open tab first, as the overview last said.
     near: Vec<String>,
     /// The last `want` written, so an unchanged list is not sent again.
     last_want: Vec<BlobHash>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            mirror: Mirror::new(),
+            deframer: Deframer::new(MAC_FRAME_CAP),
+            near: Vec::new(),
+            last_want: Vec::new(),
+        }
+    }
 }
 
 impl State {
@@ -148,7 +178,7 @@ impl State {
             return Vec::new();
         }
         self.last_want.clone_from(&order);
-        vec![Message::Want(order).encode()]
+        vec![framed(&Message::Want(order).encode())]
     }
 }
 
@@ -162,6 +192,46 @@ pub struct TabsMirror {
 impl TabsMirror {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One whole frame from the Mac.
+    fn apply(state: &mut State, frame: &[u8]) -> TabsEvent {
+        let msg = match Message::decode(frame) {
+            Ok(msg) => msg,
+            Err(err) => return TabsEvent::Dropped { reason: err.to_string() },
+        };
+        // The mirror keeps hashes, not bytes: the bytes are kept aside for Swift to save.
+        let (blob_mime, blob_bytes) = match &msg {
+            Message::Blob(blob) => (blob.mime.as_str().to_owned(), blob.bytes.clone()),
+            _ => (String::new(), Vec::new()),
+        };
+        match state.mirror.apply(msg) {
+            Ok(Applied::Manifest { rev } | Applied::Delta { rev }) => {
+                let send = state.want();
+                TabsEvent::Rows { rev, rows: state.rows(), send }
+            }
+            Ok(Applied::Gap { .. }) => {
+                TabsEvent::Gap { send: state.mirror.resume_frame().iter().map(|f| framed(f)).collect() }
+            }
+            Ok(Applied::Blob { hash, fresh, .. }) => {
+                let tab_ids = state
+                    .mirror
+                    .rows()
+                    .iter()
+                    .filter(|row| row.hashes().any(|h| h == hash))
+                    .map(|row| row.tab_id.clone())
+                    .collect();
+                // What is still missing shrank by this one; the Mac drops it from its own
+                // queue, so no new `want` is written for it.
+                state.last_want.retain(|h| *h != hash);
+                TabsEvent::Blob { hash: hash.to_hex(), mime: blob_mime, bytes: blob_bytes, fresh, tab_ids }
+            }
+            Err(
+                err @ (MirrorError::Wire(_)
+                | MirrorError::HashMismatch { .. }
+                | MirrorError::WrongDirection(_)),
+            ) => TabsEvent::Dropped { reason: err.to_string() },
+        }
     }
 }
 
@@ -182,6 +252,8 @@ impl TabsMirror {
         let mut state = self.state();
         // The Mac forgot the last `want` with the old channel.
         state.last_want.clear();
+        // Half a frame of the old channel means nothing on the new one.
+        state.deframer = Deframer::new(MAC_FRAME_CAP);
         let mut frames = state.mirror.link_up_frames();
         frames.push(
             Message::Viewport(Viewport {
@@ -193,47 +265,24 @@ impl TabsMirror {
             })
             .encode(),
         );
-        frames
+        frames.iter().map(|frame| framed(frame)).collect()
     }
 
-    /// One frame from the Mac.
-    pub fn receive(&self, frame: Vec<u8>) -> TabsEvent {
-        let msg = match Message::decode(&frame) {
-            Ok(msg) => msg,
-            Err(err) => return TabsEvent::Dropped { reason: err.to_string() },
-        };
-        // The mirror keeps hashes, not bytes: the bytes are kept aside for Swift to save.
-        let (blob_mime, blob_bytes) = match &msg {
-            Message::Blob(blob) => (blob.mime.as_str().to_owned(), blob.bytes.clone()),
-            _ => (String::new(), Vec::new()),
-        };
+    /// Bytes read from the channel, cut wherever the link cut them. One event per frame
+    /// they complete, in order; none when a frame is still arriving.
+    pub fn receive(&self, chunk: Vec<u8>) -> Vec<TabsEvent> {
         let mut state = self.state();
-        match state.mirror.apply(msg) {
-            Ok(Applied::Manifest { rev } | Applied::Delta { rev }) => {
-                let send = state.want();
-                TabsEvent::Rows { rev, rows: state.rows(), send }
+        state.deframer.push(&chunk);
+        let mut events = Vec::new();
+        loop {
+            match state.deframer.next_frame() {
+                Ok(Some(frame)) => events.push(Self::apply(&mut state, &frame)),
+                Ok(None) => return events,
+                Err(err) => {
+                    events.push(TabsEvent::Broken { reason: err.to_string() });
+                    return events;
+                }
             }
-            Ok(Applied::Gap { .. }) => {
-                TabsEvent::Gap { send: state.mirror.resume_frame().into_iter().collect() }
-            }
-            Ok(Applied::Blob { hash, fresh, .. }) => {
-                let tab_ids = state
-                    .mirror
-                    .rows()
-                    .iter()
-                    .filter(|row| row.hashes().any(|h| h == hash))
-                    .map(|row| row.tab_id.clone())
-                    .collect();
-                // What is still missing shrank by this one; the Mac drops it from its own
-                // queue, so no new `want` is written for it.
-                state.last_want.retain(|h| *h != hash);
-                TabsEvent::Blob { hash: hash.to_hex(), mime: blob_mime, bytes: blob_bytes, fresh, tab_ids }
-            }
-            Err(
-                err @ (MirrorError::Wire(_)
-                | MirrorError::HashMismatch { .. }
-                | MirrorError::WrongDirection(_)),
-            ) => TabsEvent::Dropped { reason: err.to_string() },
         }
     }
 
@@ -278,7 +327,7 @@ impl TabsMirror {
                 .into_iter()
                 .filter(|h| *h != hash),
         );
-        vec![Message::Want(order).encode()]
+        vec![framed(&Message::Want(order).encode())]
     }
 
     /// Of `on_disk`, the blob names no row shows any more: the ones the phone may delete.
@@ -320,9 +369,25 @@ mod tests {
         Message::Manifest(Manifest { epoch: "e1".into(), rev, rows }).encode()
     }
 
+    /// A written frame without its length, which must be the whole write.
+    fn unframed(written: &[u8]) -> Vec<u8> {
+        let mut deframer = Deframer::new(1 << 20);
+        deframer.push(written);
+        let frame = deframer.next_frame().expect("under the cap").expect("a whole frame");
+        assert_eq!(deframer.pending(), 0, "one frame per write");
+        frame
+    }
+
+    /// One whole frame from the Mac, read in one piece.
+    fn recv(mirror: &TabsMirror, frame: Vec<u8>) -> TabsEvent {
+        let mut events = mirror.receive(framed(&frame));
+        assert_eq!(events.len(), 1, "one event per frame");
+        events.remove(0)
+    }
+
     fn wants(frames: &[Vec<u8>]) -> Vec<BlobHash> {
         assert_eq!(frames.len(), 1, "one want frame");
-        match Message::decode(&frames[0]) {
+        match Message::decode(&unframed(&frames[0])) {
             Ok(Message::Want(hashes)) => hashes,
             other => panic!("not a want: {other:?}"),
         }
@@ -346,7 +411,7 @@ mod tests {
     #[test]
     fn a_manifest_shows_rows_and_asks_for_what_the_disk_lacks() {
         let mirror = TabsMirror::new(vec![h(b"f1").to_hex(), "not-a-hash".to_owned()]);
-        let TabsEvent::Rows { rev, rows, send } = mirror.receive(manifest(7, three())) else {
+        let TabsEvent::Rows { rev, rows, send } = recv(&mirror, manifest(7, three())) else {
             panic!("rows expected");
         };
         assert_eq!(rev, 7);
@@ -360,8 +425,8 @@ mod tests {
     #[test]
     fn a_blob_is_handed_over_with_the_cards_it_fills() {
         let mirror = TabsMirror::new(Vec::new());
-        mirror.receive(manifest(1, three()));
-        let event = mirror.receive(encode_blob(h(b"f1"), Mime::Png, b"f1"));
+        recv(&mirror, manifest(1, three()));
+        let event = recv(&mirror, encode_blob(h(b"f1"), Mime::Png, b"f1"));
         assert_eq!(
             event,
             TabsEvent::Blob {
@@ -372,7 +437,7 @@ mod tests {
                 tab_ids: vec!["a".to_owned(), "b".to_owned()],
             }
         );
-        mirror.receive(encode_blob(h(b"ta"), Mime::Jpeg, b"ta"));
+        recv(&mirror, encode_blob(h(b"ta"), Mime::Jpeg, b"ta"));
         let rows = mirror.rows();
         assert!(rows[0].filled);
         assert!(!rows[1].filled);
@@ -381,30 +446,30 @@ mod tests {
     #[test]
     fn a_blob_that_does_not_hash_to_its_name_is_dropped() {
         let mirror = TabsMirror::new(Vec::new());
-        mirror.receive(manifest(1, three()));
-        let event = mirror.receive(encode_blob(h(b"ta"), Mime::Jpeg, b"other bytes"));
+        recv(&mirror, manifest(1, three()));
+        let event = recv(&mirror, encode_blob(h(b"ta"), Mime::Jpeg, b"other bytes"));
         assert!(matches!(event, TabsEvent::Dropped { .. }), "{event:?}");
         assert!(!mirror.rows()[0].filled);
-        assert!(matches!(mirror.receive(Vec::new()), TabsEvent::Dropped { .. }));
-        assert!(matches!(mirror.receive(vec![0x7f, b'{', b'}']), TabsEvent::Dropped { .. }));
+        assert!(matches!(recv(&mirror, Vec::new()), TabsEvent::Dropped { .. }));
+        assert!(matches!(recv(&mirror, vec![0x7f, b'{', b'}']), TabsEvent::Dropped { .. }));
     }
 
     #[test]
     fn scrolling_reorders_the_want_and_an_unchanged_order_writes_nothing() {
         let mirror = TabsMirror::new(Vec::new());
-        mirror.receive(manifest(1, three()));
+        recv(&mirror, manifest(1, three()));
         let send = mirror.set_near(vec!["c".to_owned(), "b".to_owned()]);
         assert_eq!(wants(&send), vec![h(b"f2"), h(b"tc"), h(b"f1"), h(b"tb"), h(b"ta")]);
         assert!(mirror.set_near(vec!["c".to_owned(), "b".to_owned()]).is_empty());
         // A blob arriving does not make the phone ask again for the rest.
-        mirror.receive(encode_blob(h(b"f2"), Mime::Png, b"f2"));
+        recv(&mirror, encode_blob(h(b"f2"), Mime::Png, b"f2"));
         assert!(mirror.set_near(vec!["c".to_owned(), "b".to_owned()]).is_empty());
     }
 
     #[test]
     fn a_delta_off_its_base_is_a_gap_that_resumes_from_the_phones_rev() {
         let mirror = TabsMirror::new(Vec::new());
-        mirror.receive(manifest(5, three()));
+        recv(&mirror, manifest(5, three()));
         let delta = |base_rev, rev| {
             Message::Delta(Delta {
                 epoch: "e1".into(),
@@ -420,17 +485,52 @@ mod tests {
             })
             .encode()
         };
-        let TabsEvent::Gap { send } = mirror.receive(delta(9, 10)) else {
+        let TabsEvent::Gap { send } = recv(&mirror, delta(9, 10)) else {
             panic!("gap expected");
         };
         assert_eq!(send.len(), 1);
-        assert!(matches!(Message::decode(&send[0]), Ok(Message::Resume(r)) if r.rev == 5));
+        assert!(matches!(Message::decode(&unframed(&send[0])), Ok(Message::Resume(r)) if r.rev == 5));
         assert_eq!(mirror.rev(), Some(5));
-        let TabsEvent::Rows { rev, rows, .. } = mirror.receive(delta(5, 6)) else {
+        let TabsEvent::Rows { rev, rows, .. } = recv(&mirror, delta(5, 6)) else {
             panic!("rows expected");
         };
         assert_eq!(rev, 6);
         assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Renamed", "C"]);
+    }
+
+    #[test]
+    fn frames_cut_anywhere_by_the_link_give_the_same_events() {
+        let stream: Vec<u8> = [
+            manifest(1, three()),
+            encode_blob(h(b"f1"), Mime::Png, b"f1"),
+            encode_blob(h(b"ta"), Mime::Jpeg, b"ta"),
+        ]
+        .iter()
+        .flat_map(|frame| framed(frame))
+        .collect();
+        let whole = TabsMirror::new(Vec::new()).receive(stream.clone());
+        assert_eq!(whole.len(), 3);
+        for size in [1, 3, 5, 64] {
+            let mirror = TabsMirror::new(Vec::new());
+            let events: Vec<TabsEvent> =
+                stream.chunks(size).flat_map(|piece| mirror.receive(piece.to_vec())).collect();
+            assert_eq!(events, whole, "chunks of {size}");
+            assert!(mirror.rows()[0].filled);
+        }
+    }
+
+    #[test]
+    fn a_frame_over_the_cap_breaks_the_channel_and_link_up_starts_clean() {
+        let mirror = TabsMirror::new(Vec::new());
+        recv(&mirror, manifest(1, three()));
+        let over = u32::try_from(MAC_FRAME_CAP.saturating_add(1)).expect("fits").to_be_bytes().to_vec();
+        let events = mirror.receive(over);
+        assert!(matches!(events.as_slice(), [TabsEvent::Broken { .. }]), "{events:?}");
+        // The next channel does not read the old one's bytes.
+        mirror.link_up(TabsViewport::default());
+        let event = recv(&mirror, encode_blob(h(b"f1"), Mime::Png, b"f1"));
+        assert!(matches!(event, TabsEvent::Blob { fresh: true, .. }), "{event:?}");
+        assert_eq!(mirror.rev(), Some(1));
     }
 
     #[test]
@@ -440,13 +540,13 @@ mod tests {
         let frames = fresh.link_up(viewport.clone());
         assert_eq!(frames.len(), 1, "a first launch sends only its viewport");
         assert!(matches!(
-            Message::decode(&frames[0]),
+            Message::decode(&unframed(&frames[0])),
             Ok(Message::Viewport(v)) if v.card_pixel_width == 576
         ));
 
         let mirror = TabsMirror::new(vec![h(b"f1").to_hex()]);
-        mirror.receive(manifest(3, three()));
-        let kinds: Vec<u8> = mirror.link_up(viewport).iter().map(|f| f[0]).collect();
+        recv(&mirror, manifest(3, three()));
+        let kinds: Vec<u8> = mirror.link_up(viewport).iter().map(|f| unframed(f)[0]).collect();
         assert_eq!(kinds, [0x03, 0x04, 0x01]);
         // After a reconnect the Mac has no want of this phone's: the next one is written
         // even though the list did not change.
@@ -458,7 +558,7 @@ mod tests {
         let mut rows = three();
         rows[1].frame_hash = Some(h(b"page-b"));
         let mirror = TabsMirror::new(Vec::new());
-        mirror.receive(manifest(1, rows));
+        recv(&mirror, manifest(1, rows));
         assert!(mirror.want_frame("a".to_owned()).is_empty(), "no frame on that row");
         let order = wants(&mirror.want_frame("b".to_owned()));
         assert_eq!(order[0], h(b"page-b"));
@@ -471,7 +571,7 @@ mod tests {
         let old = h(b"closed tab").to_hex();
         let names = vec![old.clone(), h(b"ta").to_hex(), h(b"f1").to_hex()];
         assert!(mirror.unreferenced(names.clone()).is_empty(), "nothing known before a manifest");
-        mirror.receive(manifest(1, three()));
+        recv(&mirror, manifest(1, three()));
         assert_eq!(mirror.unreferenced(names), vec![old]);
     }
 }
