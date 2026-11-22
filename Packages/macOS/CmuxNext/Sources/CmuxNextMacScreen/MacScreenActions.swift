@@ -26,7 +26,7 @@ public struct MacScreenActions {
                 providerKey: @escaping (String, String?) -> String?,
                 open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
                 refusal: @escaping (any Error) -> Void,
-                listedDevices: @escaping @MainActor () async -> [MacScreenListedDevice] = { [] },
+                listedDevices: @escaping @MainActor () async -> [MacScreenListedDevice],
                 worker: MacScreenWorkerSession = .none) {
         self.pages = pages
         self.selectedTab = selectedTab
@@ -36,6 +36,18 @@ public struct MacScreenActions {
         self.listedDevices = listedDevices
         self.worker = worker
     }
+
+    /// No `cmux device list` (tests): a name Screen Sharing does not list is refused with Screen Sharing's devices.
+    /// An overload, not a default: an async closure literal as a default argument is a crash class (crash_ratchet.py).
+    public init(pages: MacScreenPages, selectedTab: @escaping () -> String?,
+                providerKey: @escaping (String, String?) -> String?,
+                open: @escaping (() throws -> MacScreenRecord, ActionInvocation, Bool) throws -> Void,
+                refusal: @escaping (any Error) -> Void, worker: MacScreenWorkerSession = .none) {
+        self.init(pages: pages, selectedTab: selectedTab, providerKey: providerKey, open: open, refusal: refusal,
+                  listedDevices: Self.noListedDevices, worker: worker)
+    }
+
+    private static func noListedDevices() async -> [MacScreenListedDevice] { [] }
 
     /// - Parameter paletteRows: Adds a root palette provider: one "Screen Sharing: <device>" row per device.
     public func bind(into registry: ActionRegistry, paletteRows: ((AsyncPaletteProvider) -> Void)? = nil) {
@@ -248,6 +260,12 @@ public struct MacScreenListedDevice: Equatable, Sendable {
     public init(name: String, noScreenReason: String?) {
         self.name = name
         self.noScreenReason = noScreenReason
+    }
+
+    /// A `cmux device list` row by its `screen` offer: nil for a row with none (a person's login, not a machine).
+    public init?(name: String, screenAction: String?, reason: String?) {
+        guard let screenAction else { return nil }
+        self.init(name: name, noScreenReason: screenAction == "none" ? reason ?? "unknown" : nil)
     }
 
     /// The reason, as the clause after "offers no screen: ".
