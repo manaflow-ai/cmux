@@ -19,12 +19,17 @@ import os
 ///   claims its size as before, only while the page claims it (on screen, in
 ///   the foreground). Leaving the alternate screen releases it.
 ///
-/// Settings → Terminal → Fit to Phone turns this off (``isEnabled``): the
-/// session is then used as it is and the Mac resizes to the phone.
+/// Settings → Terminal → Fit to Phone turns this off (``isEnabled``), and the
+/// page menu's Fit to Phone per program (``isEnabled(for:)``): the session is
+/// then used as it is and the Mac resizes to the phone.
 @MainActor
 public final class TerminalProjectingSession: TerminalSession {
     /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
     public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
+
+    /// Whether a new page of `program` projects: its own Fit to Phone choice
+    /// (the page menu), else the global setting (`TerminalFitToPhoneMemory`).
+    public static func isEnabled(for program: String) -> Bool { !TerminalFitToPhoneMemory().fitToPhone(for: program) }
 
     /// The Mac's session.
     public let inner: any TerminalSession

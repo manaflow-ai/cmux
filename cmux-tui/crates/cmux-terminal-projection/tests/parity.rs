@@ -874,3 +874,442 @@ fn projection_matches_the_macs_grid_cell_by_cell() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Resize equivalence.
+//
+// Leo, 2026-11-22: "i mean it's not about testing it on the mac, but rather
+// on the phone and whatever behaviours we'd want there, i.e. that the
+// resizing behaviour is indeed the same as it would've been if the recalc
+// and resize had truly happened on the mac."
+//
+// The same byte stream two ways, at each phone size of a rotation and
+// keyboard sequence:
+//
+// - (a) the phone path: the Mac's PTY keeps its grid; the projection writes
+//   the phone's N by M view (the app's surface is `phone`).
+// - (b) a real resize: the Mac's terminal resizes to N by M (Ghostty's own
+//   reflow, what the Mac pane does on a PTY resize), then the program's
+//   redraw at N by M (a shell reprints its prompt line; a full-screen TUI
+//   repaints).
+//
+// On the primary screen the two grids must match cell by cell: every row of
+// the screen and of scrollback (aligned at the bottom), its glyph, width,
+// colors, attributes, link flag and soft-wrap flag, and the cursor. On the
+// alternate screen the phone shows the Mac's own grid by design (the scaled
+// view; "Fit to Phone" is the real resize), so there it is compared with the
+// unresized Mac, and the primary screen it returns to is compared with (b).
+
+/// Sizes the phone's terminal takes at 12 pt (a 7.2 by 15.6 pt cell, 6 pt
+/// side padding): iPhone portrait 52x38, its keyboard up 52x20, landscape
+/// 112x17, its keyboard up 112x7, a small phone 43x33, the largest text
+/// 33x30, and a grid wider than the Mac's (an iPad) 140x50.
+const SEQUENCES: [(&str, &[(usize, usize)]); 3] = [
+    ("rotate+keyboard", &[(52, 38), (52, 20), (52, 38), (112, 17), (112, 7), (52, 38)]),
+    ("small+large text", &[(43, 33), (33, 30), (43, 33)]),
+    ("wider than the Mac", &[(140, 50), (52, 38)]),
+];
+
+type Redraw = Box<dyn Fn(usize, usize) -> Vec<u8>>;
+
+struct ResizeCase {
+    name: String,
+    host: (usize, usize),
+    before: Vec<u8>,
+    /// The program's own bytes after a resize to (cols, rows).
+    redraw: Redraw,
+    /// Width-independent bytes after the last resize.
+    after: Vec<u8>,
+    note: &'static str,
+}
+
+fn no_redraw() -> Redraw {
+    Box::new(|_, _| Vec::new())
+}
+
+/// A shell's redraw of its prompt line on SIGWINCH, the way a correct line
+/// editor does it: back to the start of the line at the new width, clear to
+/// the end of the screen, reprint prompt and buffer.
+fn prompt_redraw(line: &'static str) -> Redraw {
+    Box::new(move |cols, _| {
+        let width = unicode_width::UnicodeWidthStr::width(line);
+        let up = width.saturating_sub(1) / cols.max(1);
+        let mut out = String::from("\r");
+        if up > 0 {
+            out += &format!("\x1b[{up}A");
+        }
+        out += "\x1b[J";
+        out += line;
+        out.into_bytes()
+    })
+}
+
+/// A full-screen TUI that lays itself out for its grid.
+fn tui_frame(cols: usize, rows: usize) -> Vec<u8> {
+    let mut out = String::from("\x1b[H\x1b[2J");
+    let title = format!(" PID USER %CPU COMMAND {cols}x{rows} ");
+    out += &format!("\x1b[1;1H\x1b[7m{title:<cols$}\x1b[0m", cols = cols);
+    for i in 0..rows.saturating_sub(2) {
+        let cmd = format!("process-{i} ✔ 中文");
+        let line = format!("{:5} user {:4.1} ", 1000 + i, (i * 7 % 100) as f32);
+        out += &format!("\x1b[{};1H{line}\x1b[32m{cmd}\x1b[0m", i + 2);
+    }
+    out += &format!("\x1b[{rows};1H\x1b[44m status 👍 \x1b[K\x1b[0m\x1b[2;1H");
+    out.into_bytes()
+}
+
+fn resize_cases() -> Vec<ResizeCase> {
+    let mut out = Vec::new();
+
+    // Shell soft-wrap reflow: long soft-wrapped output, styled wraps, and a
+    // prompt line short enough to fit every width.
+    let mut sh = String::new();
+    sh += "$ cat notes.txt\r\n";
+    for i in 0..12 {
+        sh += &format!(
+            "{i:02} {}\r\n",
+            "the quick brown fox jumps over the lazy dog ".repeat(i % 5 + 1)
+        );
+    }
+    sh += "\x1b[1;31mred bold run that wraps across the phone's edge and on past the Mac's own edge as well, twice over\x1b[0m\r\n";
+    sh += "hard\r\nlines\r\n";
+    let line = "$ echo hi";
+    sh += line;
+    out.push(ResizeCase {
+        name: "shell_soft_wrap_reflow".into(),
+        host: (120, 40),
+        before: sh.into_bytes(),
+        redraw: prompt_redraw(line),
+        after: s("\r\nhi\r\n$ "),
+        note: "",
+    });
+
+    // A typed command longer than the phone: the shell's prompt line wraps
+    // at the phone's width and the shell redraws it there.
+    let typed = "$ git commit -m 'projection keeps the Mac grid and rewraps it here'";
+    out.push(ResizeCase {
+        name: "shell_prompt_longer_than_phone".into(),
+        host: (120, 40),
+        before: format!("$ ls\r\nREADME.md  src\r\n{typed}").into_bytes(),
+        redraw: prompt_redraw(typed),
+        after: Vec::new(),
+        note: "",
+    });
+
+    // Wide chars, emoji, symbols, colors and attributes across the phone's
+    // edges.
+    let mut w = String::new();
+    for cut in [31, 42, 51, 53, 111] {
+        w += &"b".repeat(cut);
+        w += "日本語のテキストと한국어 텍스트 中文\r\n";
+    }
+    w += "emoji 👍 👍🏽 👨‍👩‍👧‍👦 🏳️‍🌈 ❤️ 1️⃣ ";
+    w += &"🙂".repeat(40);
+    w += "\r\n";
+    w += "symbols ✔ ✘ ⚠ → ← ⏺ ⎿ ● │ ─ ┌┐└┘ ╭╮╰╯  λ ∑ ≠ ≤ ∞ ";
+    w += &"═".repeat(100);
+    w += "\r\n";
+    for (i, sgr) in [
+        "1",
+        "2",
+        "3",
+        "4",
+        "4:3",
+        "5",
+        "7",
+        "9",
+        "38;5;208",
+        "48;5;24",
+        "38;2;255;128;0",
+        "48;2;10;20;30;1",
+    ]
+    .iter()
+    .enumerate()
+    {
+        w += &format!("\x1b[{sgr}m{} {}\x1b[0m\r\n", sgr, "styled ".repeat(4 + i * 2));
+    }
+    w += "$ ";
+    out.push(ResizeCase {
+        name: "wide_emoji_symbols_colors".into(),
+        host: (120, 40),
+        before: w.into_bytes(),
+        redraw: prompt_redraw("$ "),
+        after: Vec::new(),
+        note: "",
+    });
+
+    // Scrollback: many screens of every line length, styled.
+    let mut sb = String::new();
+    for i in 0..1500 {
+        let len = (i * 37) % 300;
+        sb += &format!("\x1b[3{}m{i:05}\x1b[0m {}\r\n", i % 8, "·".repeat(len));
+    }
+    sb += "$ ";
+    out.push(ResizeCase {
+        name: "scrollback".into(),
+        host: (120, 40),
+        before: sb.into_bytes(),
+        redraw: prompt_redraw("$ "),
+        after: Vec::new(),
+        note: "",
+    });
+
+    // A full-screen TUI on the alternate screen, resized while it runs, then
+    // quit back to the shell.
+    let mut t = s("$ for i in 1 2 3; do echo line $i of the output before the TUI opens; done\r\n");
+    for i in 1..=3 {
+        t.extend(s(&format!("line {i} of the output before the TUI opens\r\n")));
+    }
+    t.extend(s("$ top\r\n\x1b[?1049h"));
+    t.extend(tui_frame(120, 40));
+    out.push(ResizeCase {
+        name: "full_screen_tui".into(),
+        host: (120, 40),
+        before: t,
+        redraw: Box::new(tui_frame),
+        after: s("\x1b[?1049l$ echo back\r\nback\r\n$ "),
+        note: "alternate screen: the phone shows the Mac's grid (scaled view); the shell it returns to is compared with the resize",
+    });
+
+    // Every parity corpus and recording, as a byte stream a resize reflows
+    // with no redraw of its own (output already printed). The Claude Code
+    // recordings are here: its own SIGWINCH redraw of the live region is not
+    // recorded.
+    for corpus in synthetic().into_iter().chain(recorded()) {
+        let note = if corpus.name.contains("claude") {
+            "the CLI's own redraw on resize is not recorded: reflow of what it printed"
+        } else {
+            ""
+        };
+        out.push(ResizeCase {
+            name: corpus.name,
+            host: corpus.host,
+            before: corpus.bytes,
+            redraw: no_redraw(),
+            after: Vec::new(),
+            note,
+        });
+    }
+    out
+}
+
+/// The grid as a real terminal holds it: every row (scrollback, then the
+/// screen) aligned at the bottom, cell by cell, with wrap flags, and the
+/// cursor counted from the bottom.
+fn compare_grid(mac: &Snapshot, phone: &Snapshot) -> Score {
+    let mut score = Score::default();
+    let (m, p) = (&mac.rows, &phone.rows);
+    let both = m.len().min(p.len());
+    let extra = |rows: &[(Vec<Read>, bool)]| -> usize {
+        rows.iter()
+            .map(|(cells, _)| cells.iter().filter(|c| !Key::of(c).is_default_blank()).count())
+            .sum()
+    };
+    let (m_extra, p_extra) = (extra(&m[..m.len() - both]), extra(&p[..p.len() - both]));
+    if m_extra + p_extra > 0 {
+        score.mismatched += m_extra + p_extra;
+        score.cells += m_extra + p_extra;
+        score.note(format!(
+            "rows: mac {} / phone {} ({} and {} non-blank cells unmatched above)",
+            m.len(),
+            p.len(),
+            m_extra,
+            p_extra
+        ));
+    }
+    let blank = Key::of(&(Cell::default(), false));
+    for i in 1..=both {
+        let (mr, pr) = (&m[m.len() - i], &p[p.len() - i]);
+        let width = mr.0.len().max(pr.0.len());
+        let from_bottom = i - 1;
+        let mut row_bad = 0;
+        for x in 0..width {
+            let a = mr.0.get(x).map(Key::of).unwrap_or_else(|| blank.clone());
+            let b = pr.0.get(x).map(Key::of).unwrap_or_else(|| blank.clone());
+            score.cells += 1;
+            if a != b {
+                score.mismatched += 1;
+                if row_bad == 0 {
+                    score.note(format!(
+                        "row {from_bottom} from bottom, col {x}: mac {} / phone {}\n      mac   {:?}\n      phone {:?}",
+                        a.label(),
+                        b.label(),
+                        mr.0.iter().map(|c| Key::of(c).text).collect::<String>().trim_end(),
+                        pr.0.iter().map(|c| Key::of(c).text).collect::<String>().trim_end(),
+                    ));
+                }
+                row_bad += 1;
+            }
+        }
+        if mr.1 != pr.1 {
+            score.mismatched += 1;
+            score.note(format!(
+                "row {from_bottom} from bottom: soft wrap mac {} / phone {}",
+                mr.1, pr.1
+            ));
+        }
+    }
+    let at = |s: &Snapshot| (s.rows.len() - 1 - s.cursor.0, s.cursor.1, s.cursor_visible);
+    if at(mac) != at(phone) {
+        score.cursor_mismatches += 1;
+        score.note(format!(
+            "cursor (rows from bottom, col, visible): mac {:?} / phone {:?}",
+            at(mac),
+            at(phone)
+        ));
+    }
+    score
+}
+
+#[derive(Default)]
+struct ResizeRow {
+    steps: usize,
+    passed: usize,
+    cells: usize,
+    mismatched: usize,
+    compact_mismatched: usize,
+    cursor: usize,
+    notes: Vec<String>,
+}
+
+fn run_resize_case(case: &ResizeCase) -> ResizeRow {
+    let mut row = ResizeRow::default();
+    for (label, sizes) in SEQUENCES {
+        for compact in [false, true] {
+            // (a) the phone path, and the unresized Mac it projects.
+            let mut run = Run::new(case.host, sizes[0], compact);
+            run.feed(&case.before);
+            // (b) the Mac resized for real.
+            let mut resized = vt(case.host.0, case.host.1);
+            resized.vt_write(&case.before);
+            let total = sizes.len() + 1;
+            for step in 0..total {
+                let last = step == sizes.len();
+                if last {
+                    run.feed(&case.after);
+                    resized.vt_write(&case.after);
+                } else {
+                    let (cols, rows) = sizes[step];
+                    if step > 0 {
+                        run.set_viewport(cols, rows);
+                    }
+                    let _ = resized.resize(cols as u16, rows as u16, 0, 0);
+                    let redraw = (case.redraw)(cols, rows);
+                    resized.vt_write(&redraw);
+                    // The program's redraw reaches the unresized Mac's PTY
+                    // only under a real resize; path (a) sends none.
+                }
+                run.load_all();
+                let mac = snapshot(&resized);
+                let phone = snapshot(&run.phone);
+                let score = if mac.alternate || phone.alternate {
+                    if mac.alternate != phone.alternate {
+                        let mut s = Score { cells: 1, mismatched: 1, ..Score::default() };
+                        s.note(format!(
+                            "screen: mac alternate {} / phone {}",
+                            mac.alternate, phone.alternate
+                        ));
+                        s
+                    } else {
+                        compare_alternate(&snapshot(&run.mac), &phone)
+                    }
+                } else if compact {
+                    let mut s = compare_glyphs(&mac, &phone, false);
+                    s.cursor_mismatches = 0;
+                    s
+                } else {
+                    compare_grid(&mac, &phone)
+                };
+                let size = if last {
+                    "after".to_string()
+                } else {
+                    format!("{}x{}", sizes[step].0, sizes[step].1)
+                };
+                row.steps += 1;
+                row.cells += score.cells;
+                row.cursor += score.cursor_mismatches;
+                if compact {
+                    row.compact_mismatched += score.mismatched;
+                } else {
+                    row.mismatched += score.mismatched;
+                }
+                if score.mismatched == 0 && score.cursor_mismatches == 0 {
+                    row.passed += 1;
+                } else if row.notes.len() < 8 {
+                    let mode = if compact { "compact" } else { "exact" };
+                    for what in score.first.iter().take(2) {
+                        row.notes.push(format!("{label} {mode} step {step} ({size}): {what}"));
+                    }
+                }
+            }
+        }
+    }
+    row
+}
+
+#[test]
+fn projection_matches_a_real_resize_cell_by_cell() {
+    let cases = resize_cases();
+    let mut table = String::from(
+        "| case | host | steps passed | cells compared | mismatched (grid, exact) | mismatched (glyphs, compact) | cursor | result | note |\n|---|---|---:|---:|---:|---:|---:|---|---|\n",
+    );
+    let mut json = Vec::new();
+    let mut details = String::new();
+    let (mut failed, mut steps, mut passed) = (0, 0, 0);
+    for case in &cases {
+        let row = run_resize_case(case);
+        let ok = row.passed == row.steps;
+        failed += usize::from(!ok);
+        steps += row.steps;
+        passed += row.passed;
+        let _ = writeln!(
+            table,
+            "| {} | {}x{} | {}/{} | {} | {} | {} | {} | {} | {} |",
+            case.name,
+            case.host.0,
+            case.host.1,
+            row.passed,
+            row.steps,
+            row.cells,
+            row.mismatched,
+            row.compact_mismatched,
+            row.cursor,
+            if ok { "pass" } else { "FAIL" },
+            case.note
+        );
+        json.push(format!(
+            "{{\"case\":{:?},\"host\":\"{}x{}\",\"steps\":{},\"passed\":{},\"cells\":{},\"exact\":{},\"compact\":{},\"cursor\":{},\"pass\":{}}}",
+            case.name, case.host.0, case.host.1, row.steps, row.passed, row.cells, row.mismatched, row.compact_mismatched, row.cursor, ok
+        ));
+        if !row.notes.is_empty() {
+            let _ = writeln!(details, "\n{}:", case.name);
+            for note in &row.notes {
+                let _ = writeln!(details, "  {note}");
+            }
+        }
+    }
+    let _ = writeln!(
+        table,
+        "| **total** | | {passed}/{steps} | | | | | {} of {} cases pass | |",
+        cases.len() - failed,
+        cases.len()
+    );
+    if !details.is_empty() {
+        println!("First resize mismatches:{details}");
+    }
+    println!(
+        "Resize equivalence (phone projection vs a real resize of the Mac's terminal):\n{table}"
+    );
+    if let Ok(dir) = std::env::var("PARITY_OUT") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("resize.md"), format!("{table}\n{details}")).unwrap();
+        std::fs::write(dir.join("resize.json"), format!("[{}]\n", json.join(",\n"))).unwrap();
+    }
+    if std::env::var("PARITY_REPORT_ONLY").is_err() {
+        assert_eq!(
+            failed, 0,
+            "{failed} resize-equivalence cases differ from a real resize; see the table above"
+        );
+    }
+}
