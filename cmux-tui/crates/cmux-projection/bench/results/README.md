@@ -37,6 +37,25 @@ against today's way: rsync the folder, then work on the copy. `../bench-slice.sh
 
 The copy arm's median excludes nothing; its third run met a load of 29.8 and took 34.6 s to build (row 6).
 
+## Results: 50 ms, 4.4 Mbit/s, one run
+
+The uplink RFD 0007 measured from a home connection. Rows in `slice-slow-link-2026-11-22.jsonl`.
+
+| | Projected | Copy, then work |
+| --- | --- | --- |
+| Before the first command can run | 1.5 s (mount; the 771 KB listing takes 1.46 s) | 2,381 s (rsync, 39.7 min) |
+| Bytes over the link by the end of all steps | 14.3 MB | 1,280 MB |
+| First read of one file (24 KB) | 621 ms | 13.5 ms |
+| The same file again | 7.8 ms | 4.5 ms |
+| 20 files never read before | 5.4 s | 61 ms |
+| `cargo build`, cold, `target/` in the tree | 39.8 s | 22.1 s |
+| `cargo build` after a one-line edit | 3.2 s | 1.5 s |
+| `bun run build` | 7.4 s | 3.6 s |
+| **Start to first build done** | **41.4 s** | **2,403 s (40.0 min)** |
+
+On this link the copy is 58 times slower to a finished build; the projected build loses 5.6 s to the
+slower link against the fast one.
+
 ## What the numbers say
 
 - The projection wins the whole job (34.4 s against 51.8 s) and moves 1.1% of the bytes, on a folder small
