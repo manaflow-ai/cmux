@@ -34,7 +34,13 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
         self.text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text()
 
     def test_every_feat_cmux_next_push_runs_it(self):
-        self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
+        # Since 2026-11-21 the post-merge batch tier's `web` suite runs ci-web.yml on the base after merges;
+        # cmux-next-web.yml runs only when dispatched (next_batch.py's web lane).
+        self.assertRegex(self.text, r"\non:\n  workflow_dispatch:\n")
+        self.assertNotRegex(self.text, r"\n  push:\n")
+        batch = (ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text()
+        self.assertIn("  web:\n    needs: plan\n    if: contains(needs.plan.outputs.suites, ' web ')\n", batch)
+        self.assertIn("    uses: ./.github/workflows/ci-web.yml\n", batch)
         self.assertNotIn("pull_request", self.text)
         self.assertNotIn("paths:", self.text)
 

@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { shownCategories } from "../categories";
 import { useSettingsState, useStore } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
-import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
+
+// The Chief Pet card (and its characters' art) loads when a search first shows its rows, not with the page.
+const ChiefPetCard = lazy(() => import("./ChiefPetCard").then(({ ChiefPetCard }) => ({ default: ChiefPetCard })));
 
 /**
  * Matching rows from every category, editable in place, grouped by category. Every
@@ -71,7 +74,11 @@ export function SearchResults({ query }: { query: string }) {
           >
             <div className="collapse-body">
               <h2 className="result-section-title">{text(category.title)}</h2>
-              {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
+              {petRows && petRows.size > 0 && (
+                <Suspense fallback={null}>
+                  <ChiefPetCard query={query} visibleRows={petRows} />
+                </Suspense>
+              )}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
             </div>
           </section>
