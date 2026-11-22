@@ -5,7 +5,14 @@
 // Leo, 2026-11-22: "the big fold we do for claude is not good looking enough. it looks like a gash collapsing."
 //
 //   bun scripts/fold-variants-record.ts [--looks fade,tuck,...] [--out DIR] [--ffmpeg PATH] [--scenario replay]
-//     [--fixture FILE.ndjson --end STEP --tag NAME]
+//     [--fixture FILE.ndjson --end STEP --tag NAME] [--recaps fade,rise,...] [--subagents slide,swap,...]
+//
+// `--recaps` records the turn with its closing recap (scenario big-claude-recap) once per recap entrance
+// (turnEndFold.ts `TURN_END_RECAPS`), on the first of `--looks`; `--subagents` the turn with a subagent
+// in its work (big-claude-subagent) once per subagent fold (`TURN_END_SUBAGENTS`). Besides the numbers
+// above, each run reports the anchor's drift (the row under the view's center before the fold: how far
+// it lands from where it was, and its biggest inked step), the least ink moved content has on any frame
+// (a row and its snapshot together: the "blink"), and, with a recap or a subagent, that row's own numbers.
 //
 // `--fixture` records a recorded chat from outside the repo (copied under node_modules/ for the dev server,
 // never committed) up to the turn end at step `--end`; `--tag` names its clips fold-TAG-LOOK.mp4.
@@ -34,11 +41,25 @@ const scenario = fixture
   : (value("--scenario") ?? "big-claude-turn");
 const { TURN_END_LOOKS } = await import("../src/agent-session/acpmux/conversation/turnEndFold");
 const looks = value("--looks")?.split(",") ?? [...TURN_END_LOOKS];
+const recaps = value("--recaps")?.split(",");
+const subagents = value("--subagents")?.split(",");
+/// One recording: a look, and the recap entrance or subagent fold it plays with.
+type Variant = { name: string; look: string; scenario: string; recap?: string; subagent?: string };
+const variants: Variant[] = recaps
+  ? recaps.map((recap) => ({ name: `recap-${recap}`, look: looks[0]!, scenario: "big-claude-recap", recap }))
+  : subagents
+    ? subagents.map((subagent) => ({
+        name: `subagent-${subagent}`,
+        look: looks[0]!,
+        scenario: "big-claude-subagent",
+        subagent,
+      }))
+    : looks.map((look) => ({ name: look, look, scenario }));
 const WIDTH = 720;
 const HEIGHT = 640;
 
-type Row = [key: string, top: number, height: number, ink: number];
-type Sample = { t: number; folding: boolean; rows: Row[] };
+type Row = [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number];
+type Sample = { t: number; folding: boolean; view?: number; rows: Row[] };
 type Run = { look: string; samples: Sample[]; startedAt: number };
 
 /** The run's numbers: over the frames from the fold's start to when nothing moves any more. */
@@ -77,7 +98,7 @@ export function measure(run: Run) {
   const band = (sample: Sample) => {
     const boxes = sample.rows
       .filter((row) => row[3] > 0.15)
-      .map((row) => [row[1], row[1] + row[2]] as const)
+      .map((row) => [row[4] ?? row[1], (row[4] ?? row[1]) + (row[5] ?? row[2])] as const)
       .sort((a, b) => a[0] - b[0]);
     let widest = 0;
     let reach = boxes[0]?.[1] ?? 0;
@@ -90,13 +111,91 @@ export function measure(run: Run) {
   const rest = band(samples.at(-1)!);
   let gash = 0;
   for (let index = first; index <= lastChange; index += 1) gash = Math.max(gash, band(samples[index]!) - rest);
+  const round = (value: number) => Math.round(value * 10) / 10;
+  // The rows that moved: drawn before the fold and at rest, at another top, and drawn on the fold's first
+  // frame (a row the swap brought in under a kept id, the edits card, is new, not moved). Their ink on
+  // each frame is the row's and its snapshot's (`snap:ID`) together, as two layers of paint.
+  const before = samples[Math.max(0, first - 1)]!;
+  const atRest = new Map(samples.at(-1)!.rows.map((row) => [row[0], row]));
+  const inkOf = (sample: Sample, key: string) => {
+    const own = sample.rows.find((row) => row[0] === key)?.[3] ?? 0;
+    const snap = sample.rows.find((row) => row[0] === `snap:${key}`)?.[3] ?? 0;
+    return 1 - (1 - own) * (1 - snap);
+  };
+  const moved = before.rows.filter(
+    (row) =>
+      !row[0].startsWith("snap:") &&
+      !row[0].startsWith("ghost-") &&
+      atRest.has(row[0]) &&
+      Math.abs(atRest.get(row[0])![1] - row[1]) > 0.5 &&
+      inkOf(samples[first]!, row[0]) > 0.5,
+  );
+  let minInk = 1;
+  for (let index = first; index <= lastChange; index += 1) {
+    const rows = new Map(samples[index]!.rows.map((row) => [row[0], row]));
+    for (const row of moved) {
+      const own = rows.get(row[0]);
+      const snap = rows.get(`snap:${row[0]}`);
+      if (!own && !snap) continue;
+      const ink = 1 - (1 - (own?.[3] ?? 0)) * (1 - (snap?.[3] ?? 0));
+      minInk = Math.min(minInk, ink);
+    }
+  }
+  // The anchor: the row the fold keeps nearest the view's center before the fold (the row under it, when
+  // the fold keeps that one).
+  const center = (before.view ?? 0) / 2;
+  const kept = before.rows.filter(
+    (row) =>
+      !row[0].startsWith("snap:") &&
+      !row[0].startsWith("ghost-") &&
+      atRest.has(row[0]) &&
+      inkOf(samples[first]!, row[0]) > 0.5,
+  );
+  const distance = (row: Row) => Math.max(0, row[1] - center, center - (row[1] + row[2]));
+  const anchor = kept.sort((a, b) => distance(a) - distance(b))[0];
+  const anchorRest = anchor ? atRest.get(anchor[0]) : undefined;
+  let anchorStep = 0;
+  if (anchor)
+    for (let index = first; index <= lastChange; index += 1) {
+      const prior = samples[index - 1]!.rows.find((row) => row[0] === anchor[0]);
+      const now = samples[index]!.rows.find((row) => row[0] === anchor[0]);
+      if (prior && now && seen(prior[3]) && seen(now[3])) anchorStep = Math.max(anchorStep, Math.abs(now[1] - prior[1]));
+    }
+  // One kind of row's own numbers: its biggest inked step, its least ink once drawn, and when it is
+  // first at full ink (ms from the fold's start).
+  const rowNumbers = (match: (key: string) => boolean) => {
+    const keys = new Set(samples.flatMap((sample) => sample.rows.map((row) => row[0])).filter(match));
+    if (keys.size === 0) return undefined;
+    let step = 0;
+    let fullAt: number | undefined;
+    let lowest = 1;
+    let drawn = false;
+    for (let index = first; index < samples.length; index += 1) {
+      const rows = samples[index]!.rows.filter((row) => keys.has(row[0]));
+      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      for (const row of rows) {
+        const was = prior.get(row[0]);
+        if (was && seen(was[3]) && seen(row[3])) step = Math.max(step, Math.abs(row[1] - was[1]));
+        if (seen(row[3])) drawn = true;
+        if (drawn && index <= lastChange) lowest = Math.min(lowest, row[3]);
+      }
+      if (fullAt === undefined && rows.length && rows.every((row) => row[3] >= 0.99))
+        fullAt = samples[index]!.t - samples[first]!.t;
+    }
+    return { maxStepPx: round(step), fullInkMs: fullAt === undefined ? undefined : Math.round(fullAt), minInkOnceDrawn: round(lowest) };
+  };
   return {
-    maxJumpPx: Math.round(maxJump * 10) / 10,
+    maxJumpPx: round(maxJump),
     maxJumpAnyInkPx: Math.round(maxJumpRaw * 10) / 10,
     worstFrameMs: Math.round(worstAt),
     durationMs: Math.round(samples[lastChange]!.t - samples[first]!.t),
     gashPx: Math.round(gash),
     frames: lastChange - first + 1,
+    anchorDriftPx: anchor && anchorRest ? round(anchorRest[1] - anchor[1]) : undefined,
+    anchorMaxStepPx: round(anchorStep),
+    minMovedInk: Math.round(minInk * 100) / 100,
+    recap: rowNumbers((key) => key.startsWith("nextStep")),
+    subagent: rowNumbers((key) => key.startsWith("subagent")),
     foldStart: samples[first]!.t,
     foldEnd: samples[lastChange]!.t,
   };
@@ -124,11 +223,12 @@ if (import.meta.main) {
     mkdirSync(path.join(webviews, "node_modules/.fold-fixtures"), { recursive: true });
     copyFileSync(fixture, path.join(webviews, "node_modules/.fold-fixtures", path.basename(fixture)));
   }
-  const name = (look: string) => (tag ? `${tag}-${look}` : look);
+  const name = (variant: string) => (tag ? `${tag}-${variant}` : variant);
   const browser = await chromium.launch({ headless: true });
   mkdirSync(out, { recursive: true });
   const results: Record<string, unknown> = {};
-  for (const look of looks) {
+  for (const variant of variants) {
+    const look = variant.name;
     const page: Page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
     page.on("pageerror", (error) => console.error(`${look}: ${error.message}`));
     page.on("console", (m) => m.type() === "warning" && console.error(m.text()));
@@ -147,13 +247,24 @@ if (import.meta.main) {
     });
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, everyNthFrame: 1 });
     const run = (await page.evaluate(
-      ([look, scenario, end]) =>
+      ([look, scenario, end, recap, subagent]) =>
         (
           window as unknown as {
-            __fold: { run(look: string, name: string, tailMs?: number, end?: number): Promise<unknown> };
+            __fold: {
+              run(
+                look: string,
+                name: string,
+                tailMs?: number,
+                end?: number,
+                options?: { recap?: string; subagent?: string },
+              ): Promise<unknown>;
+            };
           }
-        ).__fold.run(look as string, scenario as string, undefined, end as number | undefined),
-      [look, scenario, end] as const,
+        ).__fold.run(look as string, scenario as string, undefined, end as number | undefined, {
+          ...(recap && { recap }),
+          ...(subagent && { subagent }),
+        }),
+      [variant.look, variant.scenario, end, variant.recap, variant.subagent] as const,
     )) as Run;
     await cdp.send("Page.stopScreencast");
     const numbers = measure(run);

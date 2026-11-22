@@ -59,6 +59,8 @@ export type ToolOptions = {
   /** Leave the call running: no result record (end it later with `toolEnd`). */
   open?: boolean;
   path?: string;
+  /** The call's input as the harness sends it (an MCP call's arguments, such as acpmux's `wrap_up`). */
+  rawInput?: Record<string, unknown>;
 };
 
 export type IncomingOptions = {
@@ -201,7 +203,11 @@ export class SimBuilder {
         title,
         kind,
         status: "in_progress",
-        ...(kind === "execute" ? { rawInput: { command: title, description: title } } : {}),
+        ...(options.rawInput
+          ? { rawInput: options.rawInput }
+          : kind === "execute"
+            ? { rawInput: { command: title, description: title } }
+            : {}),
         ...(options.path ? { locations: [{ path: options.path }] } : {}),
         ...(options.tool ? { _meta: { claude: { tool: options.tool } } } : {}),
       }),
