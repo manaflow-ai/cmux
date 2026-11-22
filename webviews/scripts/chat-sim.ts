@@ -11,6 +11,8 @@
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --limit N]
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
 //   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --integrity   (bubble-integrity checker only)
+//   bun scripts/chat-sim.ts --map [ID...]                                  (the scenario map, model cases)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
@@ -20,6 +22,8 @@ import { runSimulation, summarize, type SimResult } from "../src/agent-session/a
 import { parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import { integrityScan, runMapScenario } from "../src/agent-session/acpmux/sim/mapRun";
+import { STREAM_SCENARIOS } from "../src/agent-session/acpmux/sim/streamScenarios";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -33,7 +37,7 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 15)
+      .slice(1, 17)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -84,6 +88,37 @@ if (replay) {
   const name = args.find((arg) => !arg.startsWith("--"));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
+}
+
+// The scenario map's model cases (docs/design/chat-stream-scenarios.md); the live ones run in its test.
+if (flag("--map")) {
+  const ids = args.filter((arg) => !arg.startsWith("--"));
+  let failed = 0;
+  for (const entry of STREAM_SCENARIOS) {
+    if (entry.harness !== "sim" || (ids.length && !ids.includes(entry.id))) continue;
+    const findings = runMapScenario(entry);
+    if (findings.length) failed += 1;
+    console.log(`${findings.length ? "FAIL" : "pass"} ${entry.id.padEnd(28)} ${entry.title}`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 3)))
+      console.log(
+        `  ${finding.rule.padEnd(22)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(failed ? 1 : 0);
+}
+// The bubble-integrity checker on recorded chats: one line a finding, exit 1 on any.
+if (flag("--integrity")) {
+  let found = 0;
+  for (const scenario of scenarios) {
+    const findings = integrityScan(scenario);
+    found += findings.length;
+    console.log(`${scenario.name}: ${scenario.events.length} records, ${findings.length} integrity findings`);
+    for (const finding of findings.slice(0, Number(value("--show") ?? 20)))
+      console.log(
+        `  ${finding.rule.padEnd(24)} step ${finding.step} (${finding.label}) ${finding.rowId}: ${finding.detail}`,
+      );
+  }
+  process.exit(found ? 1 : 0);
 }
 
 const tracePath = value("--trace");

@@ -329,7 +329,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           was.row.kind === "assistant" &&
           !!was.row.text &&
           rows.some((row) => row.kind === "assistant" && row.text === was.row.text);
-        if (remapped) verdict = "remapped";
+        // acpmux replaced the message (`message_superseded`, a harness retry): its rows go by design.
+        const superseded = step.type === "event" && bySeq.get(step.seq)?.kind === "message_superseded";
+        if (remapped || superseded) verdict = "remapped";
         else if (was.row.kind !== "assistant" && laterSibling) verdict = "sibling";
         else verdict = "violation";
       }
@@ -433,7 +435,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   });
   /** Whether the agent is working at the step `advance` last made (the browser lane draws it). */
   const state = () => ({ working, turn, turnEnded });
-  return { advance, check, result, state };
+  /** The reducer's client and its newest snapshot (the scenario checks read rows of a message, raw rows). */
+  const reducer = () => ({ client, snapshot });
+  return { advance, check, result, state, reducer };
 }
 
 /// Runs `scenario` and checks the three rules at every step (sim/README.md "Rules").
@@ -467,9 +471,12 @@ export async function runSimulationAsync(
 }
 
 /// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.
+/// A steer (`steer: true`) or a harness prompt into the running turn (a Stop hook's feedback) goes into the turn
+/// that runs and opens none.
 function isTurnPrompt(event: EventRecord): boolean {
   const kind = event.msg?._meta?.provenance?.kind;
-  return kind !== "inbox_notice" && kind !== "agent_digest";
+  if (kind === "inbox_notice" || kind === "agent_digest" || event.msg?.steer === true) return false;
+  return event.msg?._meta?.origin?.actor !== "harness";
 }
 
 /// A short summary of a result's violations by rule, for a CLI or a test's message.
