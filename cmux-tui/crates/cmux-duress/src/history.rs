@@ -176,7 +176,7 @@ impl Rows {
         let mut width = 0;
         while width < target {
             let word: &str = if self.rng.chance(4) {
-                self.rng.pick(WIDE)
+                *self.rng.pick(WIDE)
             } else {
                 self.rng.pick(&self.words).as_str()
             };
