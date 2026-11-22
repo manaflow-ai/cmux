@@ -91,50 +91,12 @@ test("the popup names the full build, lists the highlights and has See all chang
   expect(text.split("See all changes").length - 1).toBe(1);
 });
 
-// The "Updated to" card (Leo 2026-10-13; version and date in words since 2026-10-20): "Nightly · Oct 13",
-// the terse fallback headline when no change is known, and no Share cmux text link (it is the palette's).
-test("the Updated card says what it updated to, What's new in this build and has no Share link", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
-  const { createStrings } = await import("../src/pages/shared/i18n");
-  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
-  act(() => root?.unmount());
-  root = createRoot(host);
-  const noop = () => undefined;
-  await act(async () =>
-    root!.render(
-      <UpdatedCard
-        data={{
-          version: "1.0.0-nightly.3845050428001",
-          build: "3845050428001",
-          fromVersion: "1.0.0-nightly.3801702344901",
-          fromBuild: "3801702344901",
-          date: "2026-10-13",
-          source: "none",
-          language: "en",
-          items: [],
-          moreCount: 0,
-          changelog: { from: "1.0.0-nightly.3801702344901", to: "1.0.0-nightly.3845050428001" },
-        }}
-        strings={createStrings(table)}
-        actions={{ openChangelog: noop, dismiss: noop, share: noop } as never}
-      />,
-    ),
-  );
-  expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
-  expect(host.querySelector(".wn-card-note")?.textContent).toBe("What's new in this build");
-  const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The title's version is the copy button (CopyVersion), then the x. The title line is "Updated to …"
-  // alone; What's New leads the open preview (8d5626228).
-  expect(buttons).toEqual(["Nightly", "Close"]);
-});
-
 // Notes published before the pipeline's readable rules (#21873) reach the card and popup as they
 // were written: a digest title cut with "…", a work-stream line, and each title repeated as its
 // description (nightly 3917159104301 and earlier). The surfaces read them as the page does.
 test("the popup and the card read notes published before the readable rules as the page does", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
   const { createStrings } = await import("../src/pages/shared/i18n");
   const table = (await import("../src/pages/changelog/generated/strings.json")).default;
   const data = {
@@ -178,19 +140,6 @@ test("the popup and the card read notes published before the readable rules as t
   const items = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.textContent);
   // The perf-fanout line and the export-backdrop-art tool line are internal work.
   expect(items).toEqual(["Keep the Mac awake while agents work"]);
-  act(() => root?.unmount());
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
-    ),
-  );
-  // The card summarizes by area (#22810): one row, made only of the readable change.
-  const rows = [...host.querySelectorAll(".wn-card-note")].map((li) => li.textContent ?? "");
-  expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatch(/keep the mac awake while agents work/i);
-  expect(rows[0]).not.toMatch(/perf-fanout|backdrop/i);
-  expect(host.querySelector(".wn-card-line")).toBeNull();
 });
 
 // Review of #22099: the popover's scrolling list (`rest`, every change after the first three) and the
@@ -198,7 +147,7 @@ test("the popup and the card read notes published before the readable rules as t
 // "…" and a repeat of a change already shown never reach either surface.
 test("every change after the first three reads as the first three do, on the popup and the card", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { UpdateReadyHighlights, UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
   const { createStrings } = await import("../src/pages/shared/i18n");
   const table = (await import("../src/pages/changelog/generated/strings.json")).default;
   const data = {
@@ -254,16 +203,6 @@ test("every change after the first three reads as the first three do, on the pop
   const text = host.textContent ?? "";
   expect(text).not.toMatch(/perf-fanout/i);
   expect(text.split("Keep the Mac awake while agents work").length - 1).toBe(1);
-  act(() => root?.unmount());
-  root = createRoot(host);
-  await act(async () =>
-    root!.render(
-      <UpdatedCard data={data} strings={createStrings(table)} actions={{ openChangelog: () => undefined }} />,
-    ),
-  );
-  const card = host.textContent ?? "";
-  expect(card).not.toMatch(/perf-fanout/i);
-  expect(card).not.toContain("…");
 });
 
 // Notes with screenshots (Leo 2026-10-19): a change's picture shows inline at the popover's width,

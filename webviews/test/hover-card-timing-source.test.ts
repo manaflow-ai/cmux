@@ -53,7 +53,7 @@ test("no native hover card has a delay of its own", () => {
 
 test("no page hover card has a delay of its own", () => {
   const isCardSource = (file: string, text: string) =>
-    /hover-?card|updatedPreview|sessionHover|threadMinimap/i.test(file) ||
+    /hover-?card|sessionHover|threadMinimap/i.test(file) ||
     /useHoverCard\(|useHoverIntent(<[^>]*>)?\(|new HoverGroup\(|new HoverIntent(<[^>]*>)?\(/.test(text);
   // A named delay constant or a delay argument written as a number.
   const literal =

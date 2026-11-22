@@ -50,7 +50,6 @@ colour	webviews/src/agent-session/guest/theme.ts	30
 colour	webviews/src/agent-session/shared/AgentMark.tsx	1
 colour	webviews/src/agent-session/shared/harnessIcons.ts	2
 colour	webviews/src/pages/artifacts/styles.css	2
-colour	webviews/src/pages/changelog/doodle/updateDoodle.css	2
 colour	webviews/src/pages/changelog/readableChange.ts	1
 colour	webviews/src/pages/changelog/styles.css	1
 colour	webviews/src/pages/editor/colors.ts	1

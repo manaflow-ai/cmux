@@ -377,9 +377,6 @@ test/transcript-working-line.test.tsx
 test/tray-exit-fold-once.test.ts
 test/turn-error-card.test.tsx
 test/turn-retry.test.tsx
-test/updated-card-drag.test.tsx
-test/updated-card-hover-preview.test.tsx
-test/updated-notes-icons-copy.test.tsx
 test/visual-media-board.test.tsx
 test/web-result-cards.test.tsx
 test/web-sources-follow-ups.test.tsx

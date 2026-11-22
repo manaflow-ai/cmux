@@ -476,7 +476,6 @@
    "src/pages/changelog/UpdateSurfaces.tsx::react-doctor/no-ref-current-in-render": 4,
    "src/pages/changelog/UpdateSurfaces.tsx::react-hooks-js/refs": 4,
    "src/pages/changelog/UpdateSurfaces.tsx::react-hooks-js/todo": 1,
-   "src/pages/changelog/doodle/UpdateDoodle.tsx::react-hooks-js/todo": 2,
    "src/pages/cloud-progress/cloudProgress.gallery.tsx::react-hooks-js/purity": 1,
    "src/pages/cloud/sectionParts.tsx::react-hooks-js/refs": 1,
    "src/pages/cloud/sectionParts.tsx::react-hooks-js/todo": 1,

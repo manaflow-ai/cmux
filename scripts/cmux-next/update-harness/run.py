@@ -299,8 +299,7 @@ NARROW_SIDEBAR = 160
 
 def changelog_shots(sock, out, phase, log, action, popover):
     """cx-7rone: the sidebar's update card at the narrow width (light and dark), then, at the width
-    before, the What's New page its button opens (`action`: open-changes or open-whats-new), light
-    and dark. The ready phase leaves that page's tab open in the session the relaunch restores."""
+    before, the What's New page its button opens (`action`: open-changes), light and dark. The ready phase leaves that page's tab open in the session the relaunch restores."""
     shots = {"width": rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": NARROW_SIDEBAR}).get("result")}
     time.sleep(1.0)  # capture timing only: the card's page re-measures at the new width
     shots.update(surface_shots(sock, out, f"{phase}-narrow", log, popover=popover))
@@ -473,14 +472,13 @@ def main():
                          "signed with the throwaway key, and read the staged highlights (updates.highlights)")
     ap.add_argument("--language", help="v1's AppleLanguages, for example ja")
     ap.add_argument("--surface-shots", action="store_true",
-                    help="capture the React update surfaces: the staged card's highlights popover before the "
-                         "restart and the Updated card after it, light and dark (debug.window_snapshot)")
+                    help="capture the React update surface: the staged card's highlights popover before the "
+                         "restart, light and dark (debug.window_snapshot)")
     ap.add_argument("--island-lifecycle", action="store_true",
-                    help="with --surface-shots and --notes: check that each update page exists only while its card "
-                         "shows (debug.update_surfaces state): the Updated card's page at launch and none after its x, "
-                         "no highlights page before staging, the highlights page drawn (the popover opens only with "
-                         "a measured page) and 3 staged items (the updater's data) once staged, the Updated card's "
-                         "page drawn after the restart")
+                    help="with --surface-shots and --notes: check that the update page exists only while its card "
+                         "shows (debug.update_surfaces state): no highlights page before staging, the highlights page "
+                         "drawn (the popover opens only with a measured page) and 3 staged items (the updater's data) "
+                         "once staged")
     ap.add_argument("--changelog-shots", action="store_true",
                     help="with --surface-shots and --notes: after each surface capture, capture the card at the "
                          "narrow sidebar width and the What's New page its button opens, light and dark (cx-7rone)")
@@ -640,22 +638,6 @@ def main():
             subprocess.run(["defaults", "write", i1["CFBundleIdentifier"], "cmux.next.updates.testFeedURL", feed_url], check=True)
             result["pinned_test_feed"] = feed_url
         if a.surface_shots:
-            # v1 opens as if it had just updated from an older build: its "cmux Updated!" card shows
-            # at launch, so both appearances are captured with this config (the relaunched app
-            # starts without the harness environment).
-            record_dir = os.path.join(os.environ["HOME"], "Library/Application Support/cmux-next", i1["CFBundleIdentifier"])
-            os.makedirs(record_dir, exist_ok=True)
-            with open(os.path.join(record_dir, "last-update.json"), "w") as f:
-                json.dump({"fromVersion": "0.64.0", "fromBuild": str(base - 1), "toVersion": i1.get("CFBundleShortVersionString", "0"),
-                           "toBuild": i1["CFBundleVersion"], "stagedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                           "changelog": {"version": i1.get("CFBundleShortVersionString", "0"), "lines": ["New: Highlights before you restart"]},
-                           "highlights": {"version": i1.get("CFBundleShortVersionString", "0"), "build": i1["CFBundleVersion"],
-                                          "fromVersion": "0.64.0", "fromBuild": str(base - 1), "source": "whatsNew", "language": "en",
-                                          "date": time.strftime("%Y-%m-%d", time.gmtime()), "moreCount": 2,
-                                          "changelog": {"from": "0.64.0", "to": i1.get("CFBundleShortVersionString", "0")},
-                                          "items": [{"id": "a", "title": "Restart to Update is instant", "category": "new",
-                                                     "summary": "The click answers in one frame."},
-                                                    {"id": "b", "title": "Highlights before you restart", "category": "new"}]}}, f)
             # Light and dark captures follow debug.appearance only with a theme for each.
             config = os.path.join(work, "cmux.json")
             with open(config, "w") as f:
@@ -685,24 +667,14 @@ def main():
             raise SystemExit("v1 showed no window")
         if not wait_socket(sock, 60):
             raise SystemExit(f"v1's control socket {sock} did not open")
-        if a.surface_shots:
-            result["v1_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
-            time.sleep(2.0)  # capture timing only: the card's page loads and reports its height
-            result["v1_updated_shots"] = surface_shots(sock, out, "v1-updated", log, popover=False)
         if a.island_lifecycle:
-            # Launch: the Updated card's page only. A launch check may stage the update already, so
-            # the highlights page must follow the card, not be absent.
-            state = island_state(sock)
-            island_check(result, "v1-launch", state, updatedCard="true", updatedPage="true", highlights=state.get("card"))
-            rpc(sock, "debug.update_surfaces", {"action": "dismiss-updated"})
-            deadline = time.monotonic() + 5
-            while island_state(sock).get("updatedCard") == "true" and time.monotonic() < deadline:
-                time.sleep(0.2)  # the sidebar applies the dismissal on its next model pass
+            # Launch: no update page unless a card shows. A launch check may stage the update already,
+            # so the highlights page must follow the card, not be absent.
             state = island_state(sock)
             idle = state.get("card") == "false"
-            island_check(result, "v1-after-dismiss", state, updatedCard="false", updatedPage="false",
-                         highlights=state.get("card"), **({"sidebarWebViews": 0} if idle else {}))
-            result["island_lifecycle"]["v1-after-dismiss"]["idle"] = idle
+            island_check(result, "v1-launch", state, highlights=state.get("card"),
+                         **({"sidebarWebViews": 0} if idle else {}))
+            result["island_lifecycle"]["v1-launch"]["idle"] = idle
             log("island lifecycle", json.dumps(result["island_lifecycle"]))
         if not first(marks.read(), "updater_created", pid=v1_pid):
             raise SystemExit("v1 did not start the harness updater (is it a DEBUG build with the harness keys?)")
@@ -934,14 +906,6 @@ def main():
             result["v2_status"] = rpc(sock, "updates.status")
             if a.surface_shots:
                 result["v2_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
-                result["updated_shots"] = surface_shots(sock, out, "updated", log, popover=False)
-            if a.island_lifecycle:
-                state = island_state(sock)
-                island_check(result, "v2-updated", dict(state, drawn=float(state.get("updatedHeight", "0")) > 0),
-                             updatedCard="true", updatedPage="true", drawn=True)
-            # After the lifecycle check: "See What's New" marks the update seen, so the card goes.
-            if a.changelog_shots:
-                result["updated_changelog_shots"] = changelog_shots(sock, out, "updated", log, "open-whats-new", popover=False)
         except OSError as error:
             result["v2_socket_error"] = str(error)
         if a.second_hop:
