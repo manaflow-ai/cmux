@@ -126,6 +126,22 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
         self.assertEqual(d["action"], "none")
 
+    def test_a_bench_host_silent_past_host_gone_hours_is_still_asked_while_github_is_busy(self):
+        # 2026-11-18 to 11-21: cmux20-bench refused every claim (not isolated), so it ran no part for 3.5 days. Once
+        # repaired, host_gone read it as gone by silence, the "only on the bench host" rule skipped it, and every tick
+        # a nightly waited for a Mac held the Mac parts back. Only the controller's word retires the bench host here.
+        busy = "nightly.yml waits for a Mac runner"
+        state = cron.empty_state(T0)
+        cron.mark_host(state, cron.BENCH_WORKER, last_part_at=cron.iso(T0))
+        late = at(cron.HOST_GONE_HOURS + 1)
+        self.assertTrue(cron.host_gone(state, cron.BENCH_WORKER, late))
+        d = cron.decide(state, late, "a" * 40, None, lambda sha: FLEET, busy)
+        self.assertEqual((d["action"], d.get("part"), d.get("worker")), ("part", "build", cron.BENCH_WORKER))
+        # The controller saying it has no such worker still retires it.
+        cron.mark_host(state, cron.BENCH_WORKER, gone_at=cron.iso(late))
+        d = cron.decide(state, late, None, None, lambda sha: FLEET, busy)
+        self.assertEqual(d["action"], "none")
+
     def test_the_measurement_in_flight_goes_on_before_a_newer_tip(self):
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["motion", "sidebar"], None)
