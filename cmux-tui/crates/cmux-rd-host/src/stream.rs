@@ -691,7 +691,7 @@ impl MediaSession {
                 frames.len(),
                 pacer.frames_dropped()
             ));
-            self.paced_logs.retain(|log| !frames.contains(&log.frame));
+            self.paced.forget(|stream, frame| frames.contains(&(stream, frame)));
             self.engine.forget_unsent(&dropped);
         }
         Ok(self.send_paced(carrier)?)
