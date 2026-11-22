@@ -32,32 +32,23 @@ import {
   rememberBackground,
 } from "../wallpaperSwitch";
 import { focusRingShown } from "../../../ui/focusModality";
+import {
+  BACKDROP_ROWS,
+  BACKGROUND_KEY,
+  BACKGROUND_OPACITY_KEY,
+  MATERIAL_KEY,
+  ROTATION_KEY,
+  useBackdropsShown,
+} from "../cardRows";
 
-export const BACKGROUND_KEY = "appearance.background";
-export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
+export { BACKDROP_ROWS, BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY, useBackdropsShown };
+
 /** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
 /** The person's desktop picture (BackdropSelection.desktopID), first in the picker. */
 const DESKTOP_ID = "desktop";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
-/** The rows the picker draws, left out of their group while it shows. */
-/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
-export const MATERIAL_KEY = "appearance.backgroundBlur";
-/** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
-export const ROTATION_KEY = "appearance.backgroundRotation";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
-  BACKGROUND_KEY,
-  BACKGROUND_OPACITY_KEY,
-  MATERIAL_KEY,
-  ROTATION_KEY,
-  // Switch Automatically's keys: its editors draw them.
-  LIGHT_KEY,
-  DARK_KEY,
-  SCHEDULE_KEY,
-  DYNAMIC_KEY,
-  LOCATION_KEY,
-]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
 const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
@@ -71,11 +62,6 @@ function BackdropThumb({ src }: { src: string }) {
   const [failed, setFailed] = useState<string | null>(null);
   if (failed === src) return <span className="backdrop-thumb backdrop-none" data-thumb-missing="" />;
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
-}
-
-/** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
-export function useBackdropsShown(): boolean {
-  return (useSettingsState().host?.backdrops ?? []).length > 0;
 }
 
 /**

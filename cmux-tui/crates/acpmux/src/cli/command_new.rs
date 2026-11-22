@@ -144,8 +144,10 @@ impl NewArgs {
     /// name, target, and wait behavior.
     pub fn apply_compat(&mut self) -> Vec<&'static str> {
         let mut notices = Vec::new();
+        // Only a word that reads as a session name: a quoted prompt with spaces stays a prompt.
         if self.name.is_none()
             && self.prompt.len() == 1
+            && self.prompt.first().is_some_and(|word| looks_like_session_name(word))
             && self.prompt_file.is_none()
             && self.worktree.is_none()
             && self.report_to.is_none()
@@ -181,10 +183,25 @@ impl NewArgs {
     }
 }
 
+/// A lone `new` word is a session name only when it could be one: non-empty, no whitespace,
+/// not an option-looking `-` word.
+fn looks_like_session_name(word: &str) -> bool {
+    !word.is_empty() && !word.starts_with('-') && !word.chars().any(char::is_whitespace)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn a_lone_prompt_with_spaces_stays_the_prompt() {
+        let mut args = New::try_parse_from(["new", "fix the bug"]).unwrap().args;
+        let notices = args.apply_compat();
+        assert_eq!(args.prompt, ["fix the bug"]);
+        assert!(args.name.is_none());
+        assert!(notices.is_empty());
+    }
 
     #[derive(Parser)]
     struct New {
