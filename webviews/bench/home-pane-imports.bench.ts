@@ -13,7 +13,7 @@
 //    the part of it that is pane code: the files reachable from the page's main.tsx by static imports minus those
 //    still reachable once every import from outside src/agent-session/ into it is cut. The same for the page's CSS
 //    (an isolated esbuild CSS pass per page, as bundle.mjs's, with a metafile). Then per import group (PromptEditor,
-//    AgentMessageRow + AgentMessageBody + MessageCard, Markdown) the bytes that cutting only that group's imports
+//    AgentMessageRow + AgentMessageBody + MessageCard, Markdown, and all three) the bytes that cutting only that group's imports
 //    removes, and the 12 imported pane files that each remove the most.
 // 3. Script ms: each round a fresh Chromium opens DIR/<page>/index.html?mock (the page on its in-page mock provider,
 //    production React) at CPU (CDP throttling) and reads ScriptDuration when the first editable field is in the
@@ -229,7 +229,7 @@ try {
     const cssAll = reach(cssMeta, entry);
     const cssPane = minus(cssAll, reach(cssMeta, entry, intoPane));
     const groups: PageBytes["groups"] = {};
-    for (const [name, files] of Object.entries(GROUPS)) {
+    for (const [name, files] of [...Object.entries(GROUPS), ["all three", Object.values(GROUPS).flat()] as const]) {
       const cut = (from: string, to: string) => !from.startsWith(PANE) && files.includes(to);
       groups[name] = {
         js: bytesIn(meta, outputs, minus(all, reach(meta, entry, cut))),

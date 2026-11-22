@@ -349,16 +349,18 @@ try {
         {
           name: "pane-mount-sites-variant",
           enforce: "pre",
-          transform(code: string, id: string) {
-            if (edits.length === 0 || !id.split("?")[0]!.endsWith("/agent-session/acpmux/App.tsx")) return null;
-            let next = code;
+          // load, not transform: the source as it is on disk, before any other plugin (the React Compiler) reads it.
+          load(id: string) {
+            const file = id.split("?")[0]!;
+            if (edits.length === 0 || !file.endsWith("/agent-session/acpmux/App.tsx")) return null;
+            let next = fs.readFileSync(file, "utf8");
             for (const [from, to] of edits) {
               if (!next.includes(from))
                 throw new Error(`variant ${variant}: App.tsx no longer holds ${JSON.stringify(from)}`);
               next = next.replace(from, to);
               applied += 1;
             }
-            return { code: next, map: null };
+            return next;
           },
         },
       ],
