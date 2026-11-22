@@ -7813,6 +7813,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "resume",
       "login",
       "customize",
+      "help",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
