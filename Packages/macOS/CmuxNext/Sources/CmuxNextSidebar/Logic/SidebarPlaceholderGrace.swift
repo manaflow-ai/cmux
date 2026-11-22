@@ -78,13 +78,15 @@ public final class SidebarPlaceholderGrace {
         }
     }
 
-    /// A link state that ends without anyone acting: coming up, redialing after a drop, or out of
-    /// reach until the network answers again.
+    /// A link state that ends without anyone acting: coming up, redialing after a drop, out of
+    /// reach until the network answers again, or a paused Cloud machine resuming for an attach (its
+    /// link comes up right after, under the same wait): a resume of a second or two read "Resuming…"
+    /// with a spinner from the first frame. A resume that lasts past the wait says so then.
     nonisolated static func healsOnItsOwn(_ status: SidebarMachine.Status) -> Bool {
         switch status {
-        case .connecting, .reconnecting, .unreachable, .offline: true
+        case .connecting, .reconnecting, .unreachable, .offline, .resuming: true
         case .connected, .updateAvailable, .updateRequired, .installRequired, .installing, .authFailed, .failed,
-             .disconnected, .paused, .pausedIdle, .pausing, .resuming, .deleting: false
+             .disconnected, .paused, .pausedIdle, .pausing, .deleting: false
         }
     }
 }

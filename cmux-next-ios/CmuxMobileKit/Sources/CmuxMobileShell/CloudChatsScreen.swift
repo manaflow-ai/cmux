@@ -47,7 +47,8 @@ struct CloudChatsScreen: View {
                     }
                 }
                 if loading {
-                    CmuxSpinner(label: Text("Loading Cloud chats…"))
+                    // A list that answers within the coming-up bound draws no spinner (Leo, 2026-11-14).
+                    CloudChatsComingUp { CmuxSpinner(label: Text("Loading Cloud chats…")) }
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
@@ -151,6 +152,29 @@ struct CloudChatsConnectMac: View {
         }
     }
 }
+
+/// A Cloud list's or machine's wait, drawn only once it has lasted `cloudComingUpDelay`: a connect
+/// that answers inside it goes straight from nothing to the list (Leo, 2026-11-14: "i also want all
+/// our connectivity stuff to shut up and load faster/percievably load faster"). A failure, which
+/// has Retry, never waits: it is its own view. One timer per wait, ended with the view.
+struct CloudChatsComingUp<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @State private var due = false
+
+    var body: some View {
+        Group {
+            if due { content() } else { Color.clear.frame(height: 1).accessibilityHidden(true) }
+        }
+        .task {
+            try? await Task.sleep(for: cloudComingUpDelay)
+            due = !Task.isCancelled
+        }
+    }
+}
+
+/// How long a Cloud wait the person cannot act on stays unsaid as it comes up: the app's shared
+/// coming-up bound (macOS `TerminalStatusBanner.startingRevealDelay`, 1 s).
+let cloudComingUpDelay: Duration = .seconds(1)
 
 /// How long the phone waits for a Cloud machine's chats before it says why it
 /// stopped: the paired link's 20 s (`cloudLink`) plus the chat channel's first
@@ -258,7 +282,8 @@ private struct CloudMachineChatsScreen: View {
             } else if let cause = failure {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
             } else {
-                CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
+                // A machine whose chats answer within the coming-up bound never flashes its wait (Leo, 2026-11-14).
+                CloudChatsComingUp { CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince) }
             }
         }
         .navigationTitle(machine.name)
