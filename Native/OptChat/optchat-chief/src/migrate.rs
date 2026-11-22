@@ -51,6 +51,9 @@ const LOCAL_NAMES: &[&str] = &[
     "moved.json",
     "moved-in.json",
     "subagents-moved.json",
+    // This machine's record of a projected memory it took in (memory_place.rs): another
+    // machine has its own mount, or none.
+    "memory-place.json",
     // A teleport request, the last move's report and the watcher's lock belong
     // to the machine they were written on: carried along, a request would send
     // the Chief straight back.
