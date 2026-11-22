@@ -1,5 +1,5 @@
 // l10n-allow-file: typed test keys, not shipped UI.
-// A keystroke in the agent chat's prompt draws the composer and the parts that read its text, and
+// A keystroke in the agent chat's prompt draws the prompt box and the parts that read its text, and
 // nothing else, however long the chat (CMUX-571; Leo: "improve performance (chat, everything
 // related)"; Leo, 2026-11-12: long chats must have "no perceivable difference"). Not the pane root,
 // the transcript or a row; and not the model picker under the box, which does not read the text
@@ -99,8 +99,11 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       Object.entries(renders)
         .filter(([name]) => name.startsWith(prefix))
         .reduce((total, [, value]) => total + value, 0);
-    // The composer itself draws once a key: the text is its state.
-    expect(renders.composer ?? 0).toBeGreaterThanOrEqual(KEYS);
+    // The prompt box draws once a key: it reads the text from the prompt's store (composer/promptText.ts).
+    // The composer around it does not: the text is no longer its state (Leo: "we need typing in the gui to be
+    // fast too and smootha nd stuff"). It may draw once over the run (a facts change: the prompt went non-empty).
+    expect(renders["composer:box"] ?? 0).toBeGreaterThanOrEqual(KEYS);
+    expect(renders.composer ?? 0).toBeLessThanOrEqual(2);
     // The pane may draw once over the run (a clock tick), never once a key.
     expect(renders.pane ?? 0).toBeLessThanOrEqual(1);
     expect({
