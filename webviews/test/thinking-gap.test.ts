@@ -4,7 +4,7 @@
 // calls and the current shimmer? this isnt great."), 8 under a reply,
 // 24 under a prompt or steer. A pure sweep: each step of seeded coordinator turns through turnViewFrom
 // and layoutConversation; thinking-gap-browser.test.ts reads the same scenes drawn, frame by frame.
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { layoutConversation, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { projectInboxRows } from "../src/agent-session/acpmux/conversation/laneNoticeBatches";
@@ -13,6 +13,15 @@ import { pendingMessagesRow, withWaitingRows } from "../src/agent-session/acpmux
 import { subagentRowsFrom } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { playTurn, randomTurn, type GapEvent } from "./support/thinkingGapScenes";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["live-turn-work"];
+});
 
 const MAX_GAP = 24;
 

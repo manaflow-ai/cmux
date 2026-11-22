@@ -12,8 +12,11 @@ export const WorkingRow = memo(
         <WorkingFor
           row={row}
           expanded={expanded}
-          // The running turn's "Working for" opens its work under its "Worked for" key (#50987).
-          onToggle={row.below ? undefined : () => onToggleActivity(workedFoldOfHeader(row.id))}
+          // The running turn's "Working for" opens its work under its "Worked for" key (#50987),
+          // under the `folded` arm only (the header carries `foldOpen`).
+          onToggle={
+            row.below || row.foldOpen === undefined ? undefined : () => onToggleActivity(workedFoldOfHeader(row.id))
+          }
         />
       </TranscriptDisclosureProvider>
     );
@@ -26,6 +29,7 @@ export const WorkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.thinkingNow === b.row.thinkingNow &&
     a.row.below === b.row.below &&
+    a.row.foldOpen === b.row.foldOpen &&
     a.row.doingCommand === b.row.doingCommand &&
     a.row.doingDraft === b.row.doingDraft &&
     a.row.doingGroup === b.row.doingGroup &&

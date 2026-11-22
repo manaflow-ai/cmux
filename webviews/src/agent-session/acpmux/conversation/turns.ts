@@ -3017,8 +3017,10 @@ function shapeLiveRows(
   // `runs` folds each finished run into its closed line, and `line` hides finished runs
   // (liveTurnWork.experiment.ts). The reader who opened the turn's "Working for" (`workOpen`, the
   // fold key its "Worked for" will have) sees every call as it runs.
+  // Only `folded` has the toggle; another arm draws as it always has, whatever the key holds.
   const picked = experimentArm(liveTurnWork);
-  const chosen = workOpen ? "open" : picked === "folded" ? "line" : picked;
+  const folds = picked === "folded";
+  const chosen = folds ? (workOpen ? "open" : "line") : picked;
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   // A notice that set the agent going again after it had replied (a background task's end, another
@@ -3044,7 +3046,7 @@ function shapeLiveRows(
   // `folded` hides the work only under a "Working for" that opens it: a turn drawn with no such line
   // (`livesUnderHeader`) keeps every call in sight, as `open` draws it.
   const headed = livesUnderHeader(drawn, shaped, foldsPrompt);
-  if (!headed && chosen === "line" && picked === "folded") shaped = shapeAs("open");
+  if (!headed && folds && chosen === "line") shaped = shapeAs("open");
   // The line is the turn's last row, made fresh here.
   if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
   if (!headed) return shaped;
@@ -3055,7 +3057,9 @@ function shapeLiveRows(
   if (line?.kind === THINKING) line.untimed = true;
   // A toggle over the work under the key the turn's "Worked for" takes when it ends, so the reader's
   // open or closed state carries through the end and the line only changes its words (#50987).
-  return [{ id: workingHeaderId(user.id), version: 1, at, kind: WORKING, foldOpen: workOpen }, ...shaped];
+  const header: AcpmuxRow = { id: workingHeaderId(user.id), version: 1, at, kind: WORKING };
+  if (folds) header.foldOpen = workOpen;
+  return [header, ...shaped];
 }
 
 /// Whether the running turn draws its "Working for" over its work (`shapeLiveRows`). Only once the

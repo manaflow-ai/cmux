@@ -1,7 +1,16 @@
 // l10n-allow-file: transcript fixture replies and paths, not shipped UI.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toggleTurnFold, turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["live-turn-work"];
+});
 
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,

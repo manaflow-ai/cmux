@@ -1,9 +1,18 @@
 // A running turn is shaped again on every record (turns.ts `shapedTurn` keeps no cache for it): the
 // rows a record did not change stay the objects drawn before (`steadyLiveRows`), so the transcript's
 // layout and row memos keep them and a record costs what it changed, not the whole running turn.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { turnViewFrom } from "./turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["live-turn-work"];
+});
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1_000, kind: "user", text: "coordinate the lanes" };
 
