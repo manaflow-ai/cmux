@@ -11,7 +11,8 @@ import Foundation
 /// NIGHTLY does it, with no checkout. Leo (2026-11-14): "How deep and fast and ergonomic is hot
 /// swapping and can we push it further and productionize it further".
 @MainActor
-public enum AppTryActions {
+public struct AppTryActions {
+    public init() {}
     public static let runID: ActionID = "app.try.run"
     public static let undoID: ActionID = "app.try.undo"
     private static let toast = CLIRowToast(id: "app-try", category: "app-try", didNotFinish: { AppTryStrings.didNotFinish },
