@@ -364,6 +364,11 @@ test("a New Tab opened beside a tab in a temporary folder starts on the folder u
   expect(hosted.folder).toBe(PICKED);
   // A project start folder from the app still wins over the folder used last.
   expect((await newTab([theirs, ...SCRATCH], { startCwd: "/Users/you/src/billing" })).chip).not.toContain("atlas");
+  // With no folder used last known, a /tmp folder stays the page's folder (a project can live there).
+  stored.clear();
+  const alone = await newTab([], { cwd: "/tmp/real/work/uploader", startCwd: "/tmp/real/work/uploader" });
+  expect(alone.chip).toContain("uploader");
+  await startChat(PICKED);
   // A real project folder the tab has is still the page's own.
   expect((await newTab([theirs, ...SCRATCH], { cwd: "/Users/you/src/billing" })).folder).toBe("/Users/you/src/billing");
   // The classic page too.
