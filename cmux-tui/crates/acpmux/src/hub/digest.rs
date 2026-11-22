@@ -37,6 +37,9 @@
 //! "agent process closed" (2026-10-21): a chat whose agent died completes no turn, so they waited
 //! until someone pressed resume.
 //!
+//! - Agents that come close together go in together, busy or not: one that would start a turn
+//!   in an idle chat waits a moment for the ones right behind it (`agent_gather.rs`).
+//!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
 //! does not steer, a steer its turn ended before reading, a `--no-steer` send, a send that waits
@@ -56,6 +59,11 @@ use std::sync::atomic::Ordering;
 // `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
 #[path = "inbox_digest.rs"]
 pub(super) mod inbox_digest;
+
+// An idle chat's agent message waits for the ones right behind it (`agent_gather.rs`).
+#[path = "agent_gather.rs"]
+mod agent_gather;
+pub(super) use agent_gather::{AGENT_GATHER_MS, end_gather, gather_until, gathers, open_gather};
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
@@ -362,7 +370,10 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        if head.agent.is_none()
+        // The person's prompt joins none, but the one a held chat held: the person's prompts
+        // queued behind it join it (`person_hold.rs`).
+        let person = head.agent.is_none() && super::person_hold::folds(session, turn_id);
+        if (head.agent.is_none() && !person)
             || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
@@ -385,7 +396,7 @@ impl Hub {
                     i += 1;
                     continue;
                 }
-                let joins = q.run.agent.is_some()
+                let joins = q.run.agent.is_some() != person
                     && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
                     && super::forum::slash_command(&q.run.blocks).is_none()
                     && !crate::prompt_uploads::any(&q.run.blocks)
