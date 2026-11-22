@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44995864761",
+  "recorded_at": "2026-11-22T07:35:55Z",
+  "reason": "cmux-tui 68c456b6566f changes the image's cmux-tui (pinned 32a9c06e0790)",
+  "dry_run": false,
+  "cmux_tui": "68c456b6566f58ceee4f8cbdca23037a26e568d0",
+  "fixes": [
+    {
+      "sha": "68c456b6566f58ceee4f8cbdca23037a26e568d0",
+      "mergedAt": "2026-11-22T04:56:42+00:00",
+      "subject": "acpmux: a Codex start goes ahead at the repository head, every tool gated by a hook (#44732)"
+    },
+    {
+      "sha": "1a3bce9e3f08962d64a7c32abfdf9a2145eb0c3b",
+      "mergedAt": "2026-11-21T20:50:05-08:00",
+      "subject": "acpmux: a script's or agent's Claude Code chat never takes the person's warm agent"
+    },
+    {
+      "sha": "54c812bb313e5e4ec4febb3ca62ca7b4b64f1f9a",
+      "mergedAt": "2026-11-22T04:47:22+00:00",
+      "subject": "swift_parity: agent.moveToMachine marker and string catalog row (#49578)"
+    },
+    {
+      "sha": "6a3a3144fe4617ccbec7302ff47767892e7e9ef0",
+      "mergedAt": "2026-11-21T20:42:06-08:00",
+      "subject": "Cloud: a machine list the daemon refuses names its code and the catalog it read (#49478)"
+    },
+    {
+      "sha": "4cdb843655f245a542dd23b87919db1af2e60b97",
+      "mergedAt": "2026-11-21T21:41:54-07:00",
+      "subject": "Fix acpmux launch compatibility and unhealthy placement (#48447)"
+    },
+    {
+      "sha": "3b15bc5c4b940f726d768bc858411b13e25794de",
+      "mergedAt": "2026-11-21T21:40:18-07:00",
+      "subject": "acpmux ps / acpmux gc: every process and lock acpmux owns, its owner now and state, from its own records (#49166)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T07:35:55Z",
+    "snapshot_id": "sh-70f4e37eaf284f1bbfc3582adf0eac4f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44995864761): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5a6fc498eaa96ed9907687dfd07907af1a041781",
+    "image": "cloud-native-auto-68c456b6-44995864761-1",
+    "revision": "ci-44995864761-1",
+    "at": "2026-11-22T07:35:55Z"
+  },
+  "rolled_back": false
+}
