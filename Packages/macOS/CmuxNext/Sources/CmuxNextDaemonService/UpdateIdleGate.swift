@@ -4,12 +4,14 @@ import CmuxUpdater
 import CoreGraphics
 public import Foundation
 
-/// Update When Idle (`updates.installWhenIdle`, off by default; Leo, 2026-11-19: "when it's idle, it's able to ...
-/// update automatically ... maybe even having it as an opt-in option would be pretty interesting"). The
-/// updater's automatic-install hold asks ``hold(idleMinutes:lastInput:)`` once a second while a staged update
-/// waits; the rule is Rust's (cmux-window-rules `update_idle`). This reads the facts only: the input time
-/// first, and this Mac's agent turns and drafts only once the person has been away long enough, so a person
-/// at the Mac costs no acpmux read.
+/// Update When Idle (`updates.installWhenIdle`, on by default in NIGHTLY, off in release; Leo, 2026-11-19: "when
+/// it's idle, it's able to ... update automatically"). The updater's automatic-install hold asks
+/// ``hold(idleMinutes:lastInput:)`` once a second while a staged update waits; the rule is Rust's
+/// (cmux-window-rules `update_idle`). This reads the facts only: the input time first, and this Mac's unsent
+/// drafts only once the person has been away long enough, so a person at the Mac costs no acpmux read. A
+/// running agent turn does not hold it (Leo, 2026-11-22: "auto be de facto able to click the restart
+/// button"): the turn runs in its agent host, which the relaunch leaves running, and acpmux restarts an agent
+/// on the new binary only between turns and with no work below it (`route_switch.rs`).
 @MainActor
 public final class UpdateIdleGate {
     private let activity: UpdateAgentActivity
@@ -55,9 +57,8 @@ public final class UpdateIdleGate {
         }
         guard let daemon else { return (.unknown, nil) }
         let blockers = activity.applying(to: daemon.currentRelaunchBlockers(quietInput: nil))
-        if let agents = Self.agentFacts(census: activity.census, blockers: blockers, newChatDrafts: newChatDrafts()) {
-            facts.runningTurns = agents.runningTurns
-            facts.unsentDrafts = agents.unsentDrafts
+        if let drafts = Self.agentFacts(census: activity.census, blockers: blockers, newChatDrafts: newChatDrafts()) {
+            facts.unsentDrafts = drafts
         }
         return rules.updateIdleDecision(facts)
     }
@@ -70,16 +71,14 @@ public final class UpdateIdleGate {
         return (session["CGSSessionScreenIsLocked"] as? Bool) ?? false
     }
 
-    /// This Mac's agent turns and unsent drafts, nil when any of them is unknown (the rule then holds).
-    /// The app's chats (the tab mirror) and every turn of this Mac's acpmux, the Chief's included, and every
-    /// session whose background subagents or sub-sessions still work with no turn open: the relaunch's daemon
-    /// handover restarts such an agent (`stale_host_respawn.rs`), which would end that work. Drafts and
-    /// background work are facts only from an acpmux that serves them (`idleFactsKnown`): an older one omits
-    /// both, which is unknown, not none.
+    /// This Mac's unsent drafts (acpmux's composers and the New Chat page's), nil when unknown (the rule then
+    /// holds). Drafts are facts only from an acpmux that serves them (`idleFactsKnown`): an older one omits
+    /// them, which is unknown, not none. Turns and background work are not counted: the relaunch's daemon
+    /// handover restarts an agent only between turns with no work below it (`route_switch.rs`), so they
+    /// carry across.
     nonisolated static func agentFacts(census: AcpmuxSessionCensus?, blockers: UpdateRelaunchBlockers,
-                                       newChatDrafts: Int?) -> (runningTurns: Int, unsentDrafts: Int)? {
+                                       newChatDrafts: Int?) -> Int? {
         guard let census, census.idleFactsKnown, !blockers.daemonStateUnavailable, let newChatDrafts else { return nil }
-        let turns = max(blockers.busyAgentCount, census.inTurn + (census.chiefInTurn ? 1 : 0) + census.workingBelow)
-        return (turns, census.drafts + newChatDrafts)
+        return census.drafts + newChatDrafts
     }
 }

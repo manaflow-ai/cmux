@@ -8,8 +8,6 @@ extension WindowRules {
         public var idleMinutes: Double
         /// Seconds since the last keyboard or pointer input; nil when unread.
         public var inputIdleSeconds: Double?
-        /// Agent turns running on this Mac; nil when the daemon did not answer, or not read yet.
-        public var runningTurns: Int?
         /// Composers holding unsent text; nil when unknown, or not read yet.
         public var unsentDrafts: Int?
         /// The console session's screen is locked; nil when unread (never evidence of away).
@@ -19,12 +17,11 @@ extension WindowRules {
         /// Seconds since the last declined install; nil when there was none.
         public var secondsSinceDecline: Double?
 
-        public init(enabled: Bool, idleMinutes: Double, inputIdleSeconds: Double?, runningTurns: Int? = nil, unsentDrafts: Int? = nil,
+        public init(enabled: Bool, idleMinutes: Double, inputIdleSeconds: Double?, unsentDrafts: Int? = nil,
                     screenLocked: Bool? = nil, declinedInstalls: Int = 0, secondsSinceDecline: Double? = nil) {
             self.enabled = enabled
             self.idleMinutes = idleMinutes
             self.inputIdleSeconds = inputIdleSeconds.flatMap { $0.isFinite ? $0 : nil }
-            self.runningTurns = runningTurns
             self.unsentDrafts = unsentDrafts
             self.screenLocked = screenLocked
             self.declinedInstalls = max(0, declinedInstalls)
@@ -34,7 +31,7 @@ extension WindowRules {
 
     /// Why the update waits.
     public nonisolated enum UpdateIdleHold: String, Decodable, Equatable, Sendable {
-        case off, notIdle, agentWorking, unsentDraft, unknown
+        case off, notIdle, unsentDraft, unknown
         /// The last automatic install was declined; the next try waits out a backoff.
         case backoff
     }

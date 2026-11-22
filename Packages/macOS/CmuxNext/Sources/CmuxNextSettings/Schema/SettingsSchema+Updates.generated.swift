@@ -33,7 +33,7 @@ extension UpdatesSettings {
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
     public nonisolated static let installOnQuitDefault = false
-    /// `updates.installWhenIdle`: Update when idle (Leo 2026-11-19: "maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle"): a downloaded update installs after updates.installWhenIdleMinutes of idle, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent. Off by default.
+    /// `updates.installWhenIdle`: Update when idle (Leo 2026-11-19: "maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle"): a downloaded update installs once the person is away (no input for updates.installWhenIdleMinutes, or the screen locked), never over an unsent draft; a running agent turn does not hold it, since the relaunch keeps every terminal and agent and its turn runs on (Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like, auto be de facto able to click the restart button"). Off in the schema; on in cmux NEXT NIGHTLY through its build default (SettingsBuildDefaults).
     public nonisolated static let installWhenIdlePath = ["updates", "installWhenIdle"]
     public nonisolated static let installWhenIdleDefault = false
     /// `updates.installWhenIdleMinutes`: How long cmux must be idle before updates.installWhenIdle installs a downloaded update.
@@ -194,7 +194,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.installWhenIdle", "Update When Idle"),
-                help: SettingsText.keyed("settings.updates.installWhenIdle.help", "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."),
+                help: SettingsText.keyed("settings.updates.installWhenIdle.help", "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.installWhenIdleDefault),
                 keywords: ["update", "install", "idle", "automatic", "restart"]
