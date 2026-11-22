@@ -31,6 +31,10 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
         #[cfg(unix)]
         Some(terminal_paste::MODE) => Some(terminal_paste::run()),
+        // The Files pane's folder reads, which a DEV build runs under cmux Files (dev)
+        // (files_lister.rs).
+        #[cfg(unix)]
+        Some(crate::files_lister::MODE) => Some(crate::files_lister::run()),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {
