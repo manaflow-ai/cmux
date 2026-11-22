@@ -78,7 +78,11 @@ fn no_layers_is_cmuxs_system_and_its_json_reads_back_as_the_same_system() {
                         "type": { "code": { "size": 12, "monospaced": true } },
                         "colors": { "warm": "accent" }, "limits": { "accents": 2 } }))
         .unwrap();
-    assert_eq!(System::cmux().merge(&mine.to_json()).unwrap(), mine);
+    // Read back, it is the same system; only the SDK helper names drop, since a role a file sets
+    // is drawn at its own size rather than by cmux's helper.
+    let back = System::cmux().merge(&mine.to_json()).unwrap();
+    assert_eq!(back.to_json(), mine.to_json());
+    assert!(back.roles.iter().all(|r| r.helper.is_none()));
     let json = resolved.to_json();
     assert_eq!(json["system"]["type"]["numeral"], json!({ "size": 34.0, "weight": "semibold" }));
     assert_eq!(json["base"], base());
