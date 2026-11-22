@@ -733,11 +733,22 @@ impl Hub {
             return None;
         }
         let rerun = restored && hidden && !trigger && !self.at_4bce();
-        let continued = if rerun {
+        use super::restart_outcome as outcome;
+        use crate::protocol::session::RestartNextAction;
+        // What the conversation shows of this decision (`restart_outcome.rs`).
+        let (continued, shown) = if rerun {
             tracing::info!(session = %session.id, prompt = ?prompt_id, "a restored cut turn carried a hidden context; its prompt runs again whole when it is sent again");
-            None
+            (None, outcome::waiting("hidden_context", RestartNextAction::SendAgain))
         } else {
-            turn_id.as_str().and_then(|t| self.log_restart_continuation(session, t))
+            let decided = turn_id.as_str().map(|t| {
+                self.log_continuation_outcome(session, t, super::auto_resume::Cut::Restart)
+            });
+            let decided = decided.unwrap_or(Err("no_prompt"));
+            let shown = match &decided {
+                Err(_) if trigger => outcome::waiting("trigger", RestartNextAction::ReviewThenSend),
+                d => outcome::after_continuation(d.as_ref().map_err(|w| *w)),
+            };
+            (decided.ok().map(|c| c.prompt_id), shown)
         };
         let error = if trigger {
             "the trigger turn was interrupted by a daemon restart; inspect its outcome before authorizing another delivery"
@@ -756,6 +767,7 @@ impl Hub {
         if rerun && let Some(fields) = result.as_object_mut() {
             fields.insert(super::open_delivery::RERUN_ON_RESEND.into(), Value::Bool(true));
         }
+        outcome::mark(&mut result, &shown);
         self.append_unknown_outcome(session, result);
         self.save_meta(session);
         continued

@@ -49,6 +49,7 @@ mod carried_turn;
 pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
+mod restart_outcome;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
 pub(crate) mod subagent_resume;

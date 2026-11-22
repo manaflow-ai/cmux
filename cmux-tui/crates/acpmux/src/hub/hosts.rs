@@ -912,7 +912,16 @@ impl Hub {
                 // it): nothing can answer it any more.
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
-                    self.append_unknown_outcome(session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error, "trigger": work.turn_trigger}));
+                    let mut result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error, "trigger": work.turn_trigger});
+                    // Nothing ran it, and nothing sends it again by itself (`restart_outcome.rs`).
+                    let next = if work.turn_trigger {
+                        crate::protocol::session::RestartNextAction::ReviewThenSend
+                    } else {
+                        crate::protocol::session::RestartNextAction::SendAgain
+                    };
+                    let shown = super::restart_outcome::waiting("prompt_not_received", next);
+                    super::restart_outcome::mark(&mut result, &shown);
+                    self.append_unknown_outcome(session, result);
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {

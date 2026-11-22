@@ -463,13 +463,24 @@ impl Hub {
         turn_id: &str,
         cut: Cut,
     ) -> Option<String> {
+        self.log_continuation_outcome(session, turn_id, cut).ok().map(|c| c.prompt_id)
+    }
+
+    /// [`Self::log_continuation`], saying what it queued, or why it queued none (the `why` of
+    /// a restart outcome, `restart_outcome.rs`).
+    pub(in crate::hub) fn log_continuation_outcome(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+    ) -> Result<Continued, &'static str> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
         let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
         let attempts =
             configured.map_or(DEFAULT_DELAYS_MS.len(), |d| configured_attempts(d.as_ref()));
         if attempts == 0 {
-            return None;
+            return Err("auto_resume_off");
         }
         // The cut turn's prompt id, control, trust gate, texts and images: its `turn_started`,
         // the `user_message` that started it and those steered into it.
@@ -572,7 +583,7 @@ impl Hub {
         // The trigger dispatcher must reauthorize any retry. A generic restart
         // continuation would drop its principal and execute as the person.
         if trigger {
-            return None;
+            return Err("trigger");
         }
         // The carried steers come first: they started the turn.
         let mut carried_prompts = Vec::new();
@@ -591,9 +602,9 @@ impl Hub {
         carried_images.append(&mut images);
         let images = carried_images;
         if stopped {
-            return None;
+            return Err("stopped");
         }
-        let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
+        let prompt_id = prompt_id.filter(|p| !p.is_empty()).ok_or("no_prompt")?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
             let _ = self.store.scan_heads(&session.id, &mut |head| {
@@ -621,7 +632,7 @@ impl Hub {
         if attempt > attempts {
             let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": cut.reason()});
             self.append(session, "mux", "auto_resume_exhausted", msg);
-            return None;
+            return Err("attempts_exhausted");
         }
         let effective_web = control.as_deref() == Some("web") || raised_to_web;
         let blocked = if effective_web && floor_cancelled {
@@ -638,14 +649,19 @@ impl Hub {
                 "auto_resume_skipped",
                 json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "skipped": reason}),
             );
-            return None;
+            return Err(reason);
         }
         let id = format!("{root}{SUFFIX}{attempt}");
+        let continued = Continued {
+            prompt_id: id.clone(),
+            unfinished_tools: unfinished.iter().map(|t| t.name.clone()).collect(),
+            tools_omitted: omitted_tools != ToolOmission::None,
+        };
         // Logged by a daemon that crashed before it settled the turn: once is enough. Its
         // `queued` record counts though it never started (`logged_prompt` leaves such a prompt
         // to recovery): the restored queue runs it.
         if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
-            return Some(id);
+            return Ok(continued);
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
@@ -690,8 +706,16 @@ impl Hub {
         }
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
-        Some(id)
+        Ok(continued)
     }
+}
+
+/// The continuation [`Hub::log_continuation_outcome`] queued, and the cut turn's tool calls
+/// the log never saw finish.
+pub(in crate::hub) struct Continued {
+    pub(in crate::hub) prompt_id: String,
+    pub(in crate::hub) unfinished_tools: Vec<String>,
+    pub(in crate::hub) tools_omitted: bool,
 }
 
 impl Hub {

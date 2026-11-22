@@ -189,7 +189,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+pub(super) const LAST_TURN_KEYS: [&str; 11] = [
     "turnId",
     "promptId",
     "status",
@@ -200,6 +200,7 @@ pub(super) const LAST_TURN_KEYS: [&str; 10] = [
     "errorKind",
     "recovery",
     "details",
+    "restartOutcome",
 ];
 
 impl Hub {

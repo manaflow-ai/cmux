@@ -782,7 +782,55 @@ pub struct LastTurn {
     pub recovery: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<ErrorDetails>,
+    /// A turn a daemon restart cut: what recovery did with it (`hub/restart_outcome.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_outcome: Option<RestartOutcome>,
     pub ended_at: u64,
+}
+
+/// What recovery did with a turn a daemon restart cut, as its conversation shows it: one next
+/// action, and the detail behind it (`hub/restart_outcome.rs`). Recorded on the cut turn's
+/// `turn_result`, so `lastTurn` carries it until the chat's next turn ends.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RestartOutcome {
+    pub state: RestartOutcomeState,
+    /// What the person does next: `none` (its continuation goes on by itself), `send_again`,
+    /// `review_then_send` (a trigger's turn: inspect what it did first) or `retry`.
+    pub next_action: RestartNextAction,
+    /// Why it did not resume: `auto_resume_off`, `attempts_exhausted`, `stopped`,
+    /// `remote_floor_cancel`, `remote_control_ended`, `no_prompt`, `trigger`, `hidden_context`
+    /// or `prompt_not_received`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+    /// The continuation recovery queued (`resumed`): queued, not delivered, until a turn with
+    /// this prompt id starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation_prompt_id: Option<String>,
+    /// Tool calls the cut turn started and the log never saw finish: their outcome is unknown,
+    /// never that they still run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unfinished_tools: Vec<String>,
+    /// More unfinished tool calls than `unfinishedTools` names, or histories not read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tools_omitted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartOutcomeState {
+    Resumed,
+    WaitingForUser,
+    UnableToResume,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RestartNextAction {
+    None,
+    SendAgain,
+    ReviewThenSend,
+    Retry,
 }
 
 /// The facts of a typed failure (`errorKind`); only the keys that apply are present.
