@@ -335,7 +335,7 @@ pub fn canonical_model(
     entry: &crate::catalog::CatalogHarness,
     name: &str,
 ) -> Result<Canonical, Ambiguous> {
-    canonical_patched(entry, name, |keys, base| crate::model_hot_patch::lookup(keys, base))
+    canonical_patched(entry, name, crate::model_hot_patch::lookup)
 }
 
 /// [`canonical_model`] with the hot patch `patch` (harness keys, name -> id).
