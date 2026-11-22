@@ -499,14 +499,16 @@
        a surface closing, which fades out with its content on the page's glass) keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
        seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
        surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
-       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill is the one
+       in place (data-glass-over), so no text reads crisp through it. One that keeps the page's glass is
+       not reported, so the App draws none under it (one glass, never two), and it keeps that glass
+       (data-host-glass-own, hostGlass.ts) until the App answers a report that has it. --host-glass-fill is the one
        veil every popup and card lays on the App's glass (GLASS LEVELS, above); --host-glass-edge is
        the gallery's knob (HostGlass.gallery.tsx), none shipped. */
     :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
       filter: opacity(0);
     }
     :root[data-host-glass-on][data-cmux-see-through]
-      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]):is(
         :not([data-host-glass-cover]),
         [data-glass-over]
       ).ui-glass.ui-glass {
@@ -533,7 +535,7 @@
   filter: opacity(0);
 }
 :root[data-host-glass-engines="all"][data-host-glass-on][data-cmux-see-through]
-  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]):is(
     :not([data-host-glass-cover]),
     [data-glass-over]
   ):is(.ui-glass, .ui-tooltip) {
