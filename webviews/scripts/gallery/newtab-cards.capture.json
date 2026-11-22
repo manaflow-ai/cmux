@@ -1,0 +1,91 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["light", "light"],
+    ["light", "dark"],
+    ["light", "busy"],
+    ["dark", "none"],
+    ["dark", "light"],
+    ["dark", "dark"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "chat-cards",
+      "entry": "agent-pane.chat-cards-archive",
+      "variant": "after-cards",
+      "width": 640,
+      "height": 360,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      },
+      "clip": ".nt-chats"
+    },
+    {
+      "name": "chat-cards-list",
+      "entry": "agent-pane.chat-cards-archive",
+      "variant": "after-list",
+      "width": 640,
+      "height": 260,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      },
+      "clip": ".nt-chats"
+    },
+    {
+      "name": "chat-cards-hover",
+      "entry": "agent-pane.chat-cards-archive",
+      "variant": "before-cards",
+      "width": 640,
+      "height": 360,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      },
+      "clip": ".nt-chats",
+      "hover": ".nt-card-host:nth-child(2) > .nt-card"
+    },
+    {
+      "name": "chat-cards-glow",
+      "entry": "agent-pane.home-card-glow",
+      "variant": "vivid",
+      "width": 640,
+      "height": 360,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      },
+      "clip": ".nt-chats"
+    },
+    {
+      "name": "now-playing",
+      "entry": "agent-pane.new-tab",
+      "variant": "now-playing",
+      "width": 720,
+      "height": 640,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      }
+    },
+    {
+      "name": "stage-cards",
+      "entry": "agent-pane.first-run",
+      "variant": "project-card",
+      "width": 720,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "arms": {
+        "now": "",
+        "material": ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent); --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; --cv-card-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --cv-card-ring: transparent; --cv-text: var(--agent-text); --cv-text-muted: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --cv-text-dim: color-mix(in srgb, var(--agent-text) 66%, var(--agent-page-bg)); --cv-link: var(--agent-accent); --agent-link: var(--agent-accent); } :root { --menu-radius: 4px; --menu-padding: 8px; --menu-fill: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg)); --menu-border: transparent; --menu-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15); --menu-row-height: 48px; --menu-hover-fill: color-mix(in srgb, var(--agent-text) 8%, transparent); --menu-hover-radius: 0px; --menu-separator: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg)); --menu-separator-inset: 0px; --menu-label-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-label-weight: 500; --menu-label-size: 12px; --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 78%, var(--agent-page-bg)); --menu-disabled-opacity: 0.38; --menu-submenu-offset: 0px; --menu-submenu-align-offset: -8px; }"
+      }
+    }
+  ]
+}
