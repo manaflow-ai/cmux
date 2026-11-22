@@ -104,7 +104,7 @@ final class CloudService {
     /// sidebar card for an agent's or a script's request while that sidebar shows); none answers false.
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Whether a create no person started asks first (`cloud.agentsStartWithoutAsking` off); unset, nothing asks.
-    @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { false }
+    @ObservationIgnored var agentsAskFirst: @MainActor () -> CloudMachineCreatePolicy = { CloudMachineCreatePolicy() }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
     @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?
@@ -677,8 +677,8 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let idlePause = request.persistent ? 0 : nil
-        let asksFirst = !startedByPerson && agentsAskFirst()
+        let asksFirst = !startedByPerson && agentsAskFirst().asksFirst
+        let idlePause = request.idlePauseMinutes(pauseAgentMachines: agentsAskFirst().pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
             return self.map { CloudMachineCap.plan(freePlan: reason == .freePlan, pauseFrees: reason == .pool, machines: $0.machines.cloud.map(\.machine), user: $0.auth.user?.id) }
