@@ -50,6 +50,13 @@ nonisolated enum AcpmuxPaneMethods {
         // the public model list acpmux bundles and fetches, read and refreshed with no params. Refused, the
         // picker never learns a model the feed lists (ef3e54313f7).
         "catalog.get", "catalog.refresh",
+        // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
+        // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
+        // Neither grants anything. Left off this list, every pane's picker was refused at each open.
+        "catalog.get", "catalog.refresh",
+        // The Labs live-tree preview (direct.ts liveTreeStatus): its reply is cut to the numeric
+        // `liveTree` lane verdicts (``replyShapes``), never the chat's detail, folder or env.
+        "_acpmux/info",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
