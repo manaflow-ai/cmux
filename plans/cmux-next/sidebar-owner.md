@@ -2680,3 +2680,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   added half a pixel more (1.5 pt at scale 1). It now rounds toward the line. Regression: `SidebarSearchButtonTests`
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
+
+- 2026-11-22 (one pin, takes over #49582; Leo 00:23Z: "the pin button also doesn't work still it doesnt do anything
+  and the drag to top pin is a different kind of pin"): the row's hover Pin, the menus, the palette, the CLI and a drag
+  into Pinned are one pin. Pin on a workspace or nested group inside a group used to keep it in its group, first,
+  marked `extra.pinned`, while a drag moved it into Pinned. Pin now moves any row not in Pinned to the end of the
+  band (the reducer's `pin`); Unpin puts it back where it was, its group included (`extra.unpin_to.parent`). A
+  member of a pinned group reads pinned (`SidebarDocRecords.isPinned`), so its hover control reads Unpin, which takes
+  it out as a drag out does. Regression: `sidebar_doc::pin_tests`, `nested_pin_tests`, `SidebarDocPinInGroupTests`.
+  Sidebar-Look: well fucking do the pin properly.

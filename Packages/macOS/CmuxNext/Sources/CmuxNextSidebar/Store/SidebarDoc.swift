@@ -282,14 +282,15 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         items.values.first { $0.body.workspace == ref }
     }
 
-    /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
-    /// pin): at the top level of Pinned, or pinned inside its group. A member
-    /// of a pinned group is not pinned itself; Pin pins it in that group.
     public func isArchived(item id: String) -> Bool { items[id]?.archived == true }
 
+    /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
+    /// pin): it sits in Pinned, at any depth, where the row's Pin and a drag
+    /// into Pinned both put it (one pin, Leo 2026-11-22), or an older app
+    /// pinned it inside its group (`extra.pinned`).
     public func isPinned(item id: String) -> Bool {
         guard let item = items[id] else { return false }
-        return item.pinnedInGroup || (item.parent == nil && item.section == SidebarDocStore.pinnedSection)
+        return item.pinnedInGroup || item.section == SidebarDocStore.pinnedSection
     }
 
     /// Records from a `sidebar.get` reply.

@@ -13,26 +13,32 @@ pinned group is in the Pinned band, shows its pin, and its menu reads Unpin Grou
    the same catalog action (`PinningSurfacesTests`). Its title reads Pin … or Unpin … for the target.
 2. **Pinned first, in the person's order.** A pin goes last among the pins of its container. Pins
    keep their order until the person moves them.
-3. **A workspace pinned inside a group stays in that group.** It lists first among the group's
-   members, after the members pinned before it. It does not move to the Pinned band. (A drag onto
-   the Pinned band still puts it there.)
-4. **A group keeps its pinned members first.** A move cannot put an unpinned member above a pinned
-   one, or a pinned member below an unpinned one; each run keeps to its side. A pinned member dragged
-   out of its group is no longer pinned.
+3. **One pin (Leo, 2026-11-22: "well fucking do the pin properly").** The row's hover Pin, the
+   menu, Cmd-Shift-P, the CLI, MCP and a drag into Pinned are the same pin: the item moves into the
+   Pinned band, with the same state, persistence and undo. Pin puts it last among the pins; a drag
+   puts it where it is dropped. A workspace or nested group inside a group pins the same way: it
+   leaves its group for the band, and Unpin puts it back in that group. (Before, Pin kept a group
+   member in its group, first, marked `extra.pinned`, while a drag put it in the band: two pins.
+   Leo, 2026-11-22: "the drag to top pin is a different kind of pin or perhaps the right pin
+   behaviour".)
+4. **Older in-group pins still read.** A member an older app pinned inside its group
+   (`extra.pinned`) reads pinned and lists first in its group; a move keeps it on that side. Pin
+   moves it to the band; Unpin puts it right under the group's other pinned members; a drag out of
+   its group clears the mark.
 5. **Unpin goes to a sensible place.**
-   - A member pinned in its group: right under the group's other pinned members (the top of the
-     unpinned members).
-   - A top-level workspace or group in the Pinned band: back where it was pinned from, after the
-     neighbor it sat after, while that neighbor still sits there. Otherwise the top of its machine
-     section (Chief's default, 2026-10-20: as Move to Top). The old rule was the end of the section.
-6. **Nested groups (a283, remote groups slice 1).** A top-level group pins and unpins with its whole
-   tree. A nested group, or a workspace in one, pins inside its own parent, first, like a workspace
-   in a group. A member of a pinned tree is not pinned itself: Unpin on it does nothing, and Pin pins
-   it inside its group. Pinned keeps closed workspaces and the groups that hold them. When Unpin moves
-   a tree back into its machine section, the daemon closes the workspaces that are not open, and the
-   groups that this empties go, as when the last workspace closes there.
+   - Anything in the Pinned band: back where it was pinned from (its section and, for a group
+     member, its group), after the neighbor it sat after, while that group and neighbor are still
+     there. Otherwise the top of its machine section (Chief's default, 2026-10-20: as Move to Top).
+     The old rule was the end of the section.
+   - A member of a pinned tree: it sits in Pinned, so it reads pinned; Unpin takes it out of the
+     tree to the top of its machine section, as dragging it out of Pinned does.
+6. **Nested groups (a283, remote groups slice 1).** A group pins and unpins with its whole tree,
+   a nested one too (it leaves its parent for the band and goes back into it). Pin on a member of a
+   pinned tree does nothing (it is pinned). Pinned keeps closed workspaces and the groups that hold
+   them. When Unpin moves a tree back into its machine section, the daemon closes the workspaces
+   that are not open, and the groups that this empties go, as when the last workspace closes there.
 7. **Pins survive restart.** Sidebar pins are rows of the daemon's sidebar document (`extra.pinned`,
-   `extra.unpin_to` on the item). Tab, screen and tab-group pins are daemon state. Home conversation
+   `extra.unpin_to` on the item: section, group, the neighbor before it). Tab, screen and tab-group pins are daemon state. Home conversation
    pins are stored with the conversation's owner, or for this account on this Mac. Extension pins
    are Chromium profile state.
 8. **Undo.** A user's pin is one undo step (Edit > Undo). The document's inverse is the item's old
@@ -75,8 +81,6 @@ tests. Nothing in this matrix was tried in the running app.
 
 ## Open after this change
 
-- A member pinned in its group shows its pin only on hover (the expanded row's pin button). There is
-  no always-visible pin mark on a grouped row.
 - The TUI and iOS read the legacy `pinned` flag. The app now sets it on the workspace's own daemon with
   every pin (`WorkspacePinFlags`), so they show a pin made in the app; they do not know a pin inside a
   group from one in the Pinned band. A legacy pin of a grouped workspace now pins inside the group.
