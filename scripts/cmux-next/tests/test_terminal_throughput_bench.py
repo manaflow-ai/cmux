@@ -40,6 +40,64 @@ class Rows(unittest.TestCase):
         self.assertIsNone(tput.summarize([{"error": "no result"}]))
 
 
+class Interrupt(unittest.TestCase):
+    def test_a_run_is_the_key_to_the_signal_and_the_signal_to_the_drain(self):
+        rec = tput.interrupt_record(1, 100.0, {"signal_at": 100.0125, "drained_at": 100.2125, "bytes": 9})
+        self.assertEqual((rec["key_to_signal_ms"], rec["signal_to_drained_ms"], rec["flood_bytes"]), (12.5, 200.0, 9))
+
+    def test_a_run_without_a_flood_or_a_result_says_so(self):
+        self.assertEqual(tput.interrupt_record(2, None, None)["error"], "no flood")
+        self.assertEqual(tput.interrupt_record(3, 1.0, {"signal_at": 1.1})["error"], "no result")
+
+    def test_rows_are_the_median_and_the_worst_of_the_good_runs(self):
+        runs = [{"key_to_signal_ms": 10.0, "signal_to_drained_ms": 5.0}, {"error": "no result"},
+                {"key_to_signal_ms": 30.0, "signal_to_drained_ms": 50.0}, {"key_to_signal_ms": 20.0, "signal_to_drained_ms": 7.0}]
+        rows = {r["name"]: r for r in tput.report_rows(150.0, 300.0, runs)}
+        k = rows["terminal.interrupt.key_to_signal_ms"]
+        self.assertEqual((k["p50"], k["p95"], k["n"], k["unit"], k["budget"]), (20.0, 30.0, 3, "ms", None))
+        self.assertEqual(rows["terminal.interrupt.signal_to_drained_ms"]["p95"], 50.0)
+        self.assertIn("terminal.throughput.ratio", rows)
+
+    def test_no_interrupt_rows_without_a_good_run(self):
+        self.assertEqual(tput.interrupt_rows([{"error": "no flood"}]), [])
+        self.assertEqual(tput.interrupt_rows(None), [])
+
+    def test_the_flooder_stops_on_ctrl_c_through_a_pty(self):
+        """FLOODER on a real PTY: its line discipline turns the 0x03 byte into SIGINT, the flood stops and drains."""
+        import pty, select, sys, time
+        with tempfile.TemporaryDirectory() as d:
+            flooder, payload, result = (os.path.join(d, n) for n in ("f.py", "p", "r.json"))
+            with open(flooder, "w") as f:
+                f.write(tput.FLOODER)
+            tput.write_payload(payload, 2)
+            pid, master = pty.fork()
+            if pid == 0:
+                os.execv(sys.executable, [sys.executable, "-I", flooder, payload, result])
+            read = 0
+            def pump(until, seconds):
+                nonlocal read
+                deadline = time.monotonic() + seconds
+                while not until() and time.monotonic() < deadline:
+                    if select.select([master], [], [], 0.05)[0]:
+                        try:
+                            read += len(os.read(master, 1 << 16))
+                        except OSError:
+                            return
+            pump(lambda: os.path.exists(result + ".started"), 30)
+            self.assertTrue(os.path.exists(result + ".started"))
+            sent_at = time.time()
+            os.write(master, b"\x03")
+            pump(lambda: os.path.exists(result), 30)
+            os.waitpid(pid, 0)
+            os.close(master)
+            with open(result) as f:
+                rec = tput.interrupt_record(1, sent_at, __import__("json").load(f))
+            self.assertGreaterEqual(rec["key_to_signal_ms"], 0)
+            self.assertLess(rec["key_to_signal_ms"], 5000)
+            self.assertGreaterEqual(rec["signal_to_drained_ms"], 0)
+            self.assertGreaterEqual(rec["flood_bytes"], 1 << 20)
+
+
 class Arms(unittest.TestCase):
     def test_an_arm_is_a_label_and_app_launch_variables(self):
         self.assertEqual(tput.parse_arm("base:CMUX_NEXT_TUI_X=0,CMUX_NEXT_Y=a=b"),

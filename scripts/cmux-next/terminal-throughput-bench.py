@@ -34,6 +34,18 @@ burst runs slower than the others (the recording costs CPU); it is still a timed
 another launch of the same app with those launch variables (a daemon knob through DaemonDiagnosticKnobs set to its
 old value), so a change behind a knob gets its before and after on one Mac in one step. Prints
 TERMINAL-THROUGHPUT-ARM per arm; the report keeps them under next_arms; the rows stay NEXT's own.
+
+--interrupt-runs N (default 3; 0 skips): ^C under a flood, NEXT only, after its timed bursts. MB/s says little about how
+soon ^C stops the scroll (Dan Luu, "Terminal latency", 2017: terminals with high MB/s ignored ^C for minutes on a
+flood). Per run a new tab runs FLOODER: it writes the payload in a loop with no end, and the script sends ^C
+(terminal.sendText, the 0x03 byte) after --interrupt-flood-s s of it. The PTY's line discipline turns that byte into SIGINT;
+the flooder stops writing at once and waits with tcdrain() until the terminal has read what it wrote. Per run:
+  key_to_signal_ms     the script's send to the flooder's SIGINT: the input path (app, daemon, host, PTY) while output
+                       floods the other way
+  signal_to_drained_ms SIGINT to the PTY empty: output already written that the terminal still had to read
+Both clocks are time.time() on one Mac. Bytes the daemon or app still hold past the PTY (and their drawing) are not
+in either number. Rows: terminal.interrupt.key_to_signal_ms, terminal.interrupt.signal_to_drained_ms (median as p50,
+worst as p95; reporting only). TERMINAL-THROUGHPUT-INTERRUPT per run.
 """
 import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics, subprocess, sys, tempfile, time
 
@@ -65,6 +77,33 @@ tmp = result + ".tmp"
 with open(tmp, "w") as f:
     json.dump({"bytes": n, "seconds": t1 - t0, "cols": cols, "rows": rows}, f)
 os.rename(tmp, result)
+'''
+# --interrupt-runs: the flood, run as the terminal's command. argv: payload, result file. It writes `started` once the
+# flood is under way and the result once ^C stopped it and the PTY drained.
+FLOODER = r'''
+import json, os, signal, sys, termios, time
+src, result = sys.argv[1], sys.argv[2]
+with open(src, "rb") as f:
+    data = f.read(4 << 20)
+got = {}
+def on_int(signum, frame):
+    got.setdefault("signal_at", time.time())
+signal.signal(signal.SIGINT, on_int)
+view, n, off, chunk, written, started = memoryview(data), len(data), 0, 65536, 0, False
+while "signal_at" not in got:
+    w = os.write(1, view[off:off + chunk])
+    written += w
+    off = (off + w) % n
+    if not started and written >= 1 << 20:
+        started = True
+        open(result + ".started", "w").close()
+termios.tcdrain(1)
+got["drained_at"] = time.time()
+os.write(1, b"\x1b[0m\r\nterminal-throughput: interrupted\r\n")
+got["bytes"] = written
+with open(result + ".tmp", "w") as f:
+    json.dump(got, f)
+os.rename(result + ".tmp", result)
 '''
 # --breakdown: where each burst's time goes. For every process of the terminal (the app, its daemon and terminal
 # hosts, or Ghostty), over one window in the middle of the burst: its CPU and each of its threads' CPU (two `ps` reads,
@@ -322,6 +361,45 @@ def run_record(label, i, res):
     return rec
 
 
+def interrupt_record(i, sent_at, res):
+    """One ^C run's record (pure): the two spans in ms, or why there are none."""
+    if sent_at is None or not res or "signal_at" not in res or "drained_at" not in res:
+        return {"run": i, "error": "no result" if sent_at is not None else "no flood"}
+    return {"run": i, "key_to_signal_ms": round(1000 * (res["signal_at"] - sent_at), 1),
+            "signal_to_drained_ms": round(1000 * (res["drained_at"] - res["signal_at"]), 1),
+            "flood_bytes": res.get("bytes")}
+
+
+def measure_interrupts(opts, app, flooder, payload, scratch):
+    """--interrupt-runs ^C runs in NEXT's running app, each in a new focused tab (FLOODER)."""
+    runs = []
+    for i in range(1, opts.interrupt_runs + 1):
+        result = os.path.join(scratch, f"interrupt-{i}.json")
+        cmd = " ".join(shlex.quote(a) for a in ["/usr/bin/python3", "-I", flooder, payload, result])
+        app.rpc("action.run", {"action": "newTab", "args": {"name": f"interrupt-{i}", "focus": True, "command": cmd}})
+        sent_at = None
+        if wait_result_file(result + ".started", 30, alive=lambda: app.process.poll() is None):
+            time.sleep(opts.interrupt_flood_s)  # test harness: the flood runs this long before the key
+            sent_at = time.time()
+            app.rpc("action.run", {"action": "terminal.sendText", "args": {"text": "\x03"}, "focus": True,
+                                   "origin": "script"})
+        res = wait_result(result, 60, alive=lambda: app.process.poll() is None) if sent_at else None
+        rec = interrupt_record(i, sent_at, res)
+        print("TERMINAL-THROUGHPUT-INTERRUPT " + json.dumps(rec), flush=True)
+        runs.append(rec)
+    return runs
+
+
+def wait_result_file(path, timeout, alive=lambda: True):
+    """True once `path` exists, False after `timeout` s or once `alive()` is False."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and alive():
+        if os.path.exists(path):
+            return True
+        time.sleep(0.05)  # test harness: the flooder's marker file is its only signal
+    return os.path.exists(path)
+
+
 def measure_next(opts, writer, payload, scratch, label="next", env=None):
     """NEXT's bursts in one launch of the app; `env` adds to its launch environment (an --next-arm), `label` names
     the rows."""
@@ -352,6 +430,11 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
                 out["warmup"] = run_record(f"{label}-warmup", 0, res)
                 continue
             out["runs"].append(run_record(label, i, res))
+        if label == "next" and opts.interrupt_runs > 0 and "error" not in out:
+            flooder = os.path.join(scratch, "flooder.py")
+            with open(flooder, "w") as f:
+                f.write(FLOODER)
+            out["interrupts"] = measure_interrupts(opts, app, flooder, payload, scratch)
     except Exception as e:  # a failed launch (LaunchError printed its report) or a dead socket
         out["error"] = f"{type(e).__name__}: {e}"[:400]
     finally:
@@ -442,9 +525,20 @@ def measure_ghostty(opts, writer, payload, scratch, grid):
     return out
 
 
-def report_rows(next_mb_s, ghostty_mb_s):
-    """The report's rows (pure): each MB/s median and their ratio, when both are known."""
+def interrupt_rows(runs):
+    """The ^C rows (pure): per span, the median of the runs as p50 and the worst as p95; none without a good run."""
     rows = []
+    for key in ("key_to_signal_ms", "signal_to_drained_ms"):
+        vals = [r[key] for r in runs or [] if isinstance(r.get(key), (int, float))]
+        if vals:
+            rows.append({"name": f"terminal.interrupt.{key}", "p50": round(statistics.median(vals), 1),
+                         "p95": max(vals), "unit": "ms", "budget": None, "floor": 1.0, "n": len(vals)})
+    return rows
+
+
+def report_rows(next_mb_s, ghostty_mb_s, interrupts=None):
+    """The report's rows (pure): each MB/s median and their ratio, when both are known, and the ^C rows."""
+    rows = interrupt_rows(interrupts)
     for name, v, unit in (("terminal.throughput.next_mb_s", next_mb_s, "MB/s"),
                           ("terminal.throughput.ghostty_mb_s", ghostty_mb_s, "MB/s")):
         if v is not None:
@@ -473,6 +567,9 @@ def main(argv=None):
     parser.add_argument("--trace", action="store_true",
                         help="the first timed burst of each terminal under Instruments (System Trace and Time Profiler): "
                              "per thread, its states, system calls and bytes over the burst (TERMINAL-THROUGHPUT-TRACE)")
+    parser.add_argument("--interrupt-runs", type=int, default=3,
+                        help="after NEXT's bursts, this many ^C-under-a-flood runs (TERMINAL-THROUGHPUT-INTERRUPT); 0 skips")
+    parser.add_argument("--interrupt-flood-s", type=float, default=2.0, help="seconds of flood before each ^C")
     parser.add_argument("--next-arm", action="append", default=[], metavar="LABEL:NAME=VALUE[,NAME=VALUE]",
                         help="before NEXT's own bursts, the same bursts in another launch of the same app with these "
                              "launch variables (a daemon knob's off value): a same-Mac A/B in one step "
@@ -514,7 +611,10 @@ def main(argv=None):
             if v is None:
                 report["missing"].append({"name": f"terminal.throughput.{label}_mb_s",
                                              "reason": report[label].get("error") or "no timed burst"})
-        report["rows"] = report_rows(next_mb_s, ghostty_mb_s)
+        report["rows"] = report_rows(next_mb_s, ghostty_mb_s, report["next"].get("interrupts"))
+        if opts.interrupt_runs > 0 and not any(r["name"].startswith("terminal.interrupt.") for r in report["rows"]):
+            report["missing"].append({"name": "terminal.interrupt.key_to_signal_ms",
+                                      "reason": report["next"].get("error") or "no ^C run gave a result"})
         if not report["missing"]:
             # Not `incomplete`: perf-cron.py reads that key as the whole measurement's coverage, and a Ghostty download
             # that failed must not keep the other parts' rows from a last good run.
