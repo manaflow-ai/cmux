@@ -74,7 +74,10 @@ class ReadFirstUITests: XCTestCase {
         case .coldLaunch:
             break
         case .warmForeground:
-            _ = waitForContent(["workspaces"], after: "tap_launch", in: app)
+            // The list drawn before the first background (later runs return to the same page).
+            if LaunchTTIUITests.marks(in: app)["tap_foreground"] == nil {
+                _ = waitForContent(["workspaces"], after: "tap_launch", in: app)
+            }
             XCUIDevice.shared.press(.home)
             RunLoop.current.run(until: Date().addingTimeInterval(1.5))
             app.activate()

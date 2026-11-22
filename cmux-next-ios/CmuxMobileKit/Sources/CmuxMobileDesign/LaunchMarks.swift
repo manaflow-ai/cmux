@@ -36,7 +36,7 @@ import SwiftUI
 ///
 /// Time to readable (R1) and to the Mac's frame (R2), per tap (`ReadFirstUITests`,
 /// `scripts/measure/ios-network-conditions.sh leg=sim`): `rearm(tap:)` records the tap
-/// (`tap_launch` is the process start, `tap_foreground`, `tap_workspace_row`, `tap_chat_row`) and
+/// (`tap_launch` is the process start, `tap_foreground`, `tap_workspace_row`) and
 /// clears the content marks; then `firstContent(_:cached:)` takes, once per tap and surface,
 /// `<surface>_first_content_cached` (the first frame drawn from the phone's own store) or
 /// `<surface>_first_content_live` (the first frame drawn from a Mac's reply). Surfaces:
