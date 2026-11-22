@@ -154,7 +154,8 @@ final class TerminalDemoDriver {
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
         if selected.contains("historyfling") { await historyFling() }
-        for variant in ["primary", "mouse", "keys"] where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
+        for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
+        where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -254,10 +255,19 @@ final class TerminalDemoDriver {
     /// touches=N` (`bytes`, `sends`: what the phone sent the "Mac", batched
     /// per main-queue turn as `DaemonTerminalSession` does; `appScrolls`:
     /// wheel reports and cursor keys the app took).
+    ///
+    /// `-load` (Leo, 2026-11-22: "testing under duress"): a long session of
+    /// 12,000 styled rows, and output streaming the whole time the finger
+    /// pans: `primary-load` redraws its live region every 16 ms, the
+    /// full-screen app adds a row and redraws its whole screen every 16 ms.
     private func tuiPan(_ variant: String) async {
-        model.composerText = variant == "primary" ? "claudecli 1500 80" : "claudefull 1500 \(variant)"
+        let load = variant.hasSuffix("-load")
+        let screen = load ? String(variant.dropLast(5)) : variant
+        model.composerText = screen == "primary"
+            ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
+            : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
         model.send()
-        await wait(3)
+        await wait(load ? 6 : 3)
         guard let controller = model.controller, let window = controller.view.window,
               let session = model.session as? MockTerminalSession else {
             model.demoNote = "tuipan-\(variant) done error=nocontroller"

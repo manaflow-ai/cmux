@@ -30,8 +30,24 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         try pan(variant: "keys")
     }
 
+    // Under duress (Leo, 2026-11-22: "testing under duress"): 12,000 styled
+    // rows and output streaming every 16 ms while the finger pans.
+
+    @MainActor func testOneFingerPanOverClaudeCodeOnThePrimaryScreenUnderLoadSendsNothing() throws {
+        try pan(variant: "primary-load")
+    }
+
+    @MainActor func testOneFingerPanOverAStreamingFullScreenAppWithTheMouseScrollsTheApp() throws {
+        try pan(variant: "mouse-load")
+    }
+
+    @MainActor func testOneFingerPanOverAStreamingFullScreenAppWithoutTheMouseScrollsTheApp() throws {
+        try pan(variant: "keys-load")
+    }
+
     @MainActor
     private func pan(variant: String) throws {
+        let primary = variant.hasPrefix("primary")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -82,9 +98,9 @@ final class TerminalTUILocalPanUITests: XCTestCase {
         XCTAssertTrue(demo.hasPrefix("tuipan-\(variant) done"), "the phase finished: \(demo)")
 
         let values = Self.values(demo)
-        XCTAssertTrue(demo.contains(variant == "primary" ? "isTUI=false" : "isTUI=true"), "the mock is on the screen it emulates: \(demo)")
+        XCTAssertTrue(demo.contains(primary ? "isTUI=false" : "isTUI=true"), "the mock is on the screen it emulates: \(demo)")
         XCTAssertGreaterThan(values["frames"] ?? 0, 60, "frames were measured while the finger panned: \(demo)")
-        if variant == "primary" {
+        if primary {
             XCTAssertEqual(values["bytes"] ?? -1, 0, "a one-finger pan over the primary screen sent the Mac nothing: \(demo)")
             XCTAssertEqual(values["appScrolls"] ?? -1, 0, "nothing scrolled the app: \(demo)")
         } else {
