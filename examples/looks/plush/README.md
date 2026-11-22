@@ -9,7 +9,7 @@
 | Dusk | ![Plush Dusk](screenshots/plush-dusk.png) | ![Plush Dusk Dark](screenshots/plush-dusk-dark.png) |
 | Clay | ![Plush Clay](screenshots/plush-clay.png) | ![Plush Clay Dark](screenshots/plush-clay-dark.png) |
 
-Shots from a fresh-home launch of the published nightly (1.0.0-nightly.4499036350601), with the look installed by `cmux setup install` and each theme file picked in turn. An empty home has no chat open, so the raised prompt box and messages aren't shown yet.
+Shots from a fresh-home launch of the published nightly (1.0.0-nightly.4499924208601), with one chat opened first, the look installed by `cmux setup install` and each theme file picked in turn. They show the raised prompt box and your message on the one tinted page.
 
 cmux as something soft you could press. One tinted surface runs under everything: the sidebar, the
 tab bar and the gaps between panes are that surface a breath darker, and each pane is a card of the
