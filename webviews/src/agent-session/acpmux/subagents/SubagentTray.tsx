@@ -119,6 +119,8 @@ import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
+import { hatFacesLook } from "./hatFaces.experiment";
+import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
@@ -304,6 +306,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [head] = useState(() => experimentArm(trayHeadLook));
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
+  const [facesArm] = useState(() => experimentArm(hatFacesLook));
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
@@ -558,6 +561,11 @@ export const SubagentTray = memo(function SubagentTray({
     () => (foldHead === "kinds" ? trayHeadParts(t, { items, finished, waiting, working }) : NO_PARTS),
     [foldHead, t, items, finished, waiting, working],
   );
+  // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
+  const faces = useMemo(
+    () => (foldHead === "kinds" && facesArm !== "lead" ? hatFaces(t, items, finished, chatHarness) : NO_FACES),
+    [foldHead, facesArm, t, items, finished, chatHarness],
+  );
   if (items.length === 0 && finished.length === 0 && !planned) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
@@ -781,6 +789,18 @@ export const SubagentTray = memo(function SubagentTray({
               plan={planText}
               separator={KIND_LINE_SEPARATOR[kindLine]}
               chatHarness={chatHarness}
+              faces={
+                faces.length > 0 && facesArm !== "lead" ? (
+                  <HatFaces
+                    faces={faces}
+                    size={ROW_ICON}
+                    narrow={narrow}
+                    arm={facesArm}
+                    onOpen={onOpen}
+                    onOpenSession={onOpenSession}
+                  />
+                ) : undefined
+              }
             />
           ) : loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
             // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
@@ -1395,6 +1415,7 @@ function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[
 }
 
 const NO_PARTS: readonly TrayHeadPart[] = [];
+const NO_FACES: readonly HatFace[] = [];
 /// How many names a kind's hover lists; the rest are a count.
 const PART_NAMES = 8;
 
@@ -1417,6 +1438,7 @@ function HeadKinds({
   plan,
   separator,
   chatHarness,
+  faces,
 }: {
   t: Translate;
   parts: readonly TrayHeadPart[];
@@ -1424,9 +1446,12 @@ function HeadKinds({
   /// Between the kinds (trayKindLine.experiment.ts), so the header reads as the counts did.
   separator: string;
   chatHarness: string | undefined;
+  /// One icon per subagent before the counts (HatFaces.tsx); the subagents kind then draws no mark.
+  faces?: ReactNode;
 }) {
   return (
     <span className="acpmux-summary-text acpmux-running-tray__title acpmux-running-tray__kinds">
+      {faces}
       {plan && (
         <span className="acpmux-running-tray__kind" data-kind="plan">
           <Icon name={PLAN_ICON} size={ROW_ICON} row />
@@ -1436,33 +1461,46 @@ function HeadKinds({
       {parts.map((part, index) => (
         <Fragment key={part.key}>
           {(plan || index > 0) && <span className="acpmux-running-tray__kind-sep">{separator}</span>}
-          <HeadKind t={t} part={part} chatHarness={chatHarness} />
+          <HeadKind t={t} part={part} chatHarness={chatHarness} faced={faces !== undefined} />
         </Fragment>
       ))}
     </span>
   );
 }
 
-function HeadKind({ t, part, chatHarness }: { t: Translate; part: TrayHeadPart; chatHarness: string | undefined }) {
+function HeadKind({
+  t,
+  part,
+  chatHarness,
+  faced,
+}: {
+  t: Translate;
+  part: TrayHeadPart;
+  chatHarness: string | undefined;
+  /// The header draws each subagent's icon before the counts: this kind's own mark and names list go.
+  faced: boolean;
+}) {
   const [names, setNames] = useState<string | undefined>(undefined);
   // A subagent kind draws its first subagent's harness mark, in its tone, as its line does.
   const lead = part.items[0];
   const agent = part.key === "agents" && lead?.kind === "agent" ? lead.agent : undefined;
+  // With the faces drawn, the subagents kind is words only; each face names its own subagent.
+  const bare = faced && part.key === "agents";
   return (
     <span
       className="acpmux-running-tray__kind"
       data-kind={part.key}
       data-tone={part.tone}
       // tooltip-allow: the head draws the agents' marks only; the tooltip names them.
-      title={names}
+      title={bare ? undefined : names}
       onPointerEnter={() => {
-        if (names !== undefined) return;
+        if (bare || names !== undefined) return;
         const shown = part.items.slice(0, PART_NAMES).map((item) => itemName(t, item));
         const rest = part.items.length - shown.length;
         setNames([...shown, ...(rest > 0 ? [t("tools.more", { n: rest })] : [])].join("\n"));
       }}
     >
-      {agent ? (
+      {bare ? null : agent ? (
         <AgentIdentity
           className="acpmux-running-tray__stack-mark"
           harness={agent.harness ?? chatHarness}
