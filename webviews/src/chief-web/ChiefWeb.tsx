@@ -17,6 +17,7 @@ import { GuestActionsBoundary } from "../agent-session/acpmux/conversation/Guest
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/ComposerPickers";
 import { useT } from "../agent-session/acpmux/i18n";
+import { useConnectionQuiet } from "../ui/lasting";
 import { GuestComposer } from "../agent-session/guest/GuestComposer";
 import { GuestPrompts } from "../agent-session/guest/guestPrompts";
 import { chiefApi, type ChiefApi } from "./api";
@@ -179,6 +180,10 @@ function ChiefChat({
   const [transcript] = useState(() => new ChiefTranscript());
   const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
+  // Connecting and reconnecting heal on their own and offer nothing to do: they wait out the shared
+  // bound (ui/lasting.ts `CONNECTION_QUIET_MS`). Signed out, not yours and offline show at once:
+  // each is a failure, the first and last with the one button that fixes it.
+  const linkDownLasting = useConnectionQuiet(connection === "connecting" || connection === "reconnecting");
   const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
@@ -249,7 +254,7 @@ function ChiefChat({
               <span>{t("chiefWeb.offline")}</span>
               <button onClick={() => wire.current?.retry()}>{t("retry.action")}</button>
             </>
-          ) : connection !== "live" ? (
+          ) : linkDownLasting ? (
             <>
               <Spinner size={14} />
               <span>{connection === "connecting" ? t("guest.live.connecting") : t("guest.live.reconnecting")}</span>
