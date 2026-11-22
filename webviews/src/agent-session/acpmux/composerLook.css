@@ -212,7 +212,7 @@
   --acpmux-studio-chevron: 14px;
   --acpmux-studio-rule-gap: 6px;
   --acpmux-studio-attach-start: 4px;
-  --acpmux-studio-on-danger: #fff;
+  --acpmux-studio-on-danger: var(--agent-on-accent);
 }
 .acpmux-composer[data-composer-look="codex"][data-composer-variant="studio"],
 .acpmux-dock > .acpmux-asks-stack:has(~ .acpmux-composer[data-composer-grid][data-composer-variant="studio"]) {
