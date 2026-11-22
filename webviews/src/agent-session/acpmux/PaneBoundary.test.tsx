@@ -83,7 +83,8 @@ test("a caught render error is logged with what failed, the error's own words an
     const line = logged.find((args) => args[0] === "agent pane render failed: Maximum update depth exceeded");
     expect(line, JSON.stringify(logged.map((args) => String(args[0])))).toBeDefined();
     expect((line![1] as Error).message).toBe("Maximum update depth exceeded");
-    expect(String(line![2])).toContain("BrokenPane");
+    // Where: the component stack under the boundary (bun names the throwing function <anonymous>).
+    expect(String(line![2])).toContain("at PaneBoundary");
   } finally {
     console.error = originalError;
   }
