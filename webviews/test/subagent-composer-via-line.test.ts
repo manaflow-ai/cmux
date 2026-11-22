@@ -17,6 +17,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("subagent-composer-via-line.test.ts", async () => {
@@ -81,6 +82,7 @@ await requireBrowserLane("subagent-composer-via-line.test.ts", async () => {
         await page.locator(".acpmux-composer .acpmux-composer-box").waitFor();
         const chatLook = await composerLook(page);
         expect(chatLook.subagent).toBe(false);
+        await installPaintedFrames(page);
         // Every frame from the switch until the subagent's composer has stood still for 30 frames.
         const frames = await page.evaluate(
           () =>
@@ -89,15 +91,17 @@ await requireBrowserLane("subagent-composer-via-line.test.ts", async () => {
               const page = window as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
               page.cmuxAcpmuxBridge?.revealTurn?.("subagent:agent-test-coverage");
               let still = 0;
-              const tick = () => {
+              // Each read is of a painted frame (installPaintedFrames).
+              window.cmuxAfterPaint(() => {
                 const box = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
                 const subagent = Boolean(document.querySelector(".acpmux-subagent-composer"));
                 if (box) seen.push({ top: box.top, bottom: box.bottom, subagent });
                 still = subagent ? still + 1 : 0;
-                if (still >= 30 || seen.length > 600) resolve(seen);
-                else requestAnimationFrame(tick);
-              };
-              requestAnimationFrame(tick);
+                if (still >= 30 || seen.length > 600) {
+                  resolve(seen);
+                  return false;
+                }
+              });
             }),
         );
         expect(frames.some((frame) => frame.subagent)).toBe(true);

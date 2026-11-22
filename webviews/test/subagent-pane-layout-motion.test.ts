@@ -19,6 +19,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -151,8 +152,9 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
         const r = node.getBoundingClientRect();
         return r.width || r.height ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : undefined;
       };
-      const tick = () => {
-        if (!w.__sampling) return;
+      // Each read is of a painted frame (installPaintedFrames), not of the layout before the frame's observers ran.
+      window.cmuxAfterPaint(() => {
+        if (!w.__sampling) return false;
         const rows = document.querySelectorAll("[data-row-id]");
         const last = rows[rows.length - 1];
         w.__frames.push({
@@ -162,9 +164,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
           pill: rect(document.querySelector(".cv-subagent-of")),
           row: last ? { id: last.getAttribute("data-row-id") ?? "", rect: rect(last) } : undefined,
         });
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      });
     });
   const step = (page: Page, name: string) =>
     page.evaluate((name) => ((window as unknown as { __step: string }).__step = name), name);
@@ -180,6 +180,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       (count) =>
         new Promise<void>((done) => {
           let left = count;
+          // raf-read: it reads nothing in the frame; it only lets `count` frames run.
           const tick = () => (--left <= 0 ? done() : requestAnimationFrame(tick));
           requestAnimationFrame(tick);
         }),
@@ -237,6 +238,7 @@ await requireBrowserLane("subagent-pane-layout-motion.test.ts", async () => {
       await page.getByText("The lander is on it.").waitFor({ timeout: 25_000 });
       await page.locator(".acpmux-composer-box").waitFor();
       await settle(page, 30);
+      await installPaintedFrames(page);
       await sample(page);
       // 1. The subagent opens in the pane; its composer mounts.
       await reveal(page);
