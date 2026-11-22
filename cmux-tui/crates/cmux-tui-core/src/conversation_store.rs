@@ -162,6 +162,7 @@ impl ConversationStore {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA fullfsync=ON;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
                key TEXT PRIMARY KEY NOT NULL,
                value TEXT NOT NULL
@@ -277,9 +278,19 @@ impl ConversationStore {
 
     /// Removes `participant`'s credential (`chief.profile.adopt`): no token
     /// issued for it before binds again; the next credential is minted anew.
+    /// `secure_delete` zeroes the row in the file and the WAL reset drops
+    /// its old page versions, so the digest is gone from disk too. This
+    /// connection is the store's only one, so nothing blocks the reset.
     pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
-        self.connection
+        let removed = self
+            .connection
             .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        if removed > 0 {
+            crate::workspace_registry::truncate_wal_after_delete(
+                &self.connection,
+                std::time::Duration::from_secs(5),
+            )?;
+        }
         Ok(())
     }
 
