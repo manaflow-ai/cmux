@@ -138,6 +138,9 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
+    /// The pictures of the windows that stay on screen across a relaunch (set by the App:
+    /// ``RelaunchAfterimage``); the quit waits for them before the process ends.
+    @ObservationIgnored public var afterimage: RelaunchAfterimage?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// UPDATE-CARD: the staged update's display version (kept while it

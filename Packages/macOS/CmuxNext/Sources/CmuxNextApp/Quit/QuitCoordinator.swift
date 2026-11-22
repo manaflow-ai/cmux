@@ -143,6 +143,7 @@ final class QuitCoordinator {
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
+        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's window pictures are up first (RelaunchAfterimage)
         DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)
     }
