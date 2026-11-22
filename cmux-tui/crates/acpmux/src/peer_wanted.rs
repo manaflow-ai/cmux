@@ -66,6 +66,9 @@ pub(super) struct Wanted {
     until: StdMutex<Option<Instant>>,
     /// Until when a connect attempt asks its route to wake a paused machine (`Peer::wake`).
     wake_until: StdMutex<Option<Instant>>,
+    /// When `peerWake` last ran for a message (`Peer::wake`): it runs again once `WAKE_FOR` has
+    /// passed since, while messages still wait.
+    hook_at: StdMutex<Option<Instant>>,
     asked: Notify,
     /// When an ask last cut a backoff wait short (`Peer::wait_backoff`).
     cut_at: StdMutex<Option<Instant>>,
@@ -85,18 +88,24 @@ impl Peer {
     /// wake a paused machine ([`WAKE_ENV`]), and the peer is wanted, so the attempts come within
     /// `Backoff::WANTED_CAP` while it wakes.
     ///
-    /// The first message of a window (none marked it within `WAKE_FOR`) also runs the daemon's
-    /// `peerWake` command once ([`WakeHook`]), whatever route the peer has: an ssh route with no
-    /// ProxyCommand that wakes (a VM its idle guard powered off) is resumed by it too.
+    /// A message also runs the daemon's `peerWake` command ([`WakeHook`]), whatever route the
+    /// peer has: an ssh route with no ProxyCommand that wakes (a VM its idle guard powered off) is
+    /// resumed by it too. Once per `WAKE_FOR`: the first message runs it, and a message still
+    /// waiting runs it again each `WAKE_FOR` (its outbox's retries mark the peer again), so a
+    /// machine parked again before the message went in is resumed again (cmuxterm-hq#17784: the
+    /// retries kept the window open, and the hook never ran a second time).
     pub(crate) fn wake(&self) {
         let now = Instant::now();
         let until = now.checked_add(WAKE_FOR).unwrap_or(now);
         let mut held = self.wanted.wake_until.lock().unwrap_or_else(|e| e.into_inner());
-        let opens = held.is_none_or(|was| was <= now);
         *held = Some(held.map_or(until, |was| was.max(until)));
         drop(held);
         self.want_for(WAKE_FOR);
-        if opens {
+        let mut ran = self.wanted.hook_at.lock().unwrap_or_else(|e| e.into_inner());
+        let due = ran.is_none_or(|at| at.checked_add(WAKE_FOR).is_none_or(|next| next <= now));
+        if due {
+            *ran = Some(now);
+            drop(ran);
             self.run_wake_hook();
         }
     }
