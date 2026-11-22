@@ -227,6 +227,7 @@ extension CEFRuntime {
 }
 
 extension CEFDownloads {
+    // lint:allow singleton - CefInitialize runs once per process, so CEFRuntime.shared is process-wide and so are its downloads
     static let shared = forRuntime(.shared)
 
     /// The runtime's downloads: the loaded shim, delivered through the tab.
