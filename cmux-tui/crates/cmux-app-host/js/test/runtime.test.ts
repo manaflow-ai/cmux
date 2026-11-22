@@ -277,6 +277,8 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(5)
+    expect(host.findNode("m1", (n) => n.props.text === "a")).toBeUndefined()
   })
 
   test("removing list rows releases their whole subtree", async () => {
@@ -290,5 +292,10 @@ describe("node budget accounting", () => {
       await host.settle(1)
     }
     expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+    expect(host.tree("m1").nodes.size).toBe(402)
+    host.eval("setItems([])")
+    await host.settle()
+    expect(host.tree("m1").nodes.size).toBe(2)
+    expect(host.findNode("m1", (n) => n.type === "Text")).toBeUndefined()
   })
 })

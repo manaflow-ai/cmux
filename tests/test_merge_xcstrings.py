@@ -170,6 +170,66 @@ def test_merging_the_base_in_leaves_the_base_order_alone():
     assert [key for key in merged_keys if key != "p"] == list(newer_base["strings"])
 
 
+def test_a_reorder_in_theirs_survives_the_merge():
+    """A base that reordered the catalog keeps its order when it is merged in.
+
+    cmux#48267: the base tip had reordered a 1030-key catalog; the lane merged
+    the base in, this driver assembled every shared key in ours' order, and the
+    result matched neither parent. Every check passed -- only `base...HEAD`
+    showed the 23,644-line rewrite, and a per-commit `--stat` hid it.
+    """
+    base = catalog({key: unit(key) for key in "abcd"})
+    ours = catalog({key: unit(key) for key in "abcd"})
+    theirs = catalog({key: unit(key) for key in "cdab"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["c", "d", "a", "b"]
+
+
+def test_a_reorder_in_theirs_keeps_our_added_key():
+    """Following theirs' order still places a key only ours has by its neighbour."""
+    base = catalog({key: unit(key) for key in "abcd"})
+    ours = catalog({key: unit(key) for key in "abpcd"})
+    theirs = catalog({key: unit(key) for key in "cdab"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    merged_keys = list(json.loads(merged)["strings"])
+    assert [key for key in merged_keys if key != "p"] == ["c", "d", "a", "b"]
+    assert merged_keys.index("p") + 1 == merged_keys.index("c"), merged_keys
+
+
+def test_our_own_reorder_is_kept():
+    """Ours reordering the catalog is ours to keep: the merge does not undo it."""
+    base = catalog({key: unit(key) for key in "abcd"})
+    ours = catalog({key: unit(key) for key in "dcba"})
+    theirs = catalog({key: unit(key) for key in "abcd"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["d", "c", "b", "a"]
+
+
+def test_both_sides_reordering_keeps_ours():
+    """With both orders changed there is no order to restore: ours wins, as before."""
+    base = catalog({key: unit(key) for key in "abcd"})
+    ours = catalog({key: unit(key) for key in "badc"})
+    theirs = catalog({key: unit(key) for key in "cdab"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["b", "a", "d", "c"]
+
+
+def test_theirs_only_additions_are_not_a_reorder():
+    """Keys only theirs added leave the shared order alone, so ours still wins."""
+    base = catalog({key: unit(key) for key in "abc"})
+    ours = catalog({key: unit(key) for key in "acb"})
+    theirs = catalog({key: unit(key) for key in "amboc"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    merged_keys = list(json.loads(merged)["strings"])
+    assert [key for key in merged_keys if key not in "mo"] == ["a", "c", "b"]
+    assert set("mo") <= set(merged_keys), merged_keys
+
+
 def test_theirs_only_top_level_keys_are_appended():
     base = catalog({"a": unit("A")})
     ours = catalog({"a": unit("A")})
