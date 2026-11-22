@@ -607,6 +607,49 @@ export const STREAM_SCENARIOS: StreamScenario[] = [
       return b.turnEnd().build();
     },
   },
+  {
+    // Leo, 2026-11-22 09:53Z: "see this is a weird case where there's like... a tool call in between. but it looks
+    // like there's "extra" spacing here. and my message presumably went... i dont know. the ordering here is really
+    // funky. i steered, you already had something you wanted to send/do, then you did another thing?"
+    id: "SE-30",
+    axis: "stream",
+    title: "Steer after text, before a send (Sent to) tool call, then more text",
+    expected:
+      "Text written before the steer stays above it, then the steer, then the send and the reply, in that order.",
+    owner: own.sim,
+    harness: "sim",
+    make: () => {
+      const b = sim("se-30", "a steer lands after the turn's first text, then a send, then the reply");
+      b.prompt("Which of the taste calls should ship as default?");
+      b.tool("gh pr list --search taste", { ms: 2_000 });
+      b.say("Nothing has changed for you yet.", { messageId: "m1", segment: "turn-1.1.1" });
+      b.steer("the taste ones i agree with all actually but 50020 prob dont do as default", { after: 400 });
+      b.tool("acpmux send beyer-themes 'Leo answered the taste calls: ship the recommended versions.'", { ms: 600 });
+      b.say(
+        "Will do. The palette, failure card, empty states and worked-turn summary each ship your recommended version.",
+        {
+          messageId: "m2",
+          segment: "turn-1.2.1",
+          after: 800,
+        },
+      );
+      return b.turnEnd().build();
+    },
+  },
+  {
+    // The same 09:53Z capture. Replayed from Leo's chat (b0e9114e seq 5330115-5330880), the model is clean: it draws
+    // the send as `subagents-5330554` between the two replies (gap 16, outside the closed Worked for). The pane hides
+    // that row while Worked for is closed and keeps its space, so the gap is a drawn-pixels bug the model cannot see.
+    id: "SE-31",
+    axis: "stream",
+    title: "A Sent to row in a turn whose Worked for is closed",
+    expected:
+      "A row the closed fold hides takes no space: no blank gap between the replies. Sent to folds into the turn's activity (ST-02) and shows with it.",
+    owner: own.received,
+    harness: "elsewhere",
+    heldBy:
+      "lane/chat-received-as-activity (ST-02) browser gallery case; replay: chat-sim --replay <b0e9114e> --from 5330100 --to 5330880",
+  },
   // Status and activity rows (Leo 08:29-08:30Z)
   {
     id: "ST-01",
