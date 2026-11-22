@@ -1,4 +1,4 @@
-// Cell Light: Cell v0.1, light. The terminal theme is the whole color system. Every surface below is derived
+// Cell Light: Cell v0.2, light. The terminal theme is the whole color system. Every surface below is derived
 // from two of its colors: the page is the background (#fafaf8); the sidebar, tab bar and docks are
 // the background 4% toward the foreground (#f1f1ef), which is Cell's two-tone: one small
 // luminance step, no hue; lines are the background 14% toward the foreground (#d7d7d6). The accent
@@ -77,7 +77,6 @@
   "appearance.borders": "default",
   "appearance.titleAreaTone": "oneColor",
   "appearance.focusIndicator": "both",
-  "appearance.density": "compact",
   // The selected tab joins its pane as a square, flush: no curve, so no tangent to get wrong.
   "appearance.cornerFlush": "flush",
   // Pending cmux#46780: tabs as plain cells (no pill), the selected one in the page's tone.
@@ -85,14 +84,14 @@
   // Pending cmux#46516: the selected sidebar row as a neutral fill with a one-cell accent bar.
   // "appearance.selection": "neutral",
 
-  // Proportions in cells (one cell is 20 px tall): the title bar and the tab strip are two cells
-  // (40), a sidebar row is one cell of text in a 30 px row (a cell and a half), the sidebar is
-  // 240 px (30 cells of 8 px), dividers are one pixel, no gutter between panes.
-  "appearance.metrics.titlebarHeight": 40,
+  // Proportions from the design system's three seeds (grid 4, row 28, text 13): the title bar and
+  // the tab strip are the 36 px band, a sidebar row is 28, chrome text is 13, the sidebar is 240,
+  // dividers are one pixel, no gutter between panes. The chat's 20 px line is on the same 4 px grid.
+  "appearance.metrics.titlebarHeight": 36,
   "appearance.metrics.sidebarWidth": 240,
-  "appearance.metrics.sidebarRowHeight": 30,
+  "appearance.metrics.sidebarRowHeight": 28,
   "appearance.metrics.chromeFontSize": 13,
-  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabStripHeight": 36,
   "appearance.metrics.tabFontSize": 13,
   "appearance.metrics.columnGap": 0,
   "appearance.metrics.dividerThickness": 1,
