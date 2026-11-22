@@ -4928,6 +4928,13 @@ function TranscriptView({
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
+  // Whether the live line's row is mounted: the scroller's `data-live-line` (conversation.css, the
+  // hand-over's arrival timing), in place of a :has() that restyled the whole view on every row
+  // mount or unmount.
+  const liveLineMounted = mountedRanges.some(({ first, last }) => {
+    for (let index = first; index < last && index < rows.length; index++) if (rows[index]?.id === LIVE_THINKING) return true;
+    return false;
+  });
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
@@ -7699,6 +7706,7 @@ function TranscriptView({
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
             data-send-entrance={slimFollow ? "fade" : undefined}
+            data-live-line={liveLineMounted ? "" : undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).

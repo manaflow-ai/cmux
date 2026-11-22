@@ -6416,26 +6416,29 @@ a.cv-sha:focus-visible {
      the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
      (thinking-tool-swap-frames.test.ts), and fades in on the exit lead, so the hand-over rests about
      as soon as a row arriving alone would (`wait`: on the full arrival step, 50 ms later). The
-     gallery's other looks (the hand-over above). */
-  .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+     gallery's other looks (the hand-over above). The scroller's `data-live-line` says the live
+     line's row is mounted (VirtualTranscript.tsx), doubled to keep the specificity of the
+     `:has(.acpmux-row[data-row-id="thinking-live"])` it replaces: that :has made every row mount
+     or unmount restyle the whole view (about 180 elements, 2.3 ms per streamed tool call). */
+  .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--agent-motion-arrive, 80ms);
     animation-duration: var(--cv-exit-lead);
   }
-  [data-live-swap="wait"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="wait"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--cv-exit-lead);
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  [data-live-swap="quick"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="quick"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--cv-exit-lead);
   }
-  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: 0s;
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
+  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
     animation-delay: 0s;
   }
   .acpmux-row__message-presentation {
