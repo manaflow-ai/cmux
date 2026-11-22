@@ -21,8 +21,8 @@ exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
 2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
-The coordinator alarm (feed_alarm): once the feed's newest build is FEED_ALARM_AFTER (2h) old while pushes
-wait, the issue gets a `Coordinator alarm:` line and a nightly-next-feed-alarm marker, once per stale episode
+The coordinator alarm (feed_alarm): once the oldest waiting feat-cmux-next push (or the feed's newest build, if
+older) is FEED_ALARM_AFTER (2h) old, the issue gets a `Coordinator alarm:` line and a nightly-next-feed-alarm marker, once per stale episode
 (the feed's newest item) and again at most every FEED_ALARM_REPEAT (1h), naming the newest failed nightly-next
 run's first failing step and its log's HTTP status line. cmuxterm-hq's base-red-watch nightly alarm reads that
 marker and pages the coordinator as a FIRE line. On 2026-11-13 the feed sat at 04:32Z for over 15 hours while
@@ -103,6 +103,10 @@ TICK_WORKFLOW = "nightly-next-tick.yml"
 # runner on its label; the alarm names it with that label.
 GATE_RUNS = (("cmux-tui-artifacts.yml", "feat-cmux-next"), ("nightly.yml", "nightly-next"))
 GATE_QUEUED_MINUTES = 10.0
+# A gate job queued this long pages the coordinator (alarm_due()) without waiting FEED_ALARM_AFTER: on 2026-11-18
+# the tree publication jobs of cmux-tui artifacts run 44289517882 sat queued on blacksmith-4vcpu-ubuntu-2404 while
+# NEXT nightlies 44293483500 and 44283774674 failed at "Bundle the cmux-tui client" after 45 min, and nothing paged.
+GATE_PAGE_MINUTES = 20.0
 GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
@@ -134,6 +138,8 @@ class Stage:
     since: dt.datetime | None
     reason: str
     detail: str = ""
+    # The longest a gate job has waited for a runner, in minutes (queued_gate_jobs()); 0 when none is queued.
+    gate_wait: float = 0.0
 
 
 def as_utc(when: dt.datetime) -> dt.datetime:
@@ -172,7 +178,13 @@ def failed_steps(jobs: list[dict]) -> str:
 
 def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]], jobs_of,
                  minutes: float = GATE_QUEUED_MINUTES) -> str:
-    """Name every job still waiting for a runner after `minutes`, with its label.
+    """Name every job still waiting for a runner after `minutes`, with its label (queued_gate_jobs())."""
+    return "; ".join(text for _, text in queued_gate_jobs(now, runs_by_workflow, jobs_of, minutes))
+
+
+def queued_gate_jobs(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]], jobs_of,
+                     minutes: float = GATE_QUEUED_MINUTES) -> list[tuple[float, str]]:
+    """(minutes waited, its line) for every job still waiting for a runner after `minutes`, with its label.
 
     runs_by_workflow: (workflow, its queued runs newest first). A run whose
     other jobs finished but whose gate job never got a runner reads as one
@@ -195,9 +207,9 @@ def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]
                 if waited < minutes:
                     continue
                 labels = ", ".join(job.get("labels") or []) or "no label recorded"
-                out.append(f"{workflow} job \"{job.get('name', '?')}\" queued {waited:.0f} min on {labels} "
-                           f"({run.get('head_sha', '')[:12]}, {run.get('html_url', run.get('id', '?'))})")
-    return "; ".join(out)
+                out.append((waited, f"{workflow} job \"{job.get('name', '?')}\" queued {waited:.0f} min on {labels} "
+                                    f"({run.get('head_sha', '')[:12]}, {run.get('html_url', run.get('id', '?'))})"))
+    return out
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
@@ -321,10 +333,19 @@ def latest_running(nightly: list[dict]) -> str:
 
 
 def alarm_due(now: dt.datetime, newest: dt.datetime, stage: Stage, previous_body: str) -> bool:
-    """Whether to alarm the coordinator now: the feed's newest build is FEED_ALARM_AFTER old, pushes have waited
-    past the limit (stage.stale), and this stale episode (keyed by the feed's newest item) has not alarmed within
-    FEED_ALARM_REPEAT (the marker the last alarm left in the issue body)."""
-    if not stage.stale or stage.since is None or now - newest < FEED_ALARM_AFTER:
+    """Whether to alarm the coordinator now: the oldest waiting push (stage.since) or the feed's newest build,
+    whichever is older, is FEED_ALARM_AFTER old, pushes have waited past the limit (stage.stale), and this stale
+    episode (keyed by the feed's newest item) has not alarmed within FEED_ALARM_REPEAT (the marker the last alarm
+    left in the issue body). A gate job queued GATE_PAGE_MINUTES with no runner alarms without waiting out
+    FEED_ALARM_AFTER: nothing starts it, so waiting only loses the next nightly.
+
+    The waiting push's age is the lag a person sees (NOW's nightly_freshness_minutes). The feed's age alone missed
+    a fresh publish of an old commit: on 2026-11-19 build 4450292330201 of 34acb4912 published at 10:39:52Z while
+    37788c3 (06:51:30Z) waited behind it, and nothing paged until 12:39Z, 348 min after that landing."""
+    if not stage.stale or stage.since is None:
+        return False
+    oldest = min(newest, stage.since)
+    if now - oldest < FEED_ALARM_AFTER and stage.gate_wait < GATE_PAGE_MINUTES:
         return False
     marker = ALARM_MARKER.search(previous_body or "")
     if not marker or marker.group(1) != stamp(newest):
@@ -352,6 +373,8 @@ def feed_alarm(gh, now: dt.datetime, newest: dt.datetime, stage: Stage, nightly:
         failure += f" {stage.reason}"  # nothing failed: the stuck stage is the news (a promotion stall, a queue)
     elif latest_running(nightly):
         failure += f" {latest_running(nightly)}"
+    if stage.gate_wait >= GATE_PAGE_MINUTES:
+        failure += f" A nightly-gating job has waited {stage.gate_wait:.0f} min for a runner. {stage.detail}"
     text = (f"the nightly-next feed has had no new build for {(now - newest).total_seconds() / 3600:.1f}h "
             f"(newest {stamp(newest)}) while feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
             f"(since {stamp(stage.since) if stage.since else '?'}). {failure}")
@@ -573,7 +596,9 @@ def holds_push_group(run: dict) -> bool:
 
 
 # The one-job nightly-next build (feat-cmux-next's nightly.yml, vars.NIGHTLY_NEXT_ONE_JOB). It holds the push
-# slot itself (its job group nightly-next-one-push), so the run's tail after the feed holds nothing.
+# slot itself (its job group, one per signer Mac since 2026-11-21: nightly-next-one-push-<host>, design
+# manaflow-ai/cmuxterm-hq#17011), so the run's tail after the feed holds nothing. The jobs API names no group, so
+# run_holds_group and the starvation guard (started) match the job by this name, which covers every host's group.
 ONE_JOB = "nightly-next-one"
 
 
@@ -1109,14 +1134,16 @@ def main(argv: list[str]) -> int:
             # Only a stale feed pays for these reads (four listings, at most
             # GATE_RUNS_READ job lists each), and a failed read never hides the alarm.
             try:
-                gates = queued_gates(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
+                waiting = queued_gate_jobs(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
             except (*TRANSPORT, KeyError, TypeError) as error:
-                gates = ""
+                waiting = []
                 print(f"::warning::could not read queued gate jobs: {error}")
                 if isinstance(error, TRANSPORT):
                     api_errors.append(error)
+            gates = "; ".join(text for _, text in waiting)
             if gates:
-                stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
+                stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])),
+                                            gate_wait=max(waited for waited, _ in waiting))
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
         alarm_stage = stage
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url,
