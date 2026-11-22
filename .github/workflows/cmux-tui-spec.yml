@@ -517,11 +517,19 @@ jobs:
           umask 022
           verdict=../scripts/ci/cargo_test_verdict.py
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
-          pkgs=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
-            -p acpmux-list-types)
-          targets=(--test hub_integration --test ffi --test v2_client --test v2_gate_home
-            --test v2_chat_recorded_stream --test permission_matrix)
-          suites=("${pkgs[@]}" --lib "${targets[@]}" --no-fail-fast)
+          suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
+            -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
+            --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix --no-fail-fast)
+          # The two concurrent runs below: every package with the libraries, every package with the
+          # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
+          pkgs=() targets=()
+          for ((i = 0; i < ${#suites[@]}; i++)); do
+            case "${suites[i]}" in
+              --locked) pkgs+=(--locked) ;;
+              -p) pkgs+=(-p "${suites[i + 1]}"); i=$((i + 1)) ;;
+              --test) targets+=(--test "${suites[i + 1]}"); i=$((i + 1)) ;;
+            esac
+          done
           started=$SECONDS
           # One build, then the library tests and the integration tests run at once: one after
           # another the host sat mostly idle behind each binary's slowest few tests (acpmux's lib
