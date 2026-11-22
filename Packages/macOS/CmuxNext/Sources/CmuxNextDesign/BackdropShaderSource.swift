@@ -411,7 +411,7 @@ nonisolated enum BackdropShaderSource {
     """#
 }
 
-/// The uniforms in ``BackdropShaderSource/source``'s layout: 16-byte aligned, 96 bytes.
+/// The uniforms in ``BackdropShaderSource/source``'s layout: 16-byte aligned, 112 bytes.
 nonisolated struct BackdropShaderUniforms: Equatable, Sendable {
     var resolution: SIMD2<Float> = .zero
     var mouse: SIMD2<Float> = .zero
