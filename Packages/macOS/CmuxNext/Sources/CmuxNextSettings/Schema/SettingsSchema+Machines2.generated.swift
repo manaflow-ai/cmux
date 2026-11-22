@@ -52,7 +52,7 @@ extension MachineSettingsSchema {
 
 extension MachineSettingsSchema {
     static var remote: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
+        let group = SettingsText.keyed("settings.group.cmuxHelper", "cmux Helper")
         return [
             SettingDescriptor(
                 RemoteSettings.endSharingOnQuitPath,

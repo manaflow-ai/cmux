@@ -91,10 +91,11 @@ public final class DeviceHubService {
     }
     private var loadingID: UUID?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
-    /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
-    /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
-    public var makeRemoteHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
-    /// The running hub, its account and address after every change (the App anchors cmux Remote).
+    /// The acpmux daemon's share host serves this Mac's device (ShareHostDevice.swift): the hub for an
+    /// address and account, with the daemon's device identity and push relay, or nil to use this app's own.
+    /// The App sets it.
+    public var makeDaemonHub: (@MainActor (URL, String) async throws -> DeviceHub?)?
+    /// The running hub, its account and address after every change (the share host records it).
     public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
     public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?, loginKeychain: LoginKeychain, selectedBaseURL: URL? = nil,
@@ -194,7 +195,7 @@ public final class DeviceHubService {
         let id = UUID()
         loadingFor = (url, user)
         loadingID = id
-        let makeRemoteHub = makeRemoteHub, makeAppHub = makeAppHub, clock = retryClock
+        let makeDaemonHub = makeDaemonHub, makeAppHub = makeAppHub, clock = retryClock
         // task-owner: DeviceHubService.loading: identity attempts and backoff; stopHub cancels both
         loading = Task { [weak self] in
             // Rust owns exponential spacing and jitter. Identity availability has no change event:
@@ -203,7 +204,7 @@ public final class DeviceHubService {
             // wakeup-allow: every failed identity attempt suspends for Rust backoff (at least 0.8s); success/cancellation exits; no identity-ready event exists.
             while !Task.isCancelled, self?.loadingID == id {
                 do {
-                    let remote = try await makeRemoteHub?(url, user)
+                    let remote = try await makeDaemonHub?(url, user)
                     guard !Task.isCancelled, self?.loadingID == id else { return }
                     let hub: DeviceHub
                     if let remote { hub = remote } else {
@@ -235,7 +236,6 @@ public final class DeviceHubService {
 
     /// Platform error codes only: diagnostics must never include tokens or key material.
     private static func startupError(_ error: any Error) -> String {
-        if case .configurationTimeout? = error as? CmuxRemoteError { return "device_hub_configuration_timeout" }
         switch error as? DeviceIdentity.Failure {
         case .secureEnclaveUnavailable: return "device_identity_secure_enclave_unavailable"
         case let .keychain(status): return "device_identity_keychain_\(status)"

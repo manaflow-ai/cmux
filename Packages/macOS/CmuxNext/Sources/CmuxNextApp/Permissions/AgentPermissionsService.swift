@@ -26,7 +26,7 @@ final class AgentPermissionsService {
         let requests = AgentPermissionRequests(probe: probe, opener: opener)
         self.opener = opener
         self.requests = requests
-        // The Computer Use window guides cmux Remote's grants, so the card steps aside after Continue.
+        // The Computer Use window guides cmux Helper's grants, so the card steps aside after Continue.
         presenter = PermissionRequestPresenter(requests: requests, appURL: { [weak setup] kind in
             kind.heldByComputerUseHelper ? setup?.helperAppURL : Bundle.main.bundleURL
         }, guidedElsewhere: { kind in
@@ -36,7 +36,7 @@ final class AgentPermissionsService {
     }
 
     /// Whether this build can grant `kind` at all: computer use kinds need an
-    /// embedded cmux Remote and must not be turned off by policy.
+    /// cmux Helper and must not be turned off by policy.
     func canGrant(_ kind: PermissionKind) -> Bool {
         guard kind.heldByComputerUseHelper else { return true }
         return setup.phase != .unavailable && setup.phase != .disabledByPolicy

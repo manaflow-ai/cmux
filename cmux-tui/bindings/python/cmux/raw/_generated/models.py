@@ -941,6 +941,13 @@ class GuestUrlSubscribeResult:
 
 
 @dataclass(frozen=True)
+class HelperPermissions:
+    __cmux_schema_path__: ClassVar[str] = 'types/HelperPermissions'
+    accessibility: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_recording: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class HistorySearchHit:
     __cmux_schema_path__: ClassVar[str] = 'types/HistorySearchHit'
     at_ms: int
@@ -1331,21 +1338,6 @@ class ReattachViewResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
     participant: str
     state: SizeState
-
-
-@dataclass(frozen=True)
-class RemoteHostAppPermissions:
-    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppPermissions'
-    accessibility: Union[bool, None, MissingType] = field(default=MISSING)
-    screen_recording: Union[bool, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class RemoteHostAppResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
-    host_pid: int
-    secret: str
-    socket: str
 
 
 @dataclass(frozen=True)
@@ -3933,6 +3925,19 @@ class GetSizeStateRequest:
 
 
 @dataclass(frozen=True)
+class HelperConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/helper-config/request'
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    permissions: Union[HelperPermissions, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HelperStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/helper-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class HistorySearchRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/history-search/request'
     query: str
@@ -4687,34 +4692,6 @@ class ReloadConfigResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/reload-config/result'
     path: Union[str, None]
     reloaded: Literal[True]
-
-
-@dataclass(frozen=True)
-class RemoteHostAppRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-app/request'
-    pass
-
-
-@dataclass(frozen=True)
-class RemoteHostCallRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-call/request'
-    method: str
-    params: Union[JsonValue, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class RemoteHostConfigRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
-    app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = field(default=MISSING)
-    computer_use: Union[bool, None, MissingType] = field(default=MISSING)
-    headless: Union[bool, None, MissingType] = field(default=MISSING)
-    screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class RemoteHostStatusRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-status/request'
-    pass
 
 
 @dataclass(frozen=True)
@@ -6784,6 +6761,7 @@ __all__ = [
     'GuestUrlClaimResult',
     'GuestUrlOpenResult',
     'GuestUrlSubscribeResult',
+    'HelperPermissions',
     'HistorySearchHit',
     'HistorySearchRange',
     'HomeInboxRow',
@@ -6823,8 +6801,6 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
-    'RemoteHostAppPermissions',
-    'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -7105,6 +7081,8 @@ __all__ = [
     'GetFrontendProjectionRequest',
     'GetHostSizePolicyRequest',
     'GetSizeStateRequest',
+    'HelperConfigRequest',
+    'HelperStatusRequest',
     'HistorySearchRequest',
     'HistorySearchResult',
     'HomeInboxRequest',
@@ -7190,10 +7168,6 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
-    'RemoteHostAppRequest',
-    'RemoteHostCallRequest',
-    'RemoteHostConfigRequest',
-    'RemoteHostStatusRequest',
     'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',

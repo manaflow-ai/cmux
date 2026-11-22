@@ -1,5 +1,5 @@
-//! `cmux-screen-sharing __computer-use-worker`: cmux Computer Use's worker on a Mac whose cmux
-//! build embeds no cmux Remote (Release and NIGHTLY). The cmux-tui daemon starts this helper's
+//! `cmux-screen-sharing __computer-use-worker`: cmux Computer Use's worker on a Mac, in cmux
+//! Helper (the build's Screen Sharing helper). The cmux-tui daemon starts this helper's
 //! verified copy with macOS responsibility disclaimed (cmux-tui-core `computer_use_host/macos.rs`),
 //! so the Accessibility and Screen Recording grants Computer Use needs are the Screen Sharing
 //! helper's, the one app that holds them. Hidden: people and agents never run it.
@@ -40,7 +40,7 @@ pub fn run_with(host: Option<Arc<dyn HostServices>>) -> i32 {
 }
 
 /// The Mac desktop over `host`. No agent cursor or takeover watch here: on a Mac those were
-/// cmux Remote's Swift worker's, and this helper has none yet.
+/// the old Swift worker's, and this helper has none yet.
 fn platform(host: Option<Arc<dyn HostServices>>) -> Platform {
     Platform {
         desktop: Arc::new(MacDesktop::new(host)),

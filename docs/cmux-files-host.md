@@ -23,7 +23,7 @@ build embeds it, looks for it or spawns differently (see "Production").
 | The Files pane's folder listing (`DirectoryLister`: the pane, its columns, the sidebar file tree) | in process (`getattrlistbulk`) | the DEV app | cmux Files (dev): read by `cmux-tui __files-lister` under the helper (see "The Files pane") |
 | The app itself: Quick Look, thumbnails, Get Info folder sizes, copies, drag and drop, folder picker | in process | the DEV app | unchanged (see "What still asks") |
 | Chromium downloads into `~/Downloads` | the Chromium host is spawned without a disclaim on purpose (camera, microphone, location name cmux; `cef-helper-app-DESIGN.md` row 7) | the DEV app | unchanged |
-| Computer Use, Screen Sharing workers | already their own identities (cmux Remote, `docs/cmux-remote.md`) | cmux Remote | unchanged |
+| Computer Use, Screen Sharing workers | already their own identity (cmux Helper, `docs/cmux-helper.md`) | cmux Helper | unchanged |
 
 `scripts/cmux-next/tcc/responsible_pid.c` prints the responsible pid of any pid, and
 `scripts/cmux-next/launch-no-tcc-prompts-live.py` streams tccd's `AUTHREQ_ATTRIBUTION` lines, if
@@ -31,7 +31,7 @@ you want to see it on a Mac.
 
 ## The pattern it follows
 
-cmux Remote (`docs/cmux-remote.md`) already solved "one grant across builds" for Accessibility and
+cmux Remote (retired; cmux Helper, `docs/cmux-helper.md`, replaced it) already solved "one grant across builds" for Accessibility and
 Screen Recording:
 
 - a pinned, team-signed bundle whose bytes every DEV build embeds unchanged, so its designated
@@ -42,7 +42,7 @@ Screen Recording:
 - a spawn with `responsibility_spawnattrs_setdisclaim`, so the helper is its own responsible
   process.
 
-cmux Files (dev) reuses all three. The difference is who inherits the grant: cmux Remote keeps
+cmux Files (dev) reuses all three. The difference is who inherits the grant: cmux Helper keeps
 its grants away from shells and agents, while this helper exists to hand Files and Folders to
 them. So it holds only Files and Folders; it is never used for Accessibility, Screen Recording,
 Automation or Full Disk Access, and cmux never asks for those on its behalf.

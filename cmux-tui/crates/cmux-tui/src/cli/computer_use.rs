@@ -128,7 +128,7 @@ fn legacy(global: &GlobalArgs, cmd: &str, params: Value) -> Result<Value, Daemon
     };
     request.insert("id".into(), json!(1));
     request.insert("cmd".into(), json!(cmd));
-    super::remote_host::daemon_value(global, &Value::Object(request)).map_err(|error| {
+    super::helper::daemon_value(global, &Value::Object(request)).map_err(|error| {
         let code = error.get("code").and_then(Value::as_str).unwrap_or("refused").to_owned();
         let message =
             error.get("message").and_then(Value::as_str).unwrap_or("the daemon refused").to_owned();

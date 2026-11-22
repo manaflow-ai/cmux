@@ -99,7 +99,7 @@ final class AppControl {
                 .map { ($0.socketPath, $0.home.path) }
         }])
         service.router.register(SettingsControl.methods(services: services))
-        service.router.register(services.cmuxRemoteActions.controlMethods())
+        service.router.register(services.cmuxHelperActions.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         // `chat.composer.get`: what the composer of the chat that last took files from another app holds.
         service.router.register(services.externalOpen.chatAttach.controlMethods { [weak services] in services?.windows.active?.focusedPane?.shownChat })

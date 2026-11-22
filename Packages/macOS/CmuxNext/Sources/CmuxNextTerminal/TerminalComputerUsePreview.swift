@@ -89,7 +89,7 @@ public final class TerminalComputerUsePreview: NSView {
         dim.isHidden = true
         frameLayer.addSublayer(dim)
         cursor.path = Self.arrow
-        cursor.fillColor = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1).cgColor // colour-allow: the agent cursor's blue (#0A84FF), the same constant cmux Remote's cursor overlay draws, so the preview's cursor matches the one on screen
+        cursor.fillColor = NSColor(srgbRed: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1).cgColor // colour-allow: the agent cursor's blue (#0A84FF), the same constant cmux Helper's cursor overlay draws, so the preview's cursor matches the one on screen
         cursor.strokeColor = NSColor.white.cgColor
         cursor.lineWidth = 1.2
         cursor.isHidden = true

@@ -4,10 +4,9 @@ public import CmuxNextSidebar
 /// The sidebar intents that only run a catalog action, as the person's own gesture: the space bar's New Space and
 /// Open in New Window, and the machine headers' screen buttons (`SidebarIntent.viewScreen` / `.shareScreen`).
 ///
-/// View screen on a Cloud machine opens its desktop (`cloudOpenDesktop` on that machine). Share on This Mac turns
-/// sharing on at once (`macScreen.shareThisMac`) only where that also asks for Screen Recording, which is cmux
-/// Remote's host; otherwise it opens Screen Sharing (`macScreen.open`), whose Allow Mac Screen switch walks the
-/// person through the permissions and sign-in. SSH and server machines show no screen button.
+/// View screen on a Cloud machine opens its desktop (`cloudOpenDesktop` on that machine). Share on This Mac opens
+/// Screen Sharing (`macScreen.open`), whose Allow Mac Screen switch walks the person through the permissions and
+/// sign-in. SSH and server machines show no screen button.
 @MainActor
 public struct SidebarIntentActions {
     private let perform: (ActionID, ActionInvocation) -> Void
@@ -15,19 +14,16 @@ public struct SidebarIntentActions {
 
     /// - Parameters:
     ///   - perform: Runs an action (the App's registry).
-    ///   - sharesDirectly: Whether `macScreen.shareThisMac` can do the whole job now: it is available and cmux Remote,
-    ///     which asks for Screen Recording, runs in this build (Release and NIGHTLY embed none).
+    ///   - sharesDirectly: Whether `macScreen.shareThisMac` can do the whole job now (tests); the App opens
+    ///     Screen Sharing's home, whose setup asks for the grants first.
     public init(perform: @escaping (ActionID, ActionInvocation) -> Void, sharesDirectly: @escaping () -> Bool) {
         self.perform = perform
         self.sharesDirectly = sharesDirectly
     }
 
-    /// Runs on `registry`; Share This Mac shares directly when `remoteRuns` and the action is available.
-    public init(registry: ActionRegistry, remoteRuns: Bool) {
-        let share: ActionID = "macScreen.shareThisMac"
-        self.init(perform: { _ = registry.perform($0, invocation: $1) }, sharesDirectly: {
-            remoteRuns && registry.isAvailable(share) && registry.unavailableReason(for: share) == nil
-        })
+    /// Runs on `registry`: Share opens Screen Sharing's home (`macScreen.open`), whose setup asks for the grants.
+    public init(registry: ActionRegistry) {
+        self.init(perform: { _ = registry.perform($0, invocation: $1) }, sharesDirectly: { false })
     }
 
     public func handle(_ intent: SidebarIntent, sections: [SidebarSection]) {

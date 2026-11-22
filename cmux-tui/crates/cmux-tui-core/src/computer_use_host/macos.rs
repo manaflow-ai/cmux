@@ -1,13 +1,11 @@
-//! Starting the worker on macOS when the cmux build embeds no cmux Remote (Release and
-//! NIGHTLY): the Screen Sharing helper `<app> Screen Sharing.app` (executable
+//! Starting the worker on macOS: cmux Helper, the build's Screen Sharing helper `<app> Screen Sharing.app` (executable
 //! `cmux-screen-sharing`, cmux-tui/crates/cmux-rd-host) runs it in its hidden
 //! `__computer-use-worker` mode. The helper is the one app of the build that holds macOS's
 //! Accessibility and Screen Recording grants, so Computer Use asks for and uses those grants
 //! under the helper's identity (`<app id>.screen-sharing`), never cmux's, the daemon's or an
 //! agent's.
 //!
-//! As cmux Remote (`remote_host/macos.rs`) and the acpmux share host's helper
-//! (`acpmux/src/share_host/helper.rs`), the helper never runs from inside the app bundle
+//! As the acpmux share host's helper (`acpmux/src/share_host/helper.rs`), the helper never runs from inside the app bundle
 //! (macOS would check the outermost app's grants): a verified copy is staged under
 //! `~/Library/Application Support/cmux-next/screen-sharing/<bundle id>/computer-use/`, a slot of
 //! its own beside acpmux's `daemon/` (each prunes only its own root, so neither deletes a copy

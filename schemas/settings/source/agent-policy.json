@@ -1587,21 +1587,21 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
+      "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Helper: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
       ]
     },
     {
       "agent": "userOnly",
-      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
+      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Helper: the person's call.",
       "keys": [
         "macScreen.shareWithoutAsking"
       ]
     },
     {
       "agent": "userOnly",
-      "why": "cmux Remote: the person's call.",
+      "why": "cmux Helper: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
       ]

@@ -205633,133 +205633,133 @@
         }
       }
     },
-    "settings.group.cmuxRemote": {
+    "settings.group.cmuxHelper": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Remote"
+            "value": "cmux Helper"
           }
         }
       }

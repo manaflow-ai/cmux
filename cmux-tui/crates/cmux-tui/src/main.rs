@@ -2751,7 +2751,9 @@ fn run_server(
     // source/working-tree checks keep local development installs untouched.
     let _plugin_auto_update = plugin_manager::start_auto_update();
     mux.configure_browser_host(&socket_path);
-    mux.configure_remote_host(&socket_path);
+    // The Computer Use worker: in the build's helper app on macOS (cmux Helper), the daemon's own elsewhere.
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    mux.configure_computer_use(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))

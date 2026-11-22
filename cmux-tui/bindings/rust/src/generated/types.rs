@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -936,6 +936,15 @@ pub struct GuestUrlSubscribeResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HelperPermissions {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub accessibility: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen_recording: Optional<bool>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistorySearchHit {
     pub at_ms: i64,
@@ -1532,23 +1541,6 @@ pub struct ReadScrollbackResult {
 pub struct ReattachViewResult {
     pub participant: String,
     pub state: SizeState,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RemoteHostAppPermissions {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub accessibility: Optional<bool>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub screen_recording: Optional<bool>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RemoteHostAppResult {
-    pub host_pid: u32,
-    pub secret: String,
-    pub socket: String,
 }
 
 #[rustfmt::skip]

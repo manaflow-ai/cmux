@@ -402,6 +402,12 @@ class GeneratedClientMixin:
     def get_size_state(self, surface: Id) -> GetSizeStateResult:
         return self._invoke_command('get-size-state', GetSizeStateRequest(surface=surface))
 
+    def helper_config(self, *, name: Union[str, None, MissingType] = MISSING, permissions: Union[HelperPermissions, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('helper-config', HelperConfigRequest(name=name, permissions=permissions))
+
+    def helper_status(self) -> JsonValue:
+        return self._invoke_command('helper-status', HelperStatusRequest())
+
     def history_search(self, query: str, *, kinds: Union[List[str], MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> HistorySearchResult:
         return self._invoke_command('history-search', HistorySearchRequest(query=query, kinds=kinds, limit=limit))
 
@@ -626,18 +632,6 @@ class GeneratedClientMixin:
 
     def reload_config(self) -> ReloadConfigResult:
         return self._invoke_command('reload-config', ReloadConfigRequest())
-
-    def remote_host_app(self) -> RemoteHostAppResult:
-        return self._invoke_command('remote-host-app', RemoteHostAppRequest())
-
-    def remote_host_call(self, method: str, *, params: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('remote-host-call', RemoteHostCallRequest(method=method, params=params))
-
-    def remote_host_config(self, *, app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = MISSING, computer_use: Union[bool, None, MissingType] = MISSING, headless: Union[bool, None, MissingType] = MISSING, screen_sharing: Union[bool, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('remote-host-config', RemoteHostConfigRequest(app_permissions=app_permissions, computer_use=computer_use, headless=headless, screen_sharing=screen_sharing))
-
-    def remote_host_status(self) -> JsonValue:
-        return self._invoke_command('remote-host-status', RemoteHostStatusRequest())
 
     def remote_terminal_snapshot(self, surface: Id) -> JsonValue:
         return self._invoke_command('remote-terminal-snapshot', RemoteTerminalSnapshotRequest(surface=surface))
@@ -1067,6 +1061,8 @@ GeneratedClientMixin.get_frontend_browser_history.__cmux_command__ = COMMANDS['g
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.get_host_size_policy.__cmux_command__ = COMMANDS['get-host-size-policy']
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
+GeneratedClientMixin.helper_config.__cmux_command__ = COMMANDS['helper-config']
+GeneratedClientMixin.helper_status.__cmux_command__ = COMMANDS['helper-status']
 GeneratedClientMixin.history_search.__cmux_command__ = COMMANDS['history-search']
 GeneratedClientMixin.home_inbox.__cmux_command__ = COMMANDS['home-inbox']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
@@ -1142,10 +1138,6 @@ GeneratedClientMixin.register_browser_provider.__cmux_command__ = COMMANDS['regi
 GeneratedClientMixin.release_attached_view_size.__cmux_command__ = COMMANDS['release-attached-view-size']
 GeneratedClientMixin.release_surface_size.__cmux_command__ = COMMANDS['release-surface-size']
 GeneratedClientMixin.reload_config.__cmux_command__ = COMMANDS['reload-config']
-GeneratedClientMixin.remote_host_app.__cmux_command__ = COMMANDS['remote-host-app']
-GeneratedClientMixin.remote_host_call.__cmux_command__ = COMMANDS['remote-host-call']
-GeneratedClientMixin.remote_host_config.__cmux_command__ = COMMANDS['remote-host-config']
-GeneratedClientMixin.remote_host_status.__cmux_command__ = COMMANDS['remote-host-status']
 GeneratedClientMixin.remote_terminal_snapshot.__cmux_command__ = COMMANDS['remote-terminal-snapshot']
 GeneratedClientMixin.remove_screens_from_screen_group.__cmux_command__ = COMMANDS['remove-screens-from-screen-group']
 GeneratedClientMixin.remove_tabs_from_tab_group.__cmux_command__ = COMMANDS['remove-tabs-from-tab-group']

@@ -1,10 +1,7 @@
-/// `remote.*` in cmux.json: cmux Remote, the one signed process that holds the macOS grants
-/// for Computer Use and Screen Sharing (docs/cmux-remote.md).
-/// The cmux-tui daemon runs cmux Remote whenever this build embeds it: Computer Use (the
-/// Upstream driver) runs in it, and it serves this Mac's Screen Sharing, so a grant needs no
-/// relaunch. A build without it uses the app's own helper and host.
-/// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
-///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
+/// `remote.*` in cmux.json: Screen Sharing (docs/cmux-helper.md).
+/// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Read
+///   by nothing since the old remote host's supervisor left (it was its `headless` switch); kept so the
+///   setting and its managed key stay until it is wired to cmux Helper or retired.
 /// - `ultra` (Auto by default): Ultra Connection Mode, Off, Auto or Always. The Rust tunnel starts
 ///   read it from the file themselves (cmux-tui-util `user_settings::ultra`); kept here so the row
 ///   reads back. Without it, the retired toggle `ultraMode` set to true reads as Always, as Rust does.

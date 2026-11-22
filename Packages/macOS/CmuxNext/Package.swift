@@ -59,8 +59,8 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> Compat, Wakeups (the embedded cmux Remote, the live sessions model and the
-//     Screen Sharing helper's signed launch; Computer Use itself runs in cmux Remote's worker; setup stays in the App)
+//   CmuxNextComputerUse -> Compat, Wakeups (the live sessions model and the Screen Sharing helper's
+//     signed launch; Computer Use itself runs in cmux Helper's worker; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model and addresses; the History page is React; no daemon)
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
@@ -1062,9 +1062,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // Computer Use's app-side models: the embedded cmux Remote (whose worker hosts the cmux
-        // Computer Use engine) and the live sessions the File menu acts on, and the signed helper
-        // launch the Screen Sharing helper uses (SignedHelperLaunch). Setup (ComputerUseSetup) stays in the App.
+        // Computer Use's app-side models: the live sessions the File menu acts on, and the signed
+        // helper launch the Screen Sharing helper (cmux Helper) uses (SignedHelperLaunch). Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py

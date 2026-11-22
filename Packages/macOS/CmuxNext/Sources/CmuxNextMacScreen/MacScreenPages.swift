@@ -143,16 +143,6 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
-    /// Whether the worker owns hosting and approval. The active NEXT app keeps this false and
-    /// uses the worker only for identity and pushes; a host ticket must have exactly one owner.
-    public var remoteHosted = false {
-        didSet {
-            guard remoteHosted != oldValue else { return }
-            if remoteHosted { hubHost.closeAll() }
-            approval.follow(remoteHosted ? nil : hub)
-        }
-    }
-
     // MARK: Device hub
 
     private func hubChanged(from old: DeviceHub?) {
@@ -164,7 +154,7 @@ public final class MacScreenPages {
             for tab in tabs.values { tab.pane?.model.hub?.hubGone() }
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
-        approval.follow(remoteHosted ? nil : hub)
+        approval.follow(hub)
         watchDeviceNames()
     }
 
@@ -175,7 +165,7 @@ public final class MacScreenPages {
             break // The approval prompt follows the hub's pending requests.
         case let .sessionTicket(ticket):
             switch ticket.role {
-            case .host: if !remoteHosted { hubHost.serve(ticket) }
+            case .host: hubHost.serve(ticket)
             case .viewer:
                 // The tab whose session (or, before the request's answer, whose host) it names.
                 let viewers = hubViewers

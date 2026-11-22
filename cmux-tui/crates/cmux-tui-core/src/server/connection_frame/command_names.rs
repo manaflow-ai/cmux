@@ -21,10 +21,8 @@ impl Command {
         match self {
             Self::Identify { .. } => "identify",
             Self::BrowserHostProvider => "browser-host-provider",
-            Self::RemoteHostStatus => "remote-host-status",
-            Self::RemoteHostCall { .. } => "remote-host-call",
-            Self::RemoteHostConfig { .. } => "remote-host-config",
-            Self::RemoteHostApp => "remote-host-app",
+            Self::HelperStatus => "helper-status",
+            Self::HelperConfig { .. } => "helper-config",
             Self::DeviceSetup { .. } => "device-setup",
             Self::ComputerUseEndpoint => "computer-use-endpoint",
             Self::ComputerUseConfig { .. } => "computer-use-config",

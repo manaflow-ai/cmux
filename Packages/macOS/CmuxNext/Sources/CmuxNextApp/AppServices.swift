@@ -297,8 +297,8 @@ final class AppServices {
     private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
     /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
-    /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
-    private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
+    /// cmux Helper: the build's one app that holds Screen Recording and Accessibility (docs/cmux-helper.md).
+    private(set) lazy var cmuxHelper = CmuxHelperService(daemon: daemon)
     /// Computer Use's live preview in the agent's own chat or terminal pane.
     private(set) lazy var computerUsePreviews: ComputerUsePreviewRouter = makeComputerUsePreviews()
 

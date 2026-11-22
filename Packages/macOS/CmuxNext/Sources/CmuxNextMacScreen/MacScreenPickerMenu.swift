@@ -104,8 +104,8 @@ final class MacScreenMenuRunner: NSObject {
 /// The one step a host takes so this Mac can view it, for a machine whose row says "Sharing off" or
 /// "Not allowed" (Leo, 2026-11-18, c-2e1353ee11: "the whole \"allow blah blah\" is so annoying too").
 /// Sharing off: Share This Mac there runs the whole setup as one guided step (the switch, Screen
-/// Recording, Accessibility; ``CmuxRemoteSharingSetup``), and `cmux remote-host share on` there starts it.
-/// Not allowed: its Settings › Devices lets this Mac in, and `cmux remote-host access` there does it.
+/// Recording, Accessibility; ``CmuxHelperSharingSetup``), and `cmux helper share on` there starts it.
+/// Not allowed: its Settings › Devices lets this Mac in, and `cmux helper access` there does it.
 /// It cannot run on the host from here: this Mac's signed approval has no carrier to it yet
 /// (`share.needs_same_account_control`, cmux-tui `remote_host/share_approval.rs`).
 @MainActor
@@ -139,8 +139,8 @@ struct MacScreenHostSetupGuide {
     /// The command that takes the step on the host, run there (by the person or an agent).
     var command: String {
         switch fix {
-        case .shareThisMac: "cmux remote-host share on"
-        case .deviceAccess: "cmux remote-host access \(thisMac.id) full"
+        case .shareThisMac: "cmux helper share on"
+        case .deviceAccess: "cmux helper access \(thisMac.id) full"
         }
     }
 

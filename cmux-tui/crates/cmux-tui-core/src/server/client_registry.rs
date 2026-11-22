@@ -367,7 +367,7 @@ pub(crate) struct ClientRegistry {
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
-    pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    pub(crate) helper: crate::helper::HelperState,
     /// The Linux and Windows Computer Use worker (computer_use_host.rs).
     pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
@@ -448,7 +448,7 @@ impl ClientRegistry {
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
-            remote_host: Default::default(),
+            helper: Default::default(),
             computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),

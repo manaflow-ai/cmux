@@ -5,10 +5,10 @@ import CmuxNextCompat
 import CmuxNextSettings
 
 /// Takes the person to a grant after they pressed Continue on the card:
-/// the Computer Use window for the grants cmux Remote holds, the System
+/// the Computer Use window for the grants cmux Helper holds, the System
 /// Settings list for Full Disk Access, macOS's one prompt for camera,
 /// microphone and automation. Computer use kinds first turn Computer Use
-/// on when it is off, so cmux Remote, which needs the grant, runs.
+/// on when it is off, so cmux Helper, which needs the grant, runs.
 @MainActor
 final class SystemPermissionOpener: PermissionSettingsOpening {
     private let setup: ComputerUseSetup
@@ -23,7 +23,7 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
         self.openURL = openURL
     }
 
-    /// Whether Continue on `kind` hands the person to the Computer Use window (cmux Remote's
+    /// Whether Continue on `kind` hands the person to the Computer Use window (cmux Helper's
     /// grants, with the drag panel docked to System Settings); the presenter reads this same rule.
     nonisolated static func guidesInWindow(_ kind: PermissionKind) -> Bool {
         kind.heldByComputerUseHelper
@@ -39,7 +39,7 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
             guard let target else { return }
             // task-owner: one macOS prompt, off the main actor (the call blocks until the person answers).
             Task { _ = await SystemPermissionAccess().automation(of: target, ask: true) }
-        // The window guides both of cmux Remote's grants in order, with the drag panel docked to System Settings.
+        // The window guides both of cmux Helper's grants in order, with the drag panel docked to System Settings.
         case .accessibility, .screenRecording, .computerUse:
             showComputerUse()
         case .fullDiskAccess:

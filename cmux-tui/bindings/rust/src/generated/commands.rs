@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12, IR b19efd174bd0ca9b80869d725f0a9dae3538955bafff0704d4dea29bf8124308.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1979,6 +1979,26 @@ pub struct GetSizeStateRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HelperConfigRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub permissions: Optional<T::HelperPermissions>,
+}
+
+#[rustfmt::skip]
+pub type HelperConfigResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HelperStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type HelperStatusResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistorySearchRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3105,46 +3125,6 @@ pub struct ReloadConfigResult {
     pub path: Nullable<String>,
     pub reloaded: bool,
 }
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RemoteHostAppRequest {
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RemoteHostCallRequest {
-    pub method: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub params: Optional<T::JsonValue>,
-}
-
-#[rustfmt::skip]
-pub type RemoteHostCallResult = T::JsonValue;
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RemoteHostConfigRequest {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub app_permissions: Optional<T::RemoteHostAppPermissions>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub computer_use: Optional<bool>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub headless: Optional<bool>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub screen_sharing: Optional<bool>,
-}
-
-#[rustfmt::skip]
-pub type RemoteHostConfigResult = T::JsonValue;
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RemoteHostStatusRequest {
-}
-
-#[rustfmt::skip]
-pub type RemoteHostStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5114,6 +5094,14 @@ impl CmuxClient {
         self.execute(&GET_SIZE_STATE_METADATA, &request)
     }
 
+    pub fn helper_config(&mut self, request: HelperConfigRequest) -> Result<HelperConfigResult> {
+        self.execute(&HELPER_CONFIG_METADATA, &request)
+    }
+
+    pub fn helper_status(&mut self, request: HelperStatusRequest) -> Result<HelperStatusResult> {
+        self.execute(&HELPER_STATUS_METADATA, &request)
+    }
+
     pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
         self.execute(&HISTORY_SEARCH_METADATA, &request)
     }
@@ -5632,22 +5620,6 @@ impl CmuxClient {
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {
         self.execute(&RELOAD_CONFIG_METADATA, &request)
-    }
-
-    pub fn remote_host_app(&mut self, request: RemoteHostAppRequest) -> Result<T::RemoteHostAppResult> {
-        self.execute(&REMOTE_HOST_APP_METADATA, &request)
-    }
-
-    pub fn remote_host_call(&mut self, request: RemoteHostCallRequest) -> Result<RemoteHostCallResult> {
-        self.execute(&REMOTE_HOST_CALL_METADATA, &request)
-    }
-
-    pub fn remote_host_config(&mut self, request: RemoteHostConfigRequest) -> Result<RemoteHostConfigResult> {
-        self.execute(&REMOTE_HOST_CONFIG_METADATA, &request)
-    }
-
-    pub fn remote_host_status(&mut self, request: RemoteHostStatusRequest) -> Result<RemoteHostStatusResult> {
-        self.execute(&REMOTE_HOST_STATUS_METADATA, &request)
     }
 
     pub fn remote_terminal_snapshot(&mut self, request: RemoteTerminalSnapshotRequest) -> Result<RemoteTerminalSnapshotResult> {

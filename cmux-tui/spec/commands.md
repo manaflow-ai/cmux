@@ -374,10 +374,10 @@ kind of device the owner runs on (`macbook`, `mac-mini`, `linux-server`, `generi
 virtualization facts on Linux) and `machine_symbol` the SF Symbol that kind draws; clients draw
 the symbol by that name and treat an unknown or absent kind as `generic`.
 
-With `machine-identity-v1`, `screen_device_id` is the independently generated
-UUID of the authenticated cmux Remote screen worker. It is present only in an
-enriched reply and is `null` when that worker is unavailable; it is unrelated to
-`machine_id`, joined ids, host names, and display names.
+With `machine-identity-v1`, the schema keeps `screen_device_id` for a worker's
+independently generated screen UUID; no worker reports one now, so the reply
+leaves it out. It is unrelated to `machine_id`, joined ids, host names, and
+display names.
 
 With `revisions: true` the reply also carries `build_time`: unix seconds of the
 source commit the daemon was built from, or null when unknown. A client that
@@ -11633,58 +11633,35 @@ from the same terminal replaces it, the frontend receives
 `terminal-clipboard-read-cancelled` and the request id stops being accepted.
 These operations are exposed only in the SDKs' private `raw` namespace.
 
-## cmux Remote (remote-host-v1)
+## cmux Helper (helper-v1)
 
-macOS only (docs/cmux-remote.md). The daemon supervises cmux Remote, the signed
-helper that holds Accessibility and Screen Recording for Computer Use and Screen
-Sharing. Elsewhere every command answers `remote_host_unavailable`.
+macOS (docs/cmux-helper.md). cmux Helper is the build's one helper app
+(`<app> Screen Sharing.app`, `<app id>.screen-sharing`): it holds Screen
+Recording and Accessibility for Screen Sharing and Computer Use, and the daemon
+runs the Computer Use worker in it.
 
-### remote-host-status
+### helper-status
 
-`{"cmd":"remote-host-status"}`. The host's state: `state` (`off`, `starting`,
-`running`, `unavailable` with `reason`), `config`, `upgrade` and, while it runs,
-`host` (its grants, workers and Screen Sharing state). Never starts the host.
-Only the verified app sees `host.screen.devices`, `session`, `pending`, `indicator` and `banner` (they name the viewers).
+`{"cmd":"helper-status"}`. Any local Unix connection (not a page).
+`permissions` (`{screen_recording, accessibility}`) and `name` (the name System
+Settings lists the helper under), each absent until the app reports them. The
+verified app also gets `computer_use`, the worker's status.
 
-### remote-host-call
+### helper-config
 
-`{"cmd":"remote-host-call","method":M,"params":{...}}` for `status`, `refresh`,
-`request {permission}`, `open_settings {permission}`, `restart {worker, force}`,
-`screen.share {on}`, `screen.access {device, scope}`, `screen.stop_session` and
-`computer_use.session {action, session, label?}` (the cmux menu bar's per-agent
-rows: `stop` an agent's Computer Use, `resume` it, `spotlight` its cursor,
-`raise_window` the window it works in).
-Any local Unix connection may read, refresh, ask macOS for a grant, restart a
-worker, lower access, stop an agent's Computer Use and spotlight its cursor.
-Turning sharing on, raising a device's access, resuming a stopped agent and
-raising its window (which takes the person's focus) are the verified app's
-only (`origin.forbidden`).
-
-### remote-host-config
-
-`{"cmd":"remote-host-config","computer_use":B,"screen_sharing":B,"headless":B,"app_permissions":{"screen_recording":B,"accessibility":B}}`,
-each optional. The verified app's switches; the daemon saves them and starts or
-stops the host. `app_permissions` is the app's own Screen Recording
-(`CGPreflightScreenCaptureAccess()`) and Accessibility (`AXIsProcessTrusted()`),
-the grants that matter in a build without cmux Remote (Release and NIGHTLY,
-`bundled: false`), where the app captures the screen itself. The daemon keeps
-them in memory only (never in `config.json`) and shows them as
-`remote-host-status` `app.permissions`; a call that sets no switch never saves,
-starts or stops anything. The app sends them at each daemon connect and when it
-becomes active.
-
-### remote-host-app
-
-`{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
-Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
-app process; the secret is never logged or journaled.
+`{"cmd":"helper-config","permissions":{"screen_recording":B,"accessibility":B},"name":S}`,
+each optional. The verified app only (`origin.forbidden` otherwise): the
+helper's grants and name as the app read them from the helper. The daemon keeps
+them in memory only and shows them in `helper-status`; nothing is saved, started
+or stopped. The app sends them at each daemon connect and when it becomes
+active.
 
 ## cmux Computer Use (computer-use-v1)
 
 The Computer Use worker serves the agent socket (`cmux-computer-use-v1`). On
 Linux and Windows this daemon supervises it (the `cmux-tui` binary's hidden
 `__computer-use-worker` mode, restarted with backoff, its state directory kept
-so grants survive); on macOS the cmux Remote host runs it. Its policy is the
+so grants survive); on macOS it runs in cmux Helper. Its policy is the
 machine owner's `/etc/cmux/computer-use.json` or
 `%ProgramData%\cmux\computer-use.json` (root or SYSTEM owned, not
 user-writable) when present, else `computerUse.*` from the settings.

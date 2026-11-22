@@ -7,7 +7,7 @@ import IOKit
 /// The Mac this app runs on, as the device hub's `machine` (docs/device-hub/PROTOCOL.md,
 /// "Permissions are per Mac"): the lowercase hex HMAC-SHA256 of `cmux.device-hub.machine\n` and the
 /// Mac's hardware UUID, keyed by a random secret kept in a file on this Mac. Every build of the
-/// app (each tagged build has its own device id) and cmux Remote read the same file, so they send
+/// app (each tagged build has its own device id) and cmux Helper read the same file, so they send
 /// the same value and the host's Always answer about this Mac covers all of them. The hardware
 /// UUID alone is no secret (any app on the Mac can read it), so the key is what stops a device
 /// elsewhere from naming this Mac; nil where there is no hardware UUID (not a Mac) or no secret.
@@ -49,7 +49,7 @@ struct DeviceMachine: Sendable, Equatable {
 /// whichever cmux app runs first. The file is written whole under a temporary name and then
 /// hard-linked into place, so two apps starting together both end up reading the one that won.
 enum DeviceMachineSecret {
-    /// `~/Library/Application Support/cmux-device-hub/machine.key`, shared by every cmux build and cmux Remote.
+    /// `~/Library/Application Support/cmux-device-hub/machine.key`, shared by every cmux build and cmux Helper.
     static var defaultURL: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)

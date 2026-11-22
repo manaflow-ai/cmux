@@ -21,7 +21,7 @@ public struct DeviceHubAccountToken: DeviceHubAccountTokenProvider {
 public enum DeviceHubAccountSource: Sendable {
     /// The signed-in app: its Stack access token, exchanged at `POST /v1/auth/stack` (a full session).
     case stack(any DeviceHubAccountTokenProvider)
-    /// cmux Remote with the app quit: device-key renewal (`POST /v1/auth/device`), a host-scoped
+    /// cmux Helper with the app quit: device-key renewal (`POST /v1/auth/device`), a host-scoped
     /// session for this device of `userID` while the app's anchor holds (PROTOCOL.md, Device renewal).
     case deviceRenewal(userID: String)
 }
@@ -145,7 +145,7 @@ public actor DeviceHubClient {
     // MARK: Endpoints
 
     /// Lets this device renew its own host-scoped session for 30 days (`POST /v1/auth/device/anchor`;
-    /// a full session and this device's signature). The signed-in app calls it for cmux Remote's device.
+    /// a full session and this device's signature). The signed-in app calls it for cmux Helper's device.
     public func anchorDevice() async throws -> Date {
         struct Answer: Decodable {
             var anchoredUntil: Double
@@ -160,7 +160,7 @@ public actor DeviceHubClient {
 
     /// Registers or updates this device, signed by the key it registers, with the Mac it runs on
     /// (`machine`, ``DeviceMachine``): the hub reads the host's answers about this Mac across every
-    /// device id it has (each tagged build, each renewed identity, cmux Remote's and the app's).
+    /// device id it has (each tagged build, each renewed identity, cmux Helper's and the app's).
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
         struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
         let identity = signer.identity

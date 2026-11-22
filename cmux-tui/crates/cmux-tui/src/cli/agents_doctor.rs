@@ -2,7 +2,7 @@
 //!
 //! It reports, never changes: Claude Code and Codex on PATH, whether each
 //! names the cmux-computer-use MCP server in its own config, and the macOS
-//! grants of cmux Remote. cmux injects cmux-computer-use into every chat it
+//! grants of cmux Helper. cmux injects cmux-computer-use into every chat it
 //! starts (acpmux `agent_tools`), so a config without it means computer use
 //! only inside cmux chats, not an error. The grants come from the running
 //! app (`computer_use.status`, the model behind Computer Use Setup); without

@@ -3,7 +3,7 @@
 //!
 //! Why: each layer adding its own margin to the one below (`timeout = wait + 600`) and a loop
 //! starting each try with a fresh budget made a stalled transport run 840 s and then 660 s, 25
-//! minutes against a 15-minute bound (hq#8876, cmux#40530, cmux#40574). In cmux Remote and Cloud
+//! minutes against a 15-minute bound (hq#8876, cmux#40530, cmux#40574). In the local daemons and Cloud
 //! the same shape is a retry loop that never ends and never says so (design
 //! `remote-cloud-durability.md` 4.3, handbook `wait-with-no-deadline`).
 //!

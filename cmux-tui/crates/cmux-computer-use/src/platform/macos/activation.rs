@@ -172,8 +172,8 @@ pub(super) fn gate_with(default_on: bool, os_version: &str, switches: &[&str]) -
 
 /// The off switch's values: the worker's own environment and the user's
 /// launchd environment (`launchctl setenv CMUX_CU_BG_ACTIVATE 0` in a
-/// Terminal, then a cmux restart). cmux Remote starts the Computer Use worker
-/// with a fixed environment, so a variable set only for the app does not
+/// Terminal, then a cmux restart). The daemon starts the Computer Use worker
+/// in cmux Helper with a fixed environment, so a variable set only for the app does not
 /// reach it; the launchd one does. Read once, at first use.
 fn off_switches() -> Vec<String> {
     let mut out = Vec::new();

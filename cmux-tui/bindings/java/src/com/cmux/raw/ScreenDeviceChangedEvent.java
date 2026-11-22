@@ -12,7 +12,7 @@ import java.util.Objects;
 
 /** Immutable screen-device-changed event. Protocol v12; streams: subscribe. */
 public final class ScreenDeviceChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
-    /** The authenticated worker screen UUID, or null when the worker is unavailable. */
+    /** The worker screen UUID; null, since no worker reports one. */
     private final String screenDeviceId;
 
     private ScreenDeviceChangedEvent(Builder builder) {

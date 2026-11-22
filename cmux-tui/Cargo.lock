@@ -2782,7 +2782,6 @@ dependencies = [
  "cmux-sdk",
  "cmux-signed-bundle",
  "cmux-signed-envelope",
- "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",

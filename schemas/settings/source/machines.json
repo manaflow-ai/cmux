@@ -858,8 +858,8 @@
       "name": "remote",
       "section": "general",
       "group": {
-        "key": "settings.group.cmuxRemote",
-        "text": "cmux Remote"
+        "key": "settings.group.cmuxHelper",
+        "text": "cmux Helper"
       },
       "rows": [
         {

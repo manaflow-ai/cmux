@@ -37,7 +37,7 @@ public final class MacScreenSystemShortcuts {
     /// Permission and app state checks; tests replace them.
     @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
     @ObservationIgnored public var isAppActive: () -> Bool = { NSApp.isActive }
-    /// Also run when the app becomes active (cmux Remote's report of the app's own grants).
+    /// Also run when the app becomes active (cmux Helper's report of the app's own grants).
     @ObservationIgnored var onAppActive: () -> Void = {}
     /// The panes that may hold the keyboard.
     @ObservationIgnored var panes: () -> [MacScreenPane] = { [] }

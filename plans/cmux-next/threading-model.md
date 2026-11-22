@@ -221,9 +221,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
   handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
   `signed-helper-reap` (one per signed Screen Sharing helper launch, SignedHelperLaunch.reap: a blocking waitpid that
-  ends when that helper exits; no back-pressure, one per launch), `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  ends when that helper exits; no back-pressure, one per launch), `cmux-share-host-device` (one per open channel to cmux Helper's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
-  bounded at 256, docs/cmux-remote.md)
+  bounded at 256, docs/cmux-helper.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
   each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
   serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never

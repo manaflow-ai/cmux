@@ -1,5 +1,5 @@
-/// The live Computer Use sessions on this Mac and the user's stop: cmux Remote's Computer Use
-/// worker in the App (`CmuxRemoteComputerUseSessions`), a fake in tests.
+/// The live Computer Use sessions on this Mac and the user's stop: cmux Helper's Computer Use
+/// worker in the App (`CmuxHelperComputerUseSessions`), a fake in tests.
 @MainActor
 public protocol ComputerUseSessionControlling: AnyObject {
     /// The live sessions, newest action first.

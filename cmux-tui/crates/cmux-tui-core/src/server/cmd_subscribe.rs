@@ -111,13 +111,12 @@ pub(super) fn subscribe_command(
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
         let _permit = permit;
         let mut transport_overflow = false;
-        // Replay the current authenticated worker identity before consuming
-        // live events. This closes the identify -> subscribe race and also
-        // clears stale aliases when the worker has gone away.
+        // Replay the worker screen identity before consuming live events: none
+        // (no process reports one now), which clears an alias the app kept.
         if trusted_screen_client {
             let initial = json!({
                 "event": "screen-device-changed",
-                "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                "screen_device_id": serde_json::Value::Null,
             });
             if let Err(error) = writer.send_stream_backpressured(&initial, &outbound_stream) {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
@@ -167,11 +166,11 @@ pub(super) fn subscribe_command(
                     continue;
                 }
                 MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
-                // Read the cache at send time rather than trusting a queued
-                // payload; a rapid rotation/removal cannot regress the app.
+                // Never a queued payload: no process reports a worker screen
+                // identity now, so the current one is none.
                 MuxEvent::ScreenDeviceChanged(_) => json!({
                     "event": "screen-device-changed",
-                    "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                    "screen_device_id": serde_json::Value::Null,
                 }),
                 // A draft goes only to a trusted local connection that asked
                 // for drafts in set-client-info (the admission of

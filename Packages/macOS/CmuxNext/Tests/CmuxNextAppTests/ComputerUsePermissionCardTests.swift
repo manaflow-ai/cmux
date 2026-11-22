@@ -10,8 +10,8 @@ import Testing
 /// SystemPermissionOpener) is the main way a person sets up computer use: it
 /// shows the Computer Use window. On macOS 26 the Screen Recording toggle
 /// alone leaves the holder's capture check false until it asks once, so Allow
-/// in that window asks cmux Remote for the grant (`requestPermission`, its
-/// `request` method: macOS names cmux Remote) and opens the list
+/// in that window asks cmux Helper for the grant (`requestPermission`, its
+/// `request` method: macOS names cmux Helper) and opens the list
 /// (`AppComputerUsePermissionSource.openSettings`, `ComputerUseSetup.open`).
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
@@ -38,7 +38,7 @@ struct ComputerUsePermissionCardTests {
         var windows = 0
     }
 
-    /// A ready cmux Remote with `granted` grants, and the card store the App builds over it.
+    /// A ready cmux Helper with `granted` grants, and the card store the App builds over it.
     private func makeCard(_ granted: ComputerUsePermissions) async -> Card {
         let grants = ComputerUseSetupTests.GrantRequests()
         let opened = OpenedURLs()
@@ -63,7 +63,7 @@ struct ComputerUsePermissionCardTests {
                           requester: PermissionRequester(agentName: "Claude Code", agentID: "term_a"))
     }
 
-    @Test func continueShowsTheWindowAndScreenshotsAllowAsksCmuxRemoteOnce() async throws {
+    @Test func continueShowsTheWindowAndScreenshotsAllowAsksCmuxHelperOnce() async throws {
         let card = await makeCard(ComputerUsePermissions(accessibility: true, screenRecording: false))
         let waiting = Task { await card.requests.request(computerUseRequest(), timeout: .seconds(60)) }
         for await shown in ObservationStream({ card.requests.current != nil }) where shown { break }
@@ -80,7 +80,7 @@ struct ComputerUsePermissionCardTests {
         _ = await waiting.value
     }
 
-    /// Allow on Accessibility asks cmux Remote for that grant only.
+    /// Allow on Accessibility asks cmux Helper for that grant only.
     @Test func accessibilityAllowAfterContinueAsksForAccessibilityOnly() async throws {
         let card = await makeCard(ComputerUsePermissions(accessibility: false, screenRecording: false))
         let waiting = Task { await card.requests.request(computerUseRequest(), timeout: .seconds(60)) }

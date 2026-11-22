@@ -110,7 +110,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     }
 
     /// The engine's `PolicyConfig` JSON (camelCase keys) for this Mac: never a cloud VM. `cursorTag`
-    /// is read by cmux Remote's worker for the agent cursor (the engine ignores it).
+    /// is read by cmux Helper's worker for the agent cursor (the engine ignores it).
     public func policyConfigJSON() -> Data {
         let config = PolicyConfig(mode: mode.rawValue, deniedApps: deniedApps, allowOwnMachines: allowOwnMachines,
                                   pauseOnTakeover: pauseOnTakeover, allowForeground: allowForeground,
