@@ -2,7 +2,9 @@
 
 use std::time::Duration;
 
-use super::{Effect, Event, Generation, Machine, Phase, Refusal, SILENT_RETRIES, Target, VideoMedia};
+use super::{
+    Effect, Event, Generation, Machine, Phase, Refusal, SILENT_RETRIES, Target, VideoMedia, timings,
+};
 use crate::dial::TransportKind;
 
 impl Machine {
@@ -33,7 +35,10 @@ impl Machine {
                 | Event::NetworkChanged
                 | Event::SignedOut { .. }
                 | Event::StandbyAlive { .. }
-                | Event::StandbyLost { .. } => Err(Refusal::SignedOut),
+                | Event::StandbyLost { .. }
+                | Event::ResumeAfter { .. }
+                | Event::ParkedResumed { .. }
+                | Event::ParkedLost { .. } => Err(Refusal::SignedOut),
             };
         }
         match event {
@@ -43,17 +48,36 @@ impl Machine {
             }
             Event::Background => {
                 self.is_backgrounded = true;
+                // Only a live link is parked; a later background re-parks whatever is live then.
+                self.parked = (self.parks && self.phase.is_connected()).then_some(self.generation);
                 Ok(Vec::new())
             }
-            Event::Resume => {
-                if !self.is_backgrounded {
-                    return self.apply(&Event::Foreground);
+            Event::Resume => self.resume(None),
+            Event::ResumeAfter { away } => self.resume(Some(*away)),
+            Event::ParkedResumed { generation, path, rtt_millis } => {
+                self.current_resuming(*generation)?;
+                self.resuming = None;
+                match self.phase {
+                    // The parked session beat the dial: it is the link; the newer generation
+                    // abandons the dial, whose late answers are stale.
+                    Phase::Connecting { .. } | Phase::Waiting { .. } => {
+                        self.generation = self.generation.next();
+                        self.phase = Phase::Connected {
+                            transport: self.transport,
+                            path: *path,
+                            rtt_millis: *rtt_millis,
+                        };
+                        Ok(vec![Effect::PromoteParked { generation: self.generation }])
+                    }
+                    Phase::Idle | Phase::MacOffline | Phase::Connected { .. } | Phase::SignedOut => {
+                        Ok(vec![Effect::CloseParked])
+                    }
                 }
-                self.is_backgrounded = false;
-                if self.phase.is_active() {
-                    return Ok(self.dial(1, true));
-                }
-                Ok(self.apply(&Event::Foreground).unwrap_or_default())
+            }
+            Event::ParkedLost { generation } => {
+                self.current_resuming(*generation)?;
+                // The dial racing it carries on: no second dial, its attempt stays on the ladder.
+                Ok(self.drop_resuming())
             }
             Event::Target(next) => Ok(self.retarget(next.as_ref())),
             Event::Transport(next) => {
@@ -84,8 +108,11 @@ impl Machine {
                     return Err(Refusal::NotConnecting);
                 }
                 self.phase = Phase::Connected { transport: self.transport, path: *path, rtt_millis: None };
-                // The new link is up: the old one beside it has nothing left to do.
-                Ok(self.drop_standby())
+                // The new link is up: the old one beside it, or the parked session racing it, has
+                // nothing left to do.
+                let mut effects = self.drop_standby();
+                effects.extend(self.drop_resuming());
+                Ok(effects)
             }
             Event::StandbyAlive { generation, path, rtt_millis } => {
                 self.current_standby(*generation)?;
@@ -221,6 +248,43 @@ impl Machine {
         }
     }
 
+    fn current_resuming(&self, generation: Generation) -> Result<(), Refusal> {
+        match self.resuming {
+            None => Err(Refusal::NotResuming),
+            Some(parked) if parked == generation => Ok(()),
+            Some(_) => Err(Refusal::StaleGeneration),
+        }
+    }
+
+    /// The scene became active, `away` after the latest background when the runner knows it.
+    fn resume(&mut self, away: Option<Duration>) -> Result<Vec<Effect>, Refusal> {
+        // Not backgrounded: a foreground, which may refuse, so nothing is written first.
+        if !self.is_backgrounded {
+            return self.apply(&Event::Foreground);
+        }
+        self.is_backgrounded = false;
+        let parked = self.parked.take();
+        // The link parked at the background is still the link, and the Mac still holds its session.
+        let resumable = self.parks
+            && self.target.is_some()
+            && self.phase.is_connected()
+            && parked == Some(self.generation)
+            && away.is_some_and(|away| away < timings::PARK_LEASE);
+        if resumable {
+            let kept = self.generation;
+            let mut effects = self.drop_standby();
+            effects.extend(self.drop_resuming());
+            effects.push(Effect::ResumeParked { generation: kept });
+            effects.extend(self.dial(1, false));
+            self.resuming = Some(kept);
+            return Ok(effects);
+        }
+        if self.phase.is_active() {
+            return Ok(self.dial(1, true));
+        }
+        Ok(self.apply(&Event::Foreground).unwrap_or_default())
+    }
+
     /// Swift's `.target` arm. Always records the target, so never a refusal.
     fn retarget(&mut self, next: Option<&Target>) -> Vec<Effect> {
         let same_mac = next.map(|t| &t.mac_id) == self.target.as_ref().map(|t| &t.mac_id);
@@ -258,7 +322,20 @@ impl Machine {
         self.media = VideoMedia::Off;
         self.phase = next;
         self.standby = None;
-        if was_active { vec![Effect::Close] } else { Vec::new() }
+        // `Close` closes a parked session being resumed; with no link to close, close it alone.
+        let resuming = self.resuming.take();
+        if was_active {
+            vec![Effect::Close]
+        } else if resuming.is_some() {
+            vec![Effect::CloseParked]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Forget the parked session being resumed; the effect that closes it, if there was one.
+    fn drop_resuming(&mut self) -> Vec<Effect> {
+        if self.resuming.take().is_some() { vec![Effect::CloseParked] } else { Vec::new() }
     }
 
     /// Forget the standby link; the effect that closes it, if there was one.
@@ -275,8 +352,9 @@ impl Machine {
         self.phase = Phase::Connecting { transport: self.transport, attempt };
         let dial = Effect::Dial { generation: self.generation, mac_id, transport: self.transport };
         if closing && was_active {
-            // `Close` closes the standby link too.
+            // `Close` closes the standby link and a parked session being resumed too.
             self.standby = None;
+            self.resuming = None;
             vec![Effect::Close, dial]
         } else {
             vec![dial]
