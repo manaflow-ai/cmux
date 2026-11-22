@@ -28,6 +28,7 @@ enum AppearanceHandlers {
             let route = SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope(invocation).workspace?.id)
             try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
         })
+        bindRecentBackgrounds(into: registry, context: context)
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
@@ -69,6 +70,39 @@ enum AppearanceHandlers {
     }
 
     private static let uiScalePath = UIScaleSetting.configPath
+
+    /// Switch to Previous Background and Recent Backgrounds… (Leo, 2026-11-22: "it was cumbersome back
+    /// then to switch back"): one write of `appearance.background`; the settings owner records the
+    /// replaced one in appearance.backgroundRecents, so toggling twice comes back. With nothing earlier,
+    /// the swap opens Settings on its background picker, as Change Background… does.
+    private static func bindRecentBackgrounds(into registry: ActionRegistry, context: AppActionContext) {
+        let root: @MainActor () -> JSONValue = { context.services.settings?.snapshot.root ?? .object([:]) }
+        let others = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.backgroundRecents else { return others?(source) ?? [] }
+            return BackdropSelectionSetting.recents(in: root()).map(BackdropSelectionSetting.recentLabel)
+                .map { ActionEnumCase(value: $0.value, title: $0.title, symbol: $0.symbol) }
+        }
+        registry.bind("appearance.previousBackground", run: { invocation in
+            try setBackground(BackdropSelectionSetting.previous(in: root()), invocation, context)
+        })
+        registry.bind("appearance.recentBackgrounds", run: { invocation in
+            try setBackground(invocation["background"]?.stringValue, invocation, context)
+        })
+    }
+
+    /// Writes `raw` as the background; nothing to go back to, or not a background, opens Settings on
+    /// its background picker instead.
+    private static func setBackground(_ raw: String?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        let path = BackdropSelectionSetting.configPath
+        guard let raw, SettingsSchema.descriptor(for: path)?.accepts(.string(raw)) == true else {
+            let route = SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope(invocation).workspace?.id)
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
+            return
+        }
+        try requireUnmanaged(path, context)
+        context.writeSetting("set background", path, .string(raw), reloadOnFailure: true)
+    }
 
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {

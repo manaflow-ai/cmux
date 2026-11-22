@@ -45,6 +45,9 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
     public static let paneBackgrounds = "paneBackgrounds"
+    /// The window's recent backgrounds (Recent Backgrounds…'s `background`, appearance.backgroundRecents),
+    /// newest first, by background value.
+    public static let backgroundRecents = "backgroundRecents"
     /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
     public static let paneTints = "paneTints"
     /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.
