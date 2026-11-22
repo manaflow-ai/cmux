@@ -51,7 +51,7 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const lines of [1, 5, 15])
+  for (const lines of [1, 5, 30])
     for (const busy of ["idle", "busy"])
       for (const place of ["latest", "scrolled-up"]) {
         const variant = `${lines}-lines-${busy}-${place}`;
@@ -72,12 +72,16 @@ await requireBrowserLane("agent-pane-send-one-motion.test.ts", async () => {
             const result = await page.evaluate(() => ({
               phases: document.documentElement.dataset.sendPhases ?? null,
               maxJump: document.documentElement.dataset.sendMaxJump ?? null,
+              stats: document.documentElement.dataset.sendFrameStats ?? null,
+              frames: document.documentElement.dataset.sendFrames ?? null,
               status: (window as { cmuxGalleryPlayReport?: { status?: string } }).cmuxGalleryPlayReport?.status ?? null,
               report: JSON.stringify(
                 (window as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? null,
               ).slice(0, 2000),
             }));
             console.log(`${variant}: phases ${result.phases}, max jump ${result.maxJump}px, play ${result.status}`);
+            console.log(`SENDSTATS ${variant} ${result.stats}`);
+            if (process.env.SEND_FRAMES) console.log(`SENDFRAMES ${variant} ${result.frames}`);
             expect({ variant, phases: result.phases, report: result.phases === "1" ? "" : result.report }).toEqual({
               variant,
               phases: "1",
