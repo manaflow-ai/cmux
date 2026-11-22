@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 670,
+  "count": 671,
   "sections": [
     {
       "id": "general",
@@ -1611,6 +1611,18 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
           ]
         },
         {
@@ -5915,7 +5927,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
