@@ -22,7 +22,7 @@ final class PaneHeaderView: NSView {
     /// The avatar's monogram (the conversation's other participant).
     var initials: String = "" { didSet { if initials != oldValue { applyAvatar() } } }
     /// A picture for the avatar (the Home Chief's), drawn in the disc over
-    /// the monogram; nil shows the monogram.
+    /// the monogram's grey gradient (no letters); nil shows the monogram.
     var picture: NSImage? { didSet { if picture !== oldValue { applyAvatar() } } }
     /// A light theme: the measured white disc would vanish on a light
     /// header, so the disc takes the theme's secondary text grey with a
