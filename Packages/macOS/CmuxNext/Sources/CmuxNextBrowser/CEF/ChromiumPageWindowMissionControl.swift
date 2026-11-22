@@ -19,7 +19,8 @@ public import AppKit
 /// cmux window's thumbnail still shows the page, which it draws. A page window
 /// that is not embedded (a page in a window of its own, undocked DevTools)
 /// keeps its own behavior.
-public enum ChromiumPageWindowMissionControl {
+public struct ChromiumPageWindowMissionControl {
+    public init() {}
     /// The Exposé behaviors AppKit allows one of at a time (setting two raises).
     private static let exposeGroup: NSWindow.CollectionBehavior = [.managed, .transient, .stationary]
 

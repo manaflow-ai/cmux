@@ -66,25 +66,24 @@ REQUIRED_CONTEXTS = frozenset().union(*REQUIRED_CONTEXTS_BY_BASE.values())
 EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("backend-migrations.yml", "pull_request_target"): (ALL, "publishes the required `backend migrations "
         "applied` in every suite, and a retarget (main <-> feat-cmux-next) re-judges it"),
-    ("cla-policy-guard.yml", "pull_request_target"): (ALL, "publishes the required `CLA policy guard` in "
-        "every suite (cmux#13871)"),
-    ("classic-api-guard.yml", "pull_request"): (frozenset({"body", "base"}), "feat-cmux-next's warn-only copy "
-        "re-runs when the `Classic API change:` line or the base moves; a skip reads the same as a warning"),
+    ("classic-api-guard.yml", "pull_request"): (frozenset({"body", "base"}), "this copy starts on its "
+        "own only into main, into feat-cmux-next through pr-router.yml: re-runs when the `Classic API change:` line or the base moves; "
+        "into feat-cmux-next a skip reads the same as a warning"),
     ("classic-api-guard.yml", "pull_request_target"): (ALL, "fails a pull request into main that lacks the "
         "line; a skip under its name would read as a pass"),
     ("classic-frozen-guard.yml", "pull_request_target"): (ALL, "fails a frozen change; a skip under its name "
         "would read as a pass"),
-    ("pr-router.yml", "pull_request"): (frozenset({"body"}), "routes a body edit for the size budget's `size:` "
-        "line (its callee cmux-next-size-budget.yml); a skip after a title or base edit is unchanged since the "
-        "budget landed"),
-    ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
-        "lines; advisory"),
+    ("pr-router.yml", "pull_request"): (frozenset({"body", "base"}), "routes a body edit for the size "
+        "budget's `size:` line and the classic API guard's `Classic API change:` line, and a base change for the "
+        "guard (callees cmux-next-size-budget.yml, classic-api-guard.yml; each callee's own job `if:` skips the "
+        "edits it does not read); a skip after a title edit is unchanged since the budget landed"),
     ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "
         "edit until a change carrying Leo's label gates it (only his label lets this check change)"),
     ("pr-body-checks.yml", "pull_request"): (ALL, "the description lints read the body, the perf section the "
         "title too"),
-    ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "PR size reads the `Size:` line and UI review its "
-        "section; none of its checks fails a pull request"),
+    ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
+        "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
+        "pull request"),
     ("risk-tier.yml", "pull_request_target"): (ALL, "reads the description's takes-back, receipt and author "
         "lines; its job never takes a job-level if, since a skipped `risk evidence` reads as a pass (#38003)"),
     ("thunderdome-label.yml", "pull_request_target"): (frozenset({"title", "base"}), "labels a pull request "
@@ -102,8 +101,6 @@ COMMENT_REACTS: dict[tuple[str, str], str] = {
 
 # A comment that is a command for its workflow: (event, body, author type). It must still start a job.
 COMMENT_COMMANDS: dict[str, tuple[str, str, str]] = {
-    "claude.yml": ("issue_comment", "@claude please look at the failing test", "User"),
-    "cla.yml": ("issue_comment", "recheck", "User"),
     "cmux-next-defaults-guard-review.yml": ("issue_comment", "Review (codex): SHIP at " + "a" * 40, "Bot"),
 }
 

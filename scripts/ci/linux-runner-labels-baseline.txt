@@ -45,6 +45,7 @@
 3 .github/workflows/namespace-autofix.yml
 3 .github/workflows/nightly.yml
 9 .github/workflows/pr-checks.yml
+1 .github/workflows/pr-pipeline.yml
 1 .github/workflows/pr-red-checks-comment.yml
 3 .github/workflows/pr-status.yml
 3 .github/workflows/published-in.yml

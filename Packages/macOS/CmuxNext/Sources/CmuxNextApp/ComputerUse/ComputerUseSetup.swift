@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -9,17 +10,9 @@ import os
 
 nonisolated private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
-/// Computer Use Setup: the one place that knows whether cmux Remote, the signed host whose
-/// Computer Use worker runs the cmux Computer Use engine (docs/cmux-remote.md), holds
-/// Accessibility and Screen Recording. The palette and CLI action (`palette.computerUse.setup`),
-/// the Settings card and the onboarding step all read it, and the two grant actions open System
-/// Settings through it.
-///
-/// macOS gives both grants to cmux Remote, not to cmux, so the grants are read from cmux
-/// Remote's own probe (its host status through the cmux-tui daemon; a fresh process reads
-/// AXIsProcessTrusted and CGPreflightScreenCaptureAccess, never a prompt). With Computer Use
-/// off (`computerUse.mode` "off") nothing runs for it and the grants are unknown; the phase says
-/// so instead of reporting "not granted".
+/// Computer Use Setup reads the signed host's state and its Accessibility and Screen Recording
+/// grants for Settings, onboarding and the CLI. The host is cmux Remote in builds that embed it,
+/// otherwise the bundled Screen Sharing helper. A status read never starts the on-demand worker.
 ///
 /// Nothing polls. A read runs when an input changes (the setting, policy, cmux Remote starting
 /// or stopping), when the app becomes active (the person comes back from System Settings), and
@@ -33,25 +26,27 @@ final class ComputerUseSetup {
         case disabledByPolicy = "disabled_by_policy"
         /// `computerUse.mode` is "off": nothing runs for it, the grants are unknown.
         case off
-        /// On, but this build embeds no cmux Remote (or its daemon does not run it).
+        /// On, but no Computer Use host is available.
         case unavailable
-        /// On, and cmux Remote is starting (or has not answered yet).
+        /// On, and the host is starting or has not answered yet.
         case starting
-        /// cmux Remote did not answer within the read budget, or its worker kept exiting: Restart.
+        /// The host did not answer within the read budget, or its worker kept exiting: Restart.
         case failed
-        /// cmux Remote answered: `permissions` are its grants.
+        /// The host answered: `permissions` are its grants.
         case ready
-        /// cmux Remote answered in another shape: the grants are unknown.
+        /// The host answered in another shape: the grants are unknown.
         case versionMismatch = "version_mismatch"
     }
 
-    /// cmux Remote for this app, as the inputs see it.
+    /// The Computer Use host for this app, as the inputs see it.
     enum HostState: Equatable, Sendable {
         /// Not running yet (the daemon starts it).
         case off
         /// Running; the pid tells a restarted host from the one that answered.
         case running(pid_t)
-        /// This build has no cmux Remote, or the daemon does not run it.
+        /// The daemon supervises the Screen Sharing helper. Recheck when its connection changes.
+        case screenSharing(ObjectIdentifier)
+        /// There is no connected host.
         case unavailable
         /// Its Computer Use worker could not start.
         case failed
@@ -69,14 +64,16 @@ final class ComputerUseSetup {
         /// The grants, and the app bundle of the process that answered (when known).
         case answered(ComputerUsePermissions, helper: URL?)
         case versionMismatch
+        /// The daemon reported a phase without grants (off, unavailable, or starting).
+        case hostPhase(Phase)
         /// No answer (the host is not up yet, or the read timed out).
         case noAnswer
     }
 
     private(set) var phase: Phase = .off
-    /// cmux Remote's grants; meaningful only while `phase` is `.ready`.
+    /// The host's grants; meaningful only while `phase` is `.ready`.
     private(set) var permissions: ComputerUsePermissions = .none
-    /// The cmux Remote bundle the grants belong to (the running copy, else the embedded one).
+    /// The host bundle the grants belong to (the running copy, else the embedded one).
     /// Nil when this build has none.
     private(set) var helperAppURL: URL?
 
@@ -97,8 +94,8 @@ final class ComputerUseSetup {
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var resolvedFor: URL??
-    /// The host whose answer `permissions` holds (a restarted host has another pid).
-    @ObservationIgnored private var answeredBy: pid_t?
+    /// The host whose answer `permissions` holds.
+    @ObservationIgnored private var answeredBy: HostState?
     /// The inputs `start()` applied, until the input stream's first value.
     @ObservationIgnored private var appliedAtStart: Inputs?
     /// Maximum reads per check while the host has not answered.
@@ -109,7 +106,7 @@ final class ComputerUseSetup {
 
     init(inputs: @escaping @MainActor () -> Inputs,
          read: @escaping @Sendable () async -> Read = ComputerUseSetup.noRead,
-         resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.embeddedRemote,
+         resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.embeddedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
          restartHelper: @escaping @MainActor () async -> Void = ComputerUseSetup.noHelperRestart,
          requestPermission: @escaping @MainActor (ComputerUsePermissionPane) -> Void = { _ in },
@@ -188,7 +185,7 @@ final class ComputerUseSetup {
         }
     }
 
-    /// Asks cmux Remote for the grant (`requestPermission`: macOS names cmux Remote in its
+    /// Asks the host for the grant (`requestPermission`: macOS names the host in its
     /// prompt, and lists it in System Settings) and opens the Privacy & Security list for `pane`;
     /// the read on the app's next activation picks up the change.
     func open(_ pane: ComputerUsePermissionPane) {
@@ -204,8 +201,7 @@ final class ComputerUseSetup {
     /// No host to read (tests that never reach `.running`).
     nonisolated static func noRead() async -> Read { .noAnswer }
 
-    /// Turns Computer Use on (the person's own click in onboarding). cmux Remote then starts and
-    /// its grants are read.
+    /// Turns Computer Use on and reads its host's grants after the person clicks in onboarding.
     func enable() {
         guard phase == .off else { return }
         enableSetting()
@@ -243,10 +239,10 @@ final class ComputerUseSetup {
         case .failed: settle(.failed, running: nil)
         // On, and the daemon is starting cmux Remote.
         case .off: settle(.starting, running: nil)
-        case .running(let pid):
+        case .running, .screenSharing:
             // Until this host answers, the grants are being read, not off.
-            if phase != .ready || answeredBy != pid { settle(.starting, running: nil) }
-            readGrants(pid: pid, generation: generation)
+            if phase != .ready || answeredBy != inputs.helper { settle(.starting, running: nil) }
+            readGrants(host: inputs.helper, generation: generation)
         }
     }
 
@@ -258,7 +254,7 @@ final class ComputerUseSetup {
         resolve(running: running)
     }
 
-    private func readGrants(pid: pid_t, generation current: Int) {
+    private func readGrants(host: HostState, generation current: Int) {
         let read = read
         let clock = clock
         // task-owner: one read (plus bounded retries while a started host is not up yet); a newer apply cancels it.
@@ -271,17 +267,20 @@ final class ComputerUseSetup {
                 case .answered(let granted, let helper):
                     phase = .ready
                     permissions = granted
-                    answeredBy = pid
+                    answeredBy = host
                     resolve(running: helper)
                     return
                 case .versionMismatch:
-                    setupLogger.error("cmux Remote answered its status in another shape")
+                    setupLogger.error("The Computer Use host answered its status in another shape")
                     settle(.versionMismatch, running: nil)
                     return
-                case .noAnswer:
+                case .hostPhase(let phase) where phase != .starting:
+                    settle(phase, running: nil)
+                    return
+                case .noAnswer, .hostPhase:
                     // A host that answered before keeps its rows until a read succeeds.
                     let hasRetry = attempt + 1 < Self.maximumRetries
-                    if phase != .ready { settle(hasRetry ? .starting : .failed, running: nil) }
+                    if phase != .ready || result == .hostPhase(.starting) { settle(hasRetry ? .starting : .failed, running: nil) }
                     guard hasRetry else { return }
                     // concurrency-allow: Backoff.wait is an async sleep after a failed read, not a poll period.
                     do { try await backoff.wait(owner: "computer-use.setup.read", clock: clock) } catch { return }
@@ -290,7 +289,7 @@ final class ComputerUseSetup {
         }
     }
 
-    /// Resolves the cmux Remote bundle for `running` (or the embedded one), once per running copy.
+    /// Resolves the host bundle for `running` (or the embedded one), once per running copy.
     private func resolve(running: URL?) {
         guard resolvedFor != .some(running) else { return }
         resolvedFor = .some(running)
@@ -320,10 +319,25 @@ final class ComputerUseSetup {
         return .answered(ComputerUsePermissions(accessibility: accessibility, screenRecording: screen), helper: helper)
     }
 
-    /// The running cmux Remote, else the copy this app embeds (`Contents/Library`).
-    @concurrent nonisolated static func embeddedRemote(_ running: URL?) async -> URL? {
-        if let running { return running }
-        return ComputerUseRemoteBundle.embedded()?.appURL
+    /// The running host, else this build's signed Computer Use host.
+    @concurrent nonisolated static func embeddedHelper(_ running: URL?) async -> URL? {
+        running ?? ComputerUseRemoteBundle.embedded()?.appURL ?? MacScreenHelper.bundled()?.app
+    }
+
+    @concurrent nonisolated private static func screenSharingRead(_ status: CmuxNextDaemon.JSONValue?) async -> Read {
+        guard let helper = MacScreenHelper.bundled() else { return .hostPhase(.unavailable) }
+        guard let host = status?["computer_use"] else { return .noAnswer }
+        if host["mode"]?.stringValue == "off" { return .hostPhase(.off) }
+        switch host["state"]?.stringValue {
+        case "idle", "ready":
+            guard let grants = await helper.permissions() else { return .noAnswer }
+            let permissions = ComputerUsePermissions(accessibility: grants.accessibility, screenRecording: grants.screenRecording)
+            return .answered(permissions, helper: helper.app)
+        case "starting": return .hostPhase(.starting)
+        case "off": return .hostPhase(.off)
+        case "unavailable": return .hostPhase(.unavailable)
+        default: return .versionMismatch
+        }
     }
 }
 
@@ -336,14 +350,21 @@ extension ComputerUseSetup {
         let setup = ComputerUseSetup(
             inputs: { [weak services] in
                 let mode = services?.settings?.snapshot.computerUse.mode ?? .off
-                let helper: HostState = !remoteState.embedded ? .unavailable
-                    : remoteState.computerUseFailed ? .failed
-                    : remoteState.hostPID.map { .running($0) } ?? .off
+                let helper: HostState
+                if remoteState.embedded {
+                    helper = remoteState.computerUseFailed ? .failed : remoteState.hostPID.map { .running($0) } ?? .off
+                } else {
+                    helper = services?.daemon.connection.map { .screenSharing(ObjectIdentifier($0)) } ?? .unavailable
+                }
                 return Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                               enabled: mode != .off, helper: helper)
             },
             read: { @MainActor [weak remote] in
-                guard let status = await remote?.computerUseStatus() else { return .noAnswer }
+                guard let remote else { return .noAnswer }
+                if !remote.computerUse.embedded {
+                    return await ComputerUseSetup.screenSharingRead(try? await remote.status())
+                }
+                guard let status = await remote.computerUseStatus() else { return .noAnswer }
                 return ComputerUseSetup.grants(fromStatus: status) ?? .noAnswer
             },
             restartHelper: { [weak remote] in await remote?.restartComputerUse() },
@@ -386,7 +407,7 @@ extension ComputerUseSetup {
     /// `computer_use`) and `computer_use.status`: live through
     /// `cmux.settings.host.changed`, since the host lists read this
     /// observable model. Grants are null while unknown; `helper` names the
-    /// app that holds them (cmux Remote).
+    /// app that holds them.
     var pageJSON: CmuxNextSettings.JSONValue {
         let known = phase == .ready
         var fields: [String: CmuxNextSettings.JSONValue] = [
@@ -395,29 +416,7 @@ extension ComputerUseSetup {
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
         ]
-        guard let remote, remote.embedded else { return .object(fields) }
-        fields["engine"] = .string(Self.engineName)
-        let state: String = switch remote.workerState {
-        case "ready": "running"
-        case "starting": "starting"
-        case "unavailable": "failed"
-        default: "stopped"
-        }
-        let pid: CmuxNextSettings.JSONValue = remote.workerPID.map { CmuxNextSettings.JSONValue.number(Double($0)) } ?? .null
-        fields["worker"] = .object(["state": .string(state), "pid": pid])
-        fields["approvals"] = .array(remote.approvals.map { approval -> CmuxNextSettings.JSONValue in
-            .object(["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)),
-                     "decision": .string(approval.decision)])
-        })
+        remote?.addSettingsFields(to: &fields)
         return .object(fields)
-    }
-
-    /// The engine's name on the card (a product name, not translated).
-    nonisolated static let engineName = "cmux Computer Use"
-
-    /// An app id's display name from Launch Services, else the id.
-    static func appName(_ appID: String) -> String {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { return appID }
-        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 }

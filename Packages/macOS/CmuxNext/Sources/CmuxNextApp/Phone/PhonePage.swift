@@ -19,7 +19,7 @@ final class PhonePageTab: InternalPageProvider {
     init(phones: PhoneService) { self.phones = phones }
 
     var page: InternalPageID { .phone }
-    var title: String { String(localized: "phone.tab.title", defaultValue: "Phone", table: "Phone", bundle: .module) }
+    var title: String { String(localized: "phone.tab.title", defaultValue: "Phone", table: "Phone", bundle: .module.inAppLanguage) }
     var symbol: String { "iphone" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
