@@ -109,6 +109,40 @@ const TONAL: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/tonal/agent-pane.css")),
 ];
 
+/// Hairline carries the gallery look's own files, so the recipe and the
+/// installable look stay one design.
+const HAIRLINE: &[(&str, &str)] = &[
+    (
+        "themes/hairline.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline.json"),
+    ),
+    (
+        "themes/hairline-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-light.json"),
+    ),
+    (
+        "themes/hairline-slate.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate.json"),
+    ),
+    (
+        "themes/hairline-slate-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-slate-light.json"),
+    ),
+    (
+        "themes/hairline-stone.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone.json"),
+    ),
+    (
+        "themes/hairline-stone-light.json",
+        include_str!("../../../../examples/looks/hairline/themes/hairline-stone-light.json"),
+    ),
+    (
+        "agent-pane/theme.css",
+        include_str!("../../../../examples/looks/hairline/agent-pane/theme.css"),
+    ),
+    ("markdown/theme.css", include_str!("../../../../examples/looks/hairline/markdown/theme.css")),
+];
+
 /// Every recipe, in the order a guide lists them.
 pub const RECIPES: &[Recipe] = &[
     Recipe {
@@ -198,6 +232,14 @@ pub const RECIPES: &[Recipe] = &[
         ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass",
         profile: include_str!("../recipes/tonal.json"),
         includes: TONAL,
+    },
+    Recipe {
+        name: "hairline",
+        title: "Hairline: flat and neutral",
+        group: Group::Look,
+        ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass",
+        profile: include_str!("../recipes/hairline.json"),
+        includes: HAIRLINE,
     },
     Recipe {
         name: "codex-app",
