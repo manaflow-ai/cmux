@@ -4342,11 +4342,12 @@ function TranscriptView({
       sessionId,
       rows.length,
     );
+    const FAR_HACK = new Set(rows.slice(0, Math.max(0, rows.length - 80)));
     const layout = layoutConversation(
       rows,
       rowWidth,
       cache,
-      (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
+      (row, measureWidth) => (FAR_HACK.has(row) ? 60 : registry[rowKind(row)]?.measure?.(row, measureWidth)),
       // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
       // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
       sameSession ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale()) : undefined,
