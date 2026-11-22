@@ -51,6 +51,7 @@ mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod settled_view;
+mod subagent_expiry;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
@@ -200,6 +201,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod list_order;
+mod model_alias;
 mod model_hint;
 mod model_probe;
 mod models_view;
@@ -430,6 +432,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod pause;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
@@ -2837,6 +2840,7 @@ impl Hub {
         kept: log_deferral::Kept,
         notify: bool,
     ) -> (EventRecord, bool) {
+        let started = std::time::Instant::now();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -2870,6 +2874,7 @@ impl Hub {
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
         let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
+        let appending = std::time::Instant::now();
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2878,6 +2883,7 @@ impl Hub {
             ),
             _ => self.store.append(&session.id, &record),
         };
+        let store_time = appending.elapsed();
         let stored = match appended {
             Ok(()) => true,
             Err(e) => {
@@ -3027,6 +3033,7 @@ impl Hub {
                 self.events.send_row(session, event)
             };
         }
+        crate::gauges::record_writes().note(store_time, started.elapsed());
         (record, stored)
     }
 
