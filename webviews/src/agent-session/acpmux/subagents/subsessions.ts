@@ -251,6 +251,89 @@ export function subsessionRows(sessions: readonly AcpmuxSessionEntry[], chatId: 
   return out;
 }
 
+/// What the name index keeps of one listed chat, made from what it reads of it (``nameFields``): the
+/// names that find it, whether it is live (a name prefers a live chat to an archived one), and what a
+/// sender's chip, hover and machine menu read. `key` is all of it but the names, as one string.
+type NameRecord = {
+  labels: readonly string[];
+  live: boolean;
+  harness?: string;
+  run?: SenderRun;
+  host?: string;
+  place?: SenderPlace;
+  machine?: MachineChat;
+  key: string;
+};
+
+function nameRecord(entry: AcpmuxSessionEntry): NameRecord {
+  const labels = new Set<string>();
+  const addName = (name: string | undefined) => {
+    const label = name?.trim();
+    if (label) labels.add(label);
+  };
+  addName(entry.name);
+  addName(entry.shortName);
+  // A peer chat may be listed as `<peer>/<name>` but sign a message with the bare name. The bare
+  // alias is safe only when unique across listed chats (the index resolves only unique names).
+  const name = entry.name?.trim();
+  if (entry.peer && name?.startsWith(`${entry.peer}/`)) addName(name.slice(entry.peer.length + 1));
+  const host = cloudHost(entry);
+  const run: SenderRun | undefined =
+    entry.model || entry.effort
+      ? { ...(entry.model && { model: entry.model }), ...(entry.effort && { effort: entry.effort }) }
+      : undefined;
+  const cwd = entry.cwd?.trim();
+  const place: SenderPlace | undefined = cwd || host ? { ...(cwd && { cwd }), ...(host && { host }) } : undefined;
+  let machine: MachineChat | undefined;
+  if (host && listed(entry)) {
+    // A peer's chat is listed as `<machine>/<name>`: the machine's menu already names the machine.
+    const full = entry.name?.trim() || entry.displayTitle?.trim() || entry.sessionId;
+    machine = {
+      sessionId: entry.sessionId,
+      name: full.startsWith(`${host}/`) && full.length > host.length + 1 ? full.slice(host.length + 1) : full,
+    };
+  }
+  const { harness, shortName, peer, hostKind, startedBy, spawnedBy } = entry;
+  return {
+    labels: [...labels],
+    live: !entry.archived,
+    ...(harness && { harness }),
+    ...(run && { run }),
+    ...(host && { host }),
+    ...(place && { place }),
+    ...(machine && { machine }),
+    key: JSON.stringify([
+      harness,
+      run,
+      place,
+      host,
+      machine?.name,
+      entry.name,
+      shortName,
+      peer,
+      entry.host,
+      hostKind,
+      startedBy,
+      spawnedBy,
+    ]),
+  };
+}
+
+/// A machine menu's order: by name, then id.
+const byMachineName = (a: MachineChat, b: MachineChat) =>
+  a.name.localeCompare(b.name) || (a.sessionId < b.sessionId ? -1 : 1);
+
+/// The one chat a name finds: a live one when any has it, else an archived one; none when two share it.
+function resolveName(matches: { live: Set<string>; archived: Set<string> } | undefined): string | undefined {
+  if (!matches) return undefined;
+  const active = matches.live.size ? matches.live : matches.archived;
+  return active.size === 1 ? active.values().next().value! : undefined;
+}
+
+/// A list's change from the last one a `set` took: the entries that came or were replaced, and the
+/// ids that left.
+type ListStep = { changed: AcpmuxSessionEntry[]; removed: string[] };
+
 /// Every listed session's sub-session view by id, which cards read with ``useSubsessionInfo``.
 export class SubsessionStore {
   private infos = new Map<string, SubsessionInfo>();
@@ -276,7 +359,14 @@ export class SubsessionStore {
   /// IncomingMessageCard.tsx MachineMenu); this Mac's chats are under none.
   private machines = new Map<string, readonly MachineChat[]>();
   private ids = new Set<string>();
+  /// The whole index as one string, kept only while the page lists a session twice (``indexListedTwice``).
   private namedKey = "";
+  /// What the index keeps of each listed chat, and by each name the chats that have it: a chat that
+  /// comes, goes or changes a name moves only its own names (``apply``). Exact only while no session
+  /// is listed twice; `exact` false makes the next change rebuild the index.
+  private records = new Map<string, NameRecord>();
+  private candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+  private exact = true;
   /// Each listed chat's entry and what the name index reads of it (``nameFields``), from the last
   /// `set`, and how many entries it listed (a page can list a session twice).
   private nameFrom = new Map<string, AcpmuxSessionEntry>();
@@ -291,21 +381,174 @@ export class SubsessionStore {
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
-  /// session that did not change, so an entry seen last time is not read again.
+  /// session that did not change, so an entry seen last time is not read again. A chat that comes or
+  /// goes, or changes what the name index reads, costs that chat, not the list (Leo, 2026-11-22, on a
+  /// "regular stutter": rebuilding the index for every chat a coordinator started or ended took
+  /// 18-24 ms of his pane's frame at 3,000 chats).
   set(sessions: readonly AcpmuxSessionEntry[]): void {
     const last = this.last;
     this.last = sessions;
     if (this.patch(sessions, replacedSince(last, sessions))) return;
+    const step = this.exact ? this.step(sessions) : undefined;
+    if (step) this.apply(sessions, step);
+    else this.rebuild(sessions);
+  }
+
+  /// What changed since the last list, reading only ids; undefined when a session is listed twice
+  /// or so much changed (a page's first list) that rebuilding costs less.
+  private step(sessions: readonly AcpmuxSessionEntry[]): ListStep | undefined {
+    const limit = 64 + sessions.length / 16;
+    const ids = new Set<string>();
+    const changed: AcpmuxSessionEntry[] = [];
+    let added = 0;
+    for (const entry of sessions) {
+      const id = entry.sessionId;
+      if (ids.has(id)) return undefined;
+      ids.add(id);
+      const before = this.nameFrom.get(id);
+      if (before === entry) continue;
+      if (!before) added += 1;
+      changed.push(entry);
+      if (changed.length > limit) return undefined;
+    }
+    const removed: string[] = [];
+    if (this.nameFrom.size + added !== ids.size)
+      for (const id of this.nameFrom.keys()) if (!ids.has(id)) removed.push(id);
+    return removed.length > limit ? undefined : { changed, removed };
+  }
+
+  /// Takes `step` into the index and the sub-session views: only the names, machines and views of
+  /// the chats it names are read or made again.
+  private apply(sessions: readonly AcpmuxSessionEntry[], { changed, removed }: ListStep): void {
+    let renamed = false;
+    let views = false;
+    const labels = new Set<string>();
+    const menus = new Map<string, MachineChat[]>();
+    const menu = (host: string) => {
+      let chats = menus.get(host);
+      if (!chats) menus.set(host, (chats = [...(this.machines.get(host) ?? [])]));
+      return chats;
+    };
+    const drop = (id: string, record: NameRecord) => {
+      for (const label of record.labels) {
+        const matches = this.candidates.get(label);
+        if (!matches) continue;
+        (record.live ? matches.live : matches.archived).delete(id);
+        if (!matches.live.size && !matches.archived.size) this.candidates.delete(label);
+        labels.add(label);
+      }
+      if (record.machine && record.host) {
+        const chats = menu(record.host);
+        const at = chats.findIndex((chat) => chat.sessionId === id);
+        if (at >= 0) chats.splice(at, 1);
+      }
+    };
+    const add = (id: string, record: NameRecord) => {
+      for (const label of record.labels) {
+        let matches = this.candidates.get(label);
+        if (!matches) this.candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+        (record.live ? matches.live : matches.archived).add(id);
+        labels.add(label);
+      }
+      if (record.machine && record.host) {
+        const chats = menu(record.host);
+        let low = 0;
+        let high = chats.length;
+        while (low < high) {
+          const mid = (low + high) >>> 1;
+          if (byMachineName(chats[mid]!, record.machine) < 0) low = mid + 1;
+          else high = mid;
+        }
+        chats.splice(low, 0, record.machine);
+      }
+      const set = <T>(map: Map<string, T>, value: T | undefined) =>
+        value === undefined ? map.delete(id) : map.set(id, value);
+      set(this.harnesses, record.harness);
+      set(this.runs, record.run);
+      set(this.hosts, record.host);
+      set(this.places, record.place);
+    };
+    const dropView = (id: string) => {
+      if (this.infos.delete(id)) views = true;
+      this.keys.delete(id);
+      this.entries.delete(id);
+    };
+    for (const id of removed) {
+      const record = this.records.get(id);
+      if (record) drop(id, record);
+      for (const map of [
+        this.harnesses,
+        this.runs,
+        this.hosts,
+        this.places,
+        this.records,
+        this.nameFrom,
+        this.nameSigs,
+      ])
+        map.delete(id);
+      this.ids.delete(id);
+      renamed = true;
+      dropView(id);
+    }
+    for (const entry of changed) {
+      const id = entry.sessionId;
+      const before = this.nameFrom.get(id);
+      const sig = nameFields(entry);
+      this.nameFrom.set(id, entry);
+      if (!before || sig !== this.nameSigs.get(id)) {
+        this.nameSigs.set(id, sig);
+        const old = this.records.get(id);
+        const record = nameRecord(entry);
+        if (old) drop(id, old);
+        add(id, record);
+        this.records.set(id, record);
+        if (!before) this.ids.add(id);
+        if (!old || old.key !== record.key) renamed = true;
+      }
+      if (!entry.startedBy) {
+        dropView(id);
+        continue;
+      }
+      const next = subsessionInfo(entry);
+      const key = JSON.stringify(next);
+      this.entries.set(id, entry);
+      if (this.keys.get(id) === key) continue;
+      this.infos.set(id, next);
+      this.keys.set(id, key);
+      views = true;
+    }
+    for (const label of labels) {
+      const id = resolveName(this.candidates.get(label));
+      if (this.named.get(label) === id) continue;
+      if (id === undefined) this.named.delete(label);
+      else this.named.set(label, id);
+      renamed = true;
+    }
+    // A menu changes only with a record's key, which already counted as a rename.
+    for (const [host, chats] of menus) {
+      if (chats.length) this.machines.set(host, chats);
+      else this.machines.delete(host);
+    }
+    this.nameCount = sessions.length;
+    if (renamed) {
+      this.senders = new Map(this.nameFrom);
+      for (const listener of this.nameListeners) listener();
+    }
+    if (views) for (const listener of this.listeners) listener();
+  }
+
+  /// Makes the index and the views again from the whole list: a page's first list, a change too big
+  /// to take one chat at a time, or a list that names a session twice.
+  private rebuild(sessions: readonly AcpmuxSessionEntry[]): void {
     const infos = new Map<string, SubsessionInfo>();
     const keys = new Map<string, string>();
     const entries = new Map<string, AcpmuxSessionEntry>();
     let changed = false;
     // The name index reads every listed chat; it is rebuilt only when one of them changed what it
-    // reads (``nameFields``): one chat's status, unread, title or cost changing, which is most of what
-    // the pane is told, leaves it as it is and costs one entry's fields, not one per listed chat.
+    // reads (``nameFields``).
     const nameFrom = new Map<string, AcpmuxSessionEntry>();
     const nameSigs = new Map<string, string>();
-    let names = sessions.length !== this.nameCount;
+    let names = sessions.length !== this.nameCount || !this.exact;
     for (const entry of sessions) {
       const id = entry.sessionId;
       const kept = this.nameFrom.get(id) === entry ? this.nameSigs.get(id) : undefined;
@@ -317,101 +560,14 @@ export class SubsessionStore {
     // A session listed twice in place of another keeps the length: the ids' count shows it left.
     if (nameFrom.size !== this.nameFrom.size) names = true;
     // Listed twice, the later entry's names hide the earlier one's: an alias can leave unseen.
-    if (nameFrom.size !== sessions.length) names = true;
+    const twice = nameFrom.size !== sessions.length;
+    if (twice) names = true;
+    const sigsBefore = this.nameSigs;
     this.nameFrom = nameFrom;
     this.nameSigs = nameSigs;
     this.nameCount = sessions.length;
     if (names) {
-      const named = new Map<string, string>();
-      const harnesses = new Map<string, string>();
-      // The sending chat can arrive with only a name (no session ID). Across peers, two
-      // live chats can share that name: opening the first one would show the wrong chat.
-      // A name resolves only when it identifies exactly one live session; archived chats
-      // are a fallback when no live session uses the name. All aliases of the same session
-      // count once (its full name, short name and a peer's bare name).
-      const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
-      const addName = (name: string | undefined, entry: AcpmuxSessionEntry) => {
-        const label = name?.trim();
-        if (!label) return;
-        let matches = candidates.get(label);
-        if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
-        (entry.archived ? matches.archived : matches.live).add(entry.sessionId);
-      };
-      for (const entry of sessions) {
-        addName(entry.name, entry);
-        addName(entry.shortName, entry);
-        // A peer chat may be listed as `<peer>/<name>` but sign a message with the
-        // bare name. The bare alias is safe only when unique across listed chats.
-        const name = entry.name?.trim();
-        const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
-        addName(bare, entry);
-      }
-      for (const [name, matches] of candidates) {
-        const active = matches.live.size ? matches.live : matches.archived;
-        if (active.size === 1) named.set(name, active.values().next().value!);
-      }
-      const hosts = new Map<string, string>();
-      const places = new Map<string, SenderPlace>();
-      const runs = new Map<string, SenderRun>();
-      const machines = new Map<string, MachineChat[]>();
-      for (const entry of sessions) {
-        if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
-        if (entry.model || entry.effort)
-          runs.set(entry.sessionId, {
-            ...(entry.model && { model: entry.model }),
-            ...(entry.effort && { effort: entry.effort }),
-          });
-        const host = cloudHost(entry);
-        if (host) hosts.set(entry.sessionId, host);
-        if (host && listed(entry)) {
-          // A peer's chat is listed as `<machine>/<name>`: the machine's menu already names the machine.
-          const full = entry.name?.trim() || entry.displayTitle?.trim() || entry.sessionId;
-          const name =
-            full.startsWith(`${host}/`) && full.length > host.length + 1 ? full.slice(host.length + 1) : full;
-          let chats = machines.get(host);
-          if (!chats) machines.set(host, (chats = []));
-          chats.push({ sessionId: entry.sessionId, name });
-        }
-        const cwd = entry.cwd?.trim();
-        if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
-      }
-      // Session-list order can change as activity or priority changes. The same identities
-      // and metadata should not notify every sender card only because rows were reordered.
-      const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-      const ids = new Set(sessions.map((entry) => entry.sessionId));
-      for (const chats of machines.values())
-        chats.sort((a, b) => a.name.localeCompare(b.name) || (a.sessionId < b.sessionId ? -1 : 1));
-      const namedKey = JSON.stringify([
-        sorted(named),
-        sorted(harnesses),
-        sorted(places),
-        sorted(runs),
-        sorted(machines),
-        [...ids].sort(),
-        [...sessions]
-          .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
-          .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
-            sessionId,
-            name,
-            shortName,
-            peer,
-            harness,
-            host,
-            hostKind,
-            startedBy,
-            spawnedBy,
-          ]),
-      ]);
-      const renamed = namedKey !== this.namedKey;
-      this.named = named;
-      this.ids = ids;
-      this.harnesses = harnesses;
-      this.hosts = hosts;
-      if (renamed) this.senders = new Map(sessions.map((entry) => [entry.sessionId, entry]));
-      if (renamed) this.places = places;
-      if (renamed) this.runs = runs;
-      if (renamed) this.machines = machines;
-      this.namedKey = namedKey;
+      const renamed = twice ? this.indexListedTwice(sessions) : this.index(sessions, sigsBefore);
       if (renamed) for (const listener of this.nameListeners) listener();
     }
     for (const entry of sessions) {
@@ -438,6 +594,148 @@ export class SubsessionStore {
     this.keys = keys;
     this.entries = entries;
     if (changed) for (const listener of this.listeners) listener();
+  }
+
+  /// The index of a list that names each session once, kept per chat for ``apply``; true when a
+  /// reader would see a change (a name finds another chat, a chat came, went or changed what its
+  /// sender's chip reads). A chat whose ``nameFields`` did not change keeps its record.
+  private index(sessions: readonly AcpmuxSessionEntry[], sigsBefore: ReadonlyMap<string, string>): boolean {
+    const records = new Map<string, NameRecord>();
+    const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+    const harnesses = new Map<string, string>();
+    const runs = new Map<string, SenderRun>();
+    const hosts = new Map<string, string>();
+    const places = new Map<string, SenderPlace>();
+    const machines = new Map<string, MachineChat[]>();
+    const ids = new Set<string>();
+    let renamed = !this.exact;
+    for (const entry of sessions) {
+      const id = entry.sessionId;
+      const old = this.exact ? this.records.get(id) : undefined;
+      const record = old && sigsBefore.get(id) === this.nameSigs.get(id) ? old : nameRecord(entry);
+      if (!old || old.key !== record.key) renamed = true;
+      records.set(id, record);
+      ids.add(id);
+      for (const label of record.labels) {
+        let matches = candidates.get(label);
+        if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+        (record.live ? matches.live : matches.archived).add(id);
+      }
+      if (record.harness) harnesses.set(id, record.harness);
+      if (record.run) runs.set(id, record.run);
+      if (record.host) hosts.set(id, record.host);
+      if (record.place) places.set(id, record.place);
+      if (record.machine && record.host) {
+        let chats = machines.get(record.host);
+        if (!chats) machines.set(record.host, (chats = []));
+        chats.push(record.machine);
+      }
+    }
+    for (const chats of machines.values()) chats.sort(byMachineName);
+    const named = new Map<string, string>();
+    for (const [label, matches] of candidates) {
+      const id = resolveName(matches);
+      if (id !== undefined) named.set(label, id);
+    }
+    if (ids.size !== this.ids.size || [...ids].some((id) => !this.ids.has(id))) renamed = true;
+    if (named.size !== this.named.size || [...named].some(([label, id]) => this.named.get(label) !== id))
+      renamed = true;
+    this.records = records;
+    this.candidates = candidates;
+    this.exact = true;
+    this.namedKey = "";
+    this.named = named;
+    this.ids = ids;
+    this.harnesses = harnesses;
+    this.hosts = hosts;
+    if (renamed) {
+      this.senders = new Map(this.nameFrom);
+      this.places = places;
+      this.runs = runs;
+      this.machines = machines;
+    }
+    return renamed;
+  }
+
+  /// The index of a list that names a session twice: every copy's names find it, a later copy's
+  /// harness, run and place win, and its machine menu lists each copy. Not kept per chat: the next
+  /// change rebuilds it again (``exact`` false).
+  private indexListedTwice(sessions: readonly AcpmuxSessionEntry[]): boolean {
+    const named = new Map<string, string>();
+    const harnesses = new Map<string, string>();
+    // The sending chat can arrive with only a name (no session ID). Across peers, two
+    // live chats can share that name: opening the first one would show the wrong chat.
+    // A name resolves only when it identifies exactly one live session; archived chats
+    // are a fallback when no live session uses the name. All aliases of the same session
+    // count once (its full name, short name and a peer's bare name).
+    const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+    const hosts = new Map<string, string>();
+    const places = new Map<string, SenderPlace>();
+    const runs = new Map<string, SenderRun>();
+    const machines = new Map<string, MachineChat[]>();
+    const records = sessions.map(nameRecord);
+    sessions.forEach((entry, index) => {
+      const record = records[index]!;
+      for (const label of record.labels) {
+        let matches = candidates.get(label);
+        if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+        (record.live ? matches.live : matches.archived).add(entry.sessionId);
+      }
+      if (record.harness) harnesses.set(entry.sessionId, record.harness);
+      if (record.run) runs.set(entry.sessionId, record.run);
+      if (record.host) hosts.set(entry.sessionId, record.host);
+      if (record.place) places.set(entry.sessionId, record.place);
+      if (record.machine && record.host) {
+        let chats = machines.get(record.host);
+        if (!chats) machines.set(record.host, (chats = []));
+        chats.push(record.machine);
+      }
+    });
+    for (const [name, matches] of candidates) {
+      const id = resolveName(matches);
+      if (id !== undefined) named.set(name, id);
+    }
+    // Session-list order can change as activity or priority changes. The same identities
+    // and metadata should not notify every sender card only because rows were reordered.
+    const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const ids = new Set(sessions.map((entry) => entry.sessionId));
+    for (const chats of machines.values()) chats.sort(byMachineName);
+    const namedKey = JSON.stringify([
+      sorted(named),
+      sorted(harnesses),
+      sorted(places),
+      sorted(runs),
+      sorted(machines),
+      [...ids].sort(),
+      [...sessions]
+        .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+        .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
+          sessionId,
+          name,
+          shortName,
+          peer,
+          harness,
+          host,
+          hostKind,
+          startedBy,
+          spawnedBy,
+        ]),
+    ]);
+    // Leaving an exact index for this one always tells the readers once.
+    const renamed = this.exact || namedKey !== this.namedKey;
+    this.records = new Map();
+    this.candidates = new Map();
+    this.exact = false;
+    this.named = named;
+    this.ids = ids;
+    this.harnesses = harnesses;
+    this.hosts = hosts;
+    if (renamed) this.senders = new Map(sessions.map((entry) => [entry.sessionId, entry]));
+    if (renamed) this.places = places;
+    if (renamed) this.runs = runs;
+    if (renamed) this.machines = machines;
+    this.namedKey = namedKey;
+    return renamed;
   }
 
   /// The same sessions as last time, some of them changed, none in what the name index reads

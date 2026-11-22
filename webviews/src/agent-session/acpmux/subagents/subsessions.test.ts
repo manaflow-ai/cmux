@@ -290,3 +290,117 @@ test("a sub-session whose last turn was stopped says when, which its Resume read
   // Only a sub-session's stop resumes: a chat no parent started does not.
   expect(subsessionInfo(summary("c", { lastTurn: { status: "cancelled", endedAt: 42 } })).stoppedAt).toBeUndefined();
 });
+
+/// What a reader can see of a store: every name's chat, and by id its harness, run, host, place,
+/// machine menu, sender entry and sub-session view.
+function readable(store: SubsessionStore, ids: readonly string[], labels: readonly string[], hosts: readonly string[]) {
+  return JSON.stringify({
+    named: labels.map((label) => [label, store.find(label)]),
+    ids: ids.map((id) => [
+      id,
+      store.has(id),
+      store.harness(id),
+      store.run(id),
+      store.host(id),
+      store.place(id),
+      store.sender(id)?.sessionId,
+      store.get(id),
+    ]),
+    machines: hosts.map((host) => [host, store.chatsOn(host)]),
+  });
+}
+
+test("a chat that comes, goes or changes a name moves the index as a rebuild from the whole list would", () => {
+  // A fixed sequence of small changes (each costs its chat, SubsessionStore.apply), checked after each
+  // against a store that sees only that list (a rebuild). Names collide on purpose: two chats share
+  // `lane-N` and peers sign with bare names.
+  let seed = 7;
+  const random = (below: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % below;
+  };
+  const ids = Array.from({ length: 40 }, (_, index) => `c${index}`);
+  const labels = [...Array.from({ length: 12 }, (_, index) => `lane-${index}`), ...ids.map((id) => `gpu/${id}`)];
+  const hosts = ["gpu", "far"];
+  const make = (id: string, version: number) => {
+    const peer = random(4) === 0 ? hosts[random(2)] : undefined;
+    const name = `lane-${random(12)}`;
+    return summary(id, {
+      name: peer ? `${peer}/${name}` : name,
+      ...(random(2) ? { shortName: `lane-${random(12)}` } : {}),
+      ...(peer ? { peer, host: peer, hostKind: "peer" } : {}),
+      harness: random(2) ? "claude" : "codex",
+      ...(random(3) === 0 ? { model: `m${random(3)}` } : {}),
+      ...(random(3) === 0 ? { cwd: `/p/${random(3)}` } : {}),
+      ...(random(5) === 0 ? { tags: ["archived"] } : {}),
+      ...(random(3) === 0 ? { startedBy: ids[random(ids.length)] } : {}),
+      ...(random(4) === 0 ? { status: "running", lane: { state: "working" } } : {}),
+      updatedAt: version,
+    });
+  };
+  const store = new SubsessionStore();
+  let list = ids.slice(0, 20).map((id) => make(id, 0));
+  store.set(list);
+  for (let step = 1; step <= 400; step++) {
+    const next = list.slice();
+    const kind = random(4);
+    const absent = ids.filter((id) => !next.some((entry) => entry.sessionId === id));
+    if (kind === 0 && absent.length)
+      next.splice(random(next.length + 1), 0, make(absent[random(absent.length)]!, step));
+    else if (kind === 1 && next.length > 1) next.splice(random(next.length), 1);
+    else if (kind === 2 && next.length) {
+      const at = random(next.length);
+      next[at] = make(next[at]!.sessionId, step);
+    } else next.reverse();
+    store.set(next);
+    const fresh = new SubsessionStore();
+    fresh.set(next);
+    expect(readable(store, ids, labels, hosts)).toBe(readable(fresh, ids, labels, hosts));
+    list = next;
+  }
+});
+
+test("a chat coming or going tells the name readers once, and a reorder tells no one", () => {
+  const store = new SubsessionStore();
+  let renamed = 0;
+  let views = 0;
+  store.subscribeNames(() => renamed++);
+  store.subscribe(() => views++);
+  const a = summary("a", { name: "alpha" });
+  const b = summary("b", { name: "beta" });
+  const child = summary("child", { shortName: "tests", startedBy: "a" });
+  store.set([a, b]);
+  expect(renamed).toBe(1);
+  store.set([a, b, child]);
+  expect(renamed).toBe(2);
+  expect(views).toBe(1);
+  expect(store.find("tests")).toBe("child");
+  store.set([child, b, a]);
+  expect([renamed, views]).toEqual([2, 1]);
+  // A status change of a chat that is no sub-session reads its fields and tells no one.
+  store.set([child, summary("b", { name: "beta", status: "running" }), a]);
+  expect([renamed, views]).toEqual([2, 1]);
+  store.set([b, a]);
+  expect([renamed, views]).toEqual([3, 2]);
+  expect(store.find("tests")).toBeUndefined();
+  expect(store.get("child")).toBeUndefined();
+  // A rename moves the name, and the old one finds nothing.
+  store.set([summary("b", { name: "gamma" }), a]);
+  expect(renamed).toBe(4);
+  expect(store.find("beta")).toBeUndefined();
+  expect(store.find("gamma")).toBe("b");
+});
+
+test("a session listed twice, then once, comes back to the one-chat-at-a-time index", () => {
+  const store = new SubsessionStore();
+  const a = summary("a", { name: "alpha" });
+  store.set([a, summary("b", { name: "beta" })]);
+  store.set([a, a, summary("b", { name: "beta" })]);
+  expect(store.find("alpha")).toBe("a");
+  store.set([a, summary("b", { name: "beta2" })]);
+  expect(store.find("beta")).toBeUndefined();
+  expect(store.find("beta2")).toBe("b");
+  store.set([a]);
+  expect(store.has("b")).toBe(false);
+  expect(store.find("beta2")).toBeUndefined();
+});

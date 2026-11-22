@@ -102,6 +102,32 @@ test("the sub-session store and its name index read only the changed session", (
   ).toBeLessThan(2);
 });
 
+/// The reads one chat coming (`add`) or going costs `project` at `size` listed sessions, after it
+/// has seen the list once.
+function readsForComeAndGo(size: number, project: (sessions: readonly AcpmuxSessionEntry[]) => void, go: boolean) {
+  const sessions = Array.from({ length: size }, (_, index) => counted(index));
+  project(sessions);
+  reads = 0;
+  if (go) project(sessions.filter((_, index) => index !== Math.floor(size / 2)));
+  else project([counted(size, { startedBy: "s1", name: "helper" }), ...sessions]);
+  return reads;
+}
+
+test("a chat coming, going or changing a name costs the sub-session store that chat, not the list", () => {
+  // Leo, 2026-11-22, on a "regular stutter": a coordinator starting and ending helpers made the
+  // name index read every listed chat each time, 18-24 ms a change at 3,000 chats.
+  const store = () => {
+    const subsessions = new SubsessionStore();
+    return (sessions: readonly AcpmuxSessionEntry[]) => subsessions.set(sessions);
+  };
+  for (const go of [false, true]) {
+    const small = readsForComeAndGo(200, store(), go);
+    const large = readsForComeAndGo(20_000, store(), go);
+    expect(large / Math.max(1, small)).toBeLessThan(2);
+  }
+  expect(growth(store, { name: "renamed-chat", model: "opus" })).toBeLessThan(2);
+});
+
 test("the folder lists keep their input while no folder, place or activity changed", () => {
   let runs = 0;
   const project = () => {
