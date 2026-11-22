@@ -153,6 +153,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbtui") { await keyboardOverTUI() }
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
+        if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
         where selected.contains("tuipan-\(variant)") { await tuiPan(variant) }
@@ -220,6 +221,68 @@ final class TerminalDemoDriver {
         await wait(1.5)
     }
 
+    /// Leo, 2026-11-21: "terminals are indeed fast now... but only the bare
+    /// ones. this claude code cli is often slow to scroll up and down". The
+    /// same flings over a bare shell's scrollback, then while the mock's
+    /// inline Claude Code screen redraws (`claudeinline`), then with its
+    /// clear-and-reprint as well. Each case marks the fling frames'
+    /// intervals: `bench CASE frames=N p50=.. p95=.. max=.. hitches=..`.
+    private func scrollBench() async {
+        let cases: [(name: String, command: String?)] = [
+            ("bare", nil),
+            ("claude-inline", "claudeinline 50"),
+            ("claude-inline-reprint", "claudeinline 50 20"),
+            // A long session: 3,000 transcript rows, all reprinted every 2 s.
+            ("claude-inline-long", "claudeinline 50 40 3000"),
+            // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
+            ("claude-full", "claudefull 50"),
+        ]
+        model.composerText = "stream 600 1"
+        model.send()
+        await wait(4)
+        var results: [String] = []
+        for (name, command) in cases {
+            if let command {
+                model.composerText = command
+                model.send()
+                await wait(3)
+            }
+            let full = name == "claude-full"
+            if !full { model.scrollToBottom() }
+            await wait(1)
+            let mock = model.session as? MockTerminalSession
+            let reports = mock?.wheelReports ?? 0, rows = mock?.wheelRows ?? 0
+            let sampler = FrameSampler()
+            sampler.start()
+            for _ in 0..<3 {
+                if full {
+                    model.controller?.tuiFling(velocity: 3000)
+                    await wait(1.6)
+                    model.controller?.tuiFling(velocity: -3000)
+                } else {
+                    model.controller?.fling(velocity: -5000)
+                    await wait(1.6)
+                    model.controller?.fling(velocity: 5000)
+                }
+                await wait(1.6)
+            }
+            var line = "bench \(name) " + sampler.stop()
+            if full, let mock {
+                line += " wheel=\(mock.wheelReports - reports) wheelrows=\(mock.wheelRows - rows)"
+            }
+            mark(line)
+            results.append(line)
+            model.demoNote = results.joined(separator: " | ")
+            if command != nil {
+                model.sendControl("c")
+                await wait(1)
+            }
+        }
+        model.scrollToBottom()
+        model.demoNote = "scrollbench done | " + results.joined(separator: " | ")
+        mark(model.demoNote)
+    }
+
     /// Leo, 2026-11-21: "this claude code cli is often slow to scroll up and
     /// down from ios". A Mac terminal attaches with its latest rows first; a
     /// reader's first fling up slows into the top of them and asks for the
@@ -266,7 +329,7 @@ final class TerminalDemoDriver {
         (model.session as? MockTerminalSession)?.stampsRedraws = true
         model.composerText = screen == "primary"
             ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
-            : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
+            : (load ? "claudetui 12000 \(screen) stream=16" : "claudetui 1500 \(screen)")
         model.send()
         await wait(load ? 6 : 3)
         guard let controller = model.controller, let window = controller.view.window,
@@ -723,6 +786,40 @@ final class TerminalPanMeter: NSObject {
         let stalls = intervals.filter { $0 > 0.05 }.count
         return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
             + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame) periodMs=\(String(format: "%.1f", period * 1000))"
+    }
+}
+
+/// Frame intervals from a display link at the screen's top rate, for
+/// `scrollBench` (works without `-CmuxMobileFrameLog`).
+@MainActor
+private final class FrameSampler: NSObject {
+    private var link: CADisplayLink?
+    private var last: CFTimeInterval = 0
+    private var intervals: [Double] = []
+
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        let top = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: top, maximum: top, preferred: top)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        if last > 0 { intervals.append((link.timestamp - last) * 1000) }
+        last = link.timestamp
+    }
+
+    /// Stops and returns `frames=N p50=.. p95=.. max=.. hitches=..` (ms).
+    func stop() -> String {
+        link?.invalidate()
+        link = nil
+        let sorted = intervals.sorted()
+        guard !sorted.isEmpty else { return "frames=0" }
+        func pct(_ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * p))] }
+        let frame = 1000 / Double(max(60, UIScreen.main.maximumFramesPerSecond))
+        let hitches = sorted.filter { $0 > frame * 1.5 }.count
+        return String(format: "frames=%d p50=%.2f p95=%.2f max=%.2f hitches=%d", sorted.count, pct(0.5), pct(0.95), sorted.last ?? 0, hitches)
     }
 }
 #endif
