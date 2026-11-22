@@ -186,8 +186,10 @@ public struct ViewedProgramStatus: Equatable, Sendable {
     public var tab: String
     public var records: [ProgramStatusRecord]
     public var unread: Bool
-    public init(tab: String, records: [ProgramStatusRecord], unread: Bool = false) {
-        (self.tab, self.records, self.unread) = (tab, records, unread)
+    /// The agent's needs-you request on the tab (tab-attention-v1), if any: a new one is a new look.
+    public var attention: String?
+    public init(tab: String, records: [ProgramStatusRecord], unread: Bool = false, attention: String? = nil) {
+        (self.tab, self.records, self.unread, self.attention) = (tab, records, unread, attention)
     }
 }
 

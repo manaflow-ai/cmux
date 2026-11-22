@@ -398,6 +398,35 @@ fn state_and_pending_round_trip() {
     assert_eq!(load_pending(&paths), None);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_reads_the_running_cmux_units_from_systemd() {
+    let listed = "cmux-host.service loaded active running cmux host\n\
+                  cmux-app-server@a.service loaded active running app\n\
+                  cmux-host.service loaded active running cmux host\n\
+                  ssh.service loaded active running OpenSSH\n\
+                  \n";
+    assert_eq!(
+        role::running_units(listed),
+        vec!["cmux-host.service".to_owned(), "cmux-app-server@a.service".to_owned()]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_picks_units_whose_exec_start_runs_cmux_tui() {
+    assert!(role::starts_cmux_tui(
+        "{ path=/home/cmux/.cmux/bin/cmux-tui ; argv[]=/home/cmux/.cmux/bin/cmux-tui host app-server a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/usr/bin/cmux-tui-hook ; argv[]=/usr/bin/cmux-tui-hook ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/bin/sh ; argv[]=/bin/sh -c cmux-tui ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(""));
+}
+
 // `role` is Linux only (updater/mod.rs), the tests module every unix: on macOS this did not compile.
 #[cfg(target_os = "linux")]
 #[test]
@@ -2620,4 +2649,39 @@ fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
         [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
         "restart_after_flip must report stopping, then restart"
     );
+}
+
+/// The app's own pinned build (`cmux host update install`): installed over another
+/// build, left alone when the profile already links it, never older than the last build
+/// applied here, never one rolled back here.
+#[test]
+fn a_pinned_build_installs_only_when_new_newer_and_never_rolled_back() {
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let state = State { applied_committed_at: 1_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &state, &pinned), None, "another build: update");
+    assert_eq!(pinned_decision(&pinned.sha256, &state, &pinned), Some(Decision::Current));
+    let newer = State { applied_committed_at: 3_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &newer, &pinned), Some(Decision::Older));
+    let rolled = State { rolled_back: vec![pinned.sha256.clone()], ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &rolled, &pinned), Some(Decision::RolledBack));
+}
+
+/// The plan for a pinned build changes only cmux-tui: the profile keeps its hook.
+#[test]
+fn a_pinned_build_replaces_only_cmux_tui() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let Ok(Decision::Update(plan)) = decide_pinned(&paths, &State::default(), &pinned) else {
+        panic!("an update")
+    };
+    assert_eq!(plan.replacements(), vec![(OLD_TUI.to_owned(), pinned.sha256.clone())]);
+    assert_eq!(plan.cmux_tui_hook.sha256, OLD_HOOK);
+    assert_eq!((plan.from, plan.to), (1, 2));
+    let current = Pinned { sha256: OLD_TUI.to_owned(), ..pinned.clone() };
+    assert_eq!(decide_pinned(&paths, &State::default(), &current), Ok(Decision::Current));
+    let no_commit = Pinned { commit: "x".into(), ..pinned };
+    assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
 }

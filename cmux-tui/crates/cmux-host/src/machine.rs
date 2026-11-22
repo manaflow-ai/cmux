@@ -66,6 +66,9 @@ pub const HOST_INPUT_IDLE_MS: u64 = 10 * 60 * 1000;
 pub const HOST_MAX_DEFER_MS: u64 = 24 * 60 * 60 * 1000;
 /// How often the agent looks at a deferred old-build host's sessions.
 pub const HOST_LOOK_MS: u64 = 15_000;
+/// Past the session host's restart budget (`config::SESSION_HOST_BUDGET`), a crash restarts it
+/// only after this long: the retry continues behind the `restart-budget-exceeded` state.
+pub const BUDGET_HOLD_RETRY_MS: u64 = 60 * 60 * 1000;
 
 /// One look at the carrier sessions of an adopted session host of an older
 /// build ([`Input::HostLooked`]).
@@ -167,6 +170,10 @@ pub enum Input {
     ResumeSignal,
     /// The supervised session host exited after `lived_ms`.
     DaemonExited { lived_ms: u64 },
+    /// Whether today's session host faults are past the restart budget (the agent counts them
+    /// on the supervisor contract before it hands an exit in). Past it, a crash restarts only
+    /// after [`BUDGET_HOLD_RETRY_MS`].
+    RestartBudget { exceeded: bool },
     /// The session host ignored SIGTERM for the stop grace period.
     StopDeadline,
     /// The restart backoff elapsed.
@@ -370,6 +377,8 @@ pub struct Machine {
     /// The running session host is of an older build and waits to be
     /// replaced; cleared by any exit of it (every spawn runs the new build).
     old_host: Option<OldHost>,
+    /// Today's session host faults are past the restart budget ([`Input::RestartBudget`]).
+    over_budget: bool,
 }
 
 /// An old-build session host the machine waits to replace.
@@ -408,6 +417,7 @@ impl Machine {
             announce_loop: false,
             exiting: false,
             old_host: None,
+            over_budget: false,
         }
     }
 
@@ -459,6 +469,7 @@ impl Machine {
             Input::RetryElapsed => self.retry_armed = false,
             Input::ResumeSignal => self.resume(&mut out),
             Input::DaemonExited { lived_ms } => self.daemon_exited(lived_ms, &mut out),
+            Input::RestartBudget { exceeded } => self.over_budget = exceeded,
             Input::StopDeadline => {
                 if matches!(self.daemon, DaemonState::Stopping(_)) {
                     out.push(Action::KillDaemon);
@@ -843,7 +854,14 @@ impl Machine {
                     self.fast_exits = 0;
                 }
                 self.fast_exits = self.fast_exits.saturating_add(1);
-                match backoff_delay_ms(self.fast_exits) {
+                // Past the day's budget the loop is not normal life: hold, and try again hourly
+                // (the status reads `restart-budget-exceeded` with the causes meanwhile).
+                let delay = if self.over_budget {
+                    BUDGET_HOLD_RETRY_MS
+                } else {
+                    backoff_delay_ms(self.fast_exits)
+                };
+                match delay {
                     // Restart through a fresh observation.
                     0 => out.push(Action::Recheck),
                     delay => {

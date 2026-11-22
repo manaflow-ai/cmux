@@ -20,6 +20,8 @@ final class SidebarIconButton: ClickableButton {
 
     /// Replacing the icon or label redraws the button (a disclosure's chevron).
     var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
+    /// The icon's form: the outline (default) or the filled one, as a row's hover pin draws Pin and Unpin.
+    var iconStyle: IconStyle = .line { didSet { if iconStyle != oldValue { renderedSize = 0; renderIcon() } } }
     var label: String {
         didSet {
             guard label != oldValue else { return }
@@ -165,7 +167,7 @@ final class SidebarIconButton: ClickableButton {
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
         // The + look draws the +: the button keeps a clear image of the icon's side, so it sizes as every icon button.
         let image = plusLook != nil ? NSImage(size: NSSize(width: side, height: side))
-            : symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+            : symbol.map { NSImage.icon(symbol: $0, size: side, style: iconStyle) } ?? NSImage.icon(icon, size: side, style: iconStyle)
         image.accessibilityDescription = label
         self.image = image
     }
@@ -230,9 +232,18 @@ final class SidebarIconButton: ClickableButton {
         didSet { needsDisplay = true }
     }
 
+    /// The corner of its fills when it sits in a card's corner, concentric with the card (``ConcentricContainer``
+    /// `.cornerControl`); at most half its side. Nil draws ``isRound`` or the button corner.
+    var concentricRadius: CGFloat? {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
         // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
-        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.buttonCornerRadius // radius-allow: isRound
+        // Else the tab's ratio on its own side, one shape at every density (Lucas 2026-11-15).
+        let half = min(bounds.width, bounds.height) / 2
+        layer?.cornerRadius = concentricRadius.map { min($0, half) } // radius-allow: isRound
+            ?? (isRound ? half : Metrics.buttonCornerRadius(proportionalTo: 2 * half))
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }

@@ -43,30 +43,30 @@ enum DebugNewTabBench {
         }
         if case .object(var fields) = result {
             let opening = services.newTabSpares.openings.count > before ? services.newTabSpares.openings.last : nil
-            fields["opening"] = opening.map {
-                .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)])
-            } ?? .null
+            fields["opening"] = opening.map { .object(["spare": .bool($0.spare), "idle": .bool($0.idle), "refit": .bool($0.refit), "ms": .number($0.milliseconds)]) } ?? .null
             result = .object(fields)
         }
         return result
     }
 
     /// `bench_settings`: Cmd-, in window `window` (Settings opens late, 2026-11-15). `tab_ms`: a pane's strip (any: an inactive
-    /// app may keep the focus in Home's dock) first selects a Settings tab it hosts; `visible_ms`: that page drew (no paint hold over it) at its size.
+    /// app may keep the focus in Home's dock) first shows a Settings tab it hosts, selected; `visible_ms`: that page drew (no paint hold over it) at its size. `already_open`: Settings showed before the key (a Cmd-W closed another tab), so it only selected it.
     static func settings(_ controller: WindowController, _ services: AppServices) async -> JSONValue {
         var tab: Double?, page: PageWebView?
         let claims = services.pageHostPool.claims.count
+        let alreadyOpen = controller.content?.panes.values.contains { ($0.view.content as? InternalPageView)?.page == .settings } == true
         let result = await run(services) {
             _ = DebugKey.send(["key": .string(","), "modifiers": .array([.string("command")]), "window": .string(controller.state.id)], services: services)
         } until: { at in
             guard let pane = controller.content?.panes.values.first(where: { ($0.view.content as? InternalPageView)?.page == .settings && $0.currentTabKey != nil
                     && $0.stripModel.selectedID?.rawValue == $0.currentTabKey }), let view = pane.view.content as? InternalPageView else { return false }
-            if tab == nil { tab = at }
+            if tab == nil, pane.view.stripView.alphaValue > 0.99 { tab = at } // the tab shows, not only selected
             page = view.content as? PageWebView
             return page?.hasPainted == true && pane.view.paintHold.kept == nil && view.window != nil && view.alphaValue > 0.99
         }
         guard case .object(var fields) = result else { return result }
         fields["tab_ms"] = tab.map { .number($0) } ?? .null
+        fields["already_open"] = .bool(alreadyOpen)
         fields["engine"] = .string(page.map { $0.showsChromium ? "cef" : "webkit" } ?? "none")
         fields["spare"] = .bool(services.pageHostPool.claims.count > claims && services.pageHostPool.claims.last?.spare == true)
         fields["claim"] = page?.lastClaim.map { .string($0.path.rawValue) } ?? .null
@@ -101,7 +101,7 @@ enum DebugNewTabBench {
         return .object([
             "key_ms": .number(keyMilliseconds),
             "visible_ms": visible.map { .number($0) } ?? .null,
-            "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
+            "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])

@@ -24,6 +24,10 @@ struct CmuxToastPlaygroundSamples {
                   detail: "A group can’t go inside itself or nest more than 16 deep.", tone: .warning),
     ]
 
+    /// What every light and dark sheet shows, in order: every kind, then the sidebar refusal's three copies
+    /// (#43233). The sheets and their test read this one list.
+    static let sheet: [CmuxToast] = kinds + sidebarRefusals
+
     /// What Fire it shows, as real toasts in the window: a hint, an Undo and a prompt (the stack's three).
     static let fired: [CmuxToast] = [kinds[0], kinds[2], kinds[5]]
 }

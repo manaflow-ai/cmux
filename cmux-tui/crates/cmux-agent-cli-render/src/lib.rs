@@ -10,9 +10,15 @@
 //! bytes through ghostty-vt and compares each scripted screen, cell by cell, with what
 //! [`claude::render`] draws from the acpmux records of the same moment. The measured gap (see
 //! that test) is why nothing on the phone uses this yet: a lookalike that differs is worse than
-//! the stream.
+//! the stream. [`hybrid`] adds what the records lack: the Mac sends only the cells that differ
+//! from the drawn screen, and `tests/parity.rs` measures its parity and bytes against the PTY.
 
+pub mod adapter;
 pub mod claude;
+pub mod hybrid;
+pub mod lean;
+pub mod stream;
+pub mod vt;
 
 /// A cell color as the CLI authored it, before a theme resolves it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -32,6 +38,11 @@ pub const ITALIC: u16 = 0x0002;
 pub const STRIKETHROUGH: u16 = 0x0004;
 pub const INVERSE: u16 = 0x0008;
 pub const FAINT: u16 = 0x0010;
+pub const INVISIBLE: u16 = 0x0020;
+pub const BLINK: u16 = 0x0040;
+/// Not a protocol-v7 bit (render mode sends underline as its own field): the hybrid stream's
+/// own bit for an underlined cell, from the reserved range.
+pub const UNDERLINE: u16 = 0x0100;
 
 /// One cell's style.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

@@ -73,7 +73,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line.
+control request is appended to that file, one per line. FAKE_CLAUDE_INIT_LOG logs each
+initialize as its pid and whether it asked for prompt suggestions.
 FAKE_CLAUDE_CONTEXT=1 answers get_context_usage with a /context breakdown
 (=error refuses it). FAKE_CLAUDE_LATE_CONTEXT=<path> makes a FAKE_CLAUDE_DIE_IF prompt a
 usage limit instead (the process lives on, and answers no more get_context_usage), and leaves a
@@ -85,8 +86,9 @@ replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "agent-503" starts a background agent (agent id A503) whose task fails on SR2's 503 after the
 turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
-holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
-a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
+holds that turn until PATH exists; "agent-503-late: PATH" fails only once PATH exists, with no
+turn of its own, as a failure that lands while a person's turn runs; "agent-400" fails on a bad
+request instead, "agent-reset" on a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
 again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
 FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
 completes).
@@ -279,6 +281,17 @@ def extra_agents():
 
 def agent_failed(said):
     """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
+    if said.startswith("agent-503-late: "):
+        path = said[len("agent-503-late: "):].split("<", 1)[0].split()[0]
+
+        def fail_late():
+            import time
+            while not os.path.exists(path):
+                time.sleep(0.02)
+            agent_failure("toolu_a503")
+
+        threading.Thread(target=fail_late, daemon=True).start()
+        return
     agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
     for tool, task in extra_agents():
         send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
@@ -701,6 +714,15 @@ while True:
         send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
               "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
         continue
+    # The answer to "perm-probe" (below): the turn ends with what the person chose.
+    if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "probe-1":
+        behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
+        said = "perm-probe %s (mode %s)" % ("ran npm test" if behavior == "allow" else behavior, MODE)
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": said}}})
+        send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+              "usage": {"input_tokens": 1, "output_tokens": 1}})
+        continue
     # The answer to "answer-shape" (below), checked like Claude Code's permission reply schema:
     # an allow must carry updatedInput (Claude Code runs the tool with it), a deny a message.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "shape-1":
@@ -752,6 +774,10 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
+        # FAKE_CLAUDE_INIT_LOG=<file>: each initialize as "init <pid> <promptSuggestions>".
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_LOG"):
+            with open(os.environ["FAKE_CLAUDE_INIT_LOG"], "a") as f:
+                f.write(f"init {os.getpid()} " + str(request.get("promptSuggestions") is True).lower() + "\n")
         # Like Claude Code, the next init reports the mode the session was switched to.
         if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
             MODE = request["mode"]
@@ -868,7 +894,8 @@ while True:
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
                                "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
-                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
+                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT",
+                                                                         "CMUX_AGENT_TOOLS_ANSWER")
                                               if k in os.environ},
                                "customHeaders": os.environ.get("ANTHROPIC_CUSTOM_HEADERS")})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
@@ -950,6 +977,18 @@ while True:
         if said.strip() == "always-ask":
             send(ask("ask-1", "toolu_ask1"))
             continue
+        # "perm-probe": one Bash call (`npm test`), asked as Claude Code asks it in every mode but
+        # bypassPermissions, where it runs unasked (tests/permission_matrix.rs).
+        if said.strip() == "perm-probe":
+            if MODE == "bypassPermissions":
+                said = "perm-probe ran npm test unasked (mode %s)" % MODE
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": said}}})
+                send({"type": "result", "subtype": "success", "result": said, "num_turns": 1, "duration_api_ms": 1,
+                      "usage": {"input_tokens": 1, "output_tokens": 1}})
+            else:
+                send(ask("probe-1", "toolu_probe1"))
+            continue
         # "answer-shape": one permission ask; the answer is checked (above).
         if said.strip() == "answer-shape":
             send(ask("shape-1", "toolu_shape1"))
@@ -989,6 +1028,21 @@ while True:
                     send({"type": "assistant", "message": {"content": [use]}})
                     send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"toolu_b{i}", "content": "read"}]}})
             send({"type": "result", "subtype": "success", "result": "burst", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
+        # "panic-line: N" streams N text deltas 50 ms apart with a line the host's translator
+        # panics on halfway (`acpmux_test_panic`, debug builds with ACPMUX_TEST_TRANSLATOR_PANIC),
+        # then ends the turn (durable_agents/translator_panic.rs).
+        if said.startswith("panic-line: "):
+            import time
+            n = int(said[len("panic-line: "):])
+            for i in range(n):
+                if i == n // 2:
+                    send({"type": "acpmux_test_panic"})
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": f"word{i} "}}})
+                time.sleep(0.05)
+            send({"type": "result", "subtype": "success", "result": "panic-line", "num_turns": 1,
                   "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
             continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the

@@ -12,7 +12,7 @@ import Testing
         let url = directory.appending(path: "cmux-next.json")
         try Data(#"{ "terminal": { "fontFamily": "Iosevka Term", "fontSize": 17 } }"#.utf8).write(to: url)
 
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 

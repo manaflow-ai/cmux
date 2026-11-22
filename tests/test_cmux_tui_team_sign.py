@@ -201,15 +201,20 @@ class TeamSignedWorkflow(unittest.TestCase):
         request = jobs["request-team-signed-tree"]
         self.assertTrue(request["continue-on-error"])
         self.assertIn("refs/heads/feat-cmux-next", request["if"])
+        # The windowed tree build is a feat-cmux-next dispatch; its tree's pushes deferred before it
+        # published, so a push-only request never signed it (run 44978301534, 2026-11-22).
+        self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch')", request["if"])
         # A push whose tree another run published (the same-key owner wait) asks too: run 43725236906,
         # #43724's own merge, skipped the request when it read publish-tree's result.
         self.assertEqual(request["needs"], ["tree-preflight", "publish-tree-tested"])
         self.assertIn("needs.publish-tree-tested.result != 'failure'", request["if"])
         self.assertNotIn("needs.publish-tree.result", request["if"])
-        run = request["steps"][0]["run"]
+        (step,) = [s for s in request["steps"] if s.get("name") == "Dispatch cmux-tui-team-signed.yml on nightly-next"]
+        run = step["run"]
         self.assertIn("--ref nightly-next", run)
         # A push whose key is signed already dispatches nothing; one that does names the key's group.
-        self.assertLess(run.index("team-signed/completion.json"), run.index("gh workflow run"))
+        # The dispatch goes through gh_budget_wait.sh, which moves a rate-limited call to the bot token.
+        self.assertLess(run.index("team-signed/completion.json"), run.index("gh_budget_wait.sh workflow run"))
         self.assertIn('-f key="$KEY"', run)
         self.assertIn("inputs.key", self.doc["concurrency"]["group"])
         for name, job in jobs.items():

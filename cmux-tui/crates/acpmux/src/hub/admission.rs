@@ -211,7 +211,7 @@ static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
 /// Where the registry is read from: `registry_path`, else, with no copy there
 /// (a refresh that renames or rewrites it), where the last good copy came from,
 /// so that copy keeps the cap's warning. Only a host that never read one has no registry.
-fn registry_source() -> (PathBuf, bool) {
+pub(super) fn registry_source() -> (PathBuf, bool) {
     registry_path().unwrap_or_else(|| {
         let last = LAST.lock().unwrap_or_else(|e| e.into_inner());
         (last.as_ref().map(|(p, _)| p.clone()).unwrap_or_default(), false)
@@ -223,7 +223,7 @@ fn registry_source() -> (PathBuf, bool) {
 /// the last copy read from the same path, so a bad read never drops the cap's
 /// warning; with none it is unreadable, which is logged. A `set` path
 /// (`FLEET_REGISTRY`) that is missing is unreadable too.
-fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
+pub(super) fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
     read_registry_in(&mut LAST.lock().unwrap_or_else(|e| e.into_inner()), source, set)
 }
 
@@ -428,7 +428,9 @@ impl Hub {
             let peers: Vec<Candidate> = self
                 .peers()
                 .into_iter()
-                .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
+                // The hosts `_acpmux/place` weighs (`placement::peer_down`): never a machine
+                // only the hub reaches, where the suggested start would fail with `no peer`.
+                .filter(|p| crate::placement::peer_down(p).is_none())
                 .filter_map(|p| Candidate::peer(&p))
                 .collect();
             let verdict = crate::placement::place(&peers, registry, Work::Agent);
