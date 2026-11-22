@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CmuxNextCloud
 import CmuxNextDaemon
 public import CmuxNextHomeModel
@@ -8,6 +9,14 @@ public enum HomeActionChiefResult {
     case success(HomeChiefRecord)
     /// The run made no Chief.
     case failure(HomeComposeOutcome)
+
+    /// What the New Chief sheet and button show: the made Chief's conversation, or why none was made.
+    public var outcome: HomeComposeOutcome {
+        switch self {
+        case .success(let record): record.mainConversation.map { HomeComposeOutcome.opened(ConversationID($0)) } ?? .invited(nil)
+        case .failure(let outcome): outcome
+        }
+    }
 
     /// A New Chief that threw `error`: on this Mac's Chief owner (`chief.profile.create`, a
     /// ``DaemonError``) or on the cloud `chief.create` (a `FeedServiceError`), as the person reads it.

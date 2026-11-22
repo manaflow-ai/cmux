@@ -59,10 +59,7 @@ extension HomeService {
     /// (``ChiefBackend/createsOnThisMac``). `onThisMac` is the person's own choice in New Chief
     /// ("Make it on this Mac"): the Chief is made on this Mac's Chief owner whatever the engine.
     func createChief(named name: String, backend: ChiefBackend = .claude, onThisMac: Bool = false) async -> HomeComposeOutcome {
-        switch await createChiefForAction(named: name, backend: backend, onThisMac: onThisMac) {
-        case .success(let record): record.mainConversation.map { HomeComposeOutcome.opened(ConversationID($0)) } ?? .invited(nil)
-        case .failure(let outcome): outcome
-        }
+        await createChiefForAction(named: name, backend: backend, onThisMac: onThisMac).outcome
     }
 
     /// Headless action path: returns the exact durable record created by this
