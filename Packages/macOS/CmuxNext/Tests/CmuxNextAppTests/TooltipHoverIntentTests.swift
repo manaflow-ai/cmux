@@ -137,6 +137,55 @@ import CmuxNextWakeupsTestSupport
         #expect(presenter.shown?.text == "Back")
     }
 
+    /// a1315's cut 2: a control that shows its own text gets no tooltip, even one that says more than its label
+    /// (a titled button, a label). A shortcut still shows, as a page's `data-tooltip-shortcut` does.
+    @Test func aControlThatShowsItsOwnTextShowsNoTooltip() async throws {
+        let clock = ManualClock()
+        let (window, buttons, presenter) = Self.toolbar(clock: clock)
+        defer {
+            presenter.dismiss()
+            window.closeAfterTest()
+        }
+        let button = NSButton(title: "Reload", target: nil, action: nil)
+        button.frame = NSRect(x: 160, y: 18, width: 80, height: 24)
+        window.contentView?.addSubview(button)
+        button.themedToolTip = "Run the script again from its saved files"
+        let label = ChromeLabel(labelWithString: "main")
+        label.frame = NSRect(x: 250, y: 18, width: 60, height: 20)
+        window.contentView?.addSubview(label)
+        label.themedToolTip = "~/fun/cmux on main"
+        // The steps below do show an icon-only control's tooltip, so they can see one; then the group cools.
+        presenter.enter(try Self.tracker(buttons[0]))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(2_000))
+        try await Self.settle(until: { presenter.shown?.text == "Back" })
+        #expect(presenter.shown?.text == "Back")
+        presenter.exit(try Self.tracker(buttons[0]))
+        presenter.dismiss()
+        if (try? await clock.waitForSleeper()) != nil { clock.advance(by: .milliseconds(2_000)) }
+        try await Self.settle(until: { presenter.shown == nil })
+        for view in [button, label] as [NSView] {
+            presenter.enter(try Self.tracker(view))
+            // A tooltip for it would start the hover delay: run any delay out, past the first delay, then look. With
+            // none, nothing waits on the clock (waitForSleeper gives up after its bound).
+            if (try? await clock.waitForSleeper()) != nil {
+                clock.advance(by: .milliseconds(2_000))
+                try await Self.settle(until: { presenter.shown != nil })
+            }
+            try await Self.settle()
+            #expect(presenter.shown == nil, "\(type(of: view)) showing its own text showed \(presenter.shown?.text ?? "")")
+            presenter.exit(try Self.tracker(view))
+        }
+        // A titled control's shortcut is no text it shows: that tooltip stays.
+        button.themedToolTip = "Reload"
+        button.themedToolTipShortcut = "⌘R"
+        presenter.enter(try Self.tracker(button))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(2_000))
+        try await Self.settle(until: { presenter.shown != nil })
+        #expect(presenter.shown?.shortcut == "⌘R")
+    }
+
     /// A titled button inside a view with its own tooltip: the button's label
     /// names it, so nothing shows, not the container's tooltip instead.
     @Test func aLabeledControlInsideATooltipViewShowsNeither() async throws {
@@ -194,4 +243,3 @@ import CmuxNextWakeupsTestSupport
         #expect(presenter.shown?.text == "Back", "the pointer over Back showed \(presenter.shown?.text ?? "nothing")")
     }
 }
-
