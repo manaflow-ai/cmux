@@ -5458,6 +5458,15 @@ function TranscriptView({
         // Where the view is from here: the settle's landed offset, else the one this pass read.
         const viewTop = settle ? settle.top : live;
         passTop = viewTop;
+        // The offset a render reads before this write's scroll event comes (`unplacedScroll`): a render
+        // in between with the same layout drew the rows at the old offset. One streamed line off is
+        // nothing, but a cold open's rough estimate laid out whole (`roughAbove`) moves the end by
+        // thousands of px: that render drew turns far above the view and unmounted the live reply.
+        // Past a view's height the offset is committed with the write, as an anchor correction's is.
+        if (settle?.moved && Math.abs(viewTop - scrollRef.current.top) > viewHeight) {
+          scrollPacer.current?.cancel();
+          setScrollAt(viewTop, scrollRef.current.delta);
+        }
         // The chase below reads where the view is from here, not from the scroller it just wrote.
         pinView.current = { top: viewTop, height: liveHeight };
         const settled = jumping ? clamped : settle?.moved || clamped;
@@ -5768,8 +5777,14 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        if (at < 0) node.scrollTop = top;
-        else writeAnchorScrollTop(node, top);
+        // At the latest row the end is settled as a following view's is (rounded up, its fraction
+        // kept): a chat that opens at its end is drawn there in its first commit (`opensAtEnd`), so
+        // no second commit's follow pass comes to lift WebKit's floored offset the last pixel.
+        // Written whatever the scroller reads now: its spacer may not be at the new height yet.
+        if (at < 0) {
+          node.scrollTop = Math.ceil(top - 0.01);
+          retainScrollOrigin(node, top);
+        } else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
