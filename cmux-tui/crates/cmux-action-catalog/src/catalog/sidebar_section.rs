@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "sidebar.home.add",
         group: GROUP,
-        title: t("SidebarSectionActions", "action.sidebar.home.add", "Add Home to Sidebar"),
+        title: t("SidebarSectionActions", "action.sidebar.home.add", "Add Chief to Sidebar"),
         keywords: &["home", "sidebar", "section", "pin", "show"],
         category: "sidebar",
         symbol: "house",
@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "sidebar.home.remove",
         group: GROUP,
-        title: t("SidebarSectionActions", "action.sidebar.home.remove", "Remove Home from Sidebar"),
+        title: t("SidebarSectionActions", "action.sidebar.home.remove", "Remove Chief from Sidebar"),
         keywords: &["home", "sidebar", "section", "unpin", "hide"],
         category: "sidebar",
         symbol: "house.slash",

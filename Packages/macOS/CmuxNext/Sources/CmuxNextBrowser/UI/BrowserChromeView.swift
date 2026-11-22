@@ -125,6 +125,10 @@ public final class BrowserChromeView: NSView {
     }
     /// The constraints that put the toolbar rows, page and page bars at the top or bottom.
     let toolbarEdge = ToolbarEdgeConstraints()
+    /// The pane shows its tab strip right above the toolbar (``ToolbarEdgeHosting/meetsTabStrip``); the pane sets it.
+    public var meetsTabStrip = false {
+        didSet { if meetsTabStrip != oldValue { density.reapply() } }
+    }
     /// The person hid this tab's address bar row (Toggle Omnibar).
     public internal(set) var isOmnibarHidden = false
     let density = DensityBinding()
@@ -137,7 +141,9 @@ public final class BrowserChromeView: NSView {
     }()
 
     /// R101: the toolbar height on this window's pixel grid (else the main screen's).
-    var currentToolbarHeight: CGFloat { OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) }
+    var currentToolbarHeight: CGFloat {
+        OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, underStrip: meetsTabStrip)
+    }
 
     /// Zoom per site (`SiteZoomLevels`).
     let siteZoom = SiteZoomFollower()
@@ -273,7 +279,9 @@ public final class BrowserChromeView: NSView {
         // rows mirrored, the page on top (`ToolbarEdgeConstraints`).
         toolbarEdge.top += [
             toolbar.topAnchor.constraint(equalTo: topAnchor),
-            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { OmnibarStyle.barTop(scale: scale()) }, // R101 gaps
+            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in
+                OmnibarStyle.barTop(scale: scale(), underStrip: self?.meetsTabStrip ?? false) // R101 gaps
+            },
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             // The page starts under the header band (empty unless the pane's
@@ -284,7 +292,9 @@ public final class BrowserChromeView: NSView {
         ]
         toolbarEdge.bottom += [
             toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { -OmnibarStyle.barTop(scale: scale()) },
+            density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { [weak self] in
+                -OmnibarStyle.barTop(scale: scale(), underStrip: self?.meetsTabStrip ?? false)
+            },
             separator.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
             progressLine.topAnchor.constraint(equalTo: separator.topAnchor),
             contentContainer.topAnchor.constraint(equalTo: topAnchor).prioritized(.init(999)),

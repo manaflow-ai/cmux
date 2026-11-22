@@ -103,6 +103,12 @@ const PALETTE_ONLY: &[(&str, &str, &[&str])] = &[
         ],
     ),
     (
+        "file",
+        "Step A of an app FFI change (docs/ci/app-ffi-release.md): the pinned FFI has no File placement \
+         yet; step B, after the re-pin, puts it under New Agent Chat in MainMenu.compactActionIDs",
+        &["palette.newCloudChat"],
+    ),
+    (
         "help",
         "Help keeps to the Support rows; diagnostics, links and sharing stay palette rows",
         &[

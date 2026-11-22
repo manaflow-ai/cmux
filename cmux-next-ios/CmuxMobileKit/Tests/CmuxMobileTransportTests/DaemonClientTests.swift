@@ -98,10 +98,10 @@ import Testing
             return [Data("{\"id\":\"\(object["id"]!)\",\"ok\":true}\n".utf8)]
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "The Mac didn't answer. Retry.")) {
+        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
             try await client.request("list-workspaces", deadline: .milliseconds(20))
         }
-        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "The Mac didn't answer. Retry.")) {
+        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
             try await client.resourceRequest("workspace.list", deadline: .milliseconds(20))
         }
         let reply = try await client.request("ping")
@@ -131,7 +131,7 @@ import Testing
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         let id = try await client.submit("send", deadline: .milliseconds(20))
         try await Task.sleep(for: .milliseconds(50))
-        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "The Mac didn't answer. Retry.")) {
+        await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
             try await client.reply(to: id)
         }
         await client.close()

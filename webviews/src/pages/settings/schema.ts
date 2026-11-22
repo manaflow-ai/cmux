@@ -98,7 +98,8 @@ export type PageCategory = {
 
 /** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
  * the lead run (General, Updates) has a null title. */
-export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+/** A sidebar section of the export; `collapsed` (More) is drawn closed until opened. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; collapsed?: boolean; categories: string[] };
 
 export type PageLayout = {
   default_category: string;

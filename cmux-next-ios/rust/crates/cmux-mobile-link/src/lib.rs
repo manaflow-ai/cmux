@@ -9,6 +9,8 @@
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
+//! - [`link_stat`]: the phone's path report (`link_stat` on the signaling socket).
+//! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
 pub mod api;
 pub mod build_space;
@@ -18,7 +20,9 @@ pub mod frame;
 pub mod hybrid;
 pub mod keepalive;
 pub mod link;
+pub mod link_stat;
 pub mod media;
+pub mod reconnect;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]

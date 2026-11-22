@@ -2143,7 +2143,7 @@ class LogRewritesKeepEveryFailure(unittest.TestCase):
 class ReadOncePerLog(unittest.TestCase):
     """A log is parsed once per process, however often the judge reads it (2026-11-06, cmux#36356 at 2c9f6957):
     base_red_excuse.py's window re-classified every log each time it grew, 50 reads of six 20 to 27 MB logs, 110 s
-    of CPU, and merge_hold's 120 s bound on the classifier refused the merge."""
+    of CPU, and land-judge's 120 s bound on the classifier refused the merge."""
 
     def setUp(self):
         reds._parsed.clear()

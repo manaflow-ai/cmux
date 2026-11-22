@@ -191,6 +191,9 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // A projected folder on the owner's own machine: its stream dial passes
+    // `fs_wire::remote_dial_admits` for the owner's Native dial only.
+    crate::projection::PROJECTION_CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 

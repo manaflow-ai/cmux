@@ -4,8 +4,8 @@
 Each test commits into a throwaway repository and checks what the commit adds. The rule tests call
 `guardrails.check` directly; the hook tests install the real hooks and push through the real `git push`,
 so the installed trusted copy of the gate is what runs. Not on CI (Lawrence 2026-10-23: "not to add
-gates/tests in CI, but you have to run them yourself"): run it yourself after every change to guardrails.py,
-prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
+gates/tests in CI, but you have to run them yourself"; lifted 2026-11-18): run it yourself after every change
+to guardrails.py, prepush-gate.py's guardrails path or install-git-hooks.sh: python3 tests/test_cmux_next_guardrails.py
 """
 import contextlib
 import dataclasses

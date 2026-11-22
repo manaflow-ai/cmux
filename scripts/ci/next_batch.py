@@ -52,6 +52,9 @@ HEAVY_WORKFLOW = "cmux-next.yml"
 TUI_WORKFLOW = "cmux-tui-artifacts.yml"
 # A group's extra lanes (docs/ci/cmux-next-batch.md#groups), dispatched on its branch.
 WEB_WORKFLOW = "cmux-next-web.yml"
+# The base's own web verdict: since 2026-11-21 feat-cmux-next's ci-web.yml runs in the post-merge batch tier (suite
+# `web`, the same 'web / ...' job names), not on each push of WEB_WORKFLOW, which stays for the dispatch above.
+BASE_WEB_WORKFLOW = "cmux-next-post-merge.yml"
 MEDIA_WORKFLOW = "cmux-next-media.yml"
 TOUR_JOB = "Tour the app"
 STICKY_MARKER = "<!-- cmux-next-batch-queue -->"
@@ -1870,23 +1873,22 @@ class Controller:
         def finished(items: list[dict]) -> list[dict]:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
-        def coalesced(item: dict) -> bool:
-            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
-            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
-            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
-            failed is still the base's verdict."""
-            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
-                return False
+        def no_batch_verdict(item: dict) -> bool:
+            """A post-merge batch run with no web verdict for its head: a probe (one job of an older commit, its
+            head_sha the tip it was dispatched from), or a batch whose web suite gave no job a verdict."""
+            if (item.get("display_title") or "").startswith("probe "):
+                return True
             jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
-            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
-                       for job in jobs)
+            return not any(str(job.get("name") or "").startswith("web / ")
+                           and (job.get("conclusion") or "") in ("success", "failure") for job in jobs)
 
-        # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.
-        base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
-                     if not coalesced(item)), [])
+        # A run with no web verdict (a probe, or a batch whose web jobs never ran) is none for its commit: the
+        # newest run on an ancestor stands in. A run cancelled after a web job passed or failed still counts.
+        base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+                     if not no_batch_verdict(item)), [])
         if not base:
-            base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
-                         if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
+            base = next(([item] for item in finished(self.gh.runs(BASE_WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
+                         if self.is_ancestor(item["head_sha"], base_sha) and not no_batch_verdict(item)), [])
         inherited = set(self.failed_jobs(base[0]["id"], detail=True, base=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)

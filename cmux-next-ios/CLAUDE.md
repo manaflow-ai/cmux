@@ -18,8 +18,48 @@ covers your change:
 | Route | Edit to visible | Use it for |
 |---|---|---|
 | Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | about 15 min (queue median about 8 min) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
+| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), open; not on `feat-cmux-next` yet) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
 | Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
+
+### From a lane VM (Linux, no Mac)
+
+A lane VM has no Xcode, but every step below runs from it through the fleet. Push your branch
+first: each command takes the exact pushed SHA.
+
+```bash
+SHA=$(git rev-parse HEAD)   # pushed
+
+# 1. Compile a Swift package the kit links (Packages/iOS/*, Packages/Shared/*): bare name, repeatable.
+cmux-ci compile-check --ref "$SHA" --package CmuxMobileShellModel
+
+# 2. Run one kit test suite on a fleet iPhone simulator (TARGET/SUITE or TARGET/SUITE/test).
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
+  --arg test --arg only=CmuxMobileLiveTests/LinkRecoveryTests --artifact artifacts/ios-sim/evidence.zip
+
+# 3. One simulator screenshot of the app at launch.
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" \
+  --arg build --artifact artifacts/ios-sim/evidence.zip
+cmux-ci artifact STEP_ID /tmp/ev/evidence.zip   # STEP_ID is printed when the step ends
+cd /tmp/ev && unzip -q evidence.zip              # screens/launch.png, SUMMARY.md, build.log, app-log.txt
+```
+
+Measured from a lane VM on 2026-11-22: step 1 took 4 min 2 s end to end (36 s of compiling, the rest
+queue; job `7b91777edac21acc8f892f3a`); step 3 took 39 min 41 s end to end on a fleet simulator Mac (the
+Rust FFI xcframework missed its cache and took 308 s; FFI plus app build 581 s; the rest was queue,
+boot and install). The FFI is cached by its inputs, so a Swift-only change skips those 308 s.
+A PR into `feat-cmux-next` that touches `cmux-next-ios/**` also runs the whole kit
+(`cmux-next-ios-kit.yml`, about 18 min on a Blacksmith macOS runner) without a label.
+
+## Try a PR on the person's phone: cmux Dev
+
+`cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
+connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
+every try replaces in place, so its sign-in and its pairing with the person's NIGHTLY Mac stay; it has no dev tag,
+so it shows their real data (the Demo build's rule). The fleet builds only the unsigned device app
+(`cmux-next-ios-sim.sh try`, keyed by the commit, cached on the Mac); the Mac signs, installs and launches it.
+`--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
+Cloud backend, `try.sh status` lists the last tries and their times. Design and phases (built ahead, the in-app
+Try PR picker, Swift hot patches on the device): cmuxterm-hq `docs/design/ios-dev-channels.md`.
 
 ## Hand-off command
 

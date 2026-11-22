@@ -27,11 +27,17 @@
                                          [--only FILES] [--root DIR]
         print, one a line, shard I's share (of K) of the files BASE_REDS names, kept to the FILES list (the
         change's affected files) and to files under DIR; react-apps-base-early runs them on the merge parent
+    webviews_test_history.py passed-before OUT_DIR --repo R --branch B --shard I --run-id ID
+        write to OUT_DIR the newest PASSED_ARTIFACT list (OUT_DIR/commit, the merge commit it passed at, and
+        OUT_DIR/files) that shard I uploaded on pull request branch B in a run other than ID: the files that passed
+        at the pull request's previous head, which a newer head's shard need not run again when its change cannot
+        reach them (ci-web.yml). Two requests, the list and the download; any failure writes nothing
     webviews_test_history.py early-known EARLY_DIR --sha BASE_SHA --replay FILES --known BASE.json
         take into BASE (known's output) the verdicts react-apps-base-early's artifacts in EARLY_DIR hold for the
         FILES list (known's replay list) at BASE_SHA, and rewrite FILES with the files still to replay
-    webviews_test_history.py heads SHARDS_DIR --count K --out DIR
-        join the K head shards' react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
+    webviews_test_history.py heads SHARDS_DIR (--count K | --matrix JSON) --out DIR
+        join the K head shards' (or the matrix's: a pull request runs only the shards webviews_pr_shards.py picks)
+        react-apps-head-results-shardI artifacts under SHARDS_DIR into one in DIR (their
         results map, runner and raw logs) for the one react-apps-base-check, and write DIR/shards.json ({file:
         shard}); a missing shard exits 1, an unreadable one leaves the joined results unreadable
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
@@ -76,6 +82,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -119,6 +126,37 @@ def load(path: str | Path) -> list[dict]:
 EXTRA_INPUTS = ("scripts/ci/pin-browser-test-font.sh",)
 
 
+# Where the webview suite's own code lives: a test, a helper, a bench or a webviews script there may read a repository
+# path at runtime (`path.resolve(repo, "Packages/macOS/CmuxNext/Sources")`, `schemas/theme/...json`) that no list
+# above routes.
+RUNTIME_READERS = ("webviews/test", "webviews/scripts", "webviews/bench")
+
+
+def runtime_reads(root: str) -> list[str]:
+    """Every repository path outside webviews/ that a file under RUNTIME_READERS names, as HEAD has it.
+
+    A test that reads the Swift sources, a schema or a plan's tool turns red when that path changes, so a base push's
+    verdict carries to the merge parent only when those paths match too. Names are found by text: a name split over
+    several arguments (`join(root, "Packages", "macOS")`) is not seen."""
+    tops = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
+                          check=True, capture_output=True, text=True).stdout.split()
+    tops = [t for t in tops if t != "webviews"]
+    if not tops:
+        return []
+    pattern = r"(^|[^A-Za-z0-9_.-])(" + "|".join(re.escape(t) for t in tops) + r")/[A-Za-z0-9_./-]*[A-Za-z0-9_-]"
+    found = subprocess.run(["git", "-C", root, "grep", "-h", "-o", "-I", "-E", pattern, "HEAD", "--", *RUNTIME_READERS],
+                           capture_output=True, text=True)
+    if found.returncode not in (0, 1):
+        raise SystemExit(f"webview test history: cannot read runtime reads: {found.stderr.strip()}")
+    names = {re.sub(r"^HEAD:", "", line).lstrip("\"'`( =,:").rstrip("/.") for line in found.stdout.splitlines()}
+    names = {n[n.index(t):] for n in names for t in tops if t + "/" in n}
+    if not names:
+        return []
+    present = subprocess.run(["git", "-C", root, "ls-tree", "-r", "-t", "--name-only", "HEAD", "--", *sorted(names)],
+                             check=True, capture_output=True, text=True).stdout.split("\n")
+    return sorted(names & set(present))
+
+
 def inputs(root: str | Path = ".") -> str:
     """HEAD's webview test inputs key: the git ids of every path the router runs the suite on.
 
@@ -141,6 +179,10 @@ def inputs(root: str | Path = ".") -> str:
                             check=True, capture_output=True, text=True).stdout.split()
     listed += subprocess.run(["git", "-C", str(root), "ls-files", "-s", "--", *routed],
                              check=True, capture_output=True, text=True).stdout
+    named = runtime_reads(root)
+    if named:
+        listed += subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *named],
+                                 check=True, capture_output=True, text=True).stdout
     if "webviews" not in listed:
         raise SystemExit(f"webview test history: no webview inputs listed under {root}")
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
@@ -284,12 +326,19 @@ def known_reds(runs: list[dict], key: str, before: float | None = None) -> list[
 
 
 def base_red_files(reds: set[str], head: dict[str, bool]) -> list[str]:
-    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs)."""
+    """HEAD's red files (a shard's first-run results) whose every red name is in REDS (known_reds at the base's inputs).
+
+    A file red on the base as a whole (its bare name: it timed out or failed without naming a test there) covers every
+    red its head run names: the head's retry alone could only pass a file the base fails too. Shard 1 of run
+    44987019885 had 51 red files and 5 skipped; 29 of the other 46 were red on the base push by file name only (the
+    gallery files, accent-glass-invariants-2 and control-contrast-12, among them) and the head named their tests. A wrong
+    guess still moves no verdict: react-apps-base-check replays the file on the base and re-runs alone on the head any
+    red it would charge to the change."""
     by_file: dict[str, list[str]] = {}
     for name, ok in head.items():
         if not ok:
             by_file.setdefault(name.split(" > ", 1)[0], []).append(name)
-    return sorted(file for file, names in by_file.items() if all(name in reds for name in names))
+    return sorted(file for file, names in by_file.items() if file in reds or all(name in reds for name in names))
 
 
 EARLY_DEFAULT_S = 60.0  # a base red file the duration manifest has no seconds for
@@ -364,7 +413,7 @@ HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
 
-def join_heads(shards: Path, count: int, out: Path) -> str | None:
+def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
     all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
     maps and raw logs are disjoint (a test file runs in one shard; a log is named by its file), and every shard copies
@@ -374,7 +423,7 @@ def join_heads(shards: Path, count: int, out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in range(1, count + 1):
+    for shard in (range(1, count + 1) if isinstance(count, int) else count):
         here = shards / HEAD_ARTIFACT.format(shard)
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
@@ -556,9 +605,11 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     query = urllib.parse.urlencode({"name": ARTIFACT, "per_page": LIST_PAGE})
     try:
-        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        status, headers, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
         if status != 200:
-            return [], f"listing the {ARTIFACT} artifacts answered {status}", False
+            left = {k.lower(): v for k, v in (headers or {}).items()}.get("x-ratelimit-remaining")
+            quota = f" (rate limit remaining {left})" if left is not None else ""
+            return [], f"listing the {ARTIFACT} artifacts answered {status}{quota}", False
         found = newest(json.loads(body), branch)
         if found is None:
             return [], f"no {ARTIFACT} artifact from a push on {branch}", True
@@ -582,6 +633,57 @@ def fetch(repo: str, branch: str, token: str | None, get=_get) -> tuple[list[dic
         return [], f"{ARTIFACT} {found.get('id')} holds no runs", False
     run = found.get("workflow_run") or {}
     return runs, f"{ARTIFACT} {found.get('id')} from run {run.get('id')} ({str(run.get('head_sha') or '')[:12]})", True
+
+
+# A pull request shard's passes, uploaded as they come (also when a newer head cancels its run), for the same shard at
+# the next head. An artifact, not a cache: a cache a pull request saves is read by that ref alone and fills the store
+# (tests/test_ci_no_run_scoped_cache_keys.py).
+PASSED_ARTIFACT = "react-apps-passed-shard"
+PASSED_PAGE = 100  # the newest uploads of one shard's name, every pull request's: about two hours of runs
+
+
+def passed_before(repo: str, branch: str, shard: int, run_id: int, out: Path, get=_get) -> str:
+    """Write the newest list shard SHARD uploaded on BRANCH in a run other than RUN_ID to OUT (commit, files); say what
+    was read. Only this repository's runs: a fork's branch may share the name. Any failure writes nothing."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    name = f"{PASSED_ARTIFACT}{shard}"
+    query = urllib.parse.urlencode({"name": name, "per_page": PASSED_PAGE})
+    token = os.environ.get("GITHUB_TOKEN")
+    try:
+        status, _, body = get(f"{api}/repos/{repo}/actions/artifacts?{query}", token)
+        if status != 200:
+            return f"listing the {name} artifacts answered {status}"
+        listing = json.loads(body)
+        best = None
+        items = listing.get("artifacts") if isinstance(listing, dict) else None
+        for item in items if isinstance(items, list) else []:
+            run = item.get("workflow_run") if isinstance(item, dict) and isinstance(item.get("workflow_run"), dict) else {}
+            if (item.get("name") != name or item.get("expired") or run.get("head_branch") != branch
+                    or run.get("id") == run_id or not run.get("repository_id")
+                    or run.get("head_repository_id") != run.get("repository_id")):
+                continue
+            if best is None or str(item.get("created_at") or "") > str(best.get("created_at") or ""):
+                best = item
+        if best is None:
+            return f"no {name} artifact from an earlier run on {branch}"
+        status, headers, body = get(str(best.get("archive_download_url") or ""), token)
+        if status in (301, 302, 303, 307, 308):
+            location = headers.get("Location") or headers.get("location") or ""
+            status, _, body = get(location, None) if location.startswith("https://") else (status, {}, b"")
+        if status != 200 or len(body) > MAX_BYTES:
+            return f"downloading {name} {best.get('id')} answered {status}"
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            commit = archive.read("commit").decode().strip()
+            files = archive.read("files").decode()
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
+        return f"reading the {name} artifact failed: {error}"
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return f"{name} {best.get('id')} names no commit"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "files").write_text(files, encoding="utf-8")
+    (out / "commit").write_text(commit + "\n", encoding="utf-8")
+    run = best.get("workflow_run") or {}
+    return f"{name} {best.get('id')} from run {run.get('id')} at {commit[:12]}: {len(files.splitlines())} files"
 
 
 def main(argv: list[str]) -> int:
@@ -630,7 +732,9 @@ def main(argv: list[str]) -> int:
     fo.add_argument("--names", required=True)
     hd = sub.add_parser("heads")
     hd.add_argument("shards")
-    hd.add_argument("--count", type=int, required=True)
+    hd_count = hd.add_mutually_exclusive_group(required=True)
+    hd_count.add_argument("--count", type=int)
+    hd_count.add_argument("--matrix", help="the shard matrix JSON ([{\"shard\": I, ...}, ...]) of the shards that ran")
     hd.add_argument("--out", required=True)
     rf = sub.add_parser("rerun-fits")
     rf.add_argument("files")
@@ -642,6 +746,12 @@ def main(argv: list[str]) -> int:
     fe.add_argument("--branch", required=True)
     fe.add_argument("--need-read", action="store_true",
                     help="exit 1 when the history could not be read (a missing one is fine): a push then saves none")
+    pb = sub.add_parser("passed-before")
+    pb.add_argument("out")
+    pb.add_argument("--repo", required=True)
+    pb.add_argument("--branch", required=True)
+    pb.add_argument("--shard", type=int, required=True)
+    pb.add_argument("--run-id", type=int, required=True)
     st = sub.add_parser("stuck")
     st.add_argument("history")
     st.add_argument("--runs", type=int, default=STUCK_RUNS)
@@ -660,6 +770,9 @@ def main(argv: list[str]) -> int:
             with open(args.summary, "a", encoding="utf-8") as handle:
                 handle.write(summary)
         return 1 if args.fail and found else 0
+    if args.command == "passed-before":
+        print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
+        return 0
     if args.command == "fetch":
         found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -713,7 +826,17 @@ def main(argv: list[str]) -> int:
             print(file)
         return 0
     if args.command == "heads":
-        why = join_heads(Path(args.shards), args.count, Path(args.out))
+        ran: "int | list[int]" = args.count
+        if args.matrix is not None:
+            try:
+                ran = sorted({int(entry["shard"]) for entry in json.loads(args.matrix)})
+            except (ValueError, TypeError, KeyError):
+                print(f"::error title=Webview head results::the shard matrix {args.matrix!r} is unreadable")
+                return 1
+            if not ran:
+                print("::error title=Webview head results::the shard matrix names no shard")
+                return 1
+        why = join_heads(Path(args.shards), ran, Path(args.out))
         if why:
             print(f"::error title=Webview head results::{why}: that head shard published no results to judge")
             return 1

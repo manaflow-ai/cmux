@@ -4,7 +4,7 @@ import Foundation
 /// Versions, build numbers and URLs are format arguments.
 nonisolated enum UpdaterStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
@@ -124,7 +124,7 @@ nonisolated enum UpdaterStrings {
         case .sheet: text("updater.held.sheet", "The update waits to restart while a sheet is open. Restart to Update installs it now.")
         case .menu: text("updater.held.menu", "The update waits to restart while a menu is open. Restart to Update installs it now.")
         case .composing: text("updater.held.composing", "The update waits to restart while you compose text. Restart to Update installs it now.")
-        case .notIdle: text("updater.held.notIdle", "The update installs once cmux has been idle for a while. Restart to Update installs it now.")
+        case .notIdle: text("updater.held.notIdle", "The update waits until cmux is idle. Restart to Update installs now.")
         case .agentWorking: text("updater.held.agentWorking", "The update waits to restart while an agent is working. Restart to Update installs it now.")
         case .unsentDraft: text("updater.held.unsentDraft", "The update waits to restart while a message is unsent. Restart to Update installs it now.")
         case .unknown: text("updater.held.unknown", "The update waits until cmux can tell no agent is working. Restart to Update installs it now.")

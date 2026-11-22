@@ -31,6 +31,7 @@ import "./composerControls.css";
 import "./composerStates.css";
 import "./composerLocation.css";
 import "./composerLook.css";
+import "./composerV2.css";
 import "./savedEnvironments.css";
 import "./bottomStack.css";
 import "./composerAttachments.css";
