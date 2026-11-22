@@ -31,11 +31,9 @@ extension AgentPaneView: WebReloadCovering {
             cover.limit.schedule(after: Self.reloadCoverLimit) { @MainActor [weak self] in self?.dropReloadCover() }
             return reload()
         }
-        // task-owner: one picture then the reload; it ends by itself, and runs `reload` whatever the picture
-        Task { @MainActor [weak self] in
-            let image: NSImage?
-            if let page = self?.page { image = await page.snapshot() } else { image = try? await self?.webView.takeSnapshot(configuration: nil) }
-            guard let self, let image, window != nil, !isHiddenOrHasHiddenAncestor else { return reload() }
+        // WebKit's picture of what it shows now (a Chromium chat left above); the reply comes on the main thread.
+        webView.takeSnapshot(with: nil) { [weak self] image, _ in
+            guard let self, let image, window != nil, !isHiddenOrHasHiddenAncestor, reloadCover == nil else { return reload() }
             showReloadCover(image)
             reload()
         }
