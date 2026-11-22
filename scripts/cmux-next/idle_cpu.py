@@ -145,6 +145,11 @@ PAGE_PROBE = """(() => {
     active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
     animation_count: anims.length});
 })()"""
+IDLE_PROBE = """(async () => {
+  const debug = window.cmuxAcpmuxDebug;
+  if (!debug || typeof debug.idleProbe !== "function") return JSON.stringify({error: "no cmuxAcpmuxDebug.idleProbe"});
+  return JSON.stringify(await debug.idleProbe({ms: 3500}));
+})()"""
 PAGE_METRICS = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
                 "RecalcStyleCount")
 
@@ -178,6 +183,16 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         except (KeyError, TypeError, ValueError):
             entry["probe_error"] = probe
         out.append(entry)
+    # An agent page's own probe (idleProbe.ts): every timer, frame and mutation it asks for in 3.5 s, by call site.
+    for entry in out:
+        if "cmux.agent" not in str(entry.get("origin")):
+            continue
+        reply = devtools(entry["browser"], "Runtime.evaluate", {
+            "expression": IDLE_PROBE, "awaitPromise": True, "returnByValue": True, "timeout": 4500})
+        try:
+            entry["idle_probe"] = json.loads(reply["result"]["value"])
+        except (KeyError, TypeError, ValueError):
+            entry["idle_probe"] = {"error": reply}
     before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
     time.sleep(seconds)  # the probed window: the pages run with no call into them
     for entry in out:
