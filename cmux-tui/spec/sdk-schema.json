@@ -18787,6 +18787,26 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-snapshot-v1"
+     },
+     "resume_offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-v1"
+     },
+     "resume_generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-v1"
      }
     },
     "additional_properties": false,
