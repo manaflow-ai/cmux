@@ -494,10 +494,10 @@ mod tests {
         assert!(tables.interfaces.contains("cmux.section/1"));
         // Every row's own default applies; a key no row has does not.
         for row in &tables.settings.rows {
-            if let Some(default) = row.default.as_ref().filter(|_| row.agent_settable) {
-                if cmux_config::schema::accepts(row, default, &Domains::default()).is_ok() {
-                    assert_eq!(setting(tables.settings, &row.key, default), None, "{}", row.key);
-                }
+            if let Some(default) = row.default.as_ref()
+                && accepts(row, default, &Domains::default()).is_ok()
+            {
+                assert_eq!(setting(tables.settings, &row.key, default), None, "{}", row.key);
             }
         }
         assert_eq!(setting(tables.settings, "no.such.key", &json!(1)).as_deref(), Some("gone"));
