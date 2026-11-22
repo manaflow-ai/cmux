@@ -708,26 +708,29 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     assert_eq!(running.count(), TASKS, "{list}");
     std::fs::write(&go, "").unwrap();
     r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
-    // Each end is a turn of its own, one after another, so this waits longer than `until`.
+    // The ends that wait behind the first one's turn may go in together (one turn carries
+    // several agents' messages, `digest.rs`), so each task's id is counted, not each message.
+    let (notified, quiet): (Vec<_>, Vec<_>) = ids.iter().enumerate().partition(|(i, _)| i % 2 == 0);
     let bg = acpmux::config::home().join("bg").join(&id);
-    let deadline = std::time::Instant::now() + Duration::from_secs(90);
-    while ends(&r.hub, &id).len() < TASKS / 2 {
-        if std::time::Instant::now() > deadline {
-            let marked = ids.iter().filter(|t| acpmux::bg_run::notified_path(&bg, t).exists());
-            let mut kinds = BTreeMap::<String, usize>::new();
-            for e in r.hub.events(&id, 0, 100_000).unwrap() {
-                *kinds.entry(e.kind.clone()).or_default() += 1;
-            }
-            let summary = r.hub.session_summary(&r.hub.resolve(&id).unwrap());
-            panic!(
-                "{} of {} ends reached the chat, {} marked sent; events {kinds:?}; chat {summary}",
-                ends(&r.hub, &id).len(),
-                TASKS / 2,
-                marked.count()
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+    // A notice's body names its task once (`Task <id>: <command>`); a joined turn's heading
+    // names its prompt id (`bg-done-<id>`) too, which is not counted.
+    let carried = |task: &str| -> usize {
+        let body = format!("Task {task}:");
+        ends(&r.hub, &id).iter().map(|e| e.matches(&body).count()).sum()
+    };
+    let all_sent = || {
+        notified
+            .iter()
+            .all(|(_, t)| acpmux::bg_run::notified_path(&bg, t).exists() && carried(t.as_str()) > 0)
+    };
+    r.until("not every notify task's end reached its chat", all_sent).await;
+    // Time for a second send, or one for a task without `notify`, which must not come.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    for (_, task) in &notified {
+        assert_eq!(carried(task.as_str()), 1, "{task}'s end reached the chat more than once");
     }
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(ends(&r.hub, &id).len(), TASKS / 2, "an end was sent twice");
+    for (_, task) in &quiet {
+        assert_eq!(carried(task.as_str()), 0, "{task} has no notify, yet its end was sent");
+        assert!(!acpmux::bg_run::notified_path(&bg, task).exists(), "{task}");
+    }
 }
