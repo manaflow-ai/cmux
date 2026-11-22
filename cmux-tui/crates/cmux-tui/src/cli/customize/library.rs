@@ -59,6 +59,9 @@ pub(in crate::cli) enum Request {
     /// Every code entry against what is published (a folder: built again)
     /// and this build.
     Refresh,
+    /// `refresh --wait`: waits in the background for the rebuilds refresh
+    /// asked CI for (rebuild.rs), bounded; refresh starts it.
+    RefreshWait,
     /// Every layer past its bound off: a PR merged or closed, a code layer
     /// on longer than 24 hours, a hand-installed overlay as old (the app
     /// runs it at launch).
@@ -77,6 +80,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
         "refresh" if rest.is_empty() => Ok(Request::Refresh),
+        "refresh" if rest == ["--wait"] => Ok(Request::RefreshWait),
         "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
         "reset" if rest.is_empty() => Ok(Request::OffAll),
@@ -195,6 +199,7 @@ pub(super) fn execute(
             Answer::Library { json: json!({ "library": listing }), human }
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
+        Request::RefreshWait => super::rebuild::wait(customize, origin, super::now_ms)?,
         Request::Expire => super::expire::run(customize, origin, now_ms)?,
         Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
             let path = customize.renew_overlay(now_ms)?;
@@ -244,6 +249,13 @@ pub(super) fn execute(
                 }
                 human.push('\n');
             }
+            let entries = customize.library().map(|listing| listing.entries).unwrap_or_default();
+            let still_off =
+                |name: &str| entries.iter().any(|entry| entry.name == name && !entry.on);
+            human.push_str(&super::rebuild::off_lines(
+                &super::rebuild::Rebuilds::load(customize),
+                still_off,
+            ));
             if let Some(overlay) = &layers.overlay {
                 human.push_str(&format!("  web-dev.json overlay: {overlay}\n"));
             }
