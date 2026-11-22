@@ -3,23 +3,21 @@ public import CmuxNextActions
 public import Foundation
 
 /// Cmd-Q's guard against an accidental quit (https://github.com/manaflow-ai/cmux/issues/48621,
-/// Chrome's "Warn Before Quitting"): the first press of the quit shortcut only shows
-/// "Hold ⌘Q or press it again to quit"; holding the keys for ``holdDuration`` or pressing
-/// them again within ``pressAgainInterval`` quits. The Quit menu item, the Dock's Quit,
-/// the palette and every scripted quit are deliberate and never pass through here.
+/// Chrome's "Warn Before Quitting"): the first press of the quit shortcut only asks "Quit cmux?";
+/// holding the keys for ``holdDuration`` or pressing them again while it asks quits. The Quit
+/// menu item, the Dock's Quit, the palette and every scripted quit are deliberate and never
+/// pass through here.
 public struct QuitShortcutPresses: Equatable {
-    /// How long a second press of the shortcut still counts after the first.
-    public static let pressAgainInterval: TimeInterval = 2
     /// How long the first press must be held (its key repeats) to quit.
     public static let holdDuration: TimeInterval = 0.8
 
     /// What a press of the quit shortcut does.
     public enum Outcome: Equatable {
-        /// The first press (or one after the interval): warn, and wait for the hold or a second press.
+        /// The first press: warn, and wait for the hold, a second press or the question's answer.
         case warn
         /// A repeat of the held first press before ``holdDuration``, or the same key-down seen twice.
         case wait
-        /// Held long enough, or pressed again in time: quit.
+        /// Held long enough, or pressed again while armed: quit.
         case quit
     }
 
@@ -48,12 +46,11 @@ public struct QuitShortcutPresses: Equatable {
             reset()
             return .quit
         }
-        guard timestamp - armedAt <= Self.pressAgainInterval else { return arm(timestamp) }
         reset()
         return .quit
     }
 
-    /// Disarms (the warning ended, the quit ran, the setting is off).
+    /// Disarms (the question was answered, the quit ran, the setting is off).
     public mutating func reset() {
         armedAt = nil
         lastTimestamp = nil

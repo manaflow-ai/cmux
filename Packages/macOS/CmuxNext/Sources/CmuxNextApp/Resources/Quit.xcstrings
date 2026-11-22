@@ -132,134 +132,266 @@
         }
       }
     },
-    "quit.shortcutWarning": {
-      "comment": "Toast after the first press of the quit shortcut (Cmd-Q). %@ is the shortcut, such as ⌘Q. Holding it or pressing it again quits.",
+    "quit.shortcutQuestion.title": {
+      "comment": "Title of the question after the first press of the quit shortcut (Cmd-Q).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold %@ or press it again to quit"
+            "value": "Quit cmux?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اضغط مطولًا على %@ أو اضغط عليه مرة أخرى للإنهاء"
+            "value": "هل تريد إنهاء cmux؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Držite %@ ili ga ponovo pritisnite za izlazak"
+            "value": "Izaći iz cmux?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hold %@ nede, eller tryk igen for at afslutte"
+            "value": "Afslut cmux?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ gedrückt halten oder erneut drücken, um zu beenden"
+            "value": "cmux beenden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mantén pulsado %@ o vuelve a pulsarlo para salir"
+            "value": "¿Salir de cmux?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maintenez %@ ou appuyez de nouveau pour quitter"
+            "value": "Quitter cmux ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tieni premuto %@ o premilo di nuovo per uscire"
+            "value": "Uscire da cmux?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "終了するには%@を長押しするか、もう一度押してください"
+            "value": "cmuxを終了しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សង្កត់ %@ ឱ្យជាប់ ឬចុចវាម្ដងទៀតដើម្បីចាកចេញ"
+            "value": "ចាកចេញពី cmux?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "종료하려면 %@를 길게 누르거나 한 번 더 누르세요"
+            "value": "cmux를 종료할까요?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hold inne %@ eller trykk igjen for å avslutte"
+            "value": "Avslutte cmux?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przytrzymaj %@ lub naciśnij ponownie, aby zakończyć"
+            "value": "Zakończyć cmux?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mantenha %@ pressionado ou pressione de novo para encerrar"
+            "value": "Encerrar o cmux?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удерживайте %@ или нажмите ещё раз, чтобы выйти"
+            "value": "Завершить cmux?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กด %@ ค้างไว้หรือกดอีกครั้งเพื่อออก"
+            "value": "ออกจาก cmux หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Çıkmak için %@ tuşlarını basılı tutun veya tekrar basın"
+            "value": "cmux'tan çıkılsın mı?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Утримуйте %@ або натисніть ще раз, щоб вийти"
+            "value": "Завершити cmux?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Giữ %@ hoặc nhấn lại để thoát"
+            "value": "Thoát cmux?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "按住 %@ 或再按一次以退出"
+            "value": "退出 cmux？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "按住 %@ 或再按一次以結束"
+            "value": "結束 cmux？"
+          }
+        }
+      }
+    },
+    "quit.shortcutQuestion.body": {
+      "comment": "Body of that question. %@ is the quit shortcut, such as ⌘Q.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents and terminals keep running. Press %@ again to quit."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يستمر تشغيل الوكلاء والطرفيات. اضغط على %@ مرة أخرى للإنهاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši agenti i terminali nastavljaju raditi. Pritisnite %@ ponovo za izlazak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine agenter og terminaler bliver ved med at køre. Tryk på %@ igen for at afslutte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Agenten und Terminals laufen weiter. Drücke %@ erneut, um zu beenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus agentes y terminales siguen en ejecución. Pulsa %@ de nuevo para salir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos agents et terminaux continuent de fonctionner. Appuyez de nouveau sur %@ pour quitter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti e terminali restano in esecuzione. Premi di nuovo %@ per uscire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントとターミナルは実行を続けます。終了するにはもう一度%@を押してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារ និងទែមីណាល់របស់អ្នកនៅតែដំណើរការ។ ចុច %@ ម្ដងទៀតដើម្បីចាកចេញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와 터미널은 계속 실행됩니다. 종료하려면 %@를 한 번 더 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentene og terminalene dine fortsetter å kjøre. Trykk %@ igjen for å avslutte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenci i terminale nadal działają. Naciśnij ponownie %@, aby zakończyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus agentes e terminais continuam em execução. Pressione %@ de novo para encerrar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенты и терминалы продолжат работать. Нажмите %@ ещё раз, чтобы выйти."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์และเทอร์มินัลจะยังทำงานต่อ กด %@ อีกครั้งเพื่อออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlarınız ve terminalleriniz çalışmaya devam eder. Çıkmak için %@ tuşlarına tekrar basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенти й термінали продовжать працювати. Натисніть %@ ще раз, щоб вийти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các tác tử và terminal của bạn vẫn tiếp tục chạy. Nhấn %@ lần nữa để thoát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的代理和终端会继续运行。再按一次 %@ 即可退出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的代理程式和終端機會繼續執行。再按一次 %@ 即可結束。"
           }
         }
       }

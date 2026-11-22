@@ -30,8 +30,10 @@ final class QuitCoordinator {
     var onQuitRefused: (() -> Void)?
     /// Cmd-Q's guard against an accidental quit (`app.warnBeforeQuitShortcut`, https://github.com/manaflow-ai/cmux/issues/48621).
     let shortcutGuard = QuitShortcutGuard()
-    /// "Hold ⌘Q or press it again to quit", while it shows.
-    private var shortcutWarning: CmuxToastHandle?
+    /// The "Quit cmux?" question's dialog id, while it shows.
+    private var shortcutQuestion: Int?
+    /// Which question the open one is: its answer after it was ended counts for nothing.
+    private var shortcutAsk: UUID?
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -67,37 +69,45 @@ final class QuitCoordinator {
         self.services = services
         unsaved = services.quitUnsaved
         deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
-        shortcutGuard.onDisarm = { [weak self] in self?.endShortcutWarning() }
+        shortcutGuard.onDisarm = { [weak self] in self?.endShortcutQuestion() }
         shortcutGuard.onHeldQuit = { [weak self] in self?.requestQuit(.interactive) }
     }
 
     /// Whether this run of Quit waits instead (`QuitShortcutGuard.holds`): the shortcut's first press
-    /// shows "Hold ⌘Q or press it again to quit" in the active window.
+    /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
     func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
         let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
-        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.showShortcutWarning($0) ?? false }
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.askShortcutQuit($0) ?? false }
     }
 
-    private func showShortcutWarning(_ shortcut: String) -> Bool {
+    /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.
+    private func askShortcutQuit(_ shortcut: String) -> Bool {
         guard let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else { return false }
-        // The replaced warning's dismissal must not disarm the press that replaced it.
-        shortcutWarning = nil
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "quit.shortcutWarning", message: QuitStrings.shortcutWarning(shortcut),
-                                                           action: CmuxToast.Action(title: QuitStrings.shortcutWarningQuit),
-                                                           duration: .seconds(QuitShortcutPresses.pressAgainInterval), oneWindow: true,
-                                                           keepsDuration: true), in: window)
-        handle.onAction = { [weak self] in self?.requestQuit(.interactive) }
-        handle.onDismiss = { [weak self, weak handle] _ in
-            if let self, let handle, shortcutWarning === handle { shortcutGuard.disarm() }
+        let prompt = Self.shortcutPrompt(shortcut)
+        let asked = UUID()
+        shortcutAsk = asked
+        shortcutQuestion = DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { [weak self] quit in
+            // A question ended by a second press or a held shortcut (`endShortcutQuestion`) has nothing left to do.
+            guard let self, shortcutAsk == asked else { return }
+            shortcutAsk = nil
+            shortcutQuestion = nil
+            shortcutGuard.disarm()
+            if quit { requestQuit(.interactive) }
         }
-        shortcutWarning = handle
         return true
     }
 
-    private func endShortcutWarning() {
-        let handle = shortcutWarning
-        shortcutWarning = nil
-        handle?.dismiss()
+    /// "Quit cmux?": Cancel, Quit (Return), and "Don't ask again" for `app.warnBeforeQuitShortcut`.
+    static func shortcutPrompt(_ shortcut: String) -> DestructiveConfirmation.Prompt {
+        DestructiveConfirmation.Prompt(title: QuitStrings.shortcutQuestionTitle, body: QuitStrings.shortcutQuestionBody(shortcut),
+                                       button: QuitStrings.shortcutQuestionQuit, suppresses: CmuxConfigSnapshot.warnBeforeQuitShortcutPath)
+    }
+
+    private func endShortcutQuestion() {
+        let id = shortcutQuestion
+        shortcutAsk = nil
+        shortcutQuestion = nil
+        if let id { CmuxDialogCenter.shared.dismiss(id) }
     }
 
     /// Records the origin, then starts AppKit's termination. A quit already

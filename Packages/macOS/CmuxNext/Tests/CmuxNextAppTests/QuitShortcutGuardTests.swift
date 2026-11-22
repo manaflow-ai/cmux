@@ -1,13 +1,15 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextApp
 @testable import CmuxNextDaemonService
+import CmuxNextDesign
 import CmuxNextSettings
 import Testing
 
 /// Cmd-Q's guard against an accidental quit (https://github.com/manaflow-ai/cmux/issues/48621:
 /// "i dont want to accidentally do cmd q and then quit it should warn me somehow"). The first
-/// press warns; holding it for 0.8 s or pressing it again within 2 s quits, like Chrome's
-/// "Warn Before Quitting".
+/// press asks "Quit cmux?"; holding it for 0.8 s or pressing it again quits, like Chrome's
+/// "Warn Before Quitting", and the question has "Don't ask again".
 @MainActor @Suite struct QuitShortcutGuardTests {
     static let qKeyCode: UInt16 = 12
 
@@ -28,11 +30,11 @@ import Testing
         #expect(presses.press(isRepeat: false, timestamp: 12) == .warn)
     }
 
-    @Test func aLateSecondPressWarnsAgain() {
+    @Test func aSecondPressWhileArmedQuitsHoweverLate() {
+        // The question stays until it is answered, so a press minutes later still means "quit".
         var presses = QuitShortcutPresses()
         #expect(presses.press(isRepeat: false, timestamp: 10) == .warn)
-        #expect(presses.press(isRepeat: false, timestamp: 10 + QuitShortcutPresses.pressAgainInterval + 0.1) == .warn)
-        #expect(presses.press(isRepeat: false, timestamp: 10 + QuitShortcutPresses.pressAgainInterval + 1) == .quit)
+        #expect(presses.press(isRepeat: false, timestamp: 300) == .quit)
     }
 
     @Test func holdingQuitsOnlyAfterTheHoldDuration() {
@@ -146,5 +148,14 @@ import Testing
         let quitGuard = QuitShortcutGuard(addMonitor: { _ in "monitor" }, removeMonitor: { _ in })
         #expect(!quitGuard.holds(ActionInvocation(), event: try Self.key(at: 10), enabled: true, warn: { _ in false }))
         #expect(!quitGuard.presses.isArmed)
+    }
+
+    @Test func theQuestionOffersQuitAndDontAskAgain() {
+        let prompt = QuitCoordinator.shortcutPrompt("⌘Q")
+        #expect(prompt.suppresses == CmuxConfigSnapshot.warnBeforeQuitShortcutPath)
+        #expect(prompt.body.contains("⌘Q"))
+        let spec = DestructiveConfirmation.spec(prompt)
+        #expect(spec.defaultButton?.id == DestructiveConfirmation.confirmID)
+        #expect(spec.fields.count == 1)
     }
 }
