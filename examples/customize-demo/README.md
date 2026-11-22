@@ -100,7 +100,6 @@ and `demo.sh` names what install would add.
 | `gallery/claude-code-inactive-archive.json` | [looks/claude-code/inactive-archive](../looks/claude-code/inactive-archive) | yes | Archive chats idle seven days |
 | `gallery/claude-code-modes.json` | [looks/claude-code/modes](../looks/claude-code/modes) | partly | Action `claude-code-plan` comes with install |
 | `gallery/claude-code-notification-levels.json` | [looks/claude-code/notification-levels](../looks/claude-code/notification-levels) | yes | Banners, badges, no task-complete alerts |
-| `gallery/claude-code-open-in-editor.json` | [looks/claude-code/open-in-editor](../looks/claude-code/open-in-editor) | yes | Citations open in your editor (profile.json only) |
 | `gallery/claude-code-side-question.json` | [looks/claude-code/side-question](../looks/claude-code/side-question) | yes | Side question on Command-Semicolon |
 | `gallery/claude-code-transcript-width.json` | [looks/claude-code/transcript-width](../looks/claude-code/transcript-width) | yes | Narrow transcript, folded thoughts |
 | `gallery/docket.json` | [looks/docket](../looks/docket) | yes | Issue-tracker look |
@@ -145,6 +144,11 @@ Not a step yet: [gallery/thinking-dots](../gallery/thinking-dots) sets
 `agentPane.display.thinking.glyph`, which cmux#47525 adds to the settings schema; until then a
 preview refuses it. `gallery/bundle.py` holds it in `WAITING`, and `--check` fails once the schema
 has the key until it is bundled, so it joins the demo when cmux#47525 lands.
+
+Not a step yet: [looks/claude-code/open-in-editor](../looks/claude-code/open-in-editor) sets
+`agentPane.links.openCitationsInEditor`, a row the schema keeps to you (`agent_settable: false`), so
+`customize use` refuses the profile ("one only you can change"). Turn it on in Settings > Agent
+chat. It is in `WAITING` too and joins the demo once a profile may set that row.
 
 Not a step: [examples/extensions](../extensions) are store apps (`cmux app install`), not profiles;
 the widgets look above shows the clock, weather, usage and PR views they offer.

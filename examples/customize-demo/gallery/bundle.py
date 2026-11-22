@@ -29,13 +29,23 @@ EXAMPLES = HERE.parent.parent
 STYLE_SURFACES = ("agent-pane", "markdown", "diff", "picker", "fileViewer")
 SCHEMA = EXAMPLES.parent / "schemas" / "settings" / "settings-schema.json"
 # Bundle name -> (the PR that adds the setting, the setting).
-WAITING = {"starter-thinking-dots.json": ("cmux#47525", "agentPane.display.thinking.glyph")}
+WAITING = {
+    "starter-thinking-dots.json": ("cmux#47525", "agentPane.display.thinking.glyph"),
+    # The schema row is agent_settable: false (a setting only the person changes), so `customize use`
+    # refuses the profile; it joins once that row lets a profile set it.
+    "claude-code-open-in-editor.json": ("a profile-settable openCitationsInEditor row",
+                                        "agentPane.links.openCitationsInEditor"),
+}
 
 
 def waiting() -> dict[str, tuple[str, str]]:
-    """The WAITING looks whose setting this checkout's schema still lacks."""
-    schema = SCHEMA.read_text() if SCHEMA.is_file() else ""
-    return {name: why for name, why in WAITING.items() if f'"{why[1]}"' not in schema}
+    """The WAITING looks whose setting this checkout's schema still lacks, or keeps to the person
+    (agent_settable: false), so a profile cannot set it."""
+    rows = {}
+    if SCHEMA.is_file():
+        rows = {row.get("key"): row for row in json.loads(SCHEMA.read_text()).get("rows", [])}
+    return {name: why for name, why in WAITING.items()
+            if why[1] not in rows or rows[why[1]].get("agent_settable") is False}
 
 
 def strip_jsonc(text: str) -> str:
