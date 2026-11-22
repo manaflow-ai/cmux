@@ -502,6 +502,70 @@ fn a_store_cmux_off_the_path_is_the_github_path() {
 }
 
 #[cfg(unix)]
+/// Where the platform edge's name resolves, the machine's git reaches github.com through the
+/// platform (cmux-platform GitHubEgress.ts), which adds the repository token: the step clones by
+/// the rewrite alone, with no helper, and the checkout keeps the rewrite (a URL) for push and pull.
+/// Here the edge is a folder of bare repositories at `edge/OWNER/REPO.git`.
+#[test]
+fn a_machine_behind_the_platform_edge_clones_through_it_with_no_helper() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let edge = machine.0.join("edge");
+    let made = std::process::Command::new("git")
+        .arg("clone")
+        .arg("-q")
+        .arg("--bare")
+        .arg(machine.0.join("src"))
+        .arg(edge.join("o/r.git"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let base = format!("file://{}/", edge.display());
+    let step = Repo::new("o", "r")
+        .step()
+        .replace("getent hosts platform.cmux.internal", "true")
+        .replace("https://platform.cmux.internal/v1/cloud/git/github.com/", &base);
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path = format!("{}:{inherited}", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("edge"))
+    );
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["remote", "get-url", "origin"]), "https://github.com/o/r.git");
+    assert_eq!(
+        machine.git(&["config", "--local", &format!("url.{base}.insteadOf")]),
+        "https://github.com/",
+        "the checkout keeps the rewrite"
+    );
+    assert_eq!(
+        machine.git(&["config", "--local", "--get-all", "credential.https://github.com.helper"]),
+        "",
+        "and no helper"
+    );
+    let fetched = std::process::Command::new("git")
+        .arg("-C")
+        .arg(machine.checkout())
+        .args(["fetch", "-q", "origin"])
+        .env("HOME", machine.0.join("home"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .unwrap();
+    assert!(fetched.success(), "the agent's own fetch goes through the edge too");
+}
+
+#[test]
+fn the_edge_path_is_offered_on_github_only_and_before_the_cmux_helper() {
+    let step = Repo::new("o", "r").step();
+    let edge = step.find(r#"if [ "$github" = 1 ] && getent hosts platform.cmux.internal"#).unwrap();
+    let helper = step.find(r#"creds="$creds cmux-github""#).unwrap();
+    assert!(edge < helper, "the edge is tried before a helper that mints in the machine");
+    assert!(step.contains(r#"if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi"#));
+}
+
+#[cfg(unix)]
 /// Review F2 (cmux#38099, e473b67ec61): a depth-1 clone tracks only the default branch, so once
 /// the history came in, a later start on another branch found no such branch.
 #[test]
