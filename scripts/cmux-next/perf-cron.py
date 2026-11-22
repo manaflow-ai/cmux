@@ -317,6 +317,11 @@ PARTS = [
     # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
     # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
     {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
+    # The power-user input stress harness's long seed (webviews/bench/power-user-bursts.bench.ts, Leo 2026-11-22: "we
+    # need to test like power users more often"): 150 seeded waves of overlapping input bursts in Chromium and WebKit;
+    # frame p95/p99, input to paint, caret lag, dropped keys, stray layout shift and blank frames per input class
+    # (webui.power_user.*). Its own part, under the 30-minute run cap.
+    {"name": "web-ui-power-user", "where": "linux", "kind": "webui", "needs": "web-ui-power-user"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -374,6 +379,7 @@ ROW_PARTS = [
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
+    (r"^webui\.power_user\.", "web-ui-power-user"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
@@ -1137,6 +1143,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-power-user":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "power-user-bursts"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -2192,6 +2200,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_FAST_SCROLL_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-typing":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
+        elif need == "web-ui-power-user":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{POWER_USER_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{MILLION_EVENT_BENCH}"], capture_output=True).returncode == 0
         elif need == "infinite-items":
@@ -2287,6 +2297,8 @@ FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
+# The web-ui-power-user part's adapter around the power-user input stress harness.
+POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CHAT_SEARCH = "scripts/measure/chat-search-linux.sh"
