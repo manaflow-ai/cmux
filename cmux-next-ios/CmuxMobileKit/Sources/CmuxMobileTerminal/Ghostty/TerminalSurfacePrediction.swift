@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
+import CmuxMobileTransport
 import GhosttyNextKit
 import QuartzCore
 import UIKit
@@ -29,6 +30,11 @@ final class TerminalSurfacePrediction {
     private weak var view: TerminalSurfaceView?
     private var expiry: Timer?
     private var enabled: Bool
+    /// Settings → Terminal → Predictive echo, unless the `terminal-predictive-echo` piece is
+    /// switched off (`MobilePieces`): then the Mac's own echo, as with the setting off.
+    private static var wanted: Bool {
+        CmuxMobilePreferences.predictiveEcho() && !MobilePieces.shared.isOff(.terminalPredictiveEcho)
+    }
 
     /// Draws predicted glyphs in the terminal's colors (its Mac's terminal theme).
     func setColors(background: UIColor, foreground: UIColor) {
@@ -38,7 +44,7 @@ final class TerminalSurfacePrediction {
     }
 
     init(view: TerminalSurfaceView, alternateScreen: Bool) {
-        enabled = CmuxMobilePreferences.predictiveEcho()
+        enabled = Self.wanted
         engine = TerminalPrediction(enabled: enabled, remote: true)
         engine.seedAlternateScreen(active: alternateScreen)
         self.view = view
@@ -99,9 +105,10 @@ final class TerminalSurfacePrediction {
         overlay.hide()
     }
 
-    /// Settings → Terminal → Predictive echo.
+    /// Settings → Terminal → Predictive echo, or the `terminal-predictive-echo` piece
+    /// (`MobilePieces.didChangeNotification`).
     func applySetting() {
-        let on = CmuxMobilePreferences.predictiveEcho()
+        let on = Self.wanted
         guard on != enabled else { return }
         enabled = on
         _ = engine.set(enabled: on, remote: true)

@@ -121,9 +121,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private var resyncAfterClose = false
     /// The session declares the hybrid capabilities: the setting is on and its frames did
     /// not fail twice.
-    private var hybridWanted: Bool { Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2 }
+    /// Nor with the `terminal-agent-cli-changes` piece switched off (`MobilePieces`): the
+    /// session then attaches in bytes mode, as with the setting off.
+    private var hybridWanted: Bool {
+        Self.agentCLIHybridEnabled(agentCLIHybridDefaults) && hybridFallbacks < 2
+            && !MobilePieces.shared.isOff(.terminalAgentCLIChanges)
+    }
     /// Where the setting is read (tests give each session its own).
     var agentCLIHybridDefaults: UserDefaults = .standard
+    /// Whether the current attach declared the hybrid capabilities (`hybridWanted` then).
+    private var attachedHybrid = false
+    /// The kill switch's answer changed (`MobilePieces.didChangeNotification`).
+    private var piecesObserver: (any NSObjectProtocol)?
     /// History rows the next attach asks for above the screen (nil: all of
     /// them). Grows by ``historyChunkRows`` with each ``loadOlderHistory()``,
     /// and a reattach keeps it, so a reader keeps the rows they had.
@@ -360,7 +369,23 @@ public final class DaemonTerminalSession: TerminalSession {
         guard self.handler == nil else { return }
         self.handler = handler
         handler(.connection(connectionState))
+        piecesObserver = NotificationCenter.default.addObserver(forName: MobilePieces.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.piecesChanged() }
+        }
         Task { await attach() }
+    }
+
+    /// The `terminal-agent-cli-changes` piece was switched off (or on again) while this
+    /// session is attached with the other mode: it attaches again at once, the way a frame it
+    /// could not draw does, declaring (or no longer declaring) the hybrid capabilities. A
+    /// session not attached reads the piece at its next attach.
+    func piecesChanged() {
+        guard attached, let client, !resyncAfterClose, attachedHybrid != hybridWanted else { return }
+        log.notice("surface \(self.surface, privacy: .public): agent CLI screen changes piece now \(self.hybridWanted ? "on" : "off", privacy: .public): attaching again")
+        // The screen this attach drew is no frame of a hybrid stream to resume from.
+        hybridResume = nil
+        resyncAfterClose = true
+        Task { await client.close() }
     }
 
     public func send(_ bytes: Data) {
@@ -521,6 +546,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        if let piecesObserver { NotificationCenter.default.removeObserver(piecesObserver) }
+        piecesObserver = nil
         eventTask?.cancel()
         eventTask = nil
         inbox?.close()
@@ -784,7 +811,8 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
+            attachedHybrid = hybridWanted
+            info["capabilities"] = Self.capabilities(agentCLIHybrid: attachedHybrid)
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )

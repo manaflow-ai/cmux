@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import Foundation
 
 /// A markdown document split into top-level blocks. Transcript prose renders
@@ -16,8 +17,10 @@ public struct MarkdownDocument: Hashable, Sendable {
     }
 
     /// True when a block needs the web renderer (display math, or a paragraph with inline `$...$`).
+    /// Never with the `markdown-web` piece switched off (`MobilePieces`): the native renderer
+    /// then draws every block, math as its TeX source.
     public var needsWebRenderer: Bool {
-        blocks.contains { $0.kind.needsWebRenderer }
+        !MobilePieces.shared.isOff(.markdownWeb) && blocks.contains { $0.kind.needsWebRenderer }
     }
 }
 

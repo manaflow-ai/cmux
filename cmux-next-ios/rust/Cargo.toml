@@ -33,6 +33,10 @@ cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-predict
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 # A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
+# The phone's signed kill switch file: which built-in piece is switched off (SECURITY.md "What the phone
+# takes remotely"). Pure; cmux-mobile-link does its I/O.
+cmux-web-pieces = { path = "../../cmux-tui/crates/cmux-web-pieces" }
+cmux-signed-envelope = { path = "../../cmux-tui/crates/cmux-signed-envelope" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

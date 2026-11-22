@@ -780,8 +780,14 @@ private struct LinkSettingsObserver: ViewModifier {
             .onChange(of: blockUDPPreference) { _, _ in
                 shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
             }
+            // The kill switch file (SECURITY.md "What the phone takes remotely"): read after
+            // launch and on each return, never before the first screen.
+            .task { await MobilePieces.shared.check() }
             .onChange(of: scenePhase) { _, phase in
+                // The last read's answer takes effect as the app leaves or enters the foreground.
+                MobilePieces.shared.applyChecked()
                 if phase == .active {
+                    Task { await MobilePieces.shared.check() }
                     shell.live?.foreground()
                     // The content extension's replies, and those waiting for the app.
                     PushReplies.shared.drainOutbox()

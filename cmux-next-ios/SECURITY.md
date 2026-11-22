@@ -1401,6 +1401,67 @@ Policy: the `daemon` lane adds `notification-reply` with only `notification`,
 over-long text); hostd's mailbox applies a reply through the same policy as a
 link request.
 
+## What the phone takes remotely: the kill switch file (`lane/ios-pieces-kill-switch`)
+
+The app reads one remote file that changes what it shows: a signed list of built-in
+pieces to switch **off** (Leo's decision d-b295438de2, 2026-11-22: a kill switch only on
+the phone). It is not a link service and no Mac is involved: the phone fetches
+`https://files.cmux.com/cmux-next-web/ota/pieces-ios-<channel>.json` itself.
+
+- **Data, never code.** The file is JSON: a channel, a serial, and piece names with a
+  reason. The app reads no URL, script, web bundle, style or setting value from it and
+  downloads nothing it names. A piece switched off shows the fallback already compiled
+  into the reviewed app, and removing the switch shows the piece again. So the app
+  changes no feature or functionality by download (App Store Review Guideline 2.5.2,
+  Developer Program License Agreement 3.3.1(B)).
+- **Pinned key.** The envelope is the Mac's web update envelope (ed25519,
+  `cmux-signed-envelope`), opened against the keys compiled into `cmux-web-pieces`
+  (`KEYS`). The payload's `purpose` is `cmux-ios-pieces`, so the Mac's switch file and a
+  web update pointer never open as the phone's, nor the phone's as theirs.
+- **Refusals keep what the phone holds.** A read that fails, a 404, a file that is
+  unsigned or signed by another key, a changed payload, another purpose or channel, a
+  serial older than the last one taken (a replay cannot undo a switch) and a file over
+  64 KB are all refused: nothing is switched on or off. A name of no piece this build
+  knows switches nothing and is logged.
+- **Never in the way.** The read happens after launch and on each return to the
+  foreground (at most one GET every 15 minutes, 10 s, no redirect, no cookie, token or
+  device id). Its answer takes effect as the app next leaves or enters the foreground,
+  in screens already open too (`MobilePieces.didChangeNotification`): an open terminal
+  turns predictive echo off or on again, a terminal attached in the other Agent CLI
+  Screen Changes mode attaches again at once (as after a frame it could not draw), and
+  an open chat lays its rows out again. A markdown view outside the chat already on
+  screen keeps its renderer until it is drawn again. At launch the last file taken is
+  read from the disk before a piece first shows. No failure reaches the person or stops
+  the app.
+- **Which builds.** Only cmux INTERNAL (TestFlight, `dev.cmux.app.internal`) reads a
+  file. The App Store app (`com.cmux.app`), Beta, Demo and DEBUG builds make no request
+  and keep no state (`phone::channel`); turning it on for the App Store app is Leo's.
+- **On the device.** `Application Support/cmux-pieces/ios-pieces.json` (the last file
+  taken, its serial and ETag) and `ios-pieces.log.jsonl` (every change and every
+  refusal with its reason; cut at 128 KB).
+
+| Piece | Switched off, the app shows |
+| --- | --- |
+| `markdown-web` | the native markdown renderer; math as its TeX source (a display formula in a code card) |
+| `terminal-agent-cli-changes` | the terminal's byte stream, as with Settings > Transport > Agent CLI Screen Changes off |
+| `terminal-predictive-echo` | the Mac's own echo, as with Settings > Terminal > Predictive echo off |
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No. The file can only name a piece of a fixed list compiled into the app; the app then stops using that piece. It opens nothing and runs nothing. |
+| Mutates or destroys objects the session does not own? | No. It writes only its own state file and log in the app's container. No setting of the person's is changed: a switched-off piece's setting keeps its value and applies again when the switch is removed. |
+| Reads local state the remote should not see? | No. The request is a plain GET of a public file and carries nothing about the person, the device or the app's state. |
+
+- What the holder of the signing key can do: switch those three pieces off and on.
+  What a network attacker can do: nothing (no pinned signature), or hold the phone at
+  the file it last took by blocking the read.
+- Tests: `cmux-web-pieces` `phone_tests` (every refusal, the off and on round trip),
+  `cmux-mobile-link` `pieces_tests` (the state, the log, the GET), `cmux-mobile-link-ffi`
+  `pieces` (a build that reads none touches nothing), `MobilePiecesTests` (the Swift
+  host: a change is posted, a slow first load blocks no reader), `PiecesChangeLayoutTests`
+  (the chat lays its rows out again), `tests/test_web_pieces_file.sh` (publishing, kind
+  `ios`).
+
 ## Decisions for the person
 
 - Agent chats from the phone in the person's workspaces: acpmux lets a phone
@@ -1414,5 +1475,7 @@ link request.
 - Notification replies without the live link and terminal input from a
   notification (`verify/notifications-trust.md`), recommended on #13742; held
   until approved.
+- The kill switch file on the App Store app ("What the phone takes remotely"): built
+  and on for cmux INTERNAL only; the App Store app reads none until Leo says so.
 - None for the service: production builds use the production Worker
   (`https://mobile-api.cmux.dev`), and development builds use the dev Worker.

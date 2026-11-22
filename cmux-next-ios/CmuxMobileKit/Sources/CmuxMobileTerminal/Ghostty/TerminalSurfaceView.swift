@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileTransport
 import CoreImage
 import Foundation
 import GameController
@@ -67,6 +68,9 @@ final class TerminalSurfaceView: UIView {
     /// The font size the surface was built with or last set to (Settings → Terminal).
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
+    /// The kill switch's answer changed (`MobilePieces.didChangeNotification`): the same
+    /// apply as a settings change.
+    private var piecesObserver: (any NSObjectProtocol)?
     /// Predictive local echo (`TerminalSurfacePrediction`), made with the surface.
     private(set) var prediction: TerminalSurfacePrediction?
     /// The Mac the session runs on: the surface shows that Mac's terminal theme
@@ -97,6 +101,7 @@ final class TerminalSurfaceView: UIView {
     isolated deinit {
         if let commitObserver { CFRunLoopObserverInvalidate(commitObserver) }
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        if let piecesObserver { NotificationCenter.default.removeObserver(piecesObserver) }
         if let themeObserver { NotificationCenter.default.removeObserver(themeObserver) }
         for observer in appStateObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
@@ -284,6 +289,13 @@ final class TerminalSurfaceView: UIView {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.applyFontSize()
+                self?.prediction?.applySetting()
+            }
+        }
+        // Predictive echo also follows the `terminal-predictive-echo` piece, switched off or
+        // on again while this terminal is open.
+        piecesObserver = NotificationCenter.default.addObserver(forName: MobilePieces.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.prediction?.applySetting()
             }
         }

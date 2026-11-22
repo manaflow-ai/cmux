@@ -21,6 +21,7 @@ pub mod keepalive;
 pub mod link;
 pub mod link_stat;
 pub mod media;
+pub mod pieces;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]

@@ -2972,6 +2972,164 @@ public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) ->
 
 
 /**
+ * One piece switched off, back to the fallback built into the app.
+ */
+public struct PieceOff: Equatable, Hashable {
+    /**
+     * `markdown-web`, `terminal-agent-cli-changes`, `terminal-predictive-echo`.
+     */
+    public var piece: String
+    /**
+     * The file's reason (an issue or PR); may be empty.
+     */
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `markdown-web`, `terminal-agent-cli-changes`, `terminal-predictive-echo`.
+         */piece: String, 
+        /**
+         * The file's reason (an issue or PR); may be empty.
+         */reason: String) {
+        self.piece = piece
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PieceOff: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePieceOff: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PieceOff {
+        return
+            try PieceOff(
+                piece: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PieceOff, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.piece, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePieceOff_lift(_ buf: RustBuffer) throws -> PieceOff {
+    return try FfiConverterTypePieceOff.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePieceOff_lower(_ value: PieceOff) -> RustBuffer {
+    return FfiConverterTypePieceOff.lower(value)
+}
+
+
+/**
+ * What the app holds after a read of the switch file.
+ */
+public struct PiecesReading: Equatable, Hashable {
+    /**
+     * Whether this build reads a switch file at all.
+     */
+    public var reads: Bool
+    /**
+     * The pieces switched off. Every other piece is on.
+     */
+    public var off: [PieceOff]
+    /**
+     * The serial of the last file taken; 0 when none was.
+     */
+    public var serial: UInt64
+    /**
+     * `taken`, `no_file`, `fresh`, a refusal's code, or `off` for a build that reads none.
+     */
+    public var verdict: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether this build reads a switch file at all.
+         */reads: Bool, 
+        /**
+         * The pieces switched off. Every other piece is on.
+         */off: [PieceOff], 
+        /**
+         * The serial of the last file taken; 0 when none was.
+         */serial: UInt64, 
+        /**
+         * `taken`, `no_file`, `fresh`, a refusal's code, or `off` for a build that reads none.
+         */verdict: String) {
+        self.reads = reads
+        self.off = off
+        self.serial = serial
+        self.verdict = verdict
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PiecesReading: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePiecesReading: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PiecesReading {
+        return
+            try PiecesReading(
+                reads: FfiConverterBool.read(from: &buf), 
+                off: FfiConverterSequenceTypePieceOff.read(from: &buf), 
+                serial: FfiConverterUInt64.read(from: &buf), 
+                verdict: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PiecesReading, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.reads, into: &buf)
+        FfiConverterSequenceTypePieceOff.write(value.off, into: &buf)
+        FfiConverterUInt64.write(value.serial, into: &buf)
+        FfiConverterString.write(value.verdict, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePiecesReading_lift(_ buf: RustBuffer) throws -> PiecesReading {
+    return try FfiConverterTypePiecesReading.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePiecesReading_lower(_ value: PiecesReading) -> RustBuffer {
+    return FfiConverterTypePiecesReading.lower(value)
+}
+
+
+/**
  * One cell to draw. `standing`: 0 speculative (underlined), 1 confirmed
  * (plain, held until its frame), 2 erased (the cell's background only).
  */
@@ -4672,6 +4830,31 @@ fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePieceOff: FfiConverterRustBuffer {
+    typealias SwiftType = [PieceOff]
+
+    public static func write(_ value: [PieceOff], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePieceOff.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PieceOff] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PieceOff]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePieceOff.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePredictedGlyph: FfiConverterRustBuffer {
     typealias SwiftType = [PredictedGlyph]
 
@@ -5005,6 +5188,51 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
 })
 }
 /**
+ * One check of the published switch file, after launch and on foreground: at most one GET (none
+ * when the server answered in the last 15 minutes), the state and the log kept in `dir`. Never
+ * fails: a read that fails or a refused file answers with what the phone already holds.
+ */
+public func piecesCheck(dir: String, bundleId: String, debug: Bool)async  -> PiecesReading  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_pieces_check(FfiConverterString.lower(dir),FfiConverterString.lower(bundleId),FfiConverterBool.lower(debug)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypePiecesReading_lift,
+            errorHandler: nil
+            
+        )
+}
+/**
+ * The switches this build last took, from `dir` alone: what a launch applies before a piece
+ * first shows. No network, no write; two small file reads.
+ */
+public func piecesLoad(dir: String, bundleId: String, debug: Bool) -> PiecesReading  {
+    return try!  FfiConverterTypePiecesReading_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pieces_load(
+        FfiConverterString.lower(dir),
+        FfiConverterString.lower(bundleId),
+        FfiConverterBool.lower(debug),$0
+    )
+})
+}
+/**
+ * The last `count` lines of the log in `dir`, oldest first, each one JSON object: what was
+ * read, what was refused and why, and which pieces it left off.
+ */
+public func piecesLog(dir: String, count: UInt32) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pieces_log(
+        FfiConverterString.lower(dir),
+        FfiConverterUInt32.lower(count),$0
+    )
+})
+}
+/**
  * The faces `facts`' tab offers.
  */
 public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
@@ -5134,6 +5362,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pieces_check() != 39364) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pieces_load() != 6211) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pieces_log() != 17642) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
