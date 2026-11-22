@@ -114,6 +114,32 @@ fn parses_new_dev_list_remove_and_help() {
 }
 
 #[test]
+fn design_show_and_stamp_parse_and_need_no_scene_file() {
+    assert_eq!(
+        parse(&words("design --show")),
+        Ok(Request::DesignShow { dir: None, system: None, scene: false })
+    );
+    assert_eq!(
+        parse(&words("design --show ext --scene --system s.json")),
+        Ok(Request::DesignShow {
+            dir: Some("ext".into()),
+            system: Some("s.json".into()),
+            scene: true
+        })
+    );
+    assert_eq!(parse(&words("design --stamp")), Ok(Request::DesignStamp));
+    for bad in [
+        "design",
+        "design --show a b",
+        "design --stamp a",
+        "design --scene x.json",
+        "design --show --widget",
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn capabilities_parse_and_print_the_manifest_rows() {
     assert_eq!(parse(&words("capabilities")), Ok(Request::Capabilities { op: None }));
     assert_eq!(

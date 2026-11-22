@@ -1,0 +1,5457 @@
+{
+  "cmux": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 24,
+        "alignment": "leading",
+        "padding": 16,
+        "frame": {
+          "maxWidth": "infinity",
+          "alignment": "leading"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "cmux",
+        "font": 20,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "Built on cmux",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Text",
+      "props": {
+        "text": "Type",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Text",
+      "props": {
+        "text": "0 overridden, 0 added; the rest are cmux's",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 34,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 34,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Text",
+      "props": {
+        "text": "numeral",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Text",
+      "props": {
+        "text": "34 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 20,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 20,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "Text",
+      "props": {
+        "text": "heading",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Text",
+      "props": {
+        "text": "20 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Text",
+      "props": {
+        "text": "title",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "Text",
+      "props": {
+        "text": "15 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "Text",
+      "props": {
+        "text": "label",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Text",
+      "props": {
+        "text": "13 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n46",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n47",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n48",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n49",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n50",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n51",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n52",
+      "type": "Text",
+      "props": {
+        "text": "body",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n53",
+      "type": "Text",
+      "props": {
+        "text": "13 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n54",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n55",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n56",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n57",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n58",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n59",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n60",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n61",
+      "type": "Text",
+      "props": {
+        "text": "caption",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n62",
+      "type": "Text",
+      "props": {
+        "text": "12 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n63",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n64",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n65",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n66",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 11,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n67",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 11,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n68",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n69",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n70",
+      "type": "Text",
+      "props": {
+        "text": "footnote",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n71",
+      "type": "Text",
+      "props": {
+        "text": "11 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n72",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n73",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n74",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n75",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n76",
+      "type": "Text",
+      "props": {
+        "text": "Spacing",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n77",
+      "type": "Text",
+      "props": {
+        "text": "cmux's scale, in points",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n78",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n79",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n80",
+      "type": "Text",
+      "props": {
+        "text": "0",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n81",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 1,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n82",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n83",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n84",
+      "type": "Text",
+      "props": {
+        "text": "2",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n85",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 8,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n86",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n87",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n88",
+      "type": "Text",
+      "props": {
+        "text": "4",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n89",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 16,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n90",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n91",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n92",
+      "type": "Text",
+      "props": {
+        "text": "6",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n93",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 24,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n94",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n95",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n96",
+      "type": "Text",
+      "props": {
+        "text": "8",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n97",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 32,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n98",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n99",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n100",
+      "type": "Text",
+      "props": {
+        "text": "12",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n101",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 48,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n102",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n103",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n104",
+      "type": "Text",
+      "props": {
+        "text": "16",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n105",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 64,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n106",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n107",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n108",
+      "type": "Text",
+      "props": {
+        "text": "20",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n109",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 80,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n110",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n111",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n112",
+      "type": "Text",
+      "props": {
+        "text": "24",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n113",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 96,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n114",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n115",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n116",
+      "type": "Text",
+      "props": {
+        "text": "32",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n117",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 128,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n118",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n119",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n120",
+      "type": "Text",
+      "props": {
+        "text": "48",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n121",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 192,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n122",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n123",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n124",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n125",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n126",
+      "type": "Text",
+      "props": {
+        "text": "Color",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n127",
+      "type": "Text",
+      "props": {
+        "text": "Each name and the cmux role it draws as, so light, dark and contrast hold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n128",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n129",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n130",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "primary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n131",
+      "type": "Text",
+      "props": {
+        "text": "primary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n132",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n133",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n134",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "secondary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n135",
+      "type": "Text",
+      "props": {
+        "text": "secondary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n136",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n137",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n138",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "tertiary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n139",
+      "type": "Text",
+      "props": {
+        "text": "tertiary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n140",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n141",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n142",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "accent",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n143",
+      "type": "Text",
+      "props": {
+        "text": "accent",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n144",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n145",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n146",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "success",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n147",
+      "type": "Text",
+      "props": {
+        "text": "success",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n148",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n149",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n150",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "warning",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n151",
+      "type": "Text",
+      "props": {
+        "text": "warning",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n152",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n153",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n154",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "danger",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n155",
+      "type": "Text",
+      "props": {
+        "text": "danger",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n156",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n157",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n158",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "separator",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n159",
+      "type": "Text",
+      "props": {
+        "text": "separator",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n160",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n161",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n162",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n163",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n164",
+      "type": "Text",
+      "props": {
+        "text": "Components",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n165",
+      "type": "Text",
+      "props": {
+        "text": "The widget helpers, drawn with this system",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n166",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n167",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n168",
+      "type": "Text",
+      "props": {
+        "text": "Stat: BigNumber and Caption",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n169",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n170",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 34,
+        "weight": "semibold",
+        "lineLimit": 1,
+        "contentTransition": "numericText"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n171",
+      "type": "Text",
+      "props": {
+        "text": "Lisbon, clear",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n172",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n173",
+      "type": "Text",
+      "props": {
+        "text": "RowList of 3",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n174",
+      "type": "VStack",
+      "props": {
+        "spacing": 6,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n175",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n176",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "accent",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n177",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n178",
+      "type": "Text",
+      "props": {
+        "text": "Design review",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n179",
+      "type": "Text",
+      "props": {
+        "text": "Today, 2:00",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n180",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n181",
+      "type": "Text",
+      "props": {
+        "text": "30 min",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n182",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n183",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "success",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n184",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n185",
+      "type": "Text",
+      "props": {
+        "text": "Ship the tokens",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n186",
+      "type": "Text",
+      "props": {
+        "text": "Due Friday",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n187",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n188",
+      "type": "Text",
+      "props": {
+        "text": "3 left",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n189",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n190",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "warning",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n191",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n192",
+      "type": "Text",
+      "props": {
+        "text": "Read the RFD",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n193",
+      "type": "Text",
+      "props": {
+        "text": "Optional",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n194",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n195",
+      "type": "Text",
+      "props": {
+        "text": "12 min",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n196",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n197",
+      "type": "Text",
+      "props": {
+        "text": "Gauge",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n198",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n199",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.62
+      }
+    },
+    {
+      "op": "create",
+      "id": "n200",
+      "type": "Text",
+      "props": {
+        "text": "62% charged",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n201",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n202",
+      "type": "Text",
+      "props": {
+        "text": "WidgetEmpty",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n203",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n204",
+      "type": "Icon",
+      "props": {
+        "symbol": "checkmark.circle",
+        "size": 18,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n205",
+      "type": "Text",
+      "props": {
+        "text": "Nothing due",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n206",
+      "type": "Text",
+      "props": {
+        "text": "Add a task to see it here",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n207",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n208",
+      "type": "Text",
+      "props": {
+        "text": "Badge, Button and Toggle",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n209",
+      "type": "HStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n210",
+      "type": "Badge",
+      "props": {
+        "text": "3 new",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n211",
+      "type": "Button",
+      "props": {
+        "title": "Open"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n212",
+      "type": "Toggle",
+      "props": {
+        "label": "Notify",
+        "value": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n213",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n214",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n215",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n216",
+      "type": "VStack",
+      "props": {
+        "spacing": 2,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n217",
+      "type": "Text",
+      "props": {
+        "text": "Limits",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n218",
+      "type": "Text",
+      "props": {
+        "text": "What one view may use before the design check warns",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n219",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n220",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n221",
+      "type": "Text",
+      "props": {
+        "text": "Type roles",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n222",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n223",
+      "type": "Text",
+      "props": {
+        "text": "4",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n224",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n225",
+      "type": "Text",
+      "props": {
+        "text": "Accent colors",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n226",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n227",
+      "type": "Text",
+      "props": {
+        "text": "2",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5", "n73", "n74", "n123", "n124", "n161", "n162", "n214", "n215"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10", "n19", "n28", "n37", "n46", "n55", "n64"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n15"]
+    },
+    {
+      "op": "children",
+      "id": "n11",
+      "children": ["n12", "n13", "n14"]
+    },
+    {
+      "op": "children",
+      "id": "n15",
+      "children": ["n16", "n17", "n18"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n24"]
+    },
+    {
+      "op": "children",
+      "id": "n20",
+      "children": ["n21", "n22", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n24",
+      "children": ["n25", "n26", "n27"]
+    },
+    {
+      "op": "children",
+      "id": "n28",
+      "children": ["n29", "n33"]
+    },
+    {
+      "op": "children",
+      "id": "n29",
+      "children": ["n30", "n31", "n32"]
+    },
+    {
+      "op": "children",
+      "id": "n33",
+      "children": ["n34", "n35", "n36"]
+    },
+    {
+      "op": "children",
+      "id": "n37",
+      "children": ["n38", "n42"]
+    },
+    {
+      "op": "children",
+      "id": "n38",
+      "children": ["n39", "n40", "n41"]
+    },
+    {
+      "op": "children",
+      "id": "n42",
+      "children": ["n43", "n44", "n45"]
+    },
+    {
+      "op": "children",
+      "id": "n46",
+      "children": ["n47", "n51"]
+    },
+    {
+      "op": "children",
+      "id": "n47",
+      "children": ["n48", "n49", "n50"]
+    },
+    {
+      "op": "children",
+      "id": "n51",
+      "children": ["n52", "n53", "n54"]
+    },
+    {
+      "op": "children",
+      "id": "n55",
+      "children": ["n56", "n60"]
+    },
+    {
+      "op": "children",
+      "id": "n56",
+      "children": ["n57", "n58", "n59"]
+    },
+    {
+      "op": "children",
+      "id": "n60",
+      "children": ["n61", "n62", "n63"]
+    },
+    {
+      "op": "children",
+      "id": "n64",
+      "children": ["n65", "n69"]
+    },
+    {
+      "op": "children",
+      "id": "n65",
+      "children": ["n66", "n67", "n68"]
+    },
+    {
+      "op": "children",
+      "id": "n69",
+      "children": ["n70", "n71", "n72"]
+    },
+    {
+      "op": "children",
+      "id": "n74",
+      "children": ["n75", "n78"]
+    },
+    {
+      "op": "children",
+      "id": "n75",
+      "children": ["n76", "n77"]
+    },
+    {
+      "op": "children",
+      "id": "n78",
+      "children": ["n79", "n83", "n87", "n91", "n95", "n99", "n103", "n107", "n111", "n115", "n119"]
+    },
+    {
+      "op": "children",
+      "id": "n79",
+      "children": ["n80", "n81", "n82"]
+    },
+    {
+      "op": "children",
+      "id": "n83",
+      "children": ["n84", "n85", "n86"]
+    },
+    {
+      "op": "children",
+      "id": "n87",
+      "children": ["n88", "n89", "n90"]
+    },
+    {
+      "op": "children",
+      "id": "n91",
+      "children": ["n92", "n93", "n94"]
+    },
+    {
+      "op": "children",
+      "id": "n95",
+      "children": ["n96", "n97", "n98"]
+    },
+    {
+      "op": "children",
+      "id": "n99",
+      "children": ["n100", "n101", "n102"]
+    },
+    {
+      "op": "children",
+      "id": "n103",
+      "children": ["n104", "n105", "n106"]
+    },
+    {
+      "op": "children",
+      "id": "n107",
+      "children": ["n108", "n109", "n110"]
+    },
+    {
+      "op": "children",
+      "id": "n111",
+      "children": ["n112", "n113", "n114"]
+    },
+    {
+      "op": "children",
+      "id": "n115",
+      "children": ["n116", "n117", "n118"]
+    },
+    {
+      "op": "children",
+      "id": "n119",
+      "children": ["n120", "n121", "n122"]
+    },
+    {
+      "op": "children",
+      "id": "n124",
+      "children": ["n125", "n128"]
+    },
+    {
+      "op": "children",
+      "id": "n125",
+      "children": ["n126", "n127"]
+    },
+    {
+      "op": "children",
+      "id": "n128",
+      "children": ["n129", "n133", "n137", "n141", "n145", "n149", "n153", "n157"]
+    },
+    {
+      "op": "children",
+      "id": "n129",
+      "children": ["n130", "n131", "n132"]
+    },
+    {
+      "op": "children",
+      "id": "n133",
+      "children": ["n134", "n135", "n136"]
+    },
+    {
+      "op": "children",
+      "id": "n137",
+      "children": ["n138", "n139", "n140"]
+    },
+    {
+      "op": "children",
+      "id": "n141",
+      "children": ["n142", "n143", "n144"]
+    },
+    {
+      "op": "children",
+      "id": "n145",
+      "children": ["n146", "n147", "n148"]
+    },
+    {
+      "op": "children",
+      "id": "n149",
+      "children": ["n150", "n151", "n152"]
+    },
+    {
+      "op": "children",
+      "id": "n153",
+      "children": ["n154", "n155", "n156"]
+    },
+    {
+      "op": "children",
+      "id": "n157",
+      "children": ["n158", "n159", "n160"]
+    },
+    {
+      "op": "children",
+      "id": "n162",
+      "children": ["n163", "n166"]
+    },
+    {
+      "op": "children",
+      "id": "n163",
+      "children": ["n164", "n165"]
+    },
+    {
+      "op": "children",
+      "id": "n166",
+      "children": ["n167", "n172", "n196", "n201", "n207"]
+    },
+    {
+      "op": "children",
+      "id": "n167",
+      "children": ["n168", "n169"]
+    },
+    {
+      "op": "children",
+      "id": "n169",
+      "children": ["n170", "n171"]
+    },
+    {
+      "op": "children",
+      "id": "n172",
+      "children": ["n173", "n174"]
+    },
+    {
+      "op": "children",
+      "id": "n174",
+      "children": ["n175", "n182", "n189"]
+    },
+    {
+      "op": "children",
+      "id": "n175",
+      "children": ["n176", "n177", "n180", "n181"]
+    },
+    {
+      "op": "children",
+      "id": "n177",
+      "children": ["n178", "n179"]
+    },
+    {
+      "op": "children",
+      "id": "n182",
+      "children": ["n183", "n184", "n187", "n188"]
+    },
+    {
+      "op": "children",
+      "id": "n184",
+      "children": ["n185", "n186"]
+    },
+    {
+      "op": "children",
+      "id": "n189",
+      "children": ["n190", "n191", "n194", "n195"]
+    },
+    {
+      "op": "children",
+      "id": "n191",
+      "children": ["n192", "n193"]
+    },
+    {
+      "op": "children",
+      "id": "n196",
+      "children": ["n197", "n198"]
+    },
+    {
+      "op": "children",
+      "id": "n198",
+      "children": ["n199", "n200"]
+    },
+    {
+      "op": "children",
+      "id": "n201",
+      "children": ["n202", "n203"]
+    },
+    {
+      "op": "children",
+      "id": "n203",
+      "children": ["n204", "n205", "n206"]
+    },
+    {
+      "op": "children",
+      "id": "n207",
+      "children": ["n208", "n209"]
+    },
+    {
+      "op": "children",
+      "id": "n209",
+      "children": ["n210", "n211", "n212", "n213"]
+    },
+    {
+      "op": "children",
+      "id": "n215",
+      "children": ["n216", "n219"]
+    },
+    {
+      "op": "children",
+      "id": "n216",
+      "children": ["n217", "n218"]
+    },
+    {
+      "op": "children",
+      "id": "n219",
+      "children": ["n220", "n224"]
+    },
+    {
+      "op": "children",
+      "id": "n220",
+      "children": ["n221", "n222", "n223"]
+    },
+    {
+      "op": "children",
+      "id": "n224",
+      "children": ["n225", "n226", "n227"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ],
+  "changed": [
+    {
+      "op": "create",
+      "id": "n1",
+      "type": "VStack",
+      "props": {
+        "spacing": 24,
+        "alignment": "leading",
+        "padding": 16,
+        "frame": {
+          "maxWidth": "infinity",
+          "alignment": "leading"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n2",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n3",
+      "type": "Text",
+      "props": {
+        "text": "Leo's widgets",
+        "font": 22,
+        "weight": "bold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n4",
+      "type": "Text",
+      "props": {
+        "text": "Built on cmux, then design.json",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n5",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n6",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n7",
+      "type": "Text",
+      "props": {
+        "text": "Changed in cmux",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n8",
+      "type": "Text",
+      "props": {
+        "text": "cmux's own values that moved since your design.json recorded its base; run cmux ext design --stamp once you have looked",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n9",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n10",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n11",
+      "type": "Text",
+      "props": {
+        "text": "type.numeral: cmux changed it from 32 pt semibold to 34 pt semibold (you get the new one)",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n12",
+      "type": "Badge",
+      "props": {
+        "text": "cmux changed",
+        "tone": "warning"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n13",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n14",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n15",
+      "type": "Text",
+      "props": {
+        "text": "space: cmux changed it from 0 2 4 8 16 40 to 0 2 4 6 8 12 16 20 24 32 48 (yours holds)",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n16",
+      "type": "Badge",
+      "props": {
+        "text": "cmux changed, yours holds",
+        "tone": "warning"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n17",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n18",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n19",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n20",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n21",
+      "type": "Text",
+      "props": {
+        "text": "Type",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n22",
+      "type": "Text",
+      "props": {
+        "text": "2 overridden, 1 added; the rest are cmux's",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n23",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n24",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n25",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n26",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 40,
+        "weight": "bold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n27",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 40,
+        "weight": "bold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n28",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n29",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n30",
+      "type": "Text",
+      "props": {
+        "text": "numeral",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n31",
+      "type": "Text",
+      "props": {
+        "text": "40 pt bold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n32",
+      "type": "Badge",
+      "props": {
+        "text": "overrides",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n33",
+      "type": "Badge",
+      "props": {
+        "text": "cmux changed",
+        "tone": "warning"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n34",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n35",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n36",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n37",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 22,
+        "weight": "bold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n38",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 22,
+        "weight": "bold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n39",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n40",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n41",
+      "type": "Text",
+      "props": {
+        "text": "heading",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n42",
+      "type": "Text",
+      "props": {
+        "text": "22 pt bold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n43",
+      "type": "Badge",
+      "props": {
+        "text": "overrides",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n44",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n45",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n46",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n47",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n48",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n49",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n50",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n51",
+      "type": "Text",
+      "props": {
+        "text": "title",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n52",
+      "type": "Text",
+      "props": {
+        "text": "15 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n53",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n54",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n55",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n56",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n57",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n58",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n59",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n60",
+      "type": "Text",
+      "props": {
+        "text": "label",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n61",
+      "type": "Text",
+      "props": {
+        "text": "13 pt semibold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n62",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n63",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n64",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n65",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n66",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n67",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n68",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n69",
+      "type": "Text",
+      "props": {
+        "text": "body",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n70",
+      "type": "Text",
+      "props": {
+        "text": "13 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n71",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n72",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n73",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n74",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n75",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n76",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n77",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n78",
+      "type": "Text",
+      "props": {
+        "text": "caption",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n79",
+      "type": "Text",
+      "props": {
+        "text": "12 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n80",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n81",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n82",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n83",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 11,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n84",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 11,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n85",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n86",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n87",
+      "type": "Text",
+      "props": {
+        "text": "footnote",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n88",
+      "type": "Text",
+      "props": {
+        "text": "11 pt regular",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n89",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n90",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n91",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n92",
+      "type": "Text",
+      "props": {
+        "text": "The quick brown fox",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n93",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n94",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n95",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n96",
+      "type": "Text",
+      "props": {
+        "text": "code",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n97",
+      "type": "Text",
+      "props": {
+        "text": "12 pt regular, monospaced",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n98",
+      "type": "Badge",
+      "props": {
+        "text": "adds",
+        "tone": "success"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n99",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n100",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n101",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n102",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n103",
+      "type": "Text",
+      "props": {
+        "text": "Spacing",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n104",
+      "type": "Text",
+      "props": {
+        "text": "Replaces cmux's scale, in points",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n105",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n106",
+      "type": "Badge",
+      "props": {
+        "text": "cmux changed, yours holds",
+        "tone": "warning"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n107",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n108",
+      "type": "Text",
+      "props": {
+        "text": "0",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n109",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 1,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n110",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n111",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n112",
+      "type": "Text",
+      "props": {
+        "text": "4",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n113",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 16,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n114",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n115",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n116",
+      "type": "Text",
+      "props": {
+        "text": "8",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n117",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 32,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n118",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n119",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n120",
+      "type": "Text",
+      "props": {
+        "text": "12",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n121",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 48,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n122",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n123",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n124",
+      "type": "Text",
+      "props": {
+        "text": "16",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n125",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 64,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n126",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n127",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n128",
+      "type": "Text",
+      "props": {
+        "text": "24",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n129",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 96,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n130",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n131",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n132",
+      "type": "Text",
+      "props": {
+        "text": "32",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "monospaced": true,
+        "frame": {
+          "width": 28,
+          "alignment": "trailing"
+        }
+      }
+    },
+    {
+      "op": "create",
+      "id": "n133",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 128,
+          "height": 8
+        },
+        "background": "accent",
+        "cornerRadius": 2
+      }
+    },
+    {
+      "op": "create",
+      "id": "n134",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n135",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n136",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n137",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n138",
+      "type": "Text",
+      "props": {
+        "text": "Color",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n139",
+      "type": "Text",
+      "props": {
+        "text": "Each name and the cmux role it draws as, so light, dark and contrast hold",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n140",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n141",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n142",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "primary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n143",
+      "type": "Text",
+      "props": {
+        "text": "primary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n144",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n145",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n146",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "secondary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n147",
+      "type": "Text",
+      "props": {
+        "text": "secondary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n148",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n149",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n150",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "tertiary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n151",
+      "type": "Text",
+      "props": {
+        "text": "tertiary",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n152",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n153",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n154",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "accent",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n155",
+      "type": "Text",
+      "props": {
+        "text": "accent",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n156",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n157",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n158",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "success",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n159",
+      "type": "Text",
+      "props": {
+        "text": "success",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n160",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n161",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n162",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "warning",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n163",
+      "type": "Text",
+      "props": {
+        "text": "warning",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n164",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n165",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n166",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "danger",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n167",
+      "type": "Text",
+      "props": {
+        "text": "danger",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n168",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n169",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n170",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "separator",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n171",
+      "type": "Text",
+      "props": {
+        "text": "separator",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n172",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n173",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n174",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "accent",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n175",
+      "type": "Text",
+      "props": {
+        "text": "brand",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n176",
+      "type": "Text",
+      "props": {
+        "text": "→ accent",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n177",
+      "type": "Badge",
+      "props": {
+        "text": "alias",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n178",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n179",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n180",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 20,
+          "height": 20
+        },
+        "background": "secondary",
+        "cornerRadius": 5,
+        "borderColor": "separator",
+        "borderWidth": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n181",
+      "type": "Text",
+      "props": {
+        "text": "muted",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n182",
+      "type": "Text",
+      "props": {
+        "text": "→ secondary",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n183",
+      "type": "Badge",
+      "props": {
+        "text": "alias",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n184",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n185",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n186",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n187",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n188",
+      "type": "Text",
+      "props": {
+        "text": "Components",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n189",
+      "type": "Text",
+      "props": {
+        "text": "The widget helpers, drawn with this system",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n190",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n191",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n192",
+      "type": "Text",
+      "props": {
+        "text": "Stat: BigNumber and Caption",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n193",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n194",
+      "type": "Text",
+      "props": {
+        "text": "72°",
+        "font": 40,
+        "weight": "bold",
+        "lineLimit": 1,
+        "contentTransition": "numericText"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n195",
+      "type": "Text",
+      "props": {
+        "text": "Lisbon, clear",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n196",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n197",
+      "type": "Text",
+      "props": {
+        "text": "RowList of 3",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n198",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n199",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n200",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "accent",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n201",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n202",
+      "type": "Text",
+      "props": {
+        "text": "Design review",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n203",
+      "type": "Text",
+      "props": {
+        "text": "Today, 2:00",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n204",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n205",
+      "type": "Text",
+      "props": {
+        "text": "30 min",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n206",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n207",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "success",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n208",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n209",
+      "type": "Text",
+      "props": {
+        "text": "Ship the tokens",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n210",
+      "type": "Text",
+      "props": {
+        "text": "Due Friday",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n211",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n212",
+      "type": "Text",
+      "props": {
+        "text": "3 left",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n213",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n214",
+      "type": "VStack",
+      "props": {
+        "frame": {
+          "width": 3,
+          "minHeight": 28
+        },
+        "background": "warning",
+        "cornerRadius": 1.5
+      }
+    },
+    {
+      "op": "create",
+      "id": "n215",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n216",
+      "type": "Text",
+      "props": {
+        "text": "Read the RFD",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n217",
+      "type": "Text",
+      "props": {
+        "text": "Optional",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n218",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n219",
+      "type": "Text",
+      "props": {
+        "text": "12 min",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n220",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n221",
+      "type": "Text",
+      "props": {
+        "text": "Gauge",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n222",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n223",
+      "type": "ProgressView",
+      "props": {
+        "value": 0.62
+      }
+    },
+    {
+      "op": "create",
+      "id": "n224",
+      "type": "Text",
+      "props": {
+        "text": "62% charged",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n225",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n226",
+      "type": "Text",
+      "props": {
+        "text": "WidgetEmpty",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n227",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n228",
+      "type": "Icon",
+      "props": {
+        "symbol": "checkmark.circle",
+        "size": 18,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n229",
+      "type": "Text",
+      "props": {
+        "text": "Nothing due",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n230",
+      "type": "Text",
+      "props": {
+        "text": "Add a task to see it here",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n231",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n232",
+      "type": "Text",
+      "props": {
+        "text": "Badge, Button and Toggle",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 1,
+        "color": "tertiary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n233",
+      "type": "HStack",
+      "props": {
+        "spacing": 12
+      }
+    },
+    {
+      "op": "create",
+      "id": "n234",
+      "type": "Badge",
+      "props": {
+        "text": "3 new",
+        "tone": "accent"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n235",
+      "type": "Button",
+      "props": {
+        "title": "Open"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n236",
+      "type": "Toggle",
+      "props": {
+        "label": "Notify",
+        "value": true
+      }
+    },
+    {
+      "op": "create",
+      "id": "n237",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n238",
+      "type": "Divider",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n239",
+      "type": "VStack",
+      "props": {
+        "spacing": 8,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n240",
+      "type": "VStack",
+      "props": {
+        "spacing": 4,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n241",
+      "type": "Text",
+      "props": {
+        "text": "Limits",
+        "font": 15,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n242",
+      "type": "Text",
+      "props": {
+        "text": "What one view may use before the design check warns",
+        "font": 12,
+        "weight": "regular",
+        "lineLimit": 2,
+        "color": "secondary"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n243",
+      "type": "VStack",
+      "props": {
+        "spacing": 12,
+        "alignment": "leading"
+      }
+    },
+    {
+      "op": "create",
+      "id": "n244",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n245",
+      "type": "Text",
+      "props": {
+        "text": "Type roles",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n246",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n247",
+      "type": "Text",
+      "props": {
+        "text": "5",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n248",
+      "type": "HStack",
+      "props": {
+        "spacing": 8
+      }
+    },
+    {
+      "op": "create",
+      "id": "n249",
+      "type": "Text",
+      "props": {
+        "text": "Accent colors",
+        "font": 13,
+        "weight": "semibold",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "create",
+      "id": "n250",
+      "type": "Spacer",
+      "props": {}
+    },
+    {
+      "op": "create",
+      "id": "n251",
+      "type": "Text",
+      "props": {
+        "text": "2",
+        "font": 13,
+        "weight": "regular",
+        "lineLimit": 1
+      }
+    },
+    {
+      "op": "children",
+      "id": "n1",
+      "children": ["n2", "n5", "n18", "n19", "n100", "n101", "n135", "n136", "n185", "n186", "n238", "n239"]
+    },
+    {
+      "op": "children",
+      "id": "n2",
+      "children": ["n3", "n4"]
+    },
+    {
+      "op": "children",
+      "id": "n5",
+      "children": ["n6", "n9"]
+    },
+    {
+      "op": "children",
+      "id": "n6",
+      "children": ["n7", "n8"]
+    },
+    {
+      "op": "children",
+      "id": "n9",
+      "children": ["n10", "n14"]
+    },
+    {
+      "op": "children",
+      "id": "n10",
+      "children": ["n11", "n12", "n13"]
+    },
+    {
+      "op": "children",
+      "id": "n14",
+      "children": ["n15", "n16", "n17"]
+    },
+    {
+      "op": "children",
+      "id": "n19",
+      "children": ["n20", "n23"]
+    },
+    {
+      "op": "children",
+      "id": "n20",
+      "children": ["n21", "n22"]
+    },
+    {
+      "op": "children",
+      "id": "n23",
+      "children": ["n24", "n35", "n45", "n54", "n63", "n72", "n81", "n90"]
+    },
+    {
+      "op": "children",
+      "id": "n24",
+      "children": ["n25", "n29"]
+    },
+    {
+      "op": "children",
+      "id": "n25",
+      "children": ["n26", "n27", "n28"]
+    },
+    {
+      "op": "children",
+      "id": "n29",
+      "children": ["n30", "n31", "n32", "n33", "n34"]
+    },
+    {
+      "op": "children",
+      "id": "n35",
+      "children": ["n36", "n40"]
+    },
+    {
+      "op": "children",
+      "id": "n36",
+      "children": ["n37", "n38", "n39"]
+    },
+    {
+      "op": "children",
+      "id": "n40",
+      "children": ["n41", "n42", "n43", "n44"]
+    },
+    {
+      "op": "children",
+      "id": "n45",
+      "children": ["n46", "n50"]
+    },
+    {
+      "op": "children",
+      "id": "n46",
+      "children": ["n47", "n48", "n49"]
+    },
+    {
+      "op": "children",
+      "id": "n50",
+      "children": ["n51", "n52", "n53"]
+    },
+    {
+      "op": "children",
+      "id": "n54",
+      "children": ["n55", "n59"]
+    },
+    {
+      "op": "children",
+      "id": "n55",
+      "children": ["n56", "n57", "n58"]
+    },
+    {
+      "op": "children",
+      "id": "n59",
+      "children": ["n60", "n61", "n62"]
+    },
+    {
+      "op": "children",
+      "id": "n63",
+      "children": ["n64", "n68"]
+    },
+    {
+      "op": "children",
+      "id": "n64",
+      "children": ["n65", "n66", "n67"]
+    },
+    {
+      "op": "children",
+      "id": "n68",
+      "children": ["n69", "n70", "n71"]
+    },
+    {
+      "op": "children",
+      "id": "n72",
+      "children": ["n73", "n77"]
+    },
+    {
+      "op": "children",
+      "id": "n73",
+      "children": ["n74", "n75", "n76"]
+    },
+    {
+      "op": "children",
+      "id": "n77",
+      "children": ["n78", "n79", "n80"]
+    },
+    {
+      "op": "children",
+      "id": "n81",
+      "children": ["n82", "n86"]
+    },
+    {
+      "op": "children",
+      "id": "n82",
+      "children": ["n83", "n84", "n85"]
+    },
+    {
+      "op": "children",
+      "id": "n86",
+      "children": ["n87", "n88", "n89"]
+    },
+    {
+      "op": "children",
+      "id": "n90",
+      "children": ["n91", "n95"]
+    },
+    {
+      "op": "children",
+      "id": "n91",
+      "children": ["n92", "n93", "n94"]
+    },
+    {
+      "op": "children",
+      "id": "n95",
+      "children": ["n96", "n97", "n98", "n99"]
+    },
+    {
+      "op": "children",
+      "id": "n101",
+      "children": ["n102", "n105"]
+    },
+    {
+      "op": "children",
+      "id": "n102",
+      "children": ["n103", "n104"]
+    },
+    {
+      "op": "children",
+      "id": "n105",
+      "children": ["n106", "n107", "n111", "n115", "n119", "n123", "n127", "n131"]
+    },
+    {
+      "op": "children",
+      "id": "n107",
+      "children": ["n108", "n109", "n110"]
+    },
+    {
+      "op": "children",
+      "id": "n111",
+      "children": ["n112", "n113", "n114"]
+    },
+    {
+      "op": "children",
+      "id": "n115",
+      "children": ["n116", "n117", "n118"]
+    },
+    {
+      "op": "children",
+      "id": "n119",
+      "children": ["n120", "n121", "n122"]
+    },
+    {
+      "op": "children",
+      "id": "n123",
+      "children": ["n124", "n125", "n126"]
+    },
+    {
+      "op": "children",
+      "id": "n127",
+      "children": ["n128", "n129", "n130"]
+    },
+    {
+      "op": "children",
+      "id": "n131",
+      "children": ["n132", "n133", "n134"]
+    },
+    {
+      "op": "children",
+      "id": "n136",
+      "children": ["n137", "n140"]
+    },
+    {
+      "op": "children",
+      "id": "n137",
+      "children": ["n138", "n139"]
+    },
+    {
+      "op": "children",
+      "id": "n140",
+      "children": ["n141", "n145", "n149", "n153", "n157", "n161", "n165", "n169", "n173", "n179"]
+    },
+    {
+      "op": "children",
+      "id": "n141",
+      "children": ["n142", "n143", "n144"]
+    },
+    {
+      "op": "children",
+      "id": "n145",
+      "children": ["n146", "n147", "n148"]
+    },
+    {
+      "op": "children",
+      "id": "n149",
+      "children": ["n150", "n151", "n152"]
+    },
+    {
+      "op": "children",
+      "id": "n153",
+      "children": ["n154", "n155", "n156"]
+    },
+    {
+      "op": "children",
+      "id": "n157",
+      "children": ["n158", "n159", "n160"]
+    },
+    {
+      "op": "children",
+      "id": "n161",
+      "children": ["n162", "n163", "n164"]
+    },
+    {
+      "op": "children",
+      "id": "n165",
+      "children": ["n166", "n167", "n168"]
+    },
+    {
+      "op": "children",
+      "id": "n169",
+      "children": ["n170", "n171", "n172"]
+    },
+    {
+      "op": "children",
+      "id": "n173",
+      "children": ["n174", "n175", "n176", "n177", "n178"]
+    },
+    {
+      "op": "children",
+      "id": "n179",
+      "children": ["n180", "n181", "n182", "n183", "n184"]
+    },
+    {
+      "op": "children",
+      "id": "n186",
+      "children": ["n187", "n190"]
+    },
+    {
+      "op": "children",
+      "id": "n187",
+      "children": ["n188", "n189"]
+    },
+    {
+      "op": "children",
+      "id": "n190",
+      "children": ["n191", "n196", "n220", "n225", "n231"]
+    },
+    {
+      "op": "children",
+      "id": "n191",
+      "children": ["n192", "n193"]
+    },
+    {
+      "op": "children",
+      "id": "n193",
+      "children": ["n194", "n195"]
+    },
+    {
+      "op": "children",
+      "id": "n196",
+      "children": ["n197", "n198"]
+    },
+    {
+      "op": "children",
+      "id": "n198",
+      "children": ["n199", "n206", "n213"]
+    },
+    {
+      "op": "children",
+      "id": "n199",
+      "children": ["n200", "n201", "n204", "n205"]
+    },
+    {
+      "op": "children",
+      "id": "n201",
+      "children": ["n202", "n203"]
+    },
+    {
+      "op": "children",
+      "id": "n206",
+      "children": ["n207", "n208", "n211", "n212"]
+    },
+    {
+      "op": "children",
+      "id": "n208",
+      "children": ["n209", "n210"]
+    },
+    {
+      "op": "children",
+      "id": "n213",
+      "children": ["n214", "n215", "n218", "n219"]
+    },
+    {
+      "op": "children",
+      "id": "n215",
+      "children": ["n216", "n217"]
+    },
+    {
+      "op": "children",
+      "id": "n220",
+      "children": ["n221", "n222"]
+    },
+    {
+      "op": "children",
+      "id": "n222",
+      "children": ["n223", "n224"]
+    },
+    {
+      "op": "children",
+      "id": "n225",
+      "children": ["n226", "n227"]
+    },
+    {
+      "op": "children",
+      "id": "n227",
+      "children": ["n228", "n229", "n230"]
+    },
+    {
+      "op": "children",
+      "id": "n231",
+      "children": ["n232", "n233"]
+    },
+    {
+      "op": "children",
+      "id": "n233",
+      "children": ["n234", "n235", "n236", "n237"]
+    },
+    {
+      "op": "children",
+      "id": "n239",
+      "children": ["n240", "n243"]
+    },
+    {
+      "op": "children",
+      "id": "n240",
+      "children": ["n241", "n242"]
+    },
+    {
+      "op": "children",
+      "id": "n243",
+      "children": ["n244", "n248"]
+    },
+    {
+      "op": "children",
+      "id": "n244",
+      "children": ["n245", "n246", "n247"]
+    },
+    {
+      "op": "children",
+      "id": "n248",
+      "children": ["n249", "n250", "n251"]
+    },
+    {
+      "op": "root",
+      "id": "n1"
+    }
+  ]
+}

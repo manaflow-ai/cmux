@@ -143,7 +143,7 @@ pub(super) struct Change {
 impl Change {
     fn to_json(&self) -> Value {
         json!({ "key": self.key, "was": self.was, "now": self.now, "kept": self.kept,
-                "file": self.file })
+                "file": self.file, "text": self.text() })
     }
 
     /// `type.numeral: cmux changed it from 34 pt semibold to 36 pt semibold (yours holds)`.
@@ -248,6 +248,86 @@ impl Resolved {
         })
     }
 }
+
+impl Resolved {
+    /// The line under the system's name: the layers it is built from, as a person names them.
+    pub(super) fn note(&self) -> String {
+        let names: Vec<String> = self
+            .layers
+            .iter()
+            .filter(|l| l.applied && l.kind != "cmux")
+            .map(|l| match l.kind {
+                "person" => Path::new(&l.label)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| l.label.clone()),
+                _ => l.label.clone(),
+            })
+            .collect();
+        if names.is_empty() {
+            "cmux's own design system; add design.json beside your settings to make it yours".into()
+        } else {
+            format!("Built on cmux, then {}", names.join(", then "))
+        }
+    }
+
+    /// The Settings page's scene: the SDK's DesignSystemView of this system, its changed roles
+    /// marked, drawn by the real app runtime in QuickJS as the daemon's app host draws a pane. The
+    /// ops are one batch a SceneStore applies.
+    #[cfg(unix)]
+    pub(super) fn scene(&self) -> Result<Value, String> {
+        use cmux_app_host::{AppInfo, AppVm, FromHost, InitParams, Limits};
+        let mut vm = AppVm::new(Limits::default())?;
+        vm.init(InitParams {
+            app: AppInfo { id: "cmux/design-system".into(), version: "1.0.0".into() },
+            settings: json!({}),
+            api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
+            ops: Some(Vec::new()),
+            known_ops: None,
+            locale: None,
+            strings: Value::Null,
+            main: DESIGN_VIEW.into(),
+            main_name: Some("design_view/dist/main.js".into()),
+        })
+        .map_err(|e| format!("the design view did not load: {e:?}"))?;
+        let context = json!({
+            "surface": "pane",
+            "design": {
+                "system": self.system.to_json(),
+                "changed": self.changed.iter().map(Change::to_json).collect::<Vec<_>>(),
+                "note": self.note(),
+            },
+        });
+        let mount = "design-system";
+        if let Some(refused) =
+            vm.mount(mount, "renderDesign", &context).map_err(|e| format!("{e:?}"))?
+        {
+            return Err(format!("the design view did not draw: {refused}"));
+        }
+        let mut ops = Vec::new();
+        for message in vm.take_outbox() {
+            match message {
+                FromHost::Scene { ops: batch, .. } => {
+                    ops.extend(batch.as_array().cloned().unwrap_or_default())
+                }
+                FromHost::Fatal { .. } => {
+                    return Err(format!("the design view stopped: {message:?}"));
+                }
+                _ => {}
+            }
+        }
+        Ok(Value::Array(ops))
+    }
+
+    #[cfg(not(unix))]
+    pub(super) fn scene(&self) -> Result<Value, String> {
+        Err("the design view draws on macOS and Linux".into())
+    }
+}
+
+/// The packed DesignSystemView pane (`design_view/src/main.ts`).
+#[cfg(unix)]
+const DESIGN_VIEW: &str = include_str!("design_view/dist/main.js");
 
 /// The values of cmux's own system a person's file records as its `base`: every cmux type role,
 /// the spacing scale and the limits.
@@ -356,10 +436,22 @@ pub(super) fn stamp(places: &Places, json_out: bool) -> i32 {
     super::exit::OK
 }
 
-/// `ext design --show [DIR]`: the system an extension in DIR (or none) gets, layer by layer.
-pub(super) fn show(resolved: &Resolved, json_out: bool) -> i32 {
-    if json_out {
-        println!("{}", resolved.to_json());
+/// `ext design --show [DIR] [--scene]`: the system an extension in DIR (or none) gets, layer by
+/// layer; `--scene` adds the Settings page's scene ops to the JSON.
+pub(super) fn show(resolved: &Resolved, scene: bool, json_out: bool) -> i32 {
+    if json_out || scene {
+        let mut out = resolved.to_json();
+        out["note"] = json!(resolved.note());
+        if scene {
+            match resolved.scene() {
+                Ok(ops) => out["scene"] = ops,
+                Err(problem) => {
+                    eprintln!("cmux: {problem}");
+                    return super::exit::LOAD_FAILED;
+                }
+            }
+        }
+        println!("{out}");
         return super::exit::OK;
     }
     let system = &resolved.system;

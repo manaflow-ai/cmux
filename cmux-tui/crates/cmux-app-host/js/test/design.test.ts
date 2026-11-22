@@ -5,7 +5,9 @@
 //
 // It also records the two scenes the gallery draws (webviews/src/apps/scene/DesignSystem.gallery.tsx):
 //   CMUX_RECORD_DESIGN_SYSTEM=1 bun test cmux-tui/crates/cmux-app-host/js/test/design.test.ts
-// rewrites webviews/src/apps/scene/fixtures/design-system-scenes.json.
+// rewrites webviews/src/apps/scene/fixtures/design-system-scenes.json, and the Settings page's
+// scene (cmux ext design --show --scene, design_view in cmux-tui's ext folder) with cmux's roles
+// changed under a person's design.json into webviews/src/pages/settings/fixtures/design-system-page.json.
 import { beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -15,6 +17,7 @@ import { FakeHost, type Op } from "./fake-host.ts"
 
 type Sdk = typeof import("../../../cmux-extension-sdk/typescript/src/index.ts")
 type DesignSpec = import("../../../cmux-extension-sdk/typescript/src/index.ts").DesignSpec
+type DesignChange = import("../../../cmux-extension-sdk/typescript/src/index.ts").DesignChange
 // The SDK reads the runtime's view builders from the sandbox's globals when it loads, so it is
 // imported after they are set: a static import here would load it, for every test file in this
 // run, with `Text` and the rest undefined.
@@ -25,6 +28,8 @@ const root = join(import.meta.dir, "../../../../..")
 const example = join(root, "examples/extensions/design-system")
 const sdk = join(root, "cmux-tui/crates/cmux-extension-sdk/typescript/src/index.ts")
 const fixture = join(root, "webviews/src/apps/scene/fixtures/design-system-scenes.json")
+const settingsView = join(root, "cmux-tui/crates/cmux-tui/src/cli/ext/design_view")
+const settingsFixture = join(root, "webviews/src/pages/settings/fixtures/design-system-page.json")
 const spec = JSON.parse(readFileSync(join(example, "cmux-design.json"), "utf8")) as DesignSpec
 
 let built = ""
@@ -174,5 +179,53 @@ describe("DesignSystemView in the fake host", () => {
     // Formatted as webviews' lint checks it, when its dependencies are installed.
     const vp = join(root, "webviews/node_modules/.bin/vp")
     if (existsSync(vp)) expect(Bun.spawnSync([vp, "fmt", fixture], { cwd: join(root, "webviews") }).exitCode).toBe(0)
+  })
+})
+
+// What `cmux ext design --show --json` lists under `changed` (design_layers.rs), for a person's
+// design.json written when cmux's numeral was 32 pt and its scale ended at 40, who set the scale.
+const changes: DesignChange[] = [
+  { key: "type.numeral", was: { size: 32, weight: "semibold" }, now: { size: 34, weight: "semibold" }, kept: false, text: "type.numeral: cmux changed it from 32 pt semibold to 34 pt semibold (you get the new one)", file: "design.json" },
+  { key: "space", was: [0, 2, 4, 8, 16, 40], now: Object.values(SPACE), kept: true, text: "space: cmux changed it from 0 2 4 8 16 40 to 0 2 4 6 8 12 16 20 24 32 48 (yours holds)", file: "design.json" },
+]
+
+describe("the Settings page's view (cmux ext design --show --scene)", () => {
+  let view = ""
+  beforeAll(async () => {
+    view = await pack(settingsView, { sdk })
+  })
+
+  test("the CLI embeds the packed build of design_view/src/main.ts", () => {
+    // Stale: CMUX_EXTENSION_SDK=$PWD/cmux-tui/crates/cmux-extension-sdk/typescript/src/index.ts bun cmux-tui/crates/cmux-app-host/tools/pack.ts cmux-tui/crates/cmux-tui/src/cli/ext/design_view
+    expect(readFileSync(join(settingsView, "dist/main.js"), "utf8")).toBe(view)
+  })
+
+  test("roles cmux changed since the person's base are marked and listed first; the note names the layers", async () => {
+    const host = new FakeHost(view)
+    const context = { surface: "pane", design: { system: { ...spec, space: [0, 4, 8, 12, 16, 24, 32] }, changed: changes, note: "Built on cmux, then design.json" } }
+    expect(host.mount("m", "renderDesign", context)).toBe("")
+    await host.settle()
+    const nodes = drawn(host, "m")
+    const words = nodes.filter((n) => n.type === "Text").map((n) => String(n.props.text))
+    expect(words).toContain("Built on cmux, then design.json")
+    expect(words.indexOf("Changed in cmux")).toBeLessThan(words.indexOf("Type"))
+    for (const change of changes) expect(words).toContain(change.text)
+    const badges = nodes.filter((n) => n.type === "Badge").map((n) => String(n.props.text))
+    expect(badges.filter((b) => b === "cmux changed")).toHaveLength(2)
+    expect(badges.filter((b) => b === "cmux changed, yours holds")).toHaveLength(2)
+    // The numeral row carries the mark beside its own.
+    expect(badges).toEqual(expect.arrayContaining(["overrides", "adds"]))
+    // With nothing changed, there is no list and no mark: the slice 1 viewer as it was.
+    const plain = new FakeHost(view)
+    expect(plain.mount("m", "renderDesign", { surface: "pane", design: {} })).toBe("")
+    await plain.settle()
+    const plainWords = drawn(plain, "m").filter((n) => n.type === "Text").map((n) => String(n.props.text))
+    expect(plainWords).not.toContain("Changed in cmux")
+    expect(plainWords).toContain("cmux")
+    if (process.env.CMUX_RECORD_DESIGN_SYSTEM) {
+      writeFileSync(settingsFixture, `${JSON.stringify({ cmux: snapshot(plain, "m"), changed: snapshot(host, "m") }, null, 2)}\n`)
+      const vp = join(root, "webviews/node_modules/.bin/vp")
+      if (existsSync(vp)) expect(Bun.spawnSync([vp, "fmt", settingsFixture], { cwd: join(root, "webviews") }).exitCode).toBe(0)
+    }
   })
 })

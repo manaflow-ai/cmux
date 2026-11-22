@@ -103,9 +103,10 @@ cmux ext: make a cmux extension and watch it change as you work.
                                system: cmux's, then the theme file's design layer, then
                                design.json beside the settings, then --system (ext dev reads
                                DIR/cmux-design.json); exit 1 on a warning
-  cmux ext design --show [DIR] [--json]
+  cmux ext design --show [DIR] [--scene] [--json]
                                that system, layer by layer, and each role cmux changed since your
-                               design.json recorded its base (what Settings > Design system draws)
+                               design.json recorded its base; --scene adds the scene Settings >
+                               Design system draws (JSON)
   cmux ext design --stamp      record cmux's current system as design.json's base
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
@@ -177,6 +178,7 @@ pub(super) enum Request {
     DesignShow {
         dir: Option<PathBuf>,
         system: Option<PathBuf>,
+        scene: bool,
     },
     /// `ext design --stamp`: record cmux's base in the person's design.json.
     DesignStamp,
@@ -343,12 +345,14 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut system = None;
             let mut show = false;
             let mut stamp = false;
+            let mut scene = false;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--widget" => widget = true,
                     "--show" => show = true,
                     "--stamp" => stamp = true,
+                    "--scene" => scene = true,
                     "--system" => {
                         system = Some(PathBuf::from(
                             words
@@ -363,7 +367,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             if stamp {
-                if show || widget || system.is_some() || !files.is_empty() {
+                if show || widget || scene || system.is_some() || !files.is_empty() {
                     return Err(usage("ext design --stamp takes no other argument"));
                 }
                 return Ok(Request::DesignStamp);
@@ -372,7 +376,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 if widget || files.len() > 1 {
                     return Err(usage("ext design --show takes one folder at most"));
                 }
-                return Ok(Request::DesignShow { dir: files.pop(), system });
+                return Ok(Request::DesignShow { dir: files.pop(), system, scene });
+            }
+            if scene {
+                return Err(usage("--scene goes with ext design --show"));
             }
             if files.is_empty() {
                 return Err(usage("ext design needs a scene FILE"));
@@ -614,13 +621,13 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             }
             design::run(&files, surface, &resolved.system, json_out)
         }
-        Request::DesignShow { dir, system } => {
+        Request::DesignShow { dir, system, scene } => {
             let places = design_layers::Places::current();
             let dir = dir.map(absolute);
             let resolved = design_layers::Resolved::from_sources(
                 &places.sources(dir.as_deref(), system.as_deref()),
             );
-            design_layers::show(&resolved, json_out)
+            design_layers::show(&resolved, scene, json_out)
         }
         Request::DesignStamp => design_layers::stamp(&design_layers::Places::current(), json_out),
         Request::Pack(mut options) => {
