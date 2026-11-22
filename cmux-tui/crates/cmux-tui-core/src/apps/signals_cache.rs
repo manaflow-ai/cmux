@@ -57,14 +57,19 @@ pub(super) fn sources() -> &'static HashMap<String, Source> {
         let table: Value =
             serde_json::from_str(include_str!("../../../cmux-app-host/generated/signals.json"))
                 .unwrap_or_default();
-        let Some(signals) = table["signals"].as_object() else { return HashMap::new() };
+        let Some(signals) = table.get("signals").and_then(Value::as_object) else {
+            return HashMap::new();
+        };
         signals
             .iter()
             .filter_map(|(name, def)| {
-                let op = def["read"]["op"].as_str()?.to_string();
-                let secs = |k: &str| Duration::from_secs(def[k].as_u64().unwrap_or(60).max(1));
-                let push = def["push"]
-                    .as_array()
+                let op = def.get("read")?.get("op")?.as_str()?.to_string();
+                let secs = |k: &str| {
+                    Duration::from_secs(def.get(k).and_then(Value::as_u64).unwrap_or(60).max(1))
+                };
+                let push = def
+                    .get("push")
+                    .and_then(Value::as_array)
                     .map(|p| p.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
                     .unwrap_or_default();
                 let source = Source {
@@ -188,8 +193,8 @@ impl<W> Entry<W> {
             "status": self.status.as_str(),
             "updatedAt": self.updated_at_ms,
         });
-        if let Some(error) = &self.error {
-            state["error"] = error.clone();
+        if let (Some(error), Some(map)) = (&self.error, state.as_object_mut()) {
+            map.insert("error".into(), error.clone());
         }
         state
     }
@@ -240,6 +245,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
     }
 
     /// Watcher `w` of `app` (on `mount`, if any) watches `source` with `params`.
+    #[allow(clippy::too_many_arguments)]
     pub fn watch(
         &mut self,
         w: W,
@@ -281,7 +287,9 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         self.watchers
             .insert(w.clone(), Watcher { key: key.clone(), app: app.to_string(), mount, every });
         if !fresh_entry {
-            fx.tell.push((w, self.entries[&key].state()));
+            if let Some(e) = self.entries.get(&key) {
+                fx.tell.push((w, e.state()));
+            }
         }
         if fresh_entry || (!was_awake && self.awake(&key)) {
             self.wake(&key, now, &mut fx);
@@ -329,7 +337,7 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
         }
         let mut fx = Effects::default();
         for key in keys {
-            if !before[&key] && self.awake(&key) {
+            if !before.get(&key).copied().unwrap_or(false) && self.awake(&key) {
                 self.wake(&key, now, &mut fx);
             } else {
                 self.rearm(&key, now, &mut fx);
@@ -409,8 +417,9 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
             }
             Err(error) => {
                 e.failures += 1;
-                let code = error["code"].as_str().unwrap_or("");
-                let not_retryable = code == "upstream.failed" && error["retryable"] == false;
+                let code = error.get("code").and_then(Value::as_str).unwrap_or("");
+                let not_retryable = code == "upstream.failed"
+                    && error.get("retryable") == Some(&Value::Bool(false));
                 e.stopped = FINAL.contains(&code) || not_retryable;
                 e.status = if e.value.is_some() { Status::Stale } else { Status::Error };
                 e.error = Some(error);
@@ -450,7 +459,8 @@ impl<W: Clone + Eq + Hash + Ord, M: Clone + Eq + Hash> SignalsCache<W, M> {
             else {
                 return;
             };
-            self.watchers[w].app.clone()
+            let Some(watcher) = self.watchers.get(w) else { return };
+            watcher.app.clone()
         };
         let Some(e) = self.entries.get_mut(key) else { return };
         if e.inflight {
