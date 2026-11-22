@@ -133,6 +133,16 @@ impl Dialer for MachinePipeDialer {
         "machine"
     }
 
+    /// One link for every lane: each dial is a hub circuit of its own (a ticket, a relay
+    /// allocation, the far machine joining, a Noise exchange, then the route's WebSocket and
+    /// Noise), all through the same relay and the same far uplink, so links of their own buy no
+    /// separate path. Measured to a Mac on a slow uplink, 2 to 8 s each: the first connect's three
+    /// circuits (the second and third after the first) outran the 15 s attempt and started over,
+    /// and a slow join on any one of them ended the whole connect.
+    fn parallel_links(&self) -> bool {
+        false
+    }
+
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         if !loopback_host(host) {
             // Not redialed: no redial makes this route reachable this way.
@@ -233,6 +243,36 @@ mod tests {
                 machine_pipe_reply(reply(&folded, "machine.unreachable").as_bytes()).unwrap_err();
             assert_eq!(error.refusal().map(|r| r.message.as_str()), Some("no"), "{reason}");
         }
+    }
+
+    /// A route through another machine makes one link for every lane: each link is a hub
+    /// circuit of its own, and the first connect waited on three of them (cmux `remote exec
+    /// --via-machine` to a Mac on a slow uplink: 7 to 52 s, 2 in 10 timed out at 60 s).
+    #[tokio::test]
+    async fn a_route_through_a_machine_dials_one_link_for_every_lane() {
+        use crate::provider::{
+            ConnectRequest, DirectWebSocketProvider, OsTcpDialer, TransportProvider, lane_bindings,
+        };
+        use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
+        use std::sync::Arc;
+
+        let bindings = |dialer: Arc<dyn Dialer>| async move {
+            let request = ConnectRequest {
+                endpoint: url::Url::parse("ws://127.0.0.1:7781/v1/link").unwrap(),
+                session: SessionId([7; 16]),
+                lane_policy: LanePolicy::Auto,
+                routing: Default::default(),
+            };
+            let group = DirectWebSocketProvider::with_dialer(1 << 20, dialer)
+                .connect(request)
+                .await
+                .unwrap();
+            lane_bindings(LanePolicy::Auto, group.capabilities())
+        };
+        let machine = MachinePipeDialer::new("/nonexistent/acpmux.sock".into(), "mac".into());
+        assert_eq!(bindings(Arc::new(machine)).await, vec![Lane::ALL.to_vec()]);
+        // A direct WebSocket keeps a link per lane group.
+        assert_eq!(bindings(Arc::new(OsTcpDialer)).await.len(), 3);
     }
 
     /// The dialer asks once, reads exactly the reply line, and hands back the rest of the
