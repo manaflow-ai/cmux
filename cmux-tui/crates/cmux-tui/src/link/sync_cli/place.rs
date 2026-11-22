@@ -355,6 +355,11 @@ impl Dir {
         .map(drop)
     }
 
+    /// Removes the folder `name` here when it is empty (an error otherwise).
+    pub(super) fn remove_empty_dir(&self, name: &str) -> io::Result<()> {
+        self.unlink(name, true)
+    }
+
     fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
         let c = c_name(name)?;
         let flags = if folder { libc::AT_REMOVEDIR } else { 0 };
@@ -379,6 +384,43 @@ pub(super) fn parent_of(root: &Dir, relative: &str) -> io::Result<Option<(Dir, S
         None => root.dup()?,
     };
     Ok(Some((dir, name)))
+}
+
+/// The folders on the way to the last path asked for, held open: paths that
+/// come in order (git lists them sorted) reopen only the folders they do not
+/// share with the one before, so a listing costs one open per folder, not
+/// one per folder per file. Each folder is still opened by descriptor
+/// without following a symlink, as [`parent_of`] does.
+#[derive(Default)]
+pub(super) struct Chain {
+    open: Vec<(String, Dir)>,
+}
+
+impl Chain {
+    /// The folder holding `relative` under `root` and the name in it, as
+    /// [`parent_of`]: None when a folder on the way is missing; an error
+    /// when one is not a folder (a symlink).
+    pub(super) fn parent_of<'a>(
+        &'a mut self,
+        root: &'a Dir,
+        relative: &'a str,
+    ) -> io::Result<Option<(&'a Dir, &'a str)>> {
+        let (folders, name) = match relative.rsplit_once('/') {
+            Some((folders, name)) => (folders, name),
+            None => ("", relative),
+        };
+        let parts: Vec<&str> =
+            if folders.is_empty() { Vec::new() } else { folders.split('/').collect() };
+        let shared =
+            self.open.iter().zip(&parts).take_while(|((open, _), part)| open == *part).count();
+        self.open.truncate(shared);
+        for part in parts.iter().skip(shared) {
+            let at = self.open.last().map_or(root, |(_, dir)| dir);
+            let Some(next) = at.child(part)? else { return Ok(None) };
+            self.open.push(((*part).to_string(), next));
+        }
+        Ok(Some((self.open.last().map_or(root, |(_, dir)| dir), name)))
+    }
 }
 
 impl Dir {
@@ -583,6 +625,12 @@ impl Transaction {
             self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
         }
         Err(Changed(relative.into()).into())
+    }
+
+    /// Makes the folder `relative` and any missing folder above it (each undone by roll back);
+    /// nothing when it is there.
+    pub(super) fn folder(&mut self, relative: &str) -> anyhow::Result<()> {
+        self.folder_for(&format!("{relative}/.")).map(drop)
     }
 
     /// Puts back everything this pull changed, newest first. The error

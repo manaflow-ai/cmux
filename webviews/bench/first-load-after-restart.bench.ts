@@ -272,7 +272,9 @@ const CLAUDE_MODES = {
   ],
   currentModeId: "bypassPermissions",
 };
-const listedRow: Record<string, unknown> = NO_MODES ? listedBase : { ...listedBase, currentModeId: "bypassPermissions" };
+const listedRow: Record<string, unknown> = NO_MODES
+  ? listedBase
+  : { ...listedBase, currentModeId: "bypassPermissions" };
 const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow, modes: CLAUDE_MODES };
 /// EARLY_CHANGE=1: on a relaunch, acpmux sends a `_acpmux/session_changed` for the shown chat (its whole listed
 /// row, no `modes`) right after the list (`_acpmux/watch`) answers, and holds the attach's answer until it has.
@@ -503,7 +505,7 @@ function chipReport(frames: Painted[], firstContentMs: number | null): ChipRepor
   }
   return { vanished, vanishedLabels: [...new Set(vanished.map((one) => `${one.slot}: ${one.label}`))], chipChanges };
 }
-type LayoutShiftSeen ={ at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
+type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
   /// The layout-shift entries' sum over the recording (none with recent input).
@@ -1632,10 +1634,13 @@ try {
       if (castCdp) {
         const frames: { at: number; data: string }[] = [];
         cast = frames;
-        castCdp.on("Page.screencastFrame", (event: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
-          frames.push({ at: (event.metadata.timestamp ?? Date.now() / 1000) * 1000, data: event.data });
-          void castCdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
-        });
+        castCdp.on(
+          "Page.screencastFrame",
+          (event: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
+            frames.push({ at: (event.metadata.timestamp ?? Date.now() / 1000) * 1000, data: event.data });
+            void castCdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
+          },
+        );
         await castCdp.send("Page.startScreencast", {
           format: "png",
           everyNthFrame: 1,
@@ -1720,6 +1725,14 @@ try {
           const before = cast.filter((frame) => frame.at <= epoch).at(-1);
           const after = cast.find((frame) => frame.at > epoch);
           if (!before || !after) return null;
+          // The two frames, for a person to look at (cmux-ci test --artifact DIR).
+          const out = process.env.FAST_CHECKS_OUT;
+          if (out)
+            for (const [name, frame] of [
+              ["before", before],
+              ["after", after],
+            ] as const)
+              fs.writeFileSync(path.join(out, `hole-${MODE}-${name}.png`), Buffer.from(frame.data, "base64"));
           return {
             beforeMs: Math.round(before.at - got.origin),
             afterMs: Math.round(after.at - got.origin),
