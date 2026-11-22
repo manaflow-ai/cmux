@@ -297,9 +297,10 @@ const plain = papercutEvents({
 });
 if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
   throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
-const worked = (
-  FIXTURE === "work" ? longRun(TURNS).events : FIXTURE === "replay" ? replayed : []
-).map((event) => ({ ...event, sessionId: PAPERCUT_CHAT }));
+const worked = (FIXTURE === "work" ? longRun(TURNS).events : FIXTURE === "replay" ? replayed : []).map((event) => ({
+  ...event,
+  sessionId: PAPERCUT_CHAT,
+}));
 const events = FIXTURE === "plain" ? plain.events : worked;
 const session =
   FIXTURE !== "plain"
@@ -314,10 +315,11 @@ const session =
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
-  newestPage(
-    Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events,
-    { limit, beforeSeq, maxBytes },
-  );
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+    limit,
+    beforeSeq,
+    maxBytes,
+  });
 /// A turn's prompt as acpmux reads it (server/requests/turn_opener.rs `starts_turn`): not a steer.
 const startsTurn = (event: { dir?: string; kind?: string; msg?: unknown }) =>
   event.dir === "mux" && event.kind === "user_message" && (event.msg as { steer?: unknown })?.steer !== true;
@@ -372,7 +374,13 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore, turnOpener: turnOpener(page, hasMore) };
+      return {
+        session,
+        lastSeq: events.at(-1)?.seq ?? 0,
+        events: page,
+        hasMore,
+        turnOpener: turnOpener(page, hasMore),
+      };
     }
     case "_acpmux/events": {
       // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its text.
@@ -1587,7 +1595,14 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
-              ...(gone.length ? [`gone later ${gone.length}: ${gone.map((row) => row.id).slice(0, 6).join(" ")}`] : []),
+              ...(gone.length
+                ? [
+                    `gone later ${gone.length}: ${gone
+                      .map((row) => row.id)
+                      .slice(0, 6)
+                      .join(" ")}`,
+                  ]
+                : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );

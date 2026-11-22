@@ -100,9 +100,19 @@ describe("restart to settled", () => {
   test("rows a reload drew and the settled chat folded away count once each, with the frames that showed them", () => {
     // Leo, 2026-11-22: "they get folded/hidden anyways: so its quite pointless ... to stream them in".
     const frames = [
-      frame(80, [{ id: "call-1", top: 100 }, { id: "call-2", top: 140 }]),
-      frame(96, [{ id: "call-1", top: 100 }, { id: "call-2", top: 140 }, { id: "reply", top: 180 }]),
-      frame(700, [{ id: "worked", top: 100 }, { id: "reply", top: 140 }]),
+      frame(80, [
+        { id: "call-1", top: 100 },
+        { id: "call-2", top: 140 },
+      ]),
+      frame(96, [
+        { id: "call-1", top: 100 },
+        { id: "call-2", top: 140 },
+        { id: "reply", top: 180 },
+      ]),
+      frame(700, [
+        { id: "worked", top: 100 },
+        { id: "reply", top: 140 },
+      ]),
     ];
     expect(goneRows(frames)).toEqual({ rows: 2, frames: 2 });
     expect(restartSettled(frames, classifyFrames(frames), 650)).toMatchObject({ goneRows: 2, goneFrames: 2 });
