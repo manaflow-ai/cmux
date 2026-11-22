@@ -102,6 +102,13 @@ jobs:
           path: ${{ runner.temp }}/macos-cross/ref
           merge-multiple: true
 
+      # cmux-tailnet's build.rs builds libtailscale with this Go (cmux-tui-build-package.yml pins the same).
+      - name: Install Go for the embedded tailnet archive
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
+
       - name: Build on Linux (no Apple SDK)
         run: |
           set -euo pipefail
