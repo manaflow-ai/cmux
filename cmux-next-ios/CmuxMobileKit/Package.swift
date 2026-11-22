@@ -186,6 +186,8 @@ let package = Package(
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
+            // Share <Mac> from a not-shared row: the approval it signs is built and checked in Rust.
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ]),
         // Chief calls: the Action Button voice note (recorder, on-device transcriber, delivery to Chief)
         // and the live call (WebRTC link to the Realtime API, call screen, Chief's tools).
