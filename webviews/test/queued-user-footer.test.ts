@@ -420,6 +420,47 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       await page.context().close();
     }
   });
+  // G03: the queued row's actions are keyboard reachable. The transcript's row stop on the queued
+  // prompt, or Tab onto its Send now, shows Copy and × as hover does, and Send now does not move.
+  test("keyboard focus on a waiting steer's row or its Send now shows its hover actions", async () => {
+    const page = await open();
+    try {
+      const row = footer(page);
+      const groupOpacity = () =>
+        page.evaluate(() => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity);
+      const sendRight = () =>
+        row.locator(".cv-user__send-now").evaluate((element) => element.getBoundingClientRect().right);
+      await page.mouse.move(0, 0);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "0",
+      );
+      const rest = await sendRight();
+      // A key first, so the script focus that follows is keyboard modality (:focus-visible).
+      await page.keyboard.press("Shift");
+      await page.evaluate(() => {
+        const article = document.querySelector<HTMLElement>("article.acpmux-user:has(.cv-user__pending)")!;
+        if (!article.hasAttribute("tabindex")) article.tabIndex = -1;
+        article.focus();
+      });
+      expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible") ?? false)).toBe(true);
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "1",
+      );
+      expect(Math.abs((await sendRight()) - rest)).toBeLessThanOrEqual(0.5);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "0",
+      );
+      await row.locator(".cv-user__send-now").focus();
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".cv-user__queued-hover")!).opacity === "1",
+      );
+      expect(await groupOpacity()).toBe("1");
+      expect(Math.abs((await sendRight()) - rest)).toBeLessThanOrEqual(0.5);
+    } finally {
+      await page.context().close();
+    }
+  });
   test("taking a waiting steer back restores its draft and image attachment", async () => {
     const page = await open(TEXT, true);
     try {

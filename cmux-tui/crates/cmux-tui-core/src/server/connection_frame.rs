@@ -389,7 +389,8 @@ fn handle_request_uncounted(
                 .or_else(|| cloud_conversations::error_reason(&error));
             retryable = cloud_conversations::error_retryable(&error);
             details = renderer_grant::error_details(&error)
-                .or_else(|| conversations::error_details(&error));
+                .or_else(|| conversations::error_details(&error))
+                .or_else(|| stop_if_idle::error_details(&error));
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);

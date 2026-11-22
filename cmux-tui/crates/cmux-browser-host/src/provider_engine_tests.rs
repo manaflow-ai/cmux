@@ -351,6 +351,31 @@ fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
     assert!(all.as_array().unwrap().iter().any(|t| t["targetId"] == "C"), "{all}");
 }
 
+/// A tab one agent session drove is listed as agent-driven to every later session (the app
+/// marked it for its life, so a later touch rebuilds nothing); a tab no agent touched is not, and
+/// a gone tab is forgotten. Only `{all: true}` rows say it.
+#[test]
+fn a_tab_an_agent_drove_lists_as_agent_driven_to_every_session() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("P", "webkit")]);
+    session(&provider, "webkit", "s1").call("tab.info", &json!({"targetId": "W"})).unwrap();
+    let later = session(&provider, "cef", "s2");
+    let driven = |tabs: &Value, id: &str| {
+        tabs.as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["targetId"] == id)
+            .map(|t| t.get("agentDriven").cloned())
+    };
+    let all = later.call("tabs.list", &json!({"all": true})).unwrap();
+    assert_eq!(driven(&all, "W"), Some(Some(json!(true))), "{all}");
+    assert_eq!(driven(&all, "P"), Some(None), "the person's own tab: {all}");
+    let own = later.call("tabs.list", &json!({})).unwrap();
+    assert!(own.as_array().unwrap().iter().all(|t| t.get("agentDriven").is_none()), "{own}");
+    app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "W"}) });
+    provider.call("tab.info", &json!({"targetId": "P"})).unwrap();
+    assert!(!provider.agent_tabs.lock().unwrap().contains("W"));
+}
+
 #[test]
 fn an_unreported_cef_tab_is_driven_and_a_missing_tab_is_not_found() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);

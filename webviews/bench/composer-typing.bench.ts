@@ -27,7 +27,7 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold] [--draft 20000]
 // With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
 // should neither render nor lay out.
 // `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
@@ -94,6 +94,15 @@ if (ENGINES.includes("webkit") && (PROFILE || TRACE))
   throw new Error("--profile and --trace read Chromium's DevTools protocol");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
+/// With --draft N the prompt already holds N characters of text (lines of about 80) when the measured keys are typed
+/// at its end: a key into a long draft should cost what a key into an empty one does.
+const DRAFT = Number(flag("--draft") ?? 0);
+if (!Number.isInteger(DRAFT) || DRAFT < 0)
+  throw new Error(`--draft must be a whole number of characters, not ${DRAFT}`);
+// WebKit runs and the L0-L3 load modes go through runComposerLoad, which never fills the draft: refuse them
+// rather than measure an empty prompt and call it a long draft.
+if (DRAFT > 0 && (ENGINE === "webkit" || ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error("--draft runs in Chromium's idle and stream modes only; WebKit and L0-L3 never fill the draft");
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
@@ -252,6 +261,20 @@ async function measure(
       await page.waitForTimeout(500);
       for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
     }
+    if (DRAFT > 0) {
+      const line = "the quick brown fox jumps over the lazy dog and keeps on running past the old fence";
+      const lines: string[] = [];
+      for (let size = 0; size < DRAFT; size += line.length + 1) lines.push(line);
+      await page.keyboard.insertText(lines.join("\n").slice(0, DRAFT));
+      await page.waitForTimeout(1000);
+      const held = await page
+        .locator(PROMPT)
+        .first()
+        .evaluate((field) => (field.textContent ?? "").length);
+      // A draft the field did not take measures an empty prompt: a run that says it typed into N characters must have.
+      if (held < DRAFT * 0.9) throw new Error(`--draft ${DRAFT}: the prompt holds ${held} characters`);
+      console.log(`DRAFT ${DRAFT} characters asked, ${held} in the prompt`);
+    }
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
@@ -383,6 +406,7 @@ async function measure(
       composer: per(renders.composer ?? 0),
       queue: per(renders["composer:queue"] ?? 0),
       queued: QUEUED,
+      draft: DRAFT,
       rowRenders: per(sum("row:") + sum("content:")),
       rowFrames: per(sum("frame:")),
       layouts: per(delta("LayoutCount")),

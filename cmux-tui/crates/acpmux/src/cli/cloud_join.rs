@@ -16,7 +16,8 @@ mod to_revoke;
 
 pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, LeaveOutcome, enroll_self,
-    finish_leave_at_start, leave_if_auto, leave_pending, record_leave_intent, relay_may_start,
+    finish_leave_at_start, leave_if_auto, leave_pending, mint_join_token, record_leave_intent,
+    relay_may_start,
 };
 pub(crate) use self_capabilities::{
     state_after_leave as state_capabilities_after_leave,
@@ -274,6 +275,27 @@ pub struct JoinedDevice {
 /// (`finish_leave_at_start`: no mark is `signedIn`). On a Mac that signs in and out often, one
 /// such revoke the hub never took kept the tunnel off for every join after it.
 pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
+    let record = active_join_at(home)?;
+    let hub_origin = origin(Some(record.hub_origin)).ok()?;
+    Some(JoinedDevice {
+        machine_id: record.machine_id,
+        team_id: record.team_id,
+        name: record.name,
+        hub_origin,
+    })
+}
+
+/// Owner of the active join in the specified authority's namespace.
+pub(crate) fn browser_app_owner(hub: &str) -> Option<(String, String)> {
+    let record = active_join_at(&state_dir())?;
+    let joined_origin = origin(Some(record.hub_origin)).ok()?;
+    if joined_origin != hub {
+        return None;
+    }
+    Some((record.team_id, safe_id(&record.user_id?)?))
+}
+
+fn active_join_at(home: &std::path::Path) -> Option<MachineCredential> {
     let record = load_at(home).ok().flatten()?;
     let current = host_fingerprint::current();
     let left = std::fs::symlink_metadata(home.join(enroll::LEAVE_FILE)).is_ok()
@@ -288,13 +310,7 @@ pub fn joined_device_at(home: &std::path::Path) -> Option<JoinedDevice> {
     {
         return None;
     }
-    let hub_origin = origin(Some(record.hub_origin.clone())).ok()?;
-    Some(JoinedDevice {
-        machine_id: record.machine_id,
-        team_id: record.team_id,
-        name: record.name,
-        hub_origin,
-    })
+    Some(record)
 }
 
 /// [`copied_from_another_box_at`], as the box whose fingerprint is `current`. A record that

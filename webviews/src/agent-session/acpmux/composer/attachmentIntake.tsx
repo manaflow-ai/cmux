@@ -38,6 +38,7 @@ import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
 import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { intl } from "../../../ui/intl";
 
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
@@ -577,7 +578,7 @@ function AttachmentChipPreview({
   // lines, under its name and line count.
   if (attachment.kind === "text" && attachment.text !== undefined) {
     const lines = pasteLines(attachment.text);
-    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: new Intl.NumberFormat(language).format(lines) })}`;
+    const label = `${attachment.name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count: intl.NumberFormat(language).format(lines) })}`;
     return menu(
       undefined,
       <div
