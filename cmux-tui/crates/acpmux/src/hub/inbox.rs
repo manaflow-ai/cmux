@@ -1308,9 +1308,6 @@ impl Hub {
                     // A resend of one it holds: answered with it.
                     Some(item) if !item.noticed || item.answer.is_some() => {
                         rx = item.answer.get_or_insert_with(|| tx.clone()).subscribe();
-                        // Sent again after it waited for this machine: it wakes the chat now
-                        // (`inbox_review` below), as it would have come in fresh.
-                        item.waited |= waited;
                         // A resend that waits for the reply reads it.
                         if reader.is_some() {
                             item.reader = reader.clone();

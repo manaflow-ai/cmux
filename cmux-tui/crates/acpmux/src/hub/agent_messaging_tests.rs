@@ -112,15 +112,18 @@ async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
     assert_eq!(accepted[crate::cli::output::HELD_IN_INBOX], true, "{accepted}");
     assert!(!hub.work_coming(&s.id), "a held message brings no turn");
 
-    // A peer's outbox sent it again (`_meta.acpmux.resend` on a peer link, `requests.rs`): the
-    // held one wakes the chat now.
+    // After, by the link: a peer's outbox sent it again once the machine was back
+    // (`_meta.acpmux.resend` on a peer link, which `requests.rs` stamps): it wakes the chat, and
+    // the held one goes in with it.
     let resent = json!({crate::prompt_provenance::WAITED: true});
-    let (again, accepted) = send_with(&hub, &s, "s-other", "p-fresh", resent);
+    let (again, accepted) = send_with(&hub, &s, "s-other", "p-resent", resent);
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
-    assert_eq!(accepted["resent"], true, "{accepted}");
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
     let done = tokio::time::timeout(WAIT, again).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["stopReason"], "end_turn", "the held message's turn ran: {done}");
-    held.abort();
+    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
+    let done = tokio::time::timeout(WAIT, held).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "the held one went in with it: {done}");
     tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
 
     // After, by the ssh carry: the far daemon's relay record names the carry

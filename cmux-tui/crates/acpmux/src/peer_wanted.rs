@@ -497,9 +497,11 @@ mod tests {
     }
 
     /// cmuxterm-hq#17784: a message whose machine was resumed, then parked again before it went
-    /// in, is retried by its outbox (2, 5, 10, 30, 60, 120, 300 s), and each retry marks the peer
-    /// again. Before, those marks kept the window open and `peerWake` ran once, at the first;
-    /// now it runs again each `WAKE_FOR` while they come. The clock is tokio's, paused.
+    /// in, is tried by its outbox at 0, 2, 7, 17, 47, 107, 227 and 527 s (its retry delays, 2, 5,
+    /// 10, 30, 60, 120, 300 s, added up), and each attempt marks the peer again. Before, those
+    /// marks kept the window open from 0 s to 407 s and `peerWake` ran at 0 s, then not until
+    /// 527 s; now it runs again at 227 s, the first attempt `WAKE_FOR` after the last run. The
+    /// clock is tokio's, paused.
     #[tokio::test(start_paused = true)]
     async fn a_message_still_waiting_runs_peer_wake_again_each_window() {
         let peer = peer();
@@ -526,23 +528,18 @@ mod tests {
         let started = Instant::now();
         let mut at = Duration::ZERO;
         let mut seen = Vec::new();
-        for retry in [0u64, 2, 5, 10, 30, 60, 120, 300] {
-            let to = Duration::from_secs(retry);
+        let want = [(0u64, 1usize), (2, 1), (7, 1), (17, 1), (47, 1), (107, 1), (227, 2), (527, 3)];
+        for (attempt, runs_by_then) in want {
+            let to = Duration::from_secs(attempt);
             tokio::time::advance(to - at).await;
             at = to;
             peer.wake();
-            let want = 1 + usize::try_from(retry / WAKE_FOR.as_secs()).unwrap();
-            settle(&runs, want).await;
+            settle(&runs, runs_by_then).await;
             assert!(peer.waking(), "marked to wake while the message waits");
-            seen.push((retry, runs()));
+            seen.push((attempt, runs()));
         }
-        assert_eq!(Instant::now() - started, Duration::from_secs(300));
-        // Runs at 0 s and at 300 s (the first retry past 180 s), none between.
-        assert_eq!(
-            seen,
-            [(0, 1), (2, 1), (5, 1), (10, 1), (30, 1), (60, 1), (120, 1), (300, 2)],
-            "peerWake runs once per window while the message waits"
-        );
+        assert_eq!(Instant::now() - started, Duration::from_secs(527));
+        assert_eq!(seen, want, "peerWake runs once per WAKE_FOR while the message waits");
     }
 
     #[tokio::test(start_paused = true)]
