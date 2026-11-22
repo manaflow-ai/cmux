@@ -9,13 +9,13 @@
 // back to the bottom. The case here moves the offset first, lets a snapshot commit before the wheel,
 // then delivers the wheel late, as the app's WebKit does.
 //
-// Real Chromium and WebKit from Playwright; CI fails the file when they cannot launch
-// (requireBrowserLane).
+// Real Chromium and WebKit from Playwright; GitHub Actions fails the file when one cannot launch
+// (probeEngineOrSkip), and elsewhere that engine's cases skip.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-scroll-before-wheel.test.ts", async () => {
@@ -107,6 +107,9 @@ await requireBrowserLane("transcript-scroll-before-wheel.test.ts", async () => {
     ["webkit", webkit],
   ];
   for (const [name, engine] of engines) {
+    // An engine this host cannot launch (the fleet's Linux pool has no WebKit libraries) skips its
+    // cases; where the lane is required (GitHub Actions) it fails the file instead.
+    if (!(await probeEngineOrSkip(`transcript-scroll-before-wheel ${name}`, name, engine))) continue;
     describe(name, () => {
       const launch = async () => {
         let browser = browsers.get(name);
