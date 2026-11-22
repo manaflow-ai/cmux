@@ -91,17 +91,20 @@ struct FileOpenEditorNoWindowTests {
         return (editors.opened, file, app)
     }
 
-    /// The handler hands an editor with a location scheme the cited line (#48831), in the app the
-    /// setting chose.
+    /// The handler hands the editor the cited line (#48831): the location `WindowRules.editorLocation`
+    /// makes for this file, line and the chosen app's bundle ID, in that app. Which editors get a
+    /// `scheme://file/<path>:<line>` URL is the rules' table (``editorLocationPreservesTheFileAndLine()``).
     @Test func theEditorLineOpensTheFileAtThatLine() throws {
         let run = try Self.openInEditor(bundleID: "dev.zed.Zed", line: 3)
         #expect(run.opened.count == 1)
         let opened = try #require(run.opened.first)
         #expect(opened.app == run.app)
-        let parts = try #require(URLComponents(url: opened.file, resolvingAgainstBaseURL: false))
-        #expect(parts.scheme == "zed")
-        #expect(parts.host == "file")
-        #expect(parts.path == run.file.path + ":3")
+        #expect(opened.file.absoluteString == WindowRules.editorLocation(for: run.file, line: 3, bundleID: "dev.zed.Zed").absoluteString)
+        if WindowRules.chatAgentTables?.editorSchemes?["dev.zed.zed"] != nil {
+            let parts = try #require(URLComponents(url: opened.file, resolvingAgainstBaseURL: false))
+            #expect(parts.scheme == "zed")
+            #expect(parts.path == run.file.path + ":3")
+        }
     }
 
     /// No line, or an editor with no location scheme: the checked file itself, as before #48831.
