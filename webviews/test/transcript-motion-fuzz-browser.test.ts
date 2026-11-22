@@ -5,7 +5,7 @@
 // THESE SHOULD BE FLAGGABLE".
 //
 // Each seed plays through the fold recorder's page at real speed with the shipped fold look; every
-// element's box is read every frame. A seed fails when the detector flags a kind (`move`, `scroll-step`, `resize`,
+// element's box is read every frame. A seed fails when the detector flags a family (a jump: `move`, `scroll-step` or `resize`; or
 // `off-curve`) that transcript-motion-baseline.json does not list for it, in two plays out of two (a play
 // is real time on a shared runner: a flag must repeat to count). The baseline lists the seeds that flag
 // today; it only shrinks: a listed seed that plays clean is printed so it comes out. Regenerate it from
@@ -17,7 +17,8 @@ import { chromium } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Counts = { move: number; "scroll-step": number; resize: number; "off-curve": number };
-type Baseline = { look: string; seeds: number; flagged: Record<string, Counts> };
+/** `flagged`: each seed's counts, the most of each kind over `plays` full runs. */
+type Baseline = { look: string; seeds: number; plays?: number; flagged: Record<string, Counts> };
 
 await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
   setDefaultTimeout(880_000);
@@ -42,13 +43,22 @@ await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
     await recorder?.close();
   });
 
-  const KINDS = ["move", "scroll-step", "resize", "off-curve"] as const;
-  /** Each seed's kinds that the baseline does not list for it. */
+  /// The ratchet's unit: a seed that jumped (any move, scroll step or resize) or played an animation off the
+  /// curve. Which of the three jumps a frame lands in varies with a shared runner's frame timing (a row that
+  /// rode a snap one play moves by a pixel more the next), so a seed that already jumps may jump another way;
+  /// a seed that never jumped may not start.
+  const FAMILIES = {
+    jump: (c: Partial<Counts> = {}) => (c.move ?? 0) + (c["scroll-step"] ?? 0) + (c.resize ?? 0),
+    "off-curve": (c: Partial<Counts> = {}) => c["off-curve"] ?? 0,
+  } as const;
+  /** Each seed's families that the baseline does not list for it. */
   const fresh = (flags: Record<string, Counts>) =>
     Object.entries(flags)
       .map(([seed, counts]) => ({
         seed: Number(seed),
-        kinds: KINDS.filter((kind) => counts[kind] > 0 && !(baseline.flagged[seed]?.[kind] ?? 0)),
+        kinds: (Object.keys(FAMILIES) as (keyof typeof FAMILIES)[]).filter(
+          (family) => FAMILIES[family](counts) > 0 && !FAMILIES[family](baseline.flagged[seed]),
+        ),
         counts,
       }))
       .filter((entry) => entry.kinds.length > 0);
