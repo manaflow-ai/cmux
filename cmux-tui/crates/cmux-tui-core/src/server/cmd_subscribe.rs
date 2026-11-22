@@ -158,6 +158,14 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
                 // Read the cache at send time rather than trusting a queued
                 // payload; a rapid rotation/removal cannot regress the app.
@@ -633,6 +641,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "keybindings-changed",
             "revision": change.revision,
             "origin": change.origin.as_str(),
+        }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
