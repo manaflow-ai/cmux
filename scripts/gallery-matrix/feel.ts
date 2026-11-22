@@ -267,7 +267,15 @@ function installProbe(): void {
       for (const entry of list.getEntries()) frames.push({ t: entry.startTime, duration: entry.duration });
     }).observe({ type: "long-animation-frame", buffered: true });
   } catch {}
-  document.addEventListener("focusin", (event) => changes.push({ t: performance.now(), kind: "focus", label: describe(event.target as Element) }), true);
+  // The browser's own focus move onto the control a press lands on (the pressed node or its focusable
+  // ancestor) is not the page answering: without this every button with no handler reads as answered.
+  let pressed: Node | null = null;
+  document.addEventListener("pointerdown", (event) => { pressed = event.target as Node; }, true);
+  document.addEventListener("focusin", (event) => {
+    const target = event.target as Element;
+    if (pressed && (target === pressed || target.contains(pressed))) return;
+    changes.push({ t: performance.now(), kind: "focus", label: describe(target) });
+  }, true);
   document.addEventListener("scroll", () => changes.push({ t: performance.now(), kind: "scroll" }), true);
   let inputAt = 0;
   for (const type of ["pointerdown", "pointerover"]) document.addEventListener(type, (event) => { if (!inputAt) inputAt = event.timeStamp; }, true);
@@ -387,7 +395,7 @@ async function openState(page: Page, url: string): Promise<boolean> {
   return (await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null)) === "1";
 }
 
-async function crawlState(browser: Browser, baseUrl: string, item: MatrixCase, actionsPerState: number, videoDir?: string): Promise<StateReport> {
+export async function crawlState(browser: Browser, baseUrl: string, item: MatrixCase, actionsPerState: number, videoDir?: string): Promise<StateReport> {
   const params: Record<string, Scalar> = item.params ?? {};
   const width = Number(params.width ?? 1280);
   const height = Number(params.height ?? 800);
@@ -456,7 +464,7 @@ async function crawlState(browser: Browser, baseUrl: string, item: MatrixCase, a
   return report;
 }
 
-async function serveDirectory(root: string): Promise<{ baseUrl: string; close: () => void }> {
+export async function serveDirectory(root: string): Promise<{ baseUrl: string; close: () => void }> {
   const types: Record<string, string> = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".webp": "image/webp", ".jpg": "image/jpeg" };
   const server = Bun.serve({
     port: 0,
