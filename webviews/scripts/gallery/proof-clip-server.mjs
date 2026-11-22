@@ -43,7 +43,11 @@ const server = await createServer({
   root,
   logLevel: "warn",
   // A stale error overlay would be filmed as the component.
-  server: { port, strictPort: true, hmr: { overlay: false } },
+  server: {
+    port,
+    strictPort: true,
+    hmr: { overlay: false },
+  },
   plugins: [
     {
       name: "proof-clip-idle",
