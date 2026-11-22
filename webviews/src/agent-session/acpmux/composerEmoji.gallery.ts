@@ -142,15 +142,16 @@ export default agentPaneEntry({
     "closing-colon": variant(
       "Play: typing the closing `:` of `:pleading_face:` writes 🥺 at once, no menu left.",
       async (ctx) => {
-        await ctx.focus({ selector: PROMPT });
-        await ctx.type("aw :pleading_face:");
+        // The list showing first: the table is in (it loads at an idle moment after focus).
+        await typeToMenu(ctx, "aw :pleading_face");
+        await ctx.type(":");
         await ctx.waitFor(() => promptText(ctx).includes("aw 🥺"));
         if (ctx.document.querySelector(ROW)) throw new Error("the menu stayed after the closing colon");
       },
     ),
     "skin-tone": variant("Play: Slack's `:wave::skin-tone-4:` writes 👋🏽.", async (ctx) => {
-      await ctx.focus({ selector: PROMPT });
-      await ctx.type("hi :wave::skin-tone-4:");
+      await typeToMenu(ctx, "hi :wav");
+      await ctx.type("e::skin-tone-4:");
       await ctx.waitFor(() => promptText(ctx).includes("hi 👋🏽"));
     }),
     "no-trigger": variant("Play: a time (10:30) and a URL open no menu.", async (ctx) => {
