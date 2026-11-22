@@ -83,6 +83,24 @@ test("the hole follows the live box as it grows", () => {
   expect(host.style.clipPath).toContain("M16 560H816");
 });
 
+test("a chip the live box drops puts the copy back whole; the chip back, the hole is back, draft or not", () => {
+  const { doc, root, host, box } = page(composer("x"), composer("x"), { live: SAME, copy: SAME });
+  fitLiveComposer(doc);
+  const chip = box!.querySelector(".chip")!;
+  chip.textContent = "";
+  expect(fitLiveComposer(doc)).toBe(false);
+  expect(showsLiveComposer()).toBe(false);
+  expect(root.style.opacity).toBe("0");
+  expect(host.style.clipPath ?? "").toBe("");
+  // The person typed meanwhile: the draft is theirs, the rest is the copy's again.
+  box!.querySelector("[contenteditable]")!.textContent = "x and more";
+  chip.textContent = "Bypass permissions";
+  expect(fitLiveComposer(doc)).toBe(true);
+  // A box that moved sideways or off its bottom edge is not the copy's.
+  box!.getBoundingClientRect = () => rect({ ...SAME, top: 620 });
+  expect(fitLiveComposer(doc)).toBe(false);
+});
+
 test("typing and clicks in the editor are the composer's; another control ends the copy; the rest is the copy's", () => {
   const { win, doc, root, box } = page(`<p class="row">a reply</p>${composer("x")}`, composer("x"), {
     live: SAME,
