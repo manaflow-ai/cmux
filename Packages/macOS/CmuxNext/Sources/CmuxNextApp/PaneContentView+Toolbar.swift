@@ -1,4 +1,4 @@
-import AppKit
+import AppKit; import CmuxNextTabs
 
 // The pane's trailing controls (`PaneToolbar`: pins, Exit Zoom) sit at the strip's trailing end, as wide as they need: in frame
 // layout the strip gives up that width (`layout()`); pinned to a browser's band (R109) it pins
