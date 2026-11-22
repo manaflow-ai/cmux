@@ -115,18 +115,26 @@ fn a_named_send_with_the_host_token_is_a_verified_sender_in_the_inbox() {
         Env,
         Notice,
     }
-    // (sender, how it is named, its token by the environment, its token file, verified by the
-    // host token)
-    let cases: [(&str, Named, Option<&str>, Option<&str>, bool); 6] = [
-        ("relay-env", Named::Flag, Some(&token), None, true),
-        ("relay-file", Named::Flag, None, Some(&path_arg), true),
-        ("relay-wrong", Named::Flag, None, Some(&wrong_arg), false),
+    // One sender: its name, how it is named, its token by the environment, its token file,
+    // and whether the host token verifies it.
+    struct Case<'a> {
+        name: &'a str,
+        named: Named,
+        env: Option<&'a str>,
+        file: Option<&'a str>,
+        verified: bool,
+    }
+    let case = |name, named, env, file, verified| Case { name, named, env, file, verified };
+    let cases = [
+        case("relay-env", Named::Flag, Some(token.as_str()), None, true),
+        case("relay-file", Named::Flag, None, Some(path_arg.as_str()), true),
+        case("relay-wrong", Named::Flag, None, Some(wrong_arg.as_str()), false),
         // Presents nothing: its daemon home's own token goes with it.
-        ("relay-none", Named::Flag, None, None, true),
-        ("reach-hop", Named::Env, None, None, true),
-        ("land-notice", Named::Notice, None, None, true),
+        case("relay-none", Named::Flag, None, None, true),
+        case("reach-hop", Named::Env, None, None, true),
+        case("land-notice", Named::Notice, None, None, true),
     ];
-    for (name, named, env, file, verified) in cases {
+    for Case { name, named, env, file, verified } in cases {
         let mut args = vec!["--json", "send", "--no-wait"];
         match named {
             Named::Flag => args.extend(["--from", name]),
