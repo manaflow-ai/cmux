@@ -924,6 +924,7 @@ fn a_new_worktree_copies_its_include_files_and_runs_the_projects_setup_and_teard
     assert_eq!(read["run"]["state"], "failed", "{read}");
     let output = read["run"]["output"].as_str().unwrap();
     assert!(output.contains("--- Setup started again ---"), "{read}");
-    assert_eq!(output.matches("broke").count(), 2, "{read}");
+    // Each run prints its command (`$ echo broke; exit 3`) and the line it wrote.
+    assert_eq!(output.lines().filter(|line| *line == "broke").count(), 2, "{read}");
     let _ = fs::remove_dir_all(root);
 }
