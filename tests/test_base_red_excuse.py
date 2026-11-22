@@ -3066,7 +3066,12 @@ class WebShardBaseGitHub(FakeGitHub):
 
 class WebShardBaseVerdict(unittest.TestCase):
     """A ci.yml web shard is judged against the base runs of cmux-next-web.yml (BASE_WORKFLOW_FOR) when ci.yml has no
-    feat-cmux-next verdict at or after the PR's merge-base."""
+    feat-cmux-next verdict at or after the PR's merge-base. The checked-in manifest's `web` suite (cmux#48846) takes
+    the base verdict first (BatchSuiteBaseVerdict); these pin a manifest without it, the fallback BASE_WORKFLOW_FOR
+    keeps."""
+
+    def setUp(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
@@ -3193,9 +3198,19 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
             for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
                 self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
-            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
-            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
-            self.assertIn(branch, pushes.get("branches") or [])
+            # The base caller runs on pushes to the base, unless a post-merge batch suite of the checked-in manifest
+            # calls the same reusable workflow (cmux#48846's `web`): batch_check then gives the base verdict first.
+            # The PR caller never runs on base pushes (else its own runs would be read).
+            suites = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+            batched = [key for key, suite in suites.items() if pr_job["uses"] == f"./.github/workflows/{suite['workflow']}"]
+            batch_manifest(self, suites)  # setUp pinned one without them
+            if batched:
+                self.assertEqual(excuse.base_caller(REPO, branch, {"path": f".github/workflows/{pr_file}"},
+                                                    f"{job_id} / x"),
+                                 (excuse.POST_MERGE_WORKFLOW, f"{batched[0]} / x"))
+            else:
+                pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+                self.assertIn(branch, pushes.get("branches") or [])
             pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
@@ -3451,6 +3466,10 @@ class WebviewTestReplayPerTest(unittest.TestCase):
     """A red webview replay (`web / react-apps-base-check (N)`) is judged per test against the base's webview runs:
     no base push runs a job of its name, so by name every one was refused as having no base verdict (cmux#34111)."""
 
+    def setUp(self):
+        # The fixtures serve cmux-next-web.yml base runs: a manifest without the `web` suite (cmux#48846).
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
 
@@ -3622,6 +3641,10 @@ class CancelledWebShardPerFile(unittest.TestCase):
     """A head shard cancelled or timed out mid-run is judged per file against the base's webview runs: cmux#39676's
     `web / react-apps-check (1)` was cancelled after 31 min while every file it failed fails on feat-cmux-next too, and
     was refused as having no verdict (claude-sr2-coord, 2026-11-09)."""
+
+    def setUp(self):
+        # The fixtures serve cmux-next-web.yml base runs: a manifest without the `web` suite (cmux#48846).
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
 
     def gh(self, log, conclusion="cancelled"):
         gh = WebReplayGitHub()
@@ -7927,6 +7950,158 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckFleetRun(unittest.TestCase):
+    """2026-11-18: leo-workspace#5962 at 60199fb5. The lane-gh broker moved its ws-check to the build fleet's Linux
+    pool (hq#12237): Actions run 44400654026's one job, 135142434118, was cancelled before any runner took it (runner_id
+    0, no steps), and fleet job 78ae6c6073141385ddcecd04 ran the snapshot and printed the WS_CHECK_RESULT and the
+    receipt naming that run. The status linked the cancelled run, so ws_check_verdict read "job 'checks' in run
+    44400654026 is completed/cancelled: no result to read" and no pool-run verdict counted, red or green. The broker's
+    failure link names the fleet job now (WS_CHECK_FLEET_JOB), and its log is read from the controller as strictly as
+    an Actions log."""
+    RELAY, ROOT, VIOLATION = WsCheckPerTest.RELAY, WsCheckPerTest.ROOT, WsCheckPerTest.VIOLATION
+    SQUASHED = WsCheckPerTest.SQUASHED
+    relay_lint = WsCheckPerTest.relay_lint
+    snapshot_runs = WsCheckPerTest.snapshot_runs
+    JID = "9e57810da77d4633953007317e90e344"
+    FLEET = {1: "78ae6c6073141385ddcecd04", 2: "0123456789abcdef01234567"}
+    WORKER = "cmux-linux-pool-1118-204234-61f7c344"
+    REAL_FLEET_READ = staticmethod(getattr(excuse, "fleet_read", lambda op, job_id: None))
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()})
+        self.snapshot = self.snapshot_runs()
+        self.controller, self.reads = {}, []
+        for run_id in (1, 2):
+            self.to_fleet(run_id)
+        patch = unittest.mock.patch.object(excuse, "fleet_read", self.fleet_read, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+        getattr(excuse, "FLEET_READS", {}).clear()
+        self.addCleanup(getattr(excuse, "FLEET_READS", {}).clear)
+
+    def to_fleet(self, run_id):
+        """Run RUN_ID as the broker's move makes it: its Actions job cancelled before a runner, its log the fleet
+        job's (raw lines, no Actions stamps), its receipt saying build-fleet on the job's worker."""
+        fleet = self.FLEET[run_id]
+        sha = HEAD if run_id == 1 else self.gh.TIP
+        status = self.gh.statuses[sha][0]
+        status["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/{run_id}?fleet_job={fleet}"
+        self.gh.runs[run_id]["display_title"] = f"Fast checks {self.snapshot} job {self.JID}"
+        self.gh.jobs[run_id] = [dict(self.gh.jobs[run_id][0], name="checks", conclusion="cancelled", runner_id=0,
+                                     steps=[])]
+        lines = []
+        for line in self.gh.logs.pop(run_id * 10 + 1).splitlines():
+            text = line.split(" ", 1)[1]
+            if text.startswith("FAST_CHECKS_RECEIPT="):
+                receipt = json.loads(text.split("=", 1)[1])
+                receipt.update(ran_on="build-fleet", fleet_host=self.WORKER, fleet_job=fleet)
+                text = "FAST_CHECKS_RECEIPT=" + json.dumps(receipt)
+            lines.append(text)
+        self.controller[fleet] = {
+            "status": {"id": fleet, "kind": "fast-checks", "state": "failed", "worker": self.WORKER,
+                       "workspace": f"fast-checks-{self.JID}",
+                       "command": f"exec /bin/bash -c '... \"$took\" {self.snapshot} {self.snapshot} {run_id} "
+                                  "'python3 tools/ws_check_run.py' \"$root\"'"},
+            "log": "\n".join([f"job {fleet}: nofile=65536", *lines, "command failed: exit status 1",
+                              f"job {fleet} failed: exit status 1"])}
+
+    def fleet_read(self, op, job_id):
+        self.reads.append((op, job_id))
+        if job_id not in self.controller:
+            raise excuse.Refused(f"cmux-ci {op} {job_id} exited 1: no such job")
+        found = self.controller[job_id][op]
+        return json.dumps(found) if op == "status" else found
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_red_the_pool_ran_is_read_from_its_fleet_job_and_excused(self):
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "fail")
+        self.assertEqual(set(verdict["steps"]), {self.RELAY})
+        self.assertEqual(verdict["snapshot"], {"run": "1", "tree": self.SQUASHED})
+        self.assertIn(("log", self.FLEET[1]), self.reads)
+        # The Actions job's own log is never read: it has none.
+        self.assertFalse(any(route.endswith("/logs") for route in self.gh.routes))
+
+    def test_a_cancelled_run_whose_link_names_no_fleet_job_stays_no_result(self):
+        self.gh.statuses[HEAD][0]["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/1"
+        kind, verdict = excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+        self.assertEqual(kind, "none")
+        self.assertEqual(verdict["why"], "job 'checks' in run 1 is completed/cancelled: no result to read (and this "
+                                         "host keeps no build-fleet log for that run)")
+        self.assertEqual(self.reads, [])
+
+    def refused(self, pattern):
+        with self.assertRaisesRegex(excuse.Refused, pattern):
+            excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)
+
+    def test_a_fleet_link_on_an_actions_job_that_ran_is_refused(self):
+        for change in ({"runner_id": 7}, {"steps": [{"name": "Run fast checks"}]}, {"conclusion": "failure"}):
+            with self.subTest(change):
+                self.setUp()
+                self.gh.jobs[1][0].update(change)
+                self.refused("only a run cancelled before any runner took it moves to the fleet")
+
+    def test_a_fleet_job_that_is_not_this_runs_failed_fast_checks_job_is_refused(self):
+        fleet = self.FLEET[1]
+        for field, value in (("state", "done"), ("kind", "build"), ("workspace", "fast-checks-" + "0" * 32),
+                             ("workspace", "lw-5962"),
+                             ("command", f"exec /bin/bash -c '{self.snapshot} {self.snapshot} 2 run'")):
+            with self.subTest(field=field, value=value):
+                self.setUp()
+                self.controller[fleet]["status"][field] = value
+                self.refused(f"fleet job {fleet} .* is no failed fast-checks job of run 1")
+        self.setUp()
+        self.controller[fleet]["status"]["id"] = self.FLEET[2]
+        self.refused(f"the controller's answer for fleet job {fleet} is not that job")
+
+    def test_a_fleet_log_held_to_the_same_rules_as_an_actions_log(self):
+        fleet = self.FLEET[1]
+        log = self.controller[fleet]["log"]
+        cases = (
+            (log.replace("WS_CHECK_RESULT=", "WS_CHECK_RESULT=not json "), "no WS_CHECK_RESULT line listing"),
+            (log.replace('"run_id": "1"', '"run_id": "2"'), "is from another checkout"),
+            ("\n".join(line for line in log.splitlines() if not line.startswith("FAST_CHECKS_RECEIPT=")),
+             "is from another checkout"),
+            (log.replace(self.WORKER, "cmux-linux-pool-other"), "not on that job's worker"),
+            (log.replace('"ran_on": "build-fleet"', '"ran_on": "actions"'), "not on that job's worker"),
+            (log.replace("ws-check step FAILED:", "ws-check step ok:"), "has no 'ws-check step FAILED: "),
+        )
+        for text, pattern in cases:
+            with self.subTest(pattern):
+                self.setUp()
+                self.controller[fleet]["log"] = text
+                self.refused(pattern)
+
+    def test_a_fleet_job_this_host_cannot_read_is_refused_never_guessed(self):
+        del self.controller[self.FLEET[1]]
+        self.refused(f"cmux-ci status {self.FLEET[1]} exited 1")
+
+    def test_the_fleet_read_runs_the_hosts_cmux_ci_client(self):
+        with tempfile.TemporaryDirectory() as root:
+            client = Path(root) / "cmux-ci"
+            client.write_text("#!/bin/sh\n[ \"$1\" = log ] && [ \"$2\" = abc ] && echo the-log && exit 0\n"
+                              "echo refused >&2; exit 3\n")
+            client.chmod(0o755)
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": str(client)}):
+                self.assertEqual(self.REAL_FLEET_READ("log", "abc"), "the-log\n")
+                with self.assertRaisesRegex(excuse.Refused, "cmux-ci status abc exited 3: refused"):
+                    self.REAL_FLEET_READ("status", "abc")
+            with unittest.mock.patch.dict(os.environ, {"CMUX_CI_CLIENT": "", "PATH": root + "/none"}):
+                with self.assertRaisesRegex(excuse.Refused, "no cmux-ci client"):
+                    self.REAL_FLEET_READ("log", "abc")
+
+    def test_a_pass_never_needs_the_fleet(self):
+        self.gh.statuses[HEAD][0].update(state="success", description="770 tests passed in 77 steps")
+        self.assertEqual(excuse.ws_check_verdict(self.gh.REPO, HEAD, self.gh)[0], "pass")
+        self.assertEqual(self.reads, [])
 
 
 class WsCheckFleetRoute(unittest.TestCase):
@@ -12876,11 +13051,16 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
                 controller = next_batch.Controller.__new__(next_batch.Controller)
                 controller.args = unittest.mock.Mock(repo=REPO)
                 controller.gh = unittest.mock.Mock()
+                # The base run is a post-merge batch run (cmux-next-post-merge.yml since 2026-11-21) whose web
+                # suite gave a verdict: next_batch reads a batch run as the base's only then.
+                web_status = {"id": 99, "run_id": 20, "head_sha": BASE_SHA, "name": "web / Web status",
+                              "status": "completed", "conclusion": "success", "steps": []}
                 controller.gh.api.side_effect = lambda route, **_: {"jobs": [
-                    copy.deepcopy(found) for found in github.jobs.values()
+                    copy.deepcopy(found) for found in [*github.jobs.values(), web_status]
                     if f"/runs/{found['run_id']}/" in route]}
                 controller.gh.runs.return_value = [{"id": 20, "head_branch": next_batch.BASE, "status": "completed",
-                                                    "event": "push", "conclusion": "failure", "head_sha": BASE_SHA}]
+                                                    "event": "workflow_dispatch", "display_title": "batch merge",
+                                                    "conclusion": "failure", "head_sha": BASE_SHA}]
                 controller.job_log = lambda job_id: github.logs[job_id]
                 batch = controller.judge_web({"id": 10, "conclusion": "failure"}, BASE_SHA)
                 self.assertEqual(judged.startswith("refused"), refused, judged)
@@ -13943,6 +14123,7 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                          ({guard: "red"}, {}), ({}, {}), ({}, {}))
 
     def test_review_41104_f2_the_base_callers_workflow_gives_the_merge_bases_verdict(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
         # ci.yml's web job runs on pull requests alone; cmux-next-web.yml calls it on base pushes (BASE_WORKFLOW_FOR).
         # The base verdict is the caller's, so the merge-base's is read from the caller's runs and named in the line.
         self.caller_only, self.head_path = True, ".github/workflows/ci.yml"
@@ -15917,13 +16098,13 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-tui-windows-check.yml", "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vm.yml", "cmux-vnc.yml",
             "coderouter-ci.yml", "fleet-test-compile.yml", "fleet-rd-host-macos.yml", "gallery-advisory.yml",
             "gallery-health.yml",
-            "indexnow-tests.yml", "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
+            "ios-e2e.yml", "ios-reliability-matrix.yml", "ios-review-gate.yml", "iroh-v2.yml", "mux.yml",
             "nightly-next-canary.yml", "nightly-next-launch-smoke.yml",
-            "r2-upload-tests.yml", "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
+            "relay-tls.yml", "rust-workspaces.yml", "signing-keychain-macos.yml",
             "swift-acpmux-protocol.yml", "swift-linux-packages.yml",
-            "terminal-hang-diagnostics.yml", "test-ios.yml", "vendored-agent-cursor.yml", "web-complexity.yml",
+            "terminal-hang-diagnostics.yml", "test-ios.yml", "web-complexity.yml",
             "web-complexity-trusted.yml", "web-validation.yml", "cmux-next-ios-kit.yml", "cmux-actions.yml",
-            "cmux-skill-contract.yml", "agent-brands.yml",
+            "agent-brands.yml",
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
@@ -15947,7 +16128,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
-            "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
+            "cmux-next-chromium-currency.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
@@ -17018,6 +17199,7 @@ class CutSearchConsumers(unittest.TestCase):
                                r"retry after \d\d:\d\dZ")
 
     def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
         # ci.yml has no feat-cmux-next verdict at all; cmux-next-web.yml's search is cut before its red run 40.
         github = WebShardBaseGitHub()
         github.base_runs = []
