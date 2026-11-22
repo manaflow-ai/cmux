@@ -116,6 +116,9 @@ import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
+import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
+import { hatPhase } from "./hatStep";
+import { HatPhaseSlot, HatSampledSlot } from "./HatStep";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -185,6 +188,7 @@ export const SubagentTray = memo(function SubagentTray({
   resume,
   placement = "tray",
   shown,
+  stepLook,
   enters = false,
   chat,
   plan,
@@ -231,6 +235,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
   /// goes while its chat still shows (trayMotion.tsx `useTrayMotion`); none, no entrance or exit.
   shown?: { readonly current: string | undefined };
+  /// The hat-step arm, pinned: a gallery stage about one arm's look (the exact step's roll in
+  /// StatusSwapStage.tsx) keeps it when the default moves. Else the experiment's arm.
+  stepLook?: HatStepArm;
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
   /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
@@ -310,6 +317,9 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
+  // What a running subagent's line says it does now (hatStep.experiment.ts; Leo, 2026-11-22: "we dont
+  // show the exact calls, ever, at the top").
+  const [stepArm] = useState(() => stepLook ?? (experimentArm(hatStepLook) as HatStepArm));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
   const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
@@ -829,13 +839,17 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* Kept while the hat is open, faded out in place (subagents.css), so it never leaves or comes
               back at once; it gives way to the counts first, so its room costs them nothing. */}
-          {loneEnd?.latest && loneEnd.latest !== loneEnd.title && (
-            <Tick
-              className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
-              text={loneEnd.latest}
-              slide
-            />
-          )}
+          {loneEnd?.agent && loneEnd.status === "running" && !loneEnd.retry && stepArm !== "exact"
+            ? showLatest &&
+              agentStep(stepArm, loneEnd.agent, loneEnd.latest, loneEnd.status, "acpmux-running-tray__latest")
+            : loneEnd?.latest &&
+              loneEnd.latest !== loneEnd.title && (
+                <Tick
+                  className={`acpmux-running-tray__latest${loneEnd.latestCode ? " is-code" : ""}`}
+                  text={loneEnd.latest}
+                  slide
+                />
+              )}
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
@@ -1086,6 +1100,11 @@ export const SubagentTray = memo(function SubagentTray({
               progressAt={row === "below" || narrow ? "below" : "meta"}
               // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
               latest={showLatest ? agentLatest : undefined}
+              step={
+                showLatest
+                  ? agentStep(stepArm, item.agent, agentLatest, subagentStatus(item.agent, waiting))
+                  : undefined
+              }
               latestAt={latestPlacement}
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={() => onOpen(item.agent.id)}
@@ -1325,6 +1344,20 @@ type LoneHead = {
 
 /// A folded lone subagent's progress after what it does now, as its line says it: folded, the
 /// header is all that shows it.
+/// What a running subagent's line says it does now, by the hat-step arm: undefined keeps the line's
+/// exact `latest` (the `exact` arm, and any line not running).
+function agentStep(
+  arm: HatStepArm,
+  agent: Subagent,
+  latest: string | undefined,
+  status: string,
+  className?: string,
+): ReactNode | undefined {
+  if (arm === "exact" || status !== "running") return undefined;
+  if (arm === "quiet") return null;
+  if (arm === "sampled") return latest ? <HatSampledSlot text={latest} className={className} /> : null;
+  return <HatPhaseSlot phase={hatPhase(agent)} className={className} />;
+}
 function LoneProgress({ agent, fallback }: { agent: Subagent; fallback?: string }) {
   const progress = useAgentProgress(agent) ?? fallback;
   return progress ? <span className="acpmux-summary-meta acpmux-running-tray__stats">{progress}</span> : null;

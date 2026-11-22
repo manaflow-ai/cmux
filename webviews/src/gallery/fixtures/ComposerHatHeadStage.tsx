@@ -99,6 +99,8 @@ export function ComposerHatHeadStage({
             waiting={NO_WAITING}
             onOpen={() => undefined}
             shown={shown}
+            // The exact step, sliding in as it comes: this stage is about that hand-over (hatStep.experiment.ts).
+            stepLook="exact"
             onTuck={tuck ? () => undefined : undefined}
           />
           <div className="acpmux-composer">
