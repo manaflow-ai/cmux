@@ -32,6 +32,8 @@ Headlines (INFTABS lines, and one PERF_ROW JSON line each for the perf cron):
                        for a wake whose placeholder showed none: no kept frame, or the page was back first
   snapshot_covered     the share of those wakes a kept last frame covered
 INFTABS-KIND lines give each process kind at empty and full (count, RSS, footprint, CPU, wakeups).
+INFTABS-RENDERER lines give each Chromium renderer at full: its pid, RSS, footprint and peak, its distinguishing
+ps args (--renderer-client-id, extension) and the live pages it hosts with their owning tab (renderers.list).
 
 Measurement only, never a gate. macOS only, a fleet Mac, never a laptop (DEV or bench build: it reads
 debug.surfaces):
@@ -195,6 +197,44 @@ def kinds_table(empty: dict, full: dict):
               f"wakeups_per_s={e.get('wakeups_per_s', 0)}->{f.get('wakeups_per_s', 0)}", flush=True)
 
 
+RENDERER_ARG_KEYS = ("renderer-client-id", "extension", "site", "origin", "cmux", "process-per")
+
+
+def renderers(app: bm.App, pid: int, bundle: str, sample: dict) -> list[dict]:
+    """One row per Chromium renderer at `sample`: its distinguishing ps args and the live pages the app says
+    it hosts. `renderers.list` (Release too) names each helper's `--renderer-client-id` and each live page's
+    renderer clients and owning tab; `debug.cef_pages` (bench or DEV build) is the fallback, without owners."""
+    commands = {p: cmd for p, (kind, cmd) in bm.owned(pid, bundle).items() if kind == "cef-renderer"}
+    listed = app.call("renderers.list", {"interval_ms": 0}, timeout=30) or {}
+    pages = listed.get("pages")
+    if not isinstance(pages, list):
+        pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages") or []
+    clients = {h.get("pid"): h.get("client") for h in listed.get("helpers") or [] if isinstance(h, dict)}
+    rows = []
+    for row in (r for r in sample["processes"] if r["kind"] == "cef-renderer"):
+        args = [a for a in commands.get(row["pid"], "").split() if a.startswith("--") and any(k in a for k in RENDERER_ARG_KEYS)]
+        client = clients.get(row["pid"]) or next((int(a.split("=", 1)[1]) for a in args
+                                                 if a.startswith("--renderer-client-id=") and a.split("=", 1)[1].isdigit()), None)
+        hosted = []
+        for page in pages:
+            if client is None or client not in (page.get("renderer_clients") or []):
+                continue
+            url = str(page.get("url") or page.get("origin") or "").split("?", 1)[0] + (page.get("path") or "")
+            owner = page.get("owner") or {}
+            hosted.append({"url": url[:100], "hidden": bool(page.get("hidden")), "browser": page.get("browser"),
+                           "owner": f"{owner.get('kind')}:{owner.get('tab')}" if owner else None})
+        rows.append({"pid": row["pid"], "rss_mb": row["rss_mb"], "footprint_mb": row["footprint_mb"],
+                     "max_footprint_mb": row.get("max_footprint_mb"), "client": client, "args": args, "pages": hosted})
+    unplaced = [p.get("url") or p.get("origin") for p in pages if not p.get("renderer_clients")]
+    for row in rows:
+        print(f"INFTABS-RENDERER pid={row['pid']} rss_mb={row['rss_mb']} footprint_mb={row['footprint_mb']} "
+              f"peak_footprint_mb={row['max_footprint_mb']} args={' '.join(row['args']) or '-'} "
+              f"pages={json.dumps(row['pages'])}", flush=True)
+    print(f"INFTABS-RENDERER live_pages={len(pages)} source={'renderers.list' if 'helpers' in listed else 'debug.cef_pages'} "
+          f"no_renderer={json.dumps(unplaced)}", flush=True)
+    return rows
+
+
 def summarize(args, report: dict, made: list[dict]) -> dict:
     empty, full = report["phases"]["empty"], report["phases"]["full"]
     pages = sum(len(entry["pages"]) for entry in made)
@@ -332,6 +372,7 @@ def run(argv: list[str]) -> int:
         bm.print_attribution("full", found)
         print(f"PERF-ATTR full pump window_s={found['window_s']} delta={json.dumps(pump)}", flush=True)
         kinds_table(report["phases"]["empty"], full)
+        report["full_renderers"] = renderers(app, pid, bundle, full)
         bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
