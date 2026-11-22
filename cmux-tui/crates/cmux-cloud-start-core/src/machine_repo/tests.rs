@@ -534,7 +534,7 @@ fn a_machine_behind_the_platform_edge_clones_through_it_with_no_helper() {
         (Some("cloned"), Some("edge"))
     );
     assert!(machine.checkout().join("lib/y.rs").is_file());
-    assert_eq!(machine.git(&["remote", "get-url", "origin"]), "https://github.com/o/r.git");
+    assert_eq!(machine.git(&["config", "remote.origin.url"]), "https://github.com/o/r.git");
     assert_eq!(
         machine.git(&["config", "--local", &format!("url.{base}.insteadOf")]),
         "https://github.com/",
