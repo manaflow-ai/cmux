@@ -15,7 +15,9 @@ public final class BackdropAdjustOverlay: NSView {
     private let image: CGSize
     private let onDone: @MainActor (_ pictureID: String, _ placement: BackdropPlacement) -> Void
     private var lastPoint: NSPoint?
-    private let bar = NSVisualEffectView()
+    /// A plain dark bar like a player's controls: this is editing chrome over the picture for a
+    /// moment, not a glass surface (design/surface-materials.md).
+    private let bar = NSView()
     private var finished = false
 
     /// Starts adjusting what `backdrop` shows, over its window's content; nil when it shows no picture
@@ -30,7 +32,7 @@ public final class BackdropAdjustOverlay: NSView {
         overlay.frame = content.bounds
         overlay.autoresizingMask = [.width, .height]
         content.addSubview(overlay, positioned: .above, relativeTo: nil)
-        window.makeFirstResponder(overlay)
+        FocusRoute(.person, "Adjust Background takes Esc and Return").moveKeyboard(in: window, to: overlay)
         return overlay
     }
 
@@ -121,22 +123,22 @@ public final class BackdropAdjustOverlay: NSView {
     }
 
     private func buildBar() {
-        bar.material = .hudWindow
-        bar.blendingMode = .withinWindow
-        bar.state = .active
         bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
         bar.layer?.cornerRadius = 10
         bar.layer?.masksToBounds = true
         bar.translatesAutoresizingMaskIntoConstraints = false
         let hint = NSTextField(labelWithString: Self.text(.hint))
-        hint.textColor = .secondaryLabelColor
-        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.textColor = NSColor.white.withAlphaComponent(0.8)
+        hint.font = Typography.caption
         var views: [NSView] = [hint]
         for choice in Choice.allCases {
-            let button = NSButton(title: Self.text(choice.label), target: self, action: #selector(pressed(_:)))
+            let button = ThemedBezelButton(frame: .zero)
+            button.title = Self.text(choice.label)
+            button.target = self
+            button.action = #selector(pressed(_:))
             button.tag = choice.rawValue
-            button.bezelStyle = .rounded
-            if choice == .done { button.keyEquivalent = "\r" }
+            if choice == .done { button.keyHint = .return }
             views.append(button)
         }
         let stack = NSStackView(views: views)
@@ -169,7 +171,7 @@ public final class BackdropAdjustOverlay: NSView {
         finished = true
         onDone(pictureID, placement)
         backdrop?.previewPlacement = nil
-        window?.makeFirstResponder(nil)
+        FocusRoute(.person, "Adjust Background is done").moveKeyboard(in: window, to: nil)
         removeFromSuperview()
     }
 

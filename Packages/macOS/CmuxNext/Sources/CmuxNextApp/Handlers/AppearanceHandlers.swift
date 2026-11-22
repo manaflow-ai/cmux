@@ -28,7 +28,6 @@ enum AppearanceHandlers {
             let route = SettingsDeepLink.appearanceRoute(background: true, workspace: context.scope(invocation).workspace?.id)
             try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
         })
-        BackgroundPlacementHandlers.bind(into: registry, context: context)
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
             context.writeSetting("set \(path.joined(separator: "."))", path, value, reloadOnFailure: true)
@@ -38,6 +37,7 @@ enum AppearanceHandlers {
                                   fileValue: { .string($0.rawValue) }, save: save) { context.design.animationSpeed = $0 }
         AnimationKindsSetting.bindActions(into: registry, design: context.design, save: save)
         MotionCategoriesSetting.bindActions(into: registry, design: context.design, save: save)
+        BackdropPlacementSetting.bindActions(into: registry, design: context.design, save: save)
         SettingChoiceActions.bind(CenterFocusedColumn.allCases, into: registry, id: { "layout.centerFocusedColumn.\($0 == .onOverflow ? "onOverflow" : $0.rawValue)" },
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
