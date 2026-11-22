@@ -21,6 +21,7 @@ fn existing(wait: bool) -> Request {
         make_room: false,
         until: None,
         allow_large: false,
+        timings: false,
         no_focus: false,
     }
 }
