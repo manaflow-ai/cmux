@@ -12,7 +12,8 @@ import Foundation
 /// The rule reads the app's own signed bundle (its id and Info.plist `LSEnvironment`), never the
 /// process environment or settings, so nothing a script sets at run time turns it on. A side copy
 /// signed in to Cloud (`--keep-sign-in`) may show the person's own chats, so it masks again.
-public enum SideCopyCapture {
+public struct SideCopyCapture {
+    public init() {}
     /// The `unmasked` value a raw capture reports.
     public static let reason = "side-copy"
 
