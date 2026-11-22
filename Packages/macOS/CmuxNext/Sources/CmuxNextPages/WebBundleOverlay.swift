@@ -227,12 +227,19 @@ public final class WebBundleServedViews {
         return Array(pins.pinned)
     }
 
-    /// Reloads `views` from `tree` (nil: the bundle). Returns how many it reloaded.
+    /// Reloads `views` from `tree` (nil: the bundle). Returns how many it reloaded. A page's view swaps
+    /// in place with no visible reload (``PageWebView/swapReload()``); another view reloads as before.
     @discardableResult
     public func reload(_ views: [WKWebView], to tree: URL?) -> Int {
+        let pages = PageRegistry.pages()
         for webView in views {
             pins.pin(ObjectIdentifier(webView), to: tree)
-            webView.reload()
+            if let page = pages.first(where: { $0.webKitView === webView }) {
+                // task-owner: one swap per page; it ends with the page's restored frame or its cover limit
+                Task { await page.swapReload() }
+            } else {
+                webView.reload()
+            }
         }
         return views.count
     }

@@ -95,7 +95,7 @@ public final class WebDevOverrideWatcher {
     ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
-    /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
+    /// - Returns: The work still running for pages that change engine or swap in place, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
@@ -126,8 +126,13 @@ public final class WebDevOverrideWatcher {
         }
         // Chromium pages reload when they serve the loop now or did until now.
         guard chromiumLive || watcher.chromiumServedLive else { return nil }
-        for page in pages where page.chromiumPage != nil { page.reload() }
-        return nil
+        // Each in place with no visible reload (``PageWebView/swapReload()``).
+        // task-owner: one swap per page; each ends with its page's restored frame or its cover limit
+        let swaps = pages.filter { $0.chromiumPage != nil }.map { page in Task { await page.swapReload() } }
+        guard !swaps.isEmpty else { return nil }
+        return Task { // task-owner: waits for this reload's swaps (tests wait on it)
+            for swap in swaps { await swap.value }
+        }
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.

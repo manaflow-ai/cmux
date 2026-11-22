@@ -9,7 +9,8 @@
 Screen Recording grant; ffmpeg or screencapture over SSH have none), runs TRIGGER there in a shell
 `--pre` seconds in (a swap: `cmux customize try ...`, `web-overlay.sh install-app APP`, a socket call
 to `updates.web.apply`), keeps filming `--post` seconds, copies the movie back and analyzes it. The
-recorder films at 30 fps, so a blank lasting two 60 Hz frames or more always shows.
+recorder films at up to 30 fps (variable: 10-22 fps measured on air-blue, at the display's point size), so
+a blank lasting a few 60 Hz frames shows; a one-frame one can fall between captures.
 
 `analyze` compares every frame after the trigger, per region (video pixels; the whole frame without
 any), against the region before the trigger and at the end:
@@ -251,6 +252,16 @@ def analyze(movie: Path, marks_path: Path, regions: list, out: Path, label: str,
     # is under one frame on Cua Driver 0.32, inside the 100 ms margin the before picture keeps.
     trigger = marks.get("trigger", 1.5)
     regions = regions or [("window", (0, 0, width, height))]
+    # Cua Driver 0.32 films the display at its POINT size (1440x932 on a 2x MacBook Air), not its
+    # backing pixels: a rect given in backing pixels falls off the frame and ffmpeg's crop fails.
+    # Refuse such a rect with the frame size, instead of a CalledProcessError from ffmpeg.
+    # Keep a sample ~2 display points whether the movie is in backing pixels or in points.
+    global SCALE
+    SCALE = 4 if width > 2000 else 2
+    for name, (x, y, w, h) in regions:
+        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > width or y + h > height:
+            sys.exit(f"region {name}={x},{y},{w},{h} is outside the {width}x{height} video "
+                     f"(regions are in video pixels; this recorder films the display at its point size)")
     result = {
         "version": VERSION, "label": label, "trigger": trigger_text, "movie": str(movie),
         "video": {"width": width, "height": height, "fps": round(fps, 2), "seconds": round(duration, 2)},

@@ -11,6 +11,8 @@
 // Installed with the desktop layer, so every first-party page answers. A page without it (or one
 // that does not answer) keeps the update waiting.
 
+import { prepareSwap, startSwapRestore, swapRestored, type SwapProbe } from "./swapHandoff";
+
 /** Why a reload now would lose or disturb something, or null/undefined when it would not. */
 export type WebSwapHold = () => string | null | undefined;
 
@@ -138,8 +140,15 @@ export function takeWebSwapFocus(key: string, now = Date.now()): boolean {
 
 /** Answers the host's ask (`window.cmuxWebSwap`) and tracks input method composition. Once per document. */
 export function installWebSwap(doc: Document = document): void {
-  const view = doc.defaultView as (Window & { cmuxWebSwap?: { hold(): string | null } }) | null;
+  const view = doc.defaultView as
+    | (Window & {
+        cmuxWebSwap?: { hold(): string | null; prepare(): boolean; restored(): Promise<SwapProbe | null> };
+      })
+    | null;
   if (!view || view.cmuxWebSwap) return;
+  // GRACEFUL-SWAP (swapHandoff.ts): a document the host swapped in stays invisible over the host's
+  // still of the page until it is the page it was.
+  startSwapRestore(doc);
   view.addEventListener("compositionstart", () => composing.add(doc), { capture: true });
   view.addEventListener("compositionend", () => composing.delete(doc), { capture: true });
   view.cmuxWebSwap = {
@@ -156,6 +165,18 @@ export function installWebSwap(doc: Document = document): void {
       }
       return null;
     },
+    // The host reloads the page into new web next (PageWebView+GracefulSwap.swift): its state goes
+    // over to the new document, and the focus owner takes the keyboard back there.
+    prepare() {
+      const owner = doc.activeElement?.closest(`[${WEB_SWAP_FOCUS}]`)?.getAttribute(WEB_SWAP_FOCUS);
+      try {
+        if (owner) view.sessionStorage.setItem(WEB_SWAP_FOCUS_KEY, JSON.stringify({ owner, at: Date.now() }));
+      } catch {
+        // No storage: the hand-off below fails too, and the page reloads as before.
+      }
+      return prepareSwap(doc);
+    },
+    restored: swapRestored,
   };
 }
 
