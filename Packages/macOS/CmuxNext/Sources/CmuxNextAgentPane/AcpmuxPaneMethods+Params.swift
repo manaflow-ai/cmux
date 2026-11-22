@@ -57,8 +57,11 @@ nonisolated extension AcpmuxPaneMethods {
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
         // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
         // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // `afterSeq`: a reconnect that holds the chat through that seq reads only the records after it
+        // (attachParams.ts plainAttach, ForwardAttach, #47119); refused, every reconnect of an open chat
+        // failed it (Leo's NIGHTLY, 2026-11-21: `unknown param "afterSeq"`).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -153,7 +156,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
-        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        // `fromByte`: the run pane's output from a byte on (direct.ts bgOutput). `maxBytes`: the last
+        // bytes and the task's record, what a "Background task finished" line opens to (direct.ts
+        // bgTail, BackgroundTurnLine.tsx, #48648); refused, that line never opened.
+        // schemas/agent-pane/bg-output-params.json lists both.
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []),
         "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
