@@ -99,9 +99,10 @@ public struct UIPointerNativeElement: Equatable {
         let kind: Kind
         switch identifier {
         case let id where id.hasPrefix(Self.paneID): kind = .pane
-        // A row's own buttons extend its identifier (`cmux.sidebar.workspace.<id>.close`): those are controls.
-        case let id where id.hasPrefix(Self.workspaceID): kind = view is NSControl ? .control : .workspace
-        case let id where id.hasPrefix(Self.itemID): kind = view is NSControl ? .control : .sidebarItem
+        // A row's own buttons extend its identifier (`cmux.sidebar.workspace.<id>.close`): those are controls. The
+        // row itself may be any view, a label included, so only a button counts.
+        case let id where id.hasPrefix(Self.workspaceID): kind = view is NSButton ? .control : .workspace
+        case let id where id.hasPrefix(Self.itemID): kind = view is NSButton ? .control : .sidebarItem
         case let id where id.hasPrefix(Self.toolbarID) || id.hasPrefix(Self.nativeToolbarID): kind = .paneToolbar
         case Self.stripID: kind = .tabStrip
         case let id where id.hasPrefix("cmux."): kind = .control

@@ -37,6 +37,9 @@ public final class UIPointerNativePicker {
     }
 
     private var hover: Hover?
+    /// The last point that named nothing (`hover` is nil then), so a pointer resting over unnamed views runs no
+    /// hit-test per move either.
+    private var emptyAt: (window: ObjectIdentifier, point: NSPoint)?
     /// How far (points) and how long (seconds) a right-clicked element holds against the pointer.
     private static let holdSlop: CGFloat = 24
     private static let holdGrace: TimeInterval = 0.35
@@ -53,9 +56,11 @@ public final class UIPointerNativePicker {
             hover = held
         }
         if hover?.window === window, hover?.lastPoint == point, hover?.hold == nil { return }
+        if hover == nil, let empty = emptyAt, empty.window == ObjectIdentifier(window), empty.point == point { return }
         let elements = UIPointerNativeElement.elements(at: window.convertPoint(fromScreen: point), in: window) { $0 is UIPointerHighlightView }
         show(elements, in: window, hold: nil)
         hover?.lastPoint = point
+        if hover == nil { emptyAt = (ObjectIdentifier(window), point) }
     }
 
     /// Starts on a native menu's object (a menu run carries no point) and holds it while the pointer leaves the menu.
@@ -87,6 +92,7 @@ public final class UIPointerNativePicker {
     public func clear() {
         hover?.highlight?.dismiss()
         hover = nil
+        emptyAt = nil
     }
 
     /// The window image cut to `rect` (window coordinates, bottom-left origin), as PNG.
