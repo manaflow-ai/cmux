@@ -305,6 +305,15 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
+    /// `cmux inference gateway status --json`'s `serves` (Rust `status_answer`): the agents the active team's inference
+    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762).
+    public func inferenceGatewayServes() async -> Set<String>? {
+        guard let out = try? await output(["verb": "inference-gateway-status"]).stdout,
+              let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
+              let serves = answer["serves"] as? [String] else { return nil }
+        return Set(serves)
+    }
+
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
     /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
     public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {

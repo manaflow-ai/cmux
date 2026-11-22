@@ -23,6 +23,7 @@ fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookS
         harness: "claude".into(),
         state: state.into(),
         last_seen_at: 5,
+        ..Default::default()
     }
 }
 
@@ -100,7 +101,7 @@ fn notices(events: &mut tokio::sync::broadcast::Receiver<HubEvent>) -> Vec<(Stri
     let mut out = Vec::new();
     while let Ok(event) = events.try_recv() {
         if let Some(remote) = event.remote {
-            out.push((event.record.kind.clone(), remote.summary));
+            out.push((event.record.kind.clone(), remote.summary.value()));
         }
     }
     out
@@ -144,4 +145,82 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     );
     assert!(hub.all_session_summaries().is_empty());
     assert!(hub.peers().is_empty());
+}
+
+/// Every session row lists the same keys whichever machine it came from: a hub row lists each of
+/// `ROW_KEYS` as a local row does, null when the hub does not say, and the hub's values when it
+/// does. No reader can drop or misfile another machine's chat for a key it lacks.
+#[tokio::test]
+async fn a_hub_row_lists_every_key_a_local_row_does() {
+    let hub = hub();
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "local-contract", "name": "here",
+        "harness": "fake", "cwd": "/work/app", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .expect("meta");
+    hub.store.save(&meta).expect("save");
+    let local = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(local.id.clone(), local.clone());
+    hub.update_live_session_index(&local);
+
+    let mut full = book();
+    let b = &mut full.sessions[1];
+    b.cwd = Some("/work/login".into());
+    b.title = Some("Fix the login".into());
+    b.title_source = Some("agent".into());
+    b.name_given = Some(true);
+    b.model = Some("opus".into());
+    b.agent_session_id = Some("agent-b".into());
+    b.host_build = Some("build-b".into());
+    hub.apply_mesh_book(full, "person-1", Some("d-a"));
+
+    let all = hub.all_session_summaries();
+    let local_row = all.iter().find(|s| s["sessionId"] == "local-contract").expect("local");
+    let bare = all.iter().find(|s| s["name"] == "ssh-box/linked").expect("a bare hub row");
+    let rich = all.iter().find(|s| s["sessionId"] == B_ID).expect("a full hub row");
+    for key in ROW_KEYS {
+        assert!(local_row.get(key).is_some(), "a local row lists {key}: {local_row}");
+        assert!(bare.get(key).is_some(), "a hub row lists {key} with nothing known: {bare}");
+        assert!(rich.get(key).is_some(), "a hub row lists {key}: {rich}");
+    }
+    assert_eq!(bare["cwd"], Value::Null);
+    assert_eq!(bare["harness"], "claude");
+    assert_eq!(rich["cwd"], "/work/login");
+    assert_eq!(rich["title"], "Fix the login");
+    assert_eq!(rich["titleSource"], "agent");
+    assert_eq!(rich["nameGiven"], true);
+    assert_eq!(rich["model"], "opus");
+    assert_eq!(rich["agentSessionId"], "agent-b");
+    assert_eq!(rich["sessionReceipt"]["agentSessionId"], "agent-b");
+    assert_eq!(rich["hostBuild"], "build-b");
+}
+
+/// A hub row's folder or title changing builds it again and tells clients; the same book again
+/// does not.
+#[tokio::test]
+async fn a_hub_rows_metadata_change_is_announced() {
+    let hub = hub();
+    let mut events = hub.events.subscribe();
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let _ = notices(&mut events);
+    let mut moved = book();
+    moved.sessions[1].cwd = Some("/work/other".into());
+    hub.apply_mesh_book(moved.clone(), "person-1", Some("d-a"));
+    let changed = notices(&mut events);
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].1["cwd"], "/work/other");
+    hub.apply_mesh_book(moved, "person-1", Some("d-a"));
+    assert_eq!(notices(&mut events), [], "an unchanged book announces nothing");
+}
+
+/// A heartbeat lists a session's folder, and leaves out one the hub would refuse for length
+/// rather than lose the whole heartbeat.
+#[test]
+fn a_heartbeat_lists_the_folder_the_hub_takes() {
+    use crate::mesh::{MAX_CWD_UNITS, heartbeat_cwd};
+    assert_eq!(heartbeat_cwd("/work/app").as_deref(), Some("/work/app"));
+    assert_eq!(heartbeat_cwd(""), None);
+    let longest = format!("/{}", "a".repeat(MAX_CWD_UNITS - 1));
+    assert_eq!(heartbeat_cwd(&longest).as_deref(), Some(longest.as_str()));
+    assert_eq!(heartbeat_cwd(&format!("{longest}b")), None);
 }
