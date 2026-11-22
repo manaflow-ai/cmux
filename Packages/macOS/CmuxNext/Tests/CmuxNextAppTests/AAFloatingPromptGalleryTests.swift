@@ -119,6 +119,19 @@ import Testing
             UserDefaults.standard.removeObject(forKey: "cmux.gallery.promptLook")
         }
         let root = AANestedGroupsGalleryTests.packageRoot
+        _ = NSApplication.shared
+        // The app's own window, as the app has one: the floating card keeps its glass's key look from its
+        // ``ActiveLookScope`` while cmux is not active (``CmuxFloatingDialogPanel/appActiveLook``).
+        let appWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.borderless],
+                                 backing: .buffered, defer: false)
+        appWindow.isReleasedWhenClosed = false
+        appWindow.contentView = WindowSurfaceView(content: NSView(), activeLook: ActiveLookScope())
+        defer { appWindow.close() }
+        let icon = AANestedGroupsGalleryTests.repoRoot.appending(path: "design/cmux-icon-chevron.png")
+        let savedIcon = NSApp.applicationIconImage
+        NSApp.applicationIconImage = NSImage(contentsOf: icon) ?? savedIcon
+        defer { NSApp.applicationIconImage = savedIcon }
+        #expect(CmuxFloatingDialogPanel.appActiveLook != nil)
         let out = root.appending(path: "floating-prompt-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
