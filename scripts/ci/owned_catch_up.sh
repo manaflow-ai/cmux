@@ -118,6 +118,10 @@ phase=resolve
 # copies this checkout into the root's src. Its cache is source-keyed, so a warm one
 # installs in seconds; a kill leaves only this checkout's gitignored output.
 bash scripts/ci/ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"
+# The cmux-next target's Bundle cmux-tui phase bundles this tree's hosted cmux-tui and never
+# downloads it, so a build without it fails there too. Fetch it here, as reload.sh and the
+# package-test lane do, without waiting for a tree that is not published yet (0 looks once).
+CMUX_TUI_TREE_WAIT_SECONDS=0 bash scripts/cmux-next/pin-cmux-tui.sh fetch >>"$log" 2>&1 || fail "cmux-tui"
 GHOSTTYKIT_ARCHIVE_CACHE_DIR="$state/ghosttykit-archives" ./scripts/download-prebuilt-ghosttykit.sh >>"$log" 2>&1 \
   || fail "ghosttykit"
 python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages >>"$log" 2>&1 || fail "sanitize"

@@ -79,6 +79,16 @@ class OwnedCatchUpTest(unittest.TestCase):
         self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-build"))
         self.assertIn('ensure-web-bundles.sh >>"$log" 2>&1 || fail "web-bundles"', text)
 
+    def test_fetches_this_trees_cmux_tui_before_the_tree_is_copied_and_built(self) -> None:
+        # The Bundle cmux-tui phase never downloads: the 2026-11-22 rerun past Verify web bundles
+        # failed `compile exit 65` on "the same-tree cmux-tui ... is not downloaded". It must not
+        # hold an idle Mac waiting for an unpublished tree.
+        text = SCRIPT.read_text()
+        step = text.index("bash scripts/cmux-next/pin-cmux-tui.sh fetch")
+        self.assertLess(step, text.index("compile-app-host-test-product.sh canonical-resolve"))
+        self.assertIn('CMUX_TUI_TREE_WAIT_SECONDS=0 bash scripts/cmux-next/pin-cmux-tui.sh fetch >>"$log" 2>&1 '
+                      '|| fail "cmux-tui"', text)
+
 
 if __name__ == "__main__":
     unittest.main()
