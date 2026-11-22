@@ -10,5 +10,44 @@
     "superseded": false
   },
   "rolled_back": false,
-  "rollback": null
+  "rollback": null,
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44986846636",
+  "recorded_at": "2026-11-22T06:09:01Z",
+  "reason": "cmux-tui 32a9c06e0790 changes the image's cmux-tui (pinned 35051d42ef06)",
+  "dry_run": false,
+  "cmux_tui": "32a9c06e0790e8cbb07815f16fbf07a315d43290",
+  "fixes": [
+    {
+      "sha": "32a9c06e0790e8cbb07815f16fbf07a315d43290",
+      "mergedAt": "2026-11-22T04:21:06+00:00",
+      "subject": "Session Info's Usage reads only the chats with usage, cached by list position (#47405)"
+    },
+    {
+      "sha": "82a8a220db5ff73ff33ef66f50e5735ce81015ac",
+      "mergedAt": "2026-11-22T04:08:59+00:00",
+      "subject": "acpmux tests: fix the job's ~50% red (bwrap userns on lane runners, retry cap eaten by base reds, base lints) (#49066)"
+    },
+    {
+      "sha": "d98120328b00580b6c03cde52434a7c19fe7e10b",
+      "mergedAt": "2026-11-22T04:08:22+00:00",
+      "subject": "cmux-rd: a viewer ends a link whose host went silent for 90 s (#47843)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-22T06:09:01Z",
+    "snapshot_id": "sh-99487871c90c4794a2014756274666bd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44986846636): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9cc29794d77e32206c374539e369c92968938421",
+    "image": "cloud-native-auto-32a9c06e-44986846636-1",
+    "revision": "ci-44986846636-1",
+    "at": "2026-11-22T06:09:01Z"
+  }
 }
