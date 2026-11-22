@@ -604,13 +604,11 @@ impl Hub {
         // running turn, as no notice does (`inbox.rs`): it kept that turn going past the person's
         // queued prompt (Leo, 2026-10-29: "but even if im just queueing, your turn should still be
         // ending"). It queues behind the prompt, and one sent with `interrupt` stops nothing. The
-        // person's own steer and Send now still go in, and so does an inbox digest asked to steer
-        // (`inbox_digest.rs`): its drain asked for it. Checked again as the steer is written
-        // (`steer_end.rs`).
-        let prompt_held = from_agent
-            && running.is_some()
-            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
-            && super::inbox::persons_prompt_waits(session);
+        // person's own steer and Send now still go in; an inbox digest does not (its drain never
+        // asks to steer then, `inbox_digest.rs`; this holds one whose prompt came after the
+        // drain). Checked again as the steer is written (`steer_end.rs`).
+        let prompt_held =
+            from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
         // Other agents wait until the person's own turn ends; family replies still enter it.
         let persons_held = from_agent
             && running.as_ref().is_some_and(|t| t.persons)
