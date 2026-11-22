@@ -29,6 +29,7 @@ import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
 import { writeFrameSites } from "./frameSites.mjs";
+import { addCompileHints } from "./compileHints.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -56,6 +57,9 @@ const preloadFile = preloadIndex >= 0 ? rest[preloadIndex + 1] : undefined;
 // build makes external source maps only to read them, and deletes them after.
 const frameSitesIndex = rest.indexOf("--frame-sites");
 const frameSitesFile = frameSitesIndex >= 0 ? rest[frameSitesIndex + 1] : undefined;
+// --compile-hints puts V8's `//# allFunctionsCalledOnLoad` on the entry and the chunks it imports
+// statically (compileHints.mjs): compiled eagerly off the main thread on a code-cache miss.
+const compileHints = rest.includes("--compile-hints");
 if (frameSitesFile && !split) {
   console.error("--frame-sites needs --split");
   process.exit(2);
@@ -116,6 +120,14 @@ const result = await build({
   // content hashes (their names) change, as esbuild hashes a chunk with its map.
   ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
+const entryOut = result.metafile
+  ? Object.keys(result.metafile.outputs).find((output) => path.resolve(output) === path.resolve(outfile))
+  : undefined;
+// Before the site table: it reads the maps, which then already carry the hint's line.
+if (compileHints && !cssInputsOnly) {
+  if (!result.metafile) throw new Error("--compile-hints needs --split with --preload-list or --frame-sites");
+  await addCompileHints([entryOut, ...staticChunks(result.metafile.outputs, entryOut)].map((o) => path.resolve(o)));
+}
 if (frameSitesFile && !cssInputsOnly) {
   const outdir = path.resolve(path.dirname(outfile));
   const outputs = Object.keys(result.metafile.outputs)
@@ -126,9 +138,6 @@ if (frameSitesFile && !cssInputsOnly) {
 if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
 if (preloadFile) {
   const outdir = path.resolve(path.dirname(outfile));
-  const entryOut = Object.keys(result.metafile.outputs).find(
-    (output) => path.resolve(output) === path.resolve(outfile),
-  );
   await writeFile(
     preloadFile,
     staticChunks(result.metafile.outputs, entryOut)
