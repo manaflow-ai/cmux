@@ -575,6 +575,7 @@ def main():
             for s in streams:
                 s.stop()
             collect(support, a.out, note)
+            diag_dump(a.out)
             teardown.end()
             shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
@@ -1063,6 +1064,28 @@ def scanner(udid, shot):
             return f"camera off, {shot('phone-scanner-camera-off')}"
         nodes.extend(node.get("children") or [])
     return "no \"Scan QR on your Mac\" row (settings.scanMacCode) on this build"
+
+
+def diag_dump(out):
+    """DIAGNOSTIC ONLY (not for merge): the pairing-relevant lines of each log, redacted, in the step log."""
+    pat = re.compile(r"pair|auth|link|registered|signal|team|Macs|macs|live data|hostd|iphone|mobile|presence|relay|refus|denied|error|fail", re.I)
+    def scrub(line):
+        line = redact(line)
+        line = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}", "<email>", line)
+        line = re.sub(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+", "<jwt>", line)
+        line = re.sub(r"(?i)(bearer|refresh[_-]?token|access[_-]?token|password)([\"'\s:=]+)[^\s\"',}]+", r"\1\2<redacted>", line)
+        line = re.sub(r"k=[A-Za-z0-9_-]+", "k=<redacted>", line)
+        return line.rstrip()[:400]
+    for name in ("phone-pairing.log", "mac-pairing.log", "hostd-pairing.log", "mac-app.log"):
+        path = os.path.join(out, name)
+        try:
+            lines = [l for l in open(path, errors="replace") if pat.search(l)]
+        except OSError as error:
+            print(f"diag {name}: unreadable ({error})", flush=True)
+            continue
+        print(f"diag {name}: {len(lines)} matching lines, the last 150:", flush=True)
+        for l in lines[-150:]:
+            print(f"diag {name}| {scrub(l)}", flush=True)
 
 
 def collect(support, out, note):
