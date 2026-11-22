@@ -26,8 +26,11 @@ fn internal(e: impl std::fmt::Display) -> RpcError {
     RpcError::internal(e.to_string())
 }
 
-/// The most tasks one chat runs at once.
+/// The most tasks one owner (the lead, or one subagent) runs at once in a chat.
 const MAX_RUNNING: usize = 32;
+/// The most tasks one chat runs at once, over all its owners: a chat with many helpers, each
+/// waiting on its own CI run, is no longer held to one owner's cap.
+const MAX_RUNNING_CHAT: usize = 512;
 /// The most a `bg/output` returns, and what one without `maxBytes` returns.
 const OUTPUT_MAX: u64 = 1 << 20;
 const OUTPUT_DEFAULT: u64 = 64 << 10;
@@ -186,10 +189,19 @@ impl Hub {
             }
         }
         // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
-        let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
-        if running >= MAX_RUNNING {
+        let live: Vec<Record> =
+            self.bg_records(&dir).into_iter().filter(|r| !bg_gone(&dir, &r.id)).collect();
+        let owner = owner_id(subagent.as_ref());
+        let owned = live.iter().filter(|r| owner_id(r.subagent.as_ref()) == owner).count();
+        if owned >= MAX_RUNNING {
             return Err(RpcError::invalid_params(format!(
-                "{MAX_RUNNING} background tasks already run in this chat; stop one first"
+                "{MAX_RUNNING} background tasks already run for {} in this chat; stop one first",
+                bg_owner_words(subagent.as_ref())
+            )));
+        }
+        if live.len() >= MAX_RUNNING_CHAT {
+            return Err(RpcError::invalid_params(format!(
+                "{MAX_RUNNING_CHAT} background tasks already run in this chat; stop one first"
             )));
         }
         let mut env = self.bg_env(session, &meta).await?;
