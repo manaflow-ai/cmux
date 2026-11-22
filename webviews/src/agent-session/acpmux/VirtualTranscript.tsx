@@ -1,6 +1,13 @@
 import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
-import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
+import {
+  gridScale,
+  MARK_INDICATOR,
+  MARK_PROMPT,
+  rowMark,
+  TRANSCRIPT_COMPOSER_GAP,
+  transcriptLiveVars,
+} from "./transcriptGrid";
 import React, {
   useCallback,
   useDeferredValue,
@@ -17,6 +24,7 @@ import React, {
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
 import { LayeredMap } from "./conversation/layeredMap";
+import { KeptLayouts } from "./conversation/keptLayouts";
 import { isAgentMotionOff } from "../shared/motion";
 import { LOAD_FADE_CLASS, LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
@@ -195,7 +203,8 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { noteUnreadNews, readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
+import { sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -238,6 +247,7 @@ import {
 } from "./virtualTranscriptModel";
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
+import { isRunPart } from "./conversation/runPartId";
 import { DOCK_NOTICE } from "./noticeSlotModel";
 import { JumpDots } from "./conversation/JumpDots";
 import { useThinkingLook } from "./conversation/thinkingLook";
@@ -708,7 +718,7 @@ const RowFrame = React.memo(function RowFrame({
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
       data-send-thinking={sendThinking ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${isRunPart(row) ? " acpmux-row--run-part" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -722,7 +732,17 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // The unread line's row takes no height and draws its mark over the gap under it
+      // (conversation/unread.css), so it reads the gap's length.
+      style={
+        row.kind === SINCE_DIVIDER
+          ? ({
+              top: integralTop,
+              marginTop: placedTop - integralTop,
+              "--cv-since-gap": `${gapBelow}px`,
+            } as React.CSSProperties)
+          : { top: integralTop, marginTop: placedTop - integralTop }
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -1798,6 +1818,9 @@ function estimateFrom(
   };
 }
 
+/// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
+const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
+
 /// The rows around the ones the last placement mounted, in `rows` (layoutConversation `near`): the same
 /// rows by id, where `rows` kept their indices or took an older page before them. Undefined for another
 /// chat or rows it cannot find there, so every row is measured.
@@ -2835,10 +2858,18 @@ function TranscriptView({
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
     // prepared markdown and DOM heights from the old transcript must never place the new one.
+    // The chat shown takes the layout it left in this page, if any: its rows place at the heights they
+    // drew, and its estimates measure none of them again (conversation/keptLayouts.ts).
     measurementSession.current = sessionId;
     measurementCache.current.clear();
     rowHeights.current = { registry, heights: new WeakMap() };
     pendingDrawn.current.clear();
+    const shown =
+      sessionId === undefined
+        ? undefined
+        : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
+    // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
+    if (shown && shown !== drawn) setDrawn(shown);
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
@@ -4266,13 +4297,17 @@ function TranscriptView({
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
-    const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const sameSession = measurementSession.current === sessionId;
+    const cache = sameSession ? measurementCache.current : new Map();
     const lookChanged = measuredLook.current !== chatLook || measuredView.current !== attachmentView;
     measuredLook.current = chatLook;
     measuredView.current = attachmentView;
-    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
-    if (rowHeights.current.registry !== registry || lookChanged)
+    const fresh = rowHeights.current.registry !== registry || !sameSession || lookChanged;
+    if (rowHeights.current.registry !== registry || lookChanged) {
       rowHeights.current = { registry, heights: new WeakMap() };
+      // A kept layout was measured with the look and registry before: none of it places a row now.
+      if (sessionId !== undefined) keptLayouts.forget(sessionId);
+    }
     const rowWidth = scaledRowWidth;
     // A live resize's frame at a new width: only the rows around the mounted ones are measured, the
     // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
@@ -4292,7 +4327,9 @@ function TranscriptView({
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
-      measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
+      // A chat shown again takes its rows' heights from the layout it left, by id, version and text: its
+      // estimate measures only the rows that changed since (conversation/keptLayouts.ts).
+      sameSession ? keptLayouts.seed(sessionId, rows, rowHeights.current.heights, gridScale()) : undefined,
       kept,
       sessionId,
       resizing,
@@ -4313,6 +4350,20 @@ function TranscriptView({
       ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
     };
   }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
+  // What this chat laid out, for its next show in this page (conversation/keptLayouts.ts): references
+  // only, so recording after each commit is O(1).
+  useLayoutEffect(() => {
+    const last = lastEstimate.current;
+    if (sessionId === undefined || last?.sessionId !== sessionId) return;
+    keptLayouts.record(sessionId, {
+      drawn,
+      rows: last.rows,
+      heights: rowHeights.current.heights,
+      look: chatLook,
+      view: attachmentView,
+      registry: rowHeights.current.registry,
+    });
+  }, [sessionId, drawn, estimated, chatLook, attachmentView]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -4609,8 +4660,10 @@ function TranscriptView({
   // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
   // something went wrong with a retry button just above the composer ... and then it layout shifted"):
   // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
-  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
-  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // (`restExtra`), so a line covers no row. A taller notice (its Details open, an app notice card)
+  // moves no row either (Leo, 2026-11-22: "that message should not shift layout"): it lies over the
+  // newest row's foot too, and the room takes all of it only once the rows move anyway (`noticeHold`,
+  // the notice's height the room has not taken). So too at the chat's
   // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
   // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
   // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
@@ -4623,7 +4676,7 @@ function TranscriptView({
     dockSpace <= 0 || !following
       ? 0
       : dockNotice >= noticeHeldAt
-        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        ? Math.min(dockNotice - noticeHeldAt, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
         : noticeTaken
           ? 0
           : dockNotice - noticeHeldAt;
@@ -7459,6 +7512,12 @@ function TranscriptView({
   );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
+  // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
+  // banner and no Jump up target. Stops at the first news row, so a chat that answered reads one.
+  const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex);
+  useLayoutEffect(() => {
+    if (sinceKey !== undefined && sinceRow !== undefined) noteUnreadNews(sinceKey, sinceHasNews);
+  }, [sinceKey, sinceRow, sinceHasNews]);
   const jumpUp = jumpButton && jumpUpOn;
   const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
