@@ -652,6 +652,13 @@ final class NotificationCenterService {
                  owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
+        if let kind = AgentStatusAnnouncement.kind(level: notification.level, source: notification.source),
+           AgentStatusAnnouncement.speaks(decision, bannersDenied: desktop.authorization == "denied",
+                                          appActive: services?.appActiveSource() ?? false, paneIsViewed: isViewed(located.tab.id)) {
+            let incognito = services?.windows.isIncognito(workspace: located.workspace.id) == true
+            AgentStatusAnnouncement.announce(kind, name: incognito ? nil : shownName(of: located.tab))
+            note("announced \(kind) tab=\(located.tab.id)")
+        }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
