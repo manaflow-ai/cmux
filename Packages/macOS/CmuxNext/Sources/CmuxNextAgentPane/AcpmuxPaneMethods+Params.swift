@@ -260,7 +260,10 @@ nonisolated extension AcpmuxPaneMethods {
                 dropped.append("_meta.\(key)")
             }
             if var acpmux = meta["acpmux"] as? [String: Any] {
-                for key in acpmux.keys where !known.acpmux.contains(key) && !denied.contains(key) {
+                // A credential (``initializeRefusedAcpmux``) is a forgery, not a newer key: it stays
+                // for the params rule to refuse.
+                for key in acpmux.keys where !known.acpmux.contains(key) && !denied.contains(key)
+                    && !initializeRefusedAcpmux.contains(key) {
                     acpmux.removeValue(forKey: key)
                     dropped.append("_meta.acpmux.\(key)")
                 }

@@ -136,8 +136,11 @@ pub fn stripping_unknown_params(
             kept
         });
         if let Some(acpmux) = meta.get_mut("acpmux").and_then(Value::as_object_mut) {
+            // A credential ([`INITIALIZE_REFUSED_ACPMUX`]) is a forgery, not a newer
+            // key: it stays for the params rule to refuse.
             acpmux.retain(|k, _| {
-                let kept = keep(&known.acpmux, k);
+                let kept =
+                    keep(&known.acpmux, k) || INITIALIZE_REFUSED_ACPMUX.contains(&k.as_str());
                 if !kept {
                     dropped.push(format!("_meta.acpmux.{k}"));
                 }
