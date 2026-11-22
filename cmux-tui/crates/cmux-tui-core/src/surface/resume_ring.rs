@@ -87,7 +87,10 @@ impl ResumeRing {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.end += output.len() as u64;
         let tail = output.get(output.len().saturating_sub(self.budget)..).unwrap_or_default();
-        inner.bytes.extend(tail.iter().copied());
+        // From the slice itself: VecDeque copies a slice of `Copy` bytes in at
+        // most two memcpys, where `iter().copied()` stored them one at a time
+        // (4 % of the daemon mirror's thread in a 200 MB flood, CMUX-571).
+        inner.bytes.extend(tail);
         let over = inner.bytes.len().saturating_sub(self.budget);
         if over > 0 {
             inner.bytes.drain(..over);
