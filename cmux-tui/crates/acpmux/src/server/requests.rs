@@ -1343,6 +1343,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PERF,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2547,6 +2548,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The live perf commentator (`perf_watch.rs`): this machine's own clients only. It names
+        // chats and clients, and `on` writes its tail file.
+        method::MUX_PERF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may use the perf watch",
+                ));
+            }
+            crate::perf_watch::handle(&params).await
+        }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
             // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
@@ -4195,6 +4206,10 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
     conn.chunk_deltas.set_enabled(deltas == Some(true) && conn.raw_text);
+    // Opt-in too: a client that does not ask hears each change as the whole row, as before.
+    let delta = params.pointer("/_meta/acpmux/sessionChangedDelta").and_then(Value::as_bool);
+    conn.session_delta.store(delta == Some(true), Ordering::SeqCst);
+    *conn.sent_rows.lock_or_recover() = Default::default();
 }
 
 /// `agent/credentials.update {sessionId, env}` (`hub/credentials.rs`): this socket's, never an

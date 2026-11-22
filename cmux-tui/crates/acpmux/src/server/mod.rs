@@ -205,6 +205,10 @@ pub struct Conn {
     peer_row_batches: AtomicBool,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
+    /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
+    /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
+    session_delta: AtomicBool,
+    sent_rows: StdMutex<session_patch::SentRows>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -633,7 +637,23 @@ impl Conn {
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
     fn send_line(&self, line: &str) {
         self.raise_gate();
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| crate::rpc::method::SESSION_UPDATE.to_owned(), line.len());
+        }
         self.out.push(line.to_owned());
+    }
+
+    /// The perf watch's meter (`perf_watch.rs`, on only): `what` went to this client.
+    fn perf_bytes(&self, what: impl FnOnce() -> String, bytes: usize) {
+        crate::perf_watch::bytes(
+            crate::perf_watch::channel_of(self.origin),
+            || {
+                let name = self.name.lock_or_recover();
+                let client = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+                format!("{} \u{2192} {client}", what())
+            },
+            bytes,
+        );
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
@@ -662,6 +682,12 @@ impl Conn {
         // a notification is left out and the client reads again from its last record.
         match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
+                if crate::perf_watch::on() {
+                    self.perf_bytes(
+                        || crate::wire_size::What::of(msg, reply_to).label(),
+                        line.len(),
+                    );
+                }
                 if reply_to == Some(controls::METHOD) {
                     self.controls.reply(self, msg, line);
                 } else {
@@ -735,6 +761,11 @@ impl Conn {
         // client keeps each row with the higher `listSeq` (`hub/row_log.rs`); order does not matter.
         if !queue.push_in(line, outbound::method_lane(method)) {
             return false;
+        }
+        // The perf watch's meter after the queue's lock: its tail-file append is no wait for the queue.
+        drop(queue);
+        if crate::perf_watch::on() {
+            self.perf_bytes(|| what.label(), bytes);
         }
         whole
     }
@@ -1770,6 +1801,8 @@ async fn serve_connection_from(
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
         chunk_deltas: Default::default(),
+        session_delta: AtomicBool::new(false),
+        sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -1802,8 +1835,7 @@ async fn serve_connection_from(
         dual_principal,
         list_stream: link_v2.is_some(),
         device_mesh: StdMutex::new(web_device::Slot::Empty),
-        page_origin: page_origin
-            .filter(|_| origin == Origin::Web && auth == ConnAuth::ListenerToken),
+        page_origin: page_origin.filter(|_| web_device::keeps_page_origin(origin, auth)),
         browser_sign_in: StdMutex::new(None),
         fan_flush,
     });
@@ -1964,6 +1996,7 @@ async fn serve_connection_from(
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
+                    let perf_started = crate::perf_watch::request_started();
                     let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
@@ -2043,6 +2076,7 @@ async fn serve_connection_from(
                     } else {
                         dual_requests::finish(first, None);
                     }
+                    crate::perf_watch::request_done(perf_started, &m, conn.origin);
                     if let Some(from) = attach_from {
                         crate::gauges::attach_latency().record(from.elapsed());
                     }
@@ -2254,11 +2288,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
-                hub.session_summary(&s)
-            } else {
-                hub.session_list_summary(&s)
-            };
+            let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
+            if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
+                return;
+            }
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
                 json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
@@ -2412,6 +2447,15 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
                 let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                let qualified = remote.qualified_id(&ev.session_id);
+                if rec.kind == "purged" {
+                    session_patch::forget(conn, &qualified);
+                } else if session.is_object() {
+                    let notice = json!({"sessionId": sid, "qualifiedSessionId": qualified, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq});
+                    if session_patch::send_row(conn, &qualified, tools, &session, notice) {
+                        return;
+                    }
+                }
                 conn.send(&Message::notification(
                     method::MUX_SESSION_CHANGED,
                     json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
@@ -2420,6 +2464,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            session_patch::forget(conn, &ev.session_id);
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2444,10 +2489,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
-            ));
+            let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
+            if !session_patch::send_row(conn, &ev.session_id, full, &summary, notice) {
+                conn.send(&Message::notification(
+                    method::MUX_SESSION_CHANGED,
+                    json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                ));
+            }
         }
         // A watcher that is not attached still learns a permission is waiting.
         if is_permission_ask(&rec.kind) && !attached {
@@ -2501,6 +2549,7 @@ pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
 mod chunk_deltas;
+pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
@@ -2538,6 +2587,7 @@ mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
 mod outbound;
+pub(crate) use outbound::is_cheap_read;
 pub(crate) mod outbox;
 mod pairing;
 mod plan_build;

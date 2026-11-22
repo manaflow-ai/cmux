@@ -140,6 +140,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requireFullAccess",
     "resend",
     "route",
+    "sessionChangedDelta",
     "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",

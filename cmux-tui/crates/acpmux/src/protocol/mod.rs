@@ -197,6 +197,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
+        // The live perf commentator (perf_watch.rs).
+        untyped(method::MUX_PERF, Request),
         untyped(method::MUX_CONTEXT, Request),
         untyped(method::MUX_CONTEXT_OVERRIDE, Request),
         // Cloud whole-machine turn fencing. These methods are served by the
@@ -552,6 +554,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<events::ChunkDelta>(method::MUX_CHUNK),
         notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
+        notification::<SessionPatch>(method::MUX_SESSION_PATCH),
         notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),

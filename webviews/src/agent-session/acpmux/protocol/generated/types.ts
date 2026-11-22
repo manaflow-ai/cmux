@@ -68,6 +68,7 @@ export interface AcpmuxRequestMeta {
   senderHarness?: unknown;
   senderHarnessChecked?: unknown;
   senderToken?: unknown;
+  sessionChangedDelta?: unknown;
   sessionCreatedAt?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
@@ -1528,6 +1529,12 @@ export type SessionChanged = {
   /** The peer a remote session runs on. */
   peer?: (string | null);
   recordKind: string;
+  /**
+   * To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+   * this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+   * chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+   */
+  rowSeq?: (number | null);
   seq: number;
   session: ChangedSession;
   sessionId: string;
@@ -1578,6 +1585,14 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
   /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.
@@ -1876,6 +1891,29 @@ export interface SessionNewParams {
   mcpServers?: unknown;
 }
 
+/**
+ * To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+ * place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+ * (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+ * of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+ * an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+ */
+export type SessionPatch = {
+  baseRowSeq: number;
+  /** As `session_changed`'s. */
+  kind: string;
+  listSeq: number;
+  patch: unknown;
+  /** The peer a remote session runs on. */
+  peer?: (string | null);
+  /** A peer's chat: the id its row has here. */
+  qualifiedSessionId?: (string | null);
+  recordKind: string;
+  rowSeq: number;
+  seq: number;
+  sessionId: string;
+} & Record<string, unknown>;
+
 export interface SessionPromptParams {
   _meta?: RequestMeta;
   prompt?: unknown;
@@ -1950,6 +1988,14 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent when unknown (the configuration was being written
+   * as the summary was built) and from a peer on an older acpmux: a client then falls back to
+   * the family, never reads absence as false.
+   */
+  forksAnyTurn?: (boolean | null);
   /**
    * The names it had before its renames, oldest first: each still names it where no session
    * has it as its current name. Absent when it was never renamed, and from an older acpmux.

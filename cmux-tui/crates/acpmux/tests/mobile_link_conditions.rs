@@ -267,20 +267,18 @@ impl Link {
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        Self::open_with(addr, token, deadline, false).await
+        Self::open_with(addr, token, deadline, Wants::default()).await
     }
 
-    /// [`Self::open`]; `chunk_deltas`: its `initialize` asks for compact text chunks.
+    /// [`Self::open`], with the compact forms `wants` asks for in `initialize`.
     async fn open_with(
         addr: std::net::SocketAddr,
         token: &str,
         deadline: Instant,
-        chunk_deltas: bool,
+        wants: Wants,
     ) -> Result<Self, String> {
-        let mut meta = json!({"acpmux": {"localAppToken": token}});
-        if chunk_deltas {
-            meta["acpmux"]["chunkDeltas"] = json!(true);
-        }
+        let mut meta = json!({"localAppToken": token});
+        wants.ask(&mut meta);
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
@@ -288,7 +286,7 @@ impl Link {
             .post(
                 "initialize",
                 json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
-                       "clientCapabilities": {}, "_meta": meta}),
+                       "clientCapabilities": {}, "_meta": {"acpmux": meta}}),
             )
             .await?;
         let watch =
@@ -481,19 +479,14 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -641,15 +634,10 @@ async fn reconnect(
                 continue;
             }
         }
-        loop {
-            match l.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    if event_seq(&v).is_some_and(|s| s > last) {
-                        first = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = l.notification(deadline).await {
+            if event_seq(&v).is_some_and(|s| s > last) {
+                first = Some(at);
+                break;
             }
         }
     }
@@ -770,18 +758,6 @@ fn link_frames(payload: u64) -> u64 {
     payload + LINK_HEADER * payload.div_ceil(LINK_MAX_PAYLOAD).max(1)
 }
 
-/// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
-fn ws_header(len: u64, masked: bool) -> u64 {
-    let base = if len < 126 {
-        2
-    } else if len <= 0xffff {
-        4
-    } else {
-        10
-    };
-    base + if masked { 4 } else { 0 }
-}
-
 /// The first `sessionUpdate` in `v`, a few levels down.
 fn session_update(v: &Value, depth: u8) -> Option<&str> {
     match v {
@@ -879,14 +855,32 @@ impl Tap {
     }
 }
 
+/// The compact forms a client asks for in `initialize` `_meta.acpmux`.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct Wants {
+    /// `chunkDeltas`: text chunks after the first as `_acpmux/chunk` (`server/chunk_deltas.rs`).
+    chunks: bool,
+    /// `sessionChangedDelta`: row changes as `_acpmux/session_patch`
+    /// (`session-changed-delta-v1`, `server/session_patch.rs`).
+    delta: bool,
+}
+
+impl Wants {
+    fn ask(self, meta: &mut Value) {
+        if self.chunks {
+            meta["chunkDeltas"] = json!(true);
+        }
+        if self.delta {
+            meta["sessionChangedDelta"] = json!(true);
+        }
+    }
+}
+
 /// Which app's requests the bandwidth bench sends.
 #[derive(Clone, Copy, PartialEq)]
 enum App {
     /// cmux-next-ios `AcpmuxHub.swift` (as `Link::open` and `Link::attach`), over the phone's link.
     Ios,
-    /// [`App::Ios`] that asks for compact text chunks (`initialize` `_meta.acpmux.chunkDeltas`,
-    /// `server/chunk_deltas.rs`).
-    IosCompact,
     /// The macOS agent pane (webviews `direct.ts` `initializeParams`, `sessionPages.ts`
     /// `SESSION_PAGE`, `attachParams.ts` `plainAttach` local with `settled`), a WebSocket.
     Macos,
@@ -896,7 +890,6 @@ impl App {
     fn name(self) -> &'static str {
         match self {
             App::Ios => "ios",
-            App::IosCompact => "ios-compact",
             App::Macos => "macos",
         }
     }
@@ -905,13 +898,16 @@ impl App {
 impl Link {
     async fn open_as(
         app: App,
+        wants: Wants,
         addr: std::net::SocketAddr,
         token: &str,
         deadline: Instant,
     ) -> Result<Self, String> {
-        if app != App::Macos {
-            return Self::open_with(addr, token, deadline, app == App::IosCompact).await;
+        if app == App::Ios {
+            return Self::open_with(addr, token, deadline, wants).await;
         }
+        let mut meta = json!({"peerRowBatches": true, "localAppToken": token});
+        wants.ask(&mut meta);
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
@@ -921,7 +917,7 @@ impl Link {
                 json!({"protocolVersion": 1,
                        "clientInfo": {"name": "cmux-react-agent-pane", "version": "1"},
                        "clientCapabilities": {},
-                       "_meta": {"acpmux": {"peerRowBatches": true, "localAppToken": token}}}),
+                       "_meta": {"acpmux": meta}}),
             )
             .await?;
         let (_, init) = link.answer(init, deadline).await?;
@@ -941,7 +937,7 @@ impl Link {
         session: &str,
         deadline: Instant,
     ) -> Result<(Instant, Value), String> {
-        if app != App::Macos {
+        if app == App::Ios {
             return self.attach(session, None, deadline).await;
         }
         let settled = self.capabilities.iter().any(|c| c == "settled-attach-v1");
@@ -974,7 +970,7 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
     let rate = |b: u64| Some((b as f64 * scale).round());
     emit(k, &format!("bytes{unit}_down"), rate(wire.1));
     emit(k, &format!("bytes{unit}_up"), rate(wire.0));
-    if app != App::Macos {
+    if app == App::Ios {
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
@@ -1000,7 +996,8 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
 /// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
-/// `NETCOND_BW_APPS` (ios,macos; `ios-compact` is the phone asking for compact chunks).
+/// `NETCOND_BW_APPS` (ios,macos; `+chunks` asks for compact text chunks, `+delta` for row
+/// changes as `_acpmux/session_patch`: `ios+chunks+delta`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
 async fn chat_bytes_per_minute() {
@@ -1034,17 +1031,23 @@ async fn chat_bytes_per_minute() {
 
     let trace = Trace::new();
     for app_name in env_list("NETCOND_BW_APPS", &["ios", "macos"]) {
-        let app = match app_name.as_str() {
-            "macos" => App::Macos,
-            "ios-compact" => App::IosCompact,
-            _ => App::Ios,
-        };
-        let scale = app.name();
+        let mut parts = app_name.split('+');
+        let app = if parts.next() == Some("macos") { App::Macos } else { App::Ios };
+        let mut wants = Wants::default();
+        for part in parts {
+            match part {
+                "chunks" => wants.chunks = true,
+                "delta" => wants.delta = true,
+                other => panic!("NETCOND_BW_APPS: unknown form +{other} in {app_name}"),
+            }
+        }
+        let scale = app_name.as_str();
         let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
         let shaper = Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
         let start = Instant::now();
         let deadline = start + BOUND;
-        let mut link = Link::open_as(app, shaper.addr(), &listener.token, deadline).await.unwrap();
+        let mut link =
+            Link::open_as(app, wants, shaper.addr(), &listener.token, deadline).await.unwrap();
         let (at, reply) = link.attach_as(app, &session, deadline).await.unwrap();
         let k = key("bw_open");
         emit(&k, "first_content_ms", Some(ms(at - start)));
@@ -1083,5 +1086,150 @@ async fn chat_bytes_per_minute() {
         emit_rates(&key("bw_tools"), &t, wire, t0.elapsed().as_secs_f64(), app, true);
         let _ = control.answer(turn, BOUND).await;
         drop(link);
+    }
+}
+
+/// Applies a `_acpmux/session_patch` `patch` to the row held: the client's side of
+/// `session-changed-delta-v1` (`server/session_patch.rs`).
+fn apply_patch(target: &mut Value, patch: &Value) {
+    match patch {
+        Value::Object(p) if p.len() == 1 && p.contains_key("$splice") => {
+            let args = &p["$splice"];
+            let from = args[0].as_u64().unwrap() as usize;
+            let keep = args[1].as_u64().unwrap() as usize;
+            let held = target.as_array().cloned().unwrap_or_default();
+            let mut out = held[from..from + keep].to_vec();
+            out.extend(args[2].as_array().unwrap().iter().cloned());
+            *target = Value::Array(out);
+        }
+        Value::Object(p) => {
+            if !target.is_object() {
+                *target = json!({});
+            }
+            let obj = target.as_object_mut().unwrap();
+            for (k, v) in p {
+                if v.is_null() {
+                    obj.remove(k);
+                } else {
+                    apply_patch(obj.entry(k.clone()).or_insert(Value::Null), v);
+                }
+            }
+        }
+        other => *target = other.clone(),
+    }
+}
+
+/// Every row notice `link` hears until `until`: (method, its params, its bytes).
+async fn row_notices(link: &mut Link, until: Instant) -> Vec<(String, Value, usize)> {
+    let mut out = Vec::new();
+    while let Next::Frame(_, v) = link.notification(until).await {
+        let m = v["method"].as_str().unwrap_or_default().to_owned();
+        if m == method::MUX_SESSION_CHANGED || m == "_acpmux/session_patch" {
+            let bytes = v.to_string().len();
+            out.push((m, v["params"].clone(), bytes));
+        }
+    }
+    out
+}
+
+/// A streaming turn on a 10,000-message chat (`NETCOND_DELTA_TURNS`): a client that asked for
+/// patches (`sessionChangedDelta`) hears each row change after the first as a
+/// `_acpmux/session_patch` under 2 KB that takes its row to the daemon's; a client that did not
+/// still hears every change as the whole row in `session_changed`, with no `rowSeq`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_asked() {
+    let scratch = daemon_env::Scratch::new("netcond-delta");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let addr: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-delta"}}}),
+        )
+        .await;
+    let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+    let turns = env_u64("NETCOND_DELTA_TURNS", 10_000);
+    let seeded = Instant::now();
+    control.seed(&session, 0, turns).await;
+    eprintln!("netcond-delta: {turns} turns seeded in {:?}", seeded.elapsed());
+
+    let deadline = Instant::now() + BOUND;
+    let mut old = Link::open_with(addr, &listener.token, deadline, Wants::default()).await.unwrap();
+    let mut new = Link::open_with(addr, &listener.token, deadline, Wants { delta: true, ..Wants::default() }).await.unwrap();
+    assert!(
+        new.capabilities.iter().any(|c| c == "session-changed-delta-v1"),
+        "{:?}",
+        new.capabilities
+    );
+    old.attach(&session, None, deadline).await.unwrap();
+    new.attach(&session, None, deadline).await.unwrap();
+    // The attach's own row notices, then a turn that streams a chunk every 50 ms for 2 s.
+    let settle = Instant::now() + Duration::from_secs(2);
+    let (mut old_heard, mut new_heard) =
+        tokio::join!(row_notices(&mut old, settle), row_notices(&mut new, settle));
+    let turn = control.prompt(&session, "ticking:40:50").await;
+    let window = Instant::now() + Duration::from_secs(4);
+    let (old_window, new_window) =
+        tokio::join!(row_notices(&mut old, window), row_notices(&mut new, window));
+    old_heard.extend(old_window);
+    new_heard.extend(new_window);
+    let _ = control.answer(turn, BOUND).await;
+
+    // The old client: whole rows, as before.
+    let whole: Vec<_> = old_heard
+        .iter()
+        .filter(|(m, p, _)| m == method::MUX_SESSION_CHANGED && p["sessionId"] == session)
+        .collect();
+    assert!(!whole.is_empty(), "the old client heard no row change");
+    assert!(
+        old_heard.iter().all(|(m, _, _)| m == method::MUX_SESSION_CHANGED),
+        "the old client heard a patch"
+    );
+    for (_, p, _) in &whole {
+        assert!(p["session"].is_object() && p.get("rowSeq").is_none(), "{p}");
+    }
+    let biggest = whole.iter().map(|(_, _, b)| *b).max().unwrap();
+    eprintln!("netcond-delta: old client {} rows, the largest {biggest} bytes", whole.len());
+
+    // The capable client: one whole row, then patches.
+    let patches: Vec<_> = new_heard.iter().filter(|(_, p, _)| p["sessionId"] == session).collect();
+    assert!(!patches.is_empty(), "the capable client heard no row change");
+    let mut held: Option<(u64, Value)> = None;
+    let mut sizes = Vec::new();
+    for (m, p, bytes) in &patches {
+        let row_seq = p["rowSeq"].as_u64().unwrap_or_else(|| panic!("no rowSeq: {p}"));
+        if m == method::MUX_SESSION_CHANGED {
+            held = Some((row_seq, p["session"].clone()));
+            continue;
+        }
+        sizes.push(*bytes);
+        assert!(*bytes < 2048, "a patch of {bytes} bytes on a {turns}-turn chat: {p}");
+        let (at, row) =
+            held.as_mut().unwrap_or_else(|| panic!("a patch before the whole row: {p}"));
+        assert_eq!(p["baseRowSeq"].as_u64(), Some(*at), "{p}");
+        apply_patch(row, &p["patch"]);
+        *at = row_seq;
+    }
+    assert!(!sizes.is_empty(), "no patch in the window");
+    eprintln!(
+        "netcond-delta: capable client {} patches, the largest {} bytes",
+        sizes.len(),
+        sizes.iter().max().unwrap()
+    );
+    // Its row is the daemon's: the same as the last whole row the old client heard, field by
+    // field for the ones a later read would not move.
+    let (_, row) = held.expect("the capable client's first row change is the whole row");
+    let last_old = &whole.last().unwrap().1["session"];
+    for field in ["sessionId", "lastSeq", "turnCount", "status", "harness", "cwd"] {
+        assert_eq!(row[field], last_old[field], "{field}");
+    }
+    if let Some(spans) = last_old.pointer("/timeBreakdown/spans").and_then(Value::as_array) {
+        let held_spans = row.pointer("/timeBreakdown/spans").and_then(Value::as_array);
+        assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
     }
 }
