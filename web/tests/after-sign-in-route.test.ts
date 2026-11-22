@@ -231,6 +231,23 @@ describe("after sign-in native handoff", () => {
     });
   }
 
+  // A side-instance copy of an installed app (side-instance.sh, `cmux app try`)
+  // signs in with its own scheme, so a copy of cmux NIGHTLY can use Cloud.
+  for (const scheme of ["cmux-side-pr-48210-3f9a0c", "cmux-side-try-1a2b3c", `cmux-side-${"a".repeat(40)}-abcdef`]) {
+    test(`hands verified handoffs to the ${scheme} side instance`, async () => {
+      handoffCookie = "handoff-nonce";
+      const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-side`;
+
+      const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+      const callbackURL = await verifiedHandoffCallback(response);
+      expect(callbackURL.protocol).toBe(`${scheme}:`);
+      expect(callbackURL.hostname).toBe("auth-callback");
+      expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-side");
+      expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    });
+  }
+
   test("refuses return targets outside the cmux scheme family", async () => {
     handoffCookie = "handoff-nonce";
     for (const nativeReturnTo of [
@@ -241,6 +258,12 @@ describe("after sign-in native handoff", () => {
       "cmux-dev-bad_tag://auth-callback?cmux_auth_state=s",
       "cmux-dev-test://elsewhere?cmux_auth_state=s",
       "cmux-dev-test://auth-callback/path?cmux_auth_state=s",
+      "cmux-side-://auth-callback?cmux_auth_state=s",
+      "cmux-side-pr-1://auth-callback?cmux_auth_state=s",
+      "cmux-side-pr-1-3f9a0g://auth-callback?cmux_auth_state=s",
+      "cmux-side--x-3f9a0c://auth-callback?cmux_auth_state=s",
+      `cmux-side-${"a".repeat(41)}-abcdef://auth-callback?cmux_auth_state=s`,
+      "cmux-side-pr-1-3f9a0c://elsewhere?cmux_auth_state=s",
       "https://auth-callback/?cmux_auth_state=s",
     ]) {
       const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));

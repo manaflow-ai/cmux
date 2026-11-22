@@ -112,11 +112,28 @@ class InventoryBudgetTests(unittest.TestCase):
                 mock.patch.object(MODULE, "GitHub", return_value=api), \
                 mock.patch("builtins.print") as printed:
             self.assertEqual(MODULE.main(), 0)
-        self.assertEqual(api.pull_requests_for_commit.call_args_list, [mock.call("a"), mock.call("e"), mock.call("a")])
+        # One read per commit in the inventory (runs 1 and 2 share "a"); the cleanup path reads again before acting.
+        self.assertEqual(api.pull_requests_for_commit.call_args_list, [mock.call("a"), mock.call("e")])
         lines = [" ".join(str(arg) for arg in call.args) for call in printed.call_args_list]
         self.assertIn("stale-run-janitor: DRY-RUN; eligible=2; limit=25", lines)
         self.assertIn("would process run 1 (queued, merged PR)", lines)
         self.assertIn("would process run 2 (in_progress, merged PR)", lines)
+
+    def test_the_inventory_reads_each_commits_pull_requests_once(self):
+        # 2026-11-22 02:35Z: the report-only schedule read commits/{sha}/pulls for 227 old runs of 19 commits, twice
+        # an hour, from the GITHUB_TOKEN hour the production promote gates read their staging runs from.
+        old = dict(ClassifyRunTests.run_data, created_at="2026-01-01T00:00:00Z")
+        runs = [dict(old, id=n, head_sha="abc"[n % 3]) for n in range(30)]
+        api = mock.Mock()
+        api.runs.side_effect = [runs[:20], runs[20:]]
+        api.pull_requests_for_commit.side_effect = lambda sha: [{"state": "closed", "merged_at": None}]
+        with mock.patch.dict(MODULE.os.environ, self.environment, clear=True), \
+                mock.patch.object(MODULE, "GitHub", return_value=api), \
+                mock.patch("builtins.print") as printed:
+            self.assertEqual(MODULE.main(), 0)
+        self.assertEqual(sorted(c.args[0] for c in api.pull_requests_for_commit.call_args_list), ["a", "b", "c"])
+        lines = [" ".join(str(arg) for arg in call.args) for call in printed.call_args_list]
+        self.assertIn("stale-run-janitor: DRY-RUN; eligible=30; limit=25", lines)
 
     def test_listing_asks_only_for_pull_request_runs(self):
         client = MODULE.GitHub("test-token", "test/repo")
