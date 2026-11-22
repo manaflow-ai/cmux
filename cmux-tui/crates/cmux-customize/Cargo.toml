@@ -11,6 +11,7 @@ description = "Customize cmux by asking: the one core behind the GUI, `cmux cust
 workspace = true
 
 [dependencies]
+cmux-action-catalog.workspace = true
 cmux-app-manifest.workspace = true
 cmux-config.workspace = true
 cmux-theme-tokens.workspace = true
