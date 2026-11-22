@@ -9,6 +9,7 @@
 // says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
 // `subagentCounts`).
 import { useState } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -124,6 +125,8 @@ export function SubagentsSection({
   harness?: string;
 }) {
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
@@ -149,7 +152,7 @@ export function SubagentsSection({
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
       kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
-      state: subagentStateText(t, agent, waiting, now),
+      state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
@@ -166,7 +169,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,

@@ -96,7 +96,8 @@ import {
   subagentStateText,
   subagentStatus,
 } from "../summary/subagentStatusListModel";
-import { retrying, retryLabel, sessionRetry } from "./retryState";
+import { retrying, retryWords, sessionRetry, sessionRetryKey, type RetryQuiet } from "./retryState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
@@ -265,6 +266,8 @@ export const SubagentTray = memo(function SubagentTray({
   // draws again on an event, never on the clock's tick.
   useCountedRender("tray");
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
   const chatHarness = useContext(SubagentHarnessContext);
@@ -587,7 +590,7 @@ export const SubagentTray = memo(function SubagentTray({
   // row's end, open or folded, over the line's own time; its words slide over to the counts and its
   // muted step narrows away on the same clock, never popping out or in; the line grows in under it on
   // the shared fold.
-  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
+  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest, connectionQuiet) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   // The `kinds` arm draws each kind's mark and count, folded and open; a lone item keeps its own head.
   const kindsHead = foldHead === "kinds" && !loneEnd && headParts.length > 0;
@@ -1072,7 +1075,7 @@ export const SubagentTray = memo(function SubagentTray({
               doneLook={doneLook}
               status={subagentStatus(item.agent, waiting)}
               working={subagentStatus(item.agent, waiting) === "running"}
-              state={subagentStateText(t, item.agent, waiting)}
+              state={subagentStateText(t, item.agent, waiting, connectionQuiet)}
               quiet={quietAgent(item.agent, waiting)}
               time={agentTime(item.agent)}
               depth={item.depth}
@@ -1226,6 +1229,9 @@ export const SubagentTray = memo(function SubagentTray({
     // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
+    const sessionState =
+      retryWords(t, sessionRetrying, sessionRetryKey(item.session.sessionId), connectionQuiet) ??
+      t(STATUS_LABEL[SESSION_STATUS[item.session.state]]);
     return (
       <>
         <AgentLine
@@ -1237,7 +1243,7 @@ export const SubagentTray = memo(function SubagentTray({
           icon="agent.chat"
           status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
           working={sessionRetrying !== undefined || item.session.state === "running"}
-          state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+          state={sessionState}
           quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
           trayColumns
           expanded={opensRow && onOpenSession ? undefined : isOpen}
@@ -1254,9 +1260,7 @@ export const SubagentTray = memo(function SubagentTray({
               <SubagentCardBody
                 name={item.session.title}
                 status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
-                state={
-                  sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
-                }
+                state={sessionState}
                 latest={item.session.doing}
               />
             )
@@ -1335,6 +1339,7 @@ function loneHeadOf(
   item: TrayItem,
   waiting: ReadonlySet<string>,
   showLatest: boolean,
+  connectionQuiet: RetryQuiet,
 ): LoneHead {
   if (item.kind === "agent") {
     const status = subagentStatus(item.agent, waiting);
@@ -1344,7 +1349,7 @@ function loneHeadOf(
       latest:
         showLatest && status === "running" && !retry ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
       status,
-      state: subagentStateText(t, item.agent, waiting),
+      state: subagentStateText(t, item.agent, waiting, connectionQuiet),
       time: agentTime(item.agent),
       retry,
       agent: item.agent,
@@ -1371,7 +1376,7 @@ function loneHeadOf(
     title: item.session.title,
     latest: showLatest && status === "running" && !retry ? item.session.doing : undefined,
     status,
-    state: retry ? retryLabel(t, retry) : t(STATUS_LABEL[status]),
+    state: retryWords(t, retry, sessionRetryKey(item.session.sessionId), connectionQuiet) ?? t(STATUS_LABEL[status]),
     retry: retry !== undefined,
   };
 }

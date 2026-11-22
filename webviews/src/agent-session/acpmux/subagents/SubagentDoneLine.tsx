@@ -46,7 +46,14 @@ import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { useResume } from "./ResumeControl";
-import { retryLabel, subagentRetry, type RetryNote, type SessionRetryFields } from "./retryState";
+import {
+  retryWords,
+  subagentRetry,
+  subagentRetryKey,
+  type RetryNote,
+  type SessionRetryFields,
+} from "./retryState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {
   subagentDisplayName,
@@ -130,6 +137,8 @@ function DoneLine({
   const reportLook = useContext(DoneReportLookContext) ?? reportArm;
   const [reportOpen, setReportOpen] = useState(false);
   const reportId = useId();
+  // A retry waits out the shared bound before the line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const open = pane ?? nav;
   // The report whole while it shows (wholeReport.ts): `lastMessage` is only acpmux's preview.
   const shownReport = useWholeReport(
@@ -178,8 +187,9 @@ function DoneLine({
     affordance,
     refused,
   });
-  const head = waiting
-    ? [name, retryLabel(t, waiting)]
+  const waitingText = retryWords(t, waiting, subagentRetryKey(agent), connectionQuiet);
+  const head = waitingText
+    ? [name, waitingText]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
