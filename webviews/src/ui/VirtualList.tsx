@@ -27,6 +27,10 @@ export interface VirtualListProps {
   renderRow(index: number, style: CSSProperties, measure?: (element: Element | null) => void): ReactNode;
   /** Rows size to their content: each is measured once rendered, and `estimateSize` is only the first guess. */
   measureRows?: boolean;
+  /** The row's own identity (a task id). Measured heights are kept by it, so a row keeps its height when rows
+   * before it leave or move. Without it they are kept by index, and the rows after a change are placed with
+   * their old neighbors' heights until measured again (TanStack Virtual `getItemKey`). */
+  itemKey?(index: number): string | number;
   className?: string;
   id?: string;
   /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
@@ -72,6 +76,7 @@ export function VirtualList({
   measureRows = false,
   tabIndex,
   onKeyDown,
+  itemKey,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const scrollEdges = useScrollEdges();
@@ -116,6 +121,7 @@ export function VirtualList({
     getScrollElement: parent,
     scrollMargin,
     estimateSize,
+    ...(itemKey ? { getItemKey: itemKey } : {}),
     overscan,
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);

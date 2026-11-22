@@ -86,6 +86,7 @@ impl Brain {
                 }
                 self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
+                self.catch_up_background();
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();
@@ -99,6 +100,9 @@ impl Brain {
                     Some("the acpmux daemon ended (sessions were ended); the host stops".into());
             }
             AgentEvent::SessionChanged(session) => self.on_session(session),
+            AgentEvent::BackgroundTurn { session_id, state } => {
+                self.on_background_turn(&session_id, &state)
+            }
             AgentEvent::Permission {
                 session_id,
                 permission_id,

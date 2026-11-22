@@ -4,8 +4,8 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
-        "home.chiefPanel.seesScreen": .userOnly,
+        // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
+        "labs.liveTree": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -96,6 +96,8 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
+        // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
+        "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
         // Whether the person's Command Palette lists the debug commands: the person's call.
@@ -113,6 +115,8 @@ extension SettingsSchema {
         "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
+        // On, cmux restarts into a downloaded update by itself once idle: the person's call.
+        "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
@@ -177,6 +181,8 @@ extension SettingsSchema {
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
         "remote.ultra": .userOnly,
+        // Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.
+        "remote.screenSharingProfile": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

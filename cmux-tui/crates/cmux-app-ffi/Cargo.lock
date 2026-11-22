@@ -266,6 +266,8 @@ dependencies = [
 name = "cmux-launch-shell"
 version = "0.1.0"
 dependencies = [
+ "cmux-launch-record",
+ "cmux-window-rules",
  "proptest",
 ]
 
@@ -273,6 +275,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "serde",
  "serde_json",
  "unicode-normalization",
