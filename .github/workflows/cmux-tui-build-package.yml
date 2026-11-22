@@ -590,7 +590,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
@@ -831,6 +831,10 @@ jobs:
           key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
           { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
 
+      # Saved by every feat-cmux-next build, not only pushes: feat-cmux-next builds these legs from
+      # workflow_dispatch (cmux-next dispatches each tree), and its pushes mostly skip them, so a
+      # push-only save-if never wrote an entry and every leg, base and pull request, built cold
+      # ("No cache found", cargo 18-22 min; jobs 136816451772, 137080163013, 2026-11-21/22).
       - name: Restore the macOS-on-Linux cargo cache
         if: matrix.darwin_on_linux && steps.fat-warm-darwin-aarch64.outcome != 'success'
         continue-on-error: true
@@ -840,7 +844,7 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-darwin-on-linux-${{ matrix.target }}
           key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
         # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
