@@ -66,7 +66,16 @@ export const AgentsPill = memo(function AgentsPill({
         <span>{t("subagents.pill", { n: live.length })}</span>
       </button>
       {open && (
-        <dialog ref={popover} id={listId} open className="ui-popup ui-glass acpmux-agents-list" aria-label={title}>
+        // "results": the list is a live status (agents start and end, elapsed times tick) with no
+        // input from the person, so its box follows its rows, never a settled one (ui/popupSettle.ts).
+        <dialog
+          ref={popover}
+          id={listId}
+          open
+          className="ui-popup ui-glass acpmux-agents-list"
+          data-popup-settle="results"
+          aria-label={title}
+        >
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>

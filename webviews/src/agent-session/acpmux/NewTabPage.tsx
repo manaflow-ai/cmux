@@ -722,6 +722,8 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
+            data-popup-settle="results"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

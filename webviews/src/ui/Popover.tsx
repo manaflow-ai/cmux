@@ -68,6 +68,9 @@ export interface PopoverProps {
   hostGlass?: boolean;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
+  /** The popup rule this popover follows instead of the shared one (ui/popupSettle.ts): "results" for
+   * content that is the live subject (it streams in after open), "own" for a popup that sizes itself. */
+  popupSettle?: "results" | "own";
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
@@ -98,6 +101,7 @@ export function Popover({
   className,
   hostGlass = true,
   fade = false,
+  popupSettle,
   side = "bottom",
   flip = true,
   align = "start",
@@ -152,6 +156,7 @@ export function Popover({
             ref={settle}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
+            data-popup-settle={popupSettle}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass={hostGlass ? "popover" : undefined}

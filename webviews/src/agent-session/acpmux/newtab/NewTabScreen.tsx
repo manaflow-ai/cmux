@@ -2667,6 +2667,8 @@ export function NewTabScreen(props: Props) {
             }`
           }
           hostGlass={false}
+          // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
+          popupSettle="results"
           initialFocus={false}
           finalFocus={false}
         >

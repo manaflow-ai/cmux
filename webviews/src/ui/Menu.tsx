@@ -353,6 +353,9 @@ export interface MenuPopupProps {
   matchTrigger?: boolean;
   /** False for a custom layout with its own scrolling columns. */
   scroll?: boolean;
+  /** The popup rule this menu follows instead of the shared one (ui/popupSettle.ts): "results" for a
+   * list that is the live answer to what is typed elsewhere, "own" for a popup that sizes itself. */
+  popupSettle?: "results" | "own";
   /** Pinned below the scrolling rows, outside their edge fade. */
   footer?: ReactNode;
   children: ReactNode;
@@ -380,6 +383,7 @@ export function MenuPopup({
   escapes = true,
   matchTrigger = false,
   scroll = true,
+  popupSettle,
   footer,
   children,
 }: MenuPopupProps) {
@@ -440,6 +444,7 @@ export function MenuPopup({
         <BaseMenu.Popup
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
           data-popup-shift={flip === "shift" ? "" : undefined}
+          data-popup-settle={popupSettle}
           // Only a page with a host measures its menus; the others render as they did.
           ref={attachPopup}
           id={id}

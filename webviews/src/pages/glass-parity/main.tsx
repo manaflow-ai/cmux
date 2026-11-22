@@ -118,6 +118,8 @@ export function paritySurface(
 ): HTMLElement {
   const surface = doc.createElement("div");
   surface.className = `glass-parity-surface ${PARITY_CLASS[cell.kind]}`;
+  // A picture of a surface for the parity grid, never an open popup (ui/popupSettle.ts).
+  surface.dataset.popupSettle = "own";
   surface.dataset.parityId = cell.id;
   surface.dataset.parityKind = cell.kind;
   if (mode === "host") {

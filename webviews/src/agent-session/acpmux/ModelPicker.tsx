@@ -47,6 +47,7 @@ import { UsedMark } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
+import { usePopupSettle } from "../../ui/popupSettle";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
@@ -482,7 +483,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const [localRefreshStatus, setLocalRefreshStatus] = useState<"fetching" | "updated" | "error">();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  const settleMenu = usePopupSettle<HTMLDivElement>((node) => {
+    menu.current = node;
+  });
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
   // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
@@ -1522,7 +1526,7 @@ export function ModelPicker(props: ModelPickerProps) {
       </ContextMenu>
       {open && (
         <PickerDialog
-          ref={menu}
+          ref={settleMenu}
           id={menuId}
           className="ui-popup ui-glass ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,var(--available-width,calc(100vw-24px)))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
