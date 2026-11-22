@@ -3932,3 +3932,21 @@ The cmux-next workflow does not run on a change that touches only the phone app,
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
 read: no workflow that runs the check covers it.
+
+## note-412
+
+Above the action exports (Mac) job's `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next-pr-autofix.yml`.
+
+The PR autofix's Mac job built CmuxNext cold on every run: the job's last step wipes the workspace's `.git`
+(disk, #23674, not security: it is kept), the checkout cleans the workspace, and a slot's own `.build` is tied
+to its path. 19 jobs on 2026-11-22 02:02-04:02Z took 463 runner-min, 9.9 per merged pull request, with
+cold builds of about 11 min. On an owned mini the job now takes a shared root (`owned_spm_scratch.py lease`,
+no seed: the seed root is the fast tier's and generated files'), as generated files does (note-410). The
+root sits in STORE/spm-scratch, inside glaeda's disk accounting (scratch_cap, LRU, `evict`, the glaeda-disk
+pressure pass); its fingerprint holds Xcode, Swift, the path and the bonsplit commit, and the mirror keeps
+only the time of a file whose content is unchanged, so SwiftPM rebuilds what differs and a stale root is
+rebuilt, never trusted. Bun, the web bundles and both regenerators run in the root (its mirror holds `.git`,
+which `git rev-parse --show-toplevel` and the base's scripts read). They build plain (`CMUX_NEXT_JOB_BUILT:
+plain`), the shared roots' build, only when a root was taken; off an owned mini nothing changes. Only this
+repository's pull requests reach an owned mini (a fork's take Blacksmith), the same writers note-410 trusts.
+Leo: "id rather we simply cut shit now and revisit later."

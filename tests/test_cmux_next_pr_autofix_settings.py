@@ -252,7 +252,7 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
                     "GRAPH": "false", "STRINGS": "false", "SDK": "false", "CAPABILITIES": "false",
                     "SHORTCUTS": "false", "APPHOST": "false",
                     "ACTIONS": "false", "EXPORTS_VERIFIED": "true", "SETTINGS": "true", "SETTINGS_VERIFIED": "true",
-                    "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false"}
+                    "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false", "JOB_INPUTS": "false"}
         result = run_step(step(doc, job, "Repair")["run"], work, {**base_env, **step_env, **env})
         self.assertEqual(result.returncode, 0, result.stderr)
         return args_out.read_text().split("\n")
