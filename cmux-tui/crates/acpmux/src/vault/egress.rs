@@ -522,7 +522,8 @@ mod tests {
         // `bind(0)` can be handed it (base, 2026-11-22: 42109 for 33863). Then the move is right;
         // the test tries again on a new port, and fails only when the port was free to take.
         let mut tries = 0;
-        let (dir, port, second) = loop {
+        // `_second` (not `_`) keeps the restarted listener, so the port stays taken for `third`.
+        let (dir, port, _second) = loop {
             tries += 1;
             let dir = tempfile::tempdir().unwrap();
             let first = bind_stable(dir.path()).unwrap();
