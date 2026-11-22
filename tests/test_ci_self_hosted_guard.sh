@@ -629,7 +629,11 @@ check_dmg_signing_uses_build_keychain() {
 }
 
 check_create_dmg_uses_run_local_npm_prefix() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  # nightly.yml runs the step as scripts/ci/nightly-steps/install-create-dmg.sh; read it inline.
+  local nightly_text
+  nightly_text="$(mktemp)"
+  python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$nightly_text"
+  for file in "$nightly_text" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
       /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
@@ -642,7 +646,7 @@ check_create_dmg_uses_run_local_npm_prefix() {
       in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
       END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
+      echo "FAIL: $([ "$file" = "$nightly_text" ] && echo nightly.yml || basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
       exit 1
     fi
   done
