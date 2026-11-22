@@ -271,13 +271,28 @@ enum SidebarStyle {
         Typography.system(.default, size: titleFont.pointSize, weight: TypeScale.regular)
     }
     /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
-    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    /// so smaller than `name`, at the regular weight, in the tertiary ink (``TextInk``).
     static func groupHeaderCountFont(name: NSFont) -> NSFont {
         Typography.system(.default, size: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
     }
-    /// How much of the header's ink the member count takes: lighter than the name.
-    static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    /// The sidebar's text inks on its own background (Leo 2026-10-27, "5 different font colors in sidebar (opacity?)"):
+    /// three steps and no per-label opacity. `title` is a row's name (workspace, item, folder group), `secondary` a
+    /// header or a control's words, `tertiary` every detail, count and archived name. Text on a group's colored fill
+    /// takes that fill's readable ink instead (`GroupHeaderRowView.paintBand`). Call inside the view's theme scope.
+    enum TextInk: CaseIterable {
+        case title, secondary, tertiary
+
+        var color: NSColor {
+            switch self {
+            case .title: SidebarStyle.titleInk
+            case .secondary: Palette.textSecondary
+            case .tertiary: Palette.textTertiary
+            }
+        }
+    }
+    /// A name's ink: an archived one drops to the tertiary step instead of a dimmed copy of its own ink.
+    static func nameInk(_ ink: TextInk, archived: Bool) -> NSColor { (archived ? TextInk.tertiary : ink).color }
+    /// An archived row's icon and group bar (its text takes ``TextInk/tertiary``) (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
     static let archivedAlpha: CGFloat = 0.45
     /// The connected-shape prototype applies only to band headers; quiet looks keep their geometry.
     static var groupChromeShape: Bool { SidebarTunables.groupChromeShapeOn && SidebarGroupHeaderStyle.tunable.value == .band }
