@@ -340,5 +340,6 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(vm_ready::print(
         &global,
         redo(&mut runner, &request, local_config.map(|path| path.display().to_string())),
+        false,
     ))
 }
