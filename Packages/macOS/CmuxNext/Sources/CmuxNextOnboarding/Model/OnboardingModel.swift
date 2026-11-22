@@ -139,6 +139,8 @@ public final class OnboardingModel {
         if step == .agentTools, !agentTools.answered { agentTools.decline() }
         // Once answered, Escape is Done (the step's work is finished).
         if step == .agentTools, agentTools.answered, !agentTools.applying { return finish(completed: true) }
+        // Make cmux Yours' Skip keeps the person's settings: the picks it made live are put back.
+        if step == .makeItYours { makeItYours.revert() }
         finish(completed: false)
     }
 
