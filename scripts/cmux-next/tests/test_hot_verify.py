@@ -711,7 +711,26 @@ class PlanTest(unittest.TestCase):
     def test_run_without_swift_keeps_scratch_for_live_overlays(self):
         self.assert_run_app_case(swift=False)
 
-    def assert_run_app_case(self, swift):
+    def test_reusable_copy_only_when_nothing_of_the_last_try_stays(self):
+        app = self.fake_app(self.fx.base)
+        kept = {"try_from": str(app), "try_app": hv.app_info(app), "try_label": "cmux t", "try_layers": ["web"]}
+        self.assertIsNone(hv.reusable_copy(kept, app, "cmux t", ["rust", "web"]))
+        self.assertEqual(hv.reusable_copy(kept, app, "cmux t", ["rust"]), "the last try's web would stay")
+        self.assertEqual(hv.reusable_copy({**kept, "try_from": "/other.app"}, app, "cmux t", ["web"]),
+                         "another golden app")
+        self.assertEqual(hv.reusable_copy({**kept, "try_app": {"built": "abc"}}, app, "cmux t", ["web"]),
+                         "the golden app changed")
+        self.assertEqual(hv.reusable_copy({k: v for k, v in kept.items() if k != "try_app"}, app, "cmux t",
+                                          ["web"]), "the golden app changed")
+        self.assertEqual(hv.reusable_copy(kept, app, "cmux u", ["web"]), "another label")
+
+    def test_a_second_run_reuses_the_kept_copy(self):
+        self.assert_run_app_case(swift=False, kept=True)
+
+    def test_a_second_run_from_another_app_clones_afresh(self):
+        self.assert_run_app_case(swift=False, kept=True, kept_from="/Applications/cmux OLD.app")
+
+    def assert_run_app_case(self, swift, kept=False, kept_from=None):
         app = self.fake_app(self.fx.base)
         abi = app / hv.hot().APP_ABI
         abi.parent.mkdir(parents=True, exist_ok=True)
@@ -730,7 +749,11 @@ class PlanTest(unittest.TestCase):
                 self.name = name
 
             def exists(self):
-                return False
+                return kept
+
+            def state(self):
+                return {"try_from": kept_from or str(app), "try_app": hv.app_info(app), "try_label": "cmux try-test",
+                        "try_layers": ["web"]}
 
             def run(self, *args, **kwargs):
                 calls.append(args)
@@ -750,7 +773,7 @@ class PlanTest(unittest.TestCase):
 
         scratch_paths = []
 
-        def apply_overlay(rules, planned, src_tree, side, scratch):
+        def apply_overlay(rules, planned, src_tree, side, scratch, settle=True):
             self.assertIsInstance(scratch, Path)
             self.assertTrue(scratch.is_dir())
             (scratch / "overlay-input").write_text("payload")
@@ -773,6 +796,18 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(calls[0][:3], ("make", "--from", str(built)))
             app_build.assert_called_once()
             apply_web.assert_not_called()
+        elif kept and not kept_from:
+            self.assertTrue(result["copy_reused"])
+            self.assertNotIn("make", [c[0] for c in calls])
+            self.assertNotIn("remove", [c[0] for c in calls])
+            self.assertEqual(calls[0][0], "remember")
+            self.assertEqual(calls[0][1]["try_layers"], ["web"])
+            apply_web.assert_called_once()
+        elif kept:
+            self.assertFalse(result["copy_reused"])
+            self.assertEqual(result["remade_because"], "another golden app")
+            self.assertEqual(calls[0][:2], ("remove", "--keep-sign-in"))
+            self.assertEqual(calls[1][:3], ("make", "--from", str(app)))
         else:
             self.assertEqual(calls[0][:3], ("make", "--from", str(app)))
             app_build.assert_not_called()
@@ -1120,13 +1155,16 @@ class GoldenCopyTest(unittest.TestCase):
             os.utime(root / name, (1000 - age, 1000 - age))
         oldest = names[-1]
         held = contextlib.ExitStack()
-        build = {"kind": "nightly", "commit": oldest}
+        build = {"kind": "nightly", "commit": oldest.split("-", 1)[1]}
         with unittest.mock.patch.object(hv, "golden_root", return_value=root), \
                 unittest.mock.patch.object(hv, "golden_app", side_effect=lambda p: p):
             self.assertEqual(hv.fetch_golden(build, held), root / oldest)
-            # The held app is now the newest; age it so it is the one past GOLDEN_KEEP.
+            # The held app is now the newest, and that fetch's cleanup left GOLDEN_KEEP apps. Add one and age the held
+            # app, so it is the one past GOLDEN_KEEP.
+            (root / "nightly-extra").mkdir()
+            (root / "nightly-extra" / hv.GOLDEN_READY).write_text("{}\n")
             os.utime(root / oldest, (1, 1))
-            other = {"kind": "nightly", "commit": names[0]}
+            other = {"kind": "nightly", "commit": names[0].split("-", 1)[1]}
             hv.fetch_golden(other)
             self.assertTrue((root / oldest).is_dir(), "an app a try holds is never removed")
             held.close()
@@ -1505,6 +1543,56 @@ class VideoTest(unittest.TestCase):
         args = hv.side_make_args(Path("/Apps/cmux NIGHTLY.app"))
         self.assertEqual(args[:3], ["make", "--from", "/Apps/cmux NIGHTLY.app"])
         self.assertIn("--neutral-shell", args)
+
+
+class LookKitErrorTest(unittest.TestCase):
+    def test_a_kit_runtime_error_still_writes_a_failed_receipt(self):
+        """The kit's window_shot raises a plain RuntimeError when CuaDriver is stopped or its grants are pending: the
+        look ends EXIT_FAILED with a receipt naming it (the CI posts that), never an escaped error and no receipt
+        (2026-11-22: 11 fleet looks on cmuxs-Mac-mini-3 and ultra2 posted nothing)."""
+        class FakeSide:
+            name = "look-test"
+
+            def exists(self):
+                return False
+
+            def run(self, *args, **kwargs):
+                return "look-test: pid 123" if args[0] == "launch" else ""
+
+            def env(self):
+                return {"CMUX_NEXT_CONFIG_FILE": "/nonexistent/config.json"}
+
+            def socket(self):
+                return "/tmp/look-test.sock"
+
+            def stop(self):
+                return []
+
+        def shooter(kit):
+            def shoot(pid, dest):
+                raise RuntimeError("window 7; CuaDriver: daemon is not running")
+            return shoot
+
+        args = type("Args", (), {"kit": None, "state": None, "watch": False, "no_video": True, "source": "sha:x"})()
+        planned = {"layers": ["web"], "head": "x"}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            receipt = {"errors": [], "app": {}}
+            with unittest.mock.patch.object(hv, "load_kit", return_value=object()), \
+                    unittest.mock.patch.object(hv, "load_steps", return_value=[]), \
+                    unittest.mock.patch.object(hv, "steps_engine", return_value="webkit"), \
+                    unittest.mock.patch.object(hv, "Shooter", side_effect=shooter), \
+                    unittest.mock.patch.object(hv, "rules_for", return_value=None), \
+                    unittest.mock.patch.object(hv, "resolve_tree", return_value=None), \
+                    unittest.mock.patch.object(hv, "set_browser_engine"), \
+                    unittest.mock.patch.object(hv, "set_theme"), \
+                    unittest.mock.patch.object(hv, "control_socket", return_value="/tmp/look-test.sock"), \
+                    unittest.mock.patch.object(hv.time, "sleep"):
+                code = hv.look(args, None, planned, FakeSide(), Path(tmp) / "app", out, receipt,
+                               hv.hot().Phases(), 0.0)
+            self.assertEqual(code, hv.EXIT_FAILED)
+            written = json.loads((out / "receipt.json").read_text())
+        self.assertIn("RuntimeError: window 7; CuaDriver: daemon is not running", written["errors"])
 
 
 if __name__ == "__main__":

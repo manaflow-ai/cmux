@@ -80,22 +80,29 @@ import Testing
         }
     }
 
-    /// Hovering the row shows its ⋯ and × over the row's end; the badge stays, left of them, so a
-    /// person still sees it (the first capture showed the controls in its place).
-    @Test func theBadgeStaysBesideTheHoverControls() throws {
+    /// Hovering the row shows its ⋯ and × over the row's end; the badge gives way to them in place, as every other
+    /// mark does (Leo 2026-11-22: "in all cases, the hovered buttons should just replace the other ones"), and comes
+    /// back when the hover ends. The hover card still names each warning.
+    @Test func theBadgeGivesWayToTheHoverControls() throws {
+        Motion.reduceMotionOverride = true // the badge clears at once instead of fading out
+        defer { Motion.reduceMotionOverride = nil }
         var ws = SidebarWorkspace(id: WorkspaceID("ws-runaway"), title: "runaway", lastActivity: Date(), agentWorking: true,
                                   kind: .harness, activity: .working)
         ws.usageWarnings = Self.warnings
         let row = try Self.rowView(ws)
+        row.layoutSubtreeIfNeeded()
+        let mark = row.usageWarningMark
+        let resting = mark.frame
+        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows at rest")
         row.isHovered = true
         row.layoutSubtreeIfNeeded()
         let controls: [NSView] = [row.closeButton, row.moreButton].filter { !$0.isHidden }
         #expect(!controls.isEmpty, "the hover controls show")
-        let mark = row.usageWarningMark
-        #expect(!mark.isHidden && mark.alphaValue == 1, "the badge shows on hover, not covered (alpha \(mark.alphaValue))")
-        for control in controls {
-            #expect(mark.frame.maxX <= control.frame.minX, "badge \(mark.frame) clear of control \(control.frame)")
-        }
+        #expect(mark.alphaValue == 0, "the badge gives way on hover (alpha \(mark.alphaValue))")
+        #expect(mark.frame == resting, "the badge moved on hover \(resting) -> \(mark.frame) (a layout shift)")
+        row.isHovered = false
+        row.layoutSubtreeIfNeeded()
+        #expect(mark.alphaValue == 1, "the badge is back after the hover (alpha \(mark.alphaValue))")
     }
 
     @Test func noWarningNoBadge() throws {
