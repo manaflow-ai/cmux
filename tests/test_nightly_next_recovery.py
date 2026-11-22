@@ -1239,7 +1239,7 @@ class RepublishWorkflowTests(unittest.TestCase):
         self.assertEqual(fetch["env"]["SOURCE_RUN"], "${{ needs.decide.outputs.republish_run }}")
         names = {s["with"]["name"] for s in job["steps"] if "upload-artifact" in s.get("uses", "")}
         self.assertEqual(names, {"cmux-nightly-republished-variant-arm64", "cmux-nightly-republished-tested-arm64",
-                                 "cef-runtime-pack"})
+                                 "cef-runtime-pack", "language-packs"})
 
     def test_a_republish_never_starts_a_notarization_recovery(self):
         self.assertIn("needs.decide.outputs.republish_run == ''", workflow()["jobs"]["find-nightly-next-recovery"]["if"])
