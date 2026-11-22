@@ -61,8 +61,18 @@
   );
 }
 .acpmux-auto-arrival-text { flex: 1 1 auto; min-width: 0; }
-.acpmux-auto-arrival-move { flex: none; color: var(--agent-text); }
-.acpmux-auto-arrival-dismiss { flex: none; width: 20px; height: 20px; padding: 0; justify-content: center; }
+/* Its buttons are the shared small ghost button (ui/ghost.css): no border or fill until hover. */
+.acpmux-auto-arrival :is(.acpmux-auto-arrival-move, .acpmux-auto-arrival-dismiss) {
+  flex: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  cursor: default;
+}
+.acpmux-auto-arrival-move { color: var(--agent-text); }
+.acpmux-auto-arrival .acpmux-auto-arrival-dismiss { width: 22px; padding: 0; justify-content: center; color: var(--agent-muted); }
+.acpmux-auto-arrival .acpmux-auto-arrival-dismiss .ui-ghost-icon { width: 12px; height: 12px; }
 
 @media (prefers-reduced-motion: no-preference) {
   /* Orbit: the dots go round at every spinner's one period while Auto is picked, on hover and

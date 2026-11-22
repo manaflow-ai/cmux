@@ -133,8 +133,19 @@ export function AutoArrival({
           aria-label={t("auto.dismiss")}
           onClick={onDismiss}
         >
-          <svg width={10} height={10} viewBox="0 0 16 16" stroke="currentColor" strokeWidth={1.6} aria-hidden="true">
-            <path d="m4 4 8 8M12 4l-8 8" />
+          <svg
+            className="ui-ghost-icon"
+            width={12}
+            height={12}
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="m4.5 4.5 7 7m0-7-7 7" />
           </svg>
         </button>
       )}
