@@ -706,6 +706,7 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.phonePictures = PhoneTabPictures(iphone: iphone)  // browser tabs' pictures for the phones' tab overview
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
