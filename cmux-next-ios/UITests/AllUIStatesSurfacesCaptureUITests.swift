@@ -41,8 +41,8 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "attach-menu", args: ["-cmux-mobile-demo", "ws-terminal-armed"], settle: 7) { app in
                 C.tap(C.any(app, "terminal.composer.attach"), "attach")
             },
-            Scene(group: g, id: "voice-button-agent-running", args: ["-cmux-mobile-demo", "voice-terminal"], settle: 6),
-            Scene(group: g, id: "voice-mode-terminal", args: ["-cmux-mobile-demo", "voice-terminal"],
+            Scene(group: g, id: "voice-button-agent-running", args: ["-cmux-mobile-demo", "voice-terminal", "-composer.voiceButton", "sendButton"], settle: 6),
+            Scene(group: g, id: "voice-mode-terminal", args: ["-cmux-mobile-demo", "voice-terminal", "-composer.voiceButton", "sendButton"],
                   env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "list the files"], settle: 6) { app in
                 C.steps([{ C.tap(app.buttons["terminal.composer.voice"], "voice button") }, { C.wait(app.staticTexts["voiceMode.caption"].firstMatch, "voice caption", timeout: 10) }])
             },
