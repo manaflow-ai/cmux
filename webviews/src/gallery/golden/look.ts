@@ -67,3 +67,10 @@ export function lookSetting<T>(look: GoldenLook | undefined, key: string, fallba
   const value = look?.settings[key];
   return value === undefined ? fallback : (value as T);
 }
+
+/** The setup's `agentPane.composerLook` when it names a look ("auto", the default, names none): the
+ * composer the app draws for it, as the host's composer push would pick it. */
+export function lookComposerLook(look: GoldenLook): string | undefined {
+  const value = look.settings["agentPane.composerLook"];
+  return typeof value === "string" && value !== "auto" ? value : undefined;
+}

@@ -392,7 +392,34 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.addItem(NSMenuItem.macScreen(L.t("macScreen.toolbar.showStats", "Show Stats"), checked: session.preferences.showStats) { [weak self] in
             self?.actions.toggleStats()
         })
+        addCustomize(to: menu, session.preferences)
         return menu
+    }
+
+    /// The Quality menu's Customize part: a bitrate cap and the cursor in the stream. Each
+    /// change starts a new session, as a quality or display change does.
+    private func addCustomize(to menu: NSMenu, _ preferences: ScreenPreferences) {
+        menu.addItem(.separator())
+        menu.addItem(.sectionHeader(title: L.t("macScreen.customize.title", "Customize")))
+        let bitrate = NSMenuItem(title: L.t("macScreen.customize.bitrate", "Bitrate Cap"), action: nil, keyEquivalent: "")
+        let caps = NSMenu()
+        caps.autoenablesItems = false
+        for kbps in ScreenPreferences.maxKbpsChoices {
+            caps.addItem(NSMenuItem.macScreen(Self.bitrateTitle(kbps), checked: preferences.maxKbps == kbps) { [weak self] in
+                self?.actions.setMaxKbps(kbps)
+            })
+        }
+        bitrate.submenu = caps
+        menu.addItem(bitrate)
+        menu.addItem(NSMenuItem.macScreen(L.t("macScreen.customize.showCursor", "Show Cursor in Stream"),
+                                          checked: preferences.showCursorInStream) { [weak self] in
+            self?.actions.toggleStreamCursor()
+        })
+    }
+
+    static func bitrateTitle(_ kbps: Int?) -> String {
+        guard let kbps else { return L.t("macScreen.customize.bitrateAuto", "Auto") }
+        return String(format: L.t("macScreen.customize.bitrateMbps", "%d Mbps"), kbps / 1000)
     }
 
     func sendKeysMenu() -> NSMenu {
