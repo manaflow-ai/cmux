@@ -75,6 +75,12 @@ extension SidebarListViewComponents {
         guard let pinned = blockItemView(for: id) else { return nil }
         return window.convertToScreen(pinned.convert(pinned.pill.frame, to: nil))
     }
+    /// Workspace `id`'s row on screen, a list row scrolled into view first; a pinned workspace is its drawn pill,
+    /// which has no list row (`debug.mouse`'s `row` and the icon picker find pinned rows here too).
+    func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {
+        if let row = displayed.row(for: .workspace(id)) { scrollToVisible(frame(for: row)) }
+        return hoverCardAnchor(for: id)
+    }
     /// A workspace preview touches the row's fill, before the sidebar's resize/drag thumb.
     /// Pinned items use their drawn pill rather than their wider layout cell.
     func hoverCardBand(for id: WorkspaceID) -> CGRect? {
@@ -128,11 +134,7 @@ extension SidebarViewComponents {
 
     /// Workspace `id`'s row on screen, scrolled into view first; nil when the
     /// row is not shown (the icon picker anchors its popover here).
-    public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {
-        guard let row = list.displayed.row(for: .workspace(id)) else { return nil }
-        list.scrollToVisible(list.frame(for: row))
-        return list.hoverCardAnchor(for: id)
-    }
+    public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? { list.rowFrameOnScreen(for: id) }
 
     /// Group `id`'s row on screen (its header, or the one row it draws as), scrolled into view first; nil when
     /// neither is shown (the icon picker anchors its popover here).
