@@ -8,6 +8,7 @@ and, for each chat length of --turns (the mock's `loadSeed`), sends each case of
 recorder (`debug.motion` record_start: a movie of the window as the window server composites it, every frame)
 films it:
   image        one picture                    images      four pictures
+  tall         a 900x6000 picture             decoding    a 6000x4000 noise picture, still decoding as it pops
   file         a file chip (a .csv)           pasted-text a paste of 4,000 words (its Pasted text chip)
   image-text   a picture and a sentence       long        a 24-line prompt
   streaming    a prompt sent while the reply before it streams (it waits in the queue and lands as that turn ends)
@@ -16,7 +17,8 @@ and the Return are real input (DevTools Input.insertText and Input.dispatchKeyEv
 half of each check is webviews/bench/send-pop-probe.js, the same probe the pane bench runs (bench/send-pop-cases.ts):
 the attachments scale with their bubble on every frame of the pop, are drawn from the row's first frame, are not
 clipped and do not move after it settles, the transcript lands at its foot with the prompt in view, and the frames
-over the send. Out: <out>/<turns>-<case>.mov (+ .frames.json), <out>/cases.json (one row for each send, with the
+over the send (bench/send-pop-shapes.ts holds the pane's copy of these shapes). Each case runs in each arm of --arms (product, and none: the instant send before, from the same build, for
+the frames' baseline). Out: <out>/<turns>-<case>-<arm>.mov (+ .frames.json), <out>/cases.json (one row for each send, with the
 probe's facts and `clean`).
 Usage: send-pop-films.py --app PATH --out DIR [--turns 4,1000] [--cases image,images,...]
 Fleet: scripts/measure/send-pop-films.sh (builds the tagged app first).
@@ -36,6 +38,8 @@ CASES = {
     "image": {"images": 1},
     "images": {"images": 4},
     "file": {"file": True},
+    "tall": {"tall": True},
+    "decoding": {"decoding": True},
     "pasted-text": {"pastedText": 4000},
     "image-text": {"images": 1, "text": "here's an example with an attachment too, tho it doesnt necessarily change too much"},
     "long": {"text": LONG},
@@ -49,6 +53,8 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--turns", default="4,1000")
 parser.add_argument("--cases", default=",".join(CASES))
 parser.add_argument("--mbps", type=int, default=40)
+parser.add_argument("--arms", default="product,none",
+                    help="product = the pop; none = data-send-pop=none, the instant send before (#42669), same build")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 wait = STRESS.wait
@@ -111,16 +117,40 @@ def chat_page(app, st):
         app.rpc("debug.agent_pane", {"action": "readiness", "pane": pane}, 30)), 40, step=0.5)
     if not ready:
         raise RuntimeError("the chat page was not ready in 40 s")
-    for page in (app.rpc("debug.cef_pages", timeout=30) or {}).get("pages") or []:
-        if not str(page.get("origin", "")).startswith("cmux-page://") or page.get("hidden"):
-            continue
-        candidate = Page(app, page["browser"])
-        try:
-            if candidate.js("'cmuxAcpmuxDebug' in window && !!document.querySelector(" + json.dumps(FIELD) + ")"):
-                return pane, candidate
-        except RuntimeError:
-            continue
-    raise RuntimeError(f"no shown cmux page with the chat's composer: {app.rpc('debug.cef_pages', timeout=30)}")
+    return pane, agent_page(app, pane)
+
+
+def agent_page(app, pane):
+    """The agent page that draws `pane`'s chat (its browser id changes when the app replaces the page). Several agent
+    pages live at once (a spare, the Chief's), all `visible`: each candidate gets a mark naming its browser id, and
+    `debug.agent_pane` query on the pane reads the mark of the pane's own page."""
+    seen = []
+
+    def find():
+        seen.clear()
+        candidates = {}
+        for page in (app.rpc("debug.cef_pages", timeout=30) or {}).get("pages") or []:
+            if not str(page.get("origin", "")).startswith("cmux-page://cmux.agent"):
+                continue
+            candidate = Page(app, page["browser"])
+            try:
+                candidate.js("(() => { let m = document.getElementById('send-pop-films-mark'); if (!m) { m = document.createElement('div');"
+                             " m.id = 'send-pop-films-mark'; m.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;"
+                             "overflow:hidden;opacity:0.01'; document.body.append(m); } m.textContent = 'browser-"
+                             + str(page["browser"]) + "'; return true; })()")
+                candidates[page["browser"]] = candidate
+            except RuntimeError as error:
+                seen.append((page["browser"], str(error)[:120]))
+        reply = app.rpc("debug.agent_pane", {"action": "query", "pane": pane, "selector": "#send-pop-films-mark"}, 20)
+        seen.append(("query", json.dumps(reply)[:300]))
+        for browser, candidate in candidates.items():
+            if f"browser-{browser}\"" in json.dumps(reply) or f"browser-{browser}'" in str(reply):
+                return candidate
+        return None
+    found = wait(find, 30, step=0.5)
+    if found:
+        return found
+    raise RuntimeError(f"no agent page with the pane's mark: {seen}")
 
 
 def film(app, path, seconds):
@@ -156,7 +186,7 @@ def clean(row):
     clipped, not moved after it settled, and the transcript landed at its foot with the prompt's foot in view."""
     return bool(row.get("popRan") and row.get("allInsideWrapper") and row.get("unitWorst", 1) <= 0.01
                 and row.get("firstFrameDrawn") and row.get("lateDrawFrames", 1) == 0 and row.get("clippedPx", 1) <= 0.5
-                and row.get("reflowPx", 1) <= 0.5 and row.get("endFootPx", 99) <= 2 and row.get("endRowBottomToViewPx", -1) >= 0
+                and row.get("reflowPx", 1) <= 0.5 and row.get("heightJumpPx", 1) <= 0.5 and row.get("endFootPx", 99) <= 2 and row.get("endRowBottomToViewPx", -1) >= 0
                 and row.get("attachments") == row.get("attachmentsAtFirstFrame") and not row.get("error"))
 
 
@@ -167,43 +197,68 @@ try:
     st = STRESS.Stress(app.rpc)
     pane, page = chat_page(app, st)
     say("chat pane", pane, "browser", page.browser)
-    for turns in [int(t) for t in opts.turns.split(",")]:
+    def prepare(page, turns):
         loaded = page.js(f"window.cmuxAcpmuxDebug.loadSeed({turns}).then((r) => JSON.stringify(r ?? null))", timeout=60)
         say("seed", turns, str(loaded)[:200])
         page.js(PROBE)
+        # Warm-ups, not judged: the first send and the first picture load lazy chunks and the picture path.
         send(page, f"warmup-{turns}", {})
         page.idle()
+        send(page, f"warmup-picture-{turns}", {"images": 1})
+        page.idle()
+
+    for turns in [int(t) for t in opts.turns.split(",")]:
+        prepare(page, turns)
         for name in opts.cases.split(","):
             shape = CASES[name]
-            path = os.path.join(opts.out, f"{turns}-{name}.mov")
-            stop = film(app, path, 20 if shape.get("streaming") else 8)
-            time.sleep(0.4)
-            try:
-                if shape.get("streaming"):
-                    page.focus_end()
-                    page.type(f"{name}-first: tell me a long story")
-                    page.enter()
-                    wait(page.running, 5, step=0.1)
-                    time.sleep(0.25)
-                    row = {"streamingAtSend": bool(page.running()), **send(page, f"{name}-second-{turns}", {})}
-                else:
-                    row = send(page, f"{name}-{turns}", {k: v for k, v in shape.items() if k != "streaming"})
-            except RuntimeError as error:
-                row = {"error": str(error)[:400]}
-            movie = stop()
-            row.update(turns=turns, case=name, movie=os.path.basename(path), movie_frames=movie.get("frames"),
-                       movie_error=movie.get("error") or movie.get("write_error"))
-            row["clean"] = clean(row)
-            report["cases"].append(row)
-            say(json.dumps(row))
-            page.idle()
-            # A case that left the composer full (its send was held) leaves the next one its own composer.
-            page.js(f"(() => {{ const f = document.querySelector({json.dumps(FIELD)}); f.focus(); "
-                    "document.execCommand('selectAll'); document.execCommand('delete'); return true; })()")
+            for arm in opts.arms.split(","):
+                page.js("document.documentElement.removeAttribute('data-send-pop'), true" if arm == "product"
+                        else f"document.documentElement.setAttribute('data-send-pop', {json.dumps(arm)}), true")
+                path = os.path.join(opts.out, f"{turns}-{name}-{arm}.mov")
+                stop = film(app, path, 20 if shape.get("streaming") else 8)
+                time.sleep(0.4)
+                marker = f"{name}-{arm}-{turns}"
+                try:
+                    if shape.get("streaming"):
+                        page.focus_end()
+                        page.type(f"{marker}-first: tell me a long story")
+                        page.enter()
+                        wait(page.running, 5, step=0.1)
+                        time.sleep(0.25)
+                        row = {"streamingAtSend": bool(page.running()), **send(page, f"{marker}-second", {})}
+                    else:
+                        row = send(page, marker, {k: v for k, v in shape.items() if k != "streaming"})
+                except RuntimeError as error:
+                    row = {"error": str(error)[:400]}
+                    if "no live page" in str(error) or "closed" in str(error):
+                        say("page lost:", str(error)[:200], "crashes:", json.dumps(app.rpc("debug.crashes", timeout=20))[:600])
+                        # The app replaced the chat's page (a new browser id): find it again, seed it again.
+                        page = agent_page(app, pane)
+                        report.setdefault("page_replaced", []).append(f"{turns}-{name}-{arm}: {str(error)[:120]}")
+                        say("page replaced; now browser", page.browser)
+                        prepare(page, turns)
+                movie = stop()
+                row.update(turns=turns, case=name, arm=arm, movie=os.path.basename(path), movie_frames=movie.get("frames"),
+                           movie_error=movie.get("error") or movie.get("write_error"))
+                # The before arm has no pop to judge: its row is the frames' baseline.
+                row["clean"] = clean(row) if arm == "product" else None
+                report["cases"].append(row)
+                say(json.dumps(row))
+                try:
+                    page.idle()
+                    # A case that left the composer full (its send was held) leaves the next one its own composer.
+                    page.js(f"(() => {{ const f = document.querySelector({json.dumps(FIELD)}); f.focus(); "
+                            "document.execCommand('selectAll'); document.execCommand('delete'); return true; })()")
+                except RuntimeError as error:
+                    row["after_error"] = str(error)[:300]
+                    say("after the case:", str(error)[:200], "crashes:", json.dumps(app.rpc("debug.crashes", timeout=20))[:600])
+                    page = agent_page(app, pane)
+                    report.setdefault("page_replaced", []).append(f"{turns}-{name}-{arm} after: {str(error)[:120]}")
+                    prepare(page, turns)
 finally:
     with open(os.path.join(opts.out, "cases.json"), "w") as out:
         json.dump(report, out, indent=2)
     app.stop()
-dirty = [f"{row['turns']}-{row['case']}" for row in report["cases"] if not row.get("clean")]
+dirty = [f"{row['turns']}-{row['case']}" for row in report["cases"] if row.get("clean") is False]
 say("clean" if not dirty else f"not clean: {', '.join(dirty)}")
 sys.exit(0 if not dirty else 2)
