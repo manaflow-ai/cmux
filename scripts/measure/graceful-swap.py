@@ -118,7 +118,9 @@ def frames(movie: Path, rect: tuple[int, int, int, int]) -> tuple[list[bytes], l
     """Gray samples of `rect` per frame and each frame's time (s)."""
     x, y, w, h = rect
     sw, sh = max(1, w // SCALE), max(1, h // SCALE)
-    proc = subprocess.run(["ffmpeg", "-v", "error", "-i", str(movie), "-vf",
+    # showinfo prints each frame's pts_time at info level: "-v error" hid it, and frame index / average fps put
+    # the recorder's frames (written only when the screen changes) at the wrong times, about 1 s late.
+    proc = subprocess.run(["ffmpeg", "-hide_banner", "-v", "info", "-i", str(movie), "-vf",
                            f"crop={w}:{h}:{x}:{y},scale={sw}:{sh}:flags=area,format=gray,showinfo",
                            "-fps_mode", "passthrough", "-f", "rawvideo", "-"],
                           capture_output=True, check=True)
@@ -130,8 +132,8 @@ def frames(movie: Path, rect: tuple[int, int, int, int]) -> tuple[list[bytes], l
         if "pts_time:" in line:
             times.append(float(line.split("pts_time:")[1].split()[0]))
     if len(times) != len(out):
-        _, _, fps, _ = probe_video(movie)
-        times = [i / fps for i in range(len(out))]
+        # A variable-rate film has no frame time but its own: never guess one from the average rate.
+        raise SystemExit(f"{movie}: ffmpeg gave {len(times)} frame times for {len(out)} frames")
     return out, times, sw, sh
 
 
@@ -327,6 +329,7 @@ def latency(args) -> dict:
         runs.append(result)
     regions = {name for name, _ in args.region}
     summary: dict = {"version": VERSION, "label": args.label, "runs": len(runs), "watch": args.watch,
+                     "surface": args.surface,
                      "fps": [r["video"]["fps"] for r in runs], "regions": {}}
     for name in sorted(regions):
         rows = [r["regions"].get(name, {}) for r in runs]
@@ -365,6 +368,8 @@ def main() -> None:
     lat.add_argument("--runs", type=int, default=20)
     lat.add_argument("--out", type=Path, required=True)
     lat.add_argument("--label", default="latency")
+    lat.add_argument("--surface", choices=("focused", "unfocused", "hidden"),
+                     help="which bar the watched region answers to (the bench's hot_swap_mac_* row)")
     lat.add_argument("--region", type=parse_region, action="append", default=[])
     lat.add_argument("--pre", type=float, default=1.0)
     lat.add_argument("--post", type=float, default=2.5)

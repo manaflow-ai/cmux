@@ -10,6 +10,11 @@ lower), lost (count: 1 when the end picture is not the before picture, a lost dr
 Per in-page probe record (labels page=ID): probe_lost (count: composer text, selection, focus, attachments or
 scroll not kept), probe_restored_ms (trigger to the restored first frame), probe_layout_shift (CLS sum, x1000).
 
+A latency receipt (`graceful-swap.py latency --surface S`, GRACEFUL_SWAP_LATENCY) records the goal hot-swap-fast's
+rows: hot_swap_mac_focused_pane_p95_ms, hot_swap_mac_unfocused_pane_p95_ms, hot_swap_mac_hidden_tab_p95_ms (save to
+the first changed frame of the watched region; p50 and n beside it; labels drafts_kept = runs every other region
+kept its picture / runs, bar_ms = the surface's bar: 150, 300, 100 ms).
+
 Run: --arg capture_host=air-blue --arg trigger='CMD' [--arg region='NAME=x,y,w,h;NAME=...'] [--arg kind=overlay]
 [--arg probe_file=PATH]. `--import run.json` (or a log with the line) records a run already made.
 """
@@ -25,6 +30,11 @@ from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/measure/graceful-swap.py"
 LINE = re.compile(r"GRACEFUL_SWAP (\{.*\})\s*$")
+LATENCY_LINE = re.compile(r"GRACEFUL_SWAP_LATENCY (\{.*\})\s*$")
+# The goal hot-swap-fast's bars per surface (Leo 11-15: "case by case"): {surface: (row key, bar ms)}.
+LATENCY_ROWS = {"focused": ("hot_swap_mac_focused_pane_p95_ms", 150),
+                "unfocused": ("hot_swap_mac_unfocused_pane_p95_ms", 300),
+                "hidden": ("hot_swap_mac_hidden_tab_p95_ms", 100)}
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -65,7 +75,7 @@ class GracefulSwap(Bench):
             pass
         found = None
         for line in text.splitlines():
-            if m := LINE.search(line):
+            if m := LATENCY_LINE.search(line) or LINE.search(line):
                 found = json.loads(m.group(1))
         if not isinstance(found, dict):
             raise BenchError(f"{path}: no GRACEFUL_SWAP receipt")
@@ -73,6 +83,8 @@ class GracefulSwap(Bench):
 
     def ingest(self, ctx: Context, path: Path) -> None:
         receipt = self.receipt(path)
+        if "watch" in receipt:
+            return self.ingest_latency(ctx, receipt, path)
         kind = receipt.get("label") or "swap"
         for region, r in (receipt.get("regions") or {}).items():
             if "error" in r:
@@ -96,6 +108,31 @@ class GracefulSwap(Bench):
             raise BenchError(f"{path}: the receipt has no numbers")
         if not receipt.get("ok"):
             ctx.notes.append("not imperceptible: a region showed a transient or blank frame, shifted or lost state")
+
+    @staticmethod
+    def ingest_latency(ctx: Context, receipt: dict, path: Path) -> None:
+        surface = receipt.get("surface")
+        if surface not in LATENCY_ROWS:
+            raise BenchError(f"{path}: a latency receipt needs its surface (graceful-swap.py latency --surface)")
+        key, bar = LATENCY_ROWS[surface]
+        regions = receipt.get("regions") or {}
+        watched = regions.get(receipt["watch"]) or {}
+        samples = watched.get("samples_ms") or []
+        if not samples:
+            raise BenchError(f"{path}: the watched region {receipt['watch']!r} never changed")
+        others = [r for name, r in regions.items() if name != receipt["watch"]]
+        runs = int(receipt.get("runs") or len(samples))
+        kept = min((int(r.get("kept", 0)) for r in others), default=runs)
+        transient = sum(int(r.get("transient_frames", 0)) for r in others)
+        labels = {"surface": surface, "watch": receipt["watch"], "trigger": receipt.get("label") or "latency",
+                  "drafts_kept": f"{kept}/{runs}", "transient_frames": transient, "bar_ms": bar,
+                  "missed": watched.get("missed", 0)}
+        p50 = float(watched["p50_ms"])
+        p95 = float(watched["p95_ms"])
+        ctx.row(key, p95, "ms", p50=p50, p95=p95, n=len(samples), labels=labels)
+        if p95 > bar or kept < runs or transient:
+            ctx.notes.append(f"{key}: p95 {p95:.0f} ms against {bar} ms, drafts kept {kept}/{runs}, "
+                             f"{transient} transient frames")
 
 
 BENCH = GracefulSwap()

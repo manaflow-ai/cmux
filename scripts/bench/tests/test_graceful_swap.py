@@ -34,6 +34,18 @@ class GracefulSwapTest(unittest.TestCase):
         self.assertEqual(find(rows, "probe_restored_ms", page="agent-chat")["value"], 420.0)
         self.assertTrue(ctx.notes)
 
+    def test_latency_rows(self):
+        ctx = Context(bench=BENCH, build={"channel": "nightly", "version": None, "sha": None}, host_role="anywhere",
+                      timestamp="2026-11-22T00:00:00Z")
+        BENCH.ingest(ctx, FIXTURES / "latency.json")
+        row = find(ctx.rows, "hot_swap_mac_unfocused_pane_p95_ms", surface="unfocused")
+        self.assertEqual(row["value"], 540.0)
+        self.assertEqual(row["p50"], 250.0)
+        self.assertEqual(row["n"], 4)
+        self.assertEqual(row["labels"]["bar_ms"], "300")
+        self.assertEqual(row["labels"]["drafts_kept"], "3/4")
+        self.assertTrue(ctx.notes)
+
 
 if __name__ == "__main__":
     unittest.main()
