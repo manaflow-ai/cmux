@@ -19,6 +19,11 @@ export const followMotion = defineExperiment({
       description:
         "Only a send moves on a curve: the sent prompt and its thinking row rise into the room they open in one motion (the send step). A reply streaming, a row arriving and the turn ending move the rows in the frame they land, as Claude Code's transcript only appends.",
     },
+    steady: {
+      label: "Steady drift",
+      description:
+        "A send rises as in the slim arm; a reply streaming, a row arriving and the turn ending move the rows at the stream's own pace: a short reserve of the newest text waits under the reply's foot, the view drifts at the rate the text comes in, and its speed bends rather than jumps when a chunk, a tool call or a fold lands.",
+    },
     spring: {
       label: "Spring chase",
       description: `Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the ${MOTION_MS.standard} ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.`,
