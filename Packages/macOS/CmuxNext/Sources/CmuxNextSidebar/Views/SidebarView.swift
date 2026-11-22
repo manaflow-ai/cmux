@@ -457,7 +457,10 @@ public final class SidebarView: NSView {
             !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0)
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
-        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self)
+        // An update's Installing state lands at its height at once: the relaunch it leads to plays no
+        // transition (Leo 2026-11-22: "the hide then animation then going to the updated to nightly is just bad.").
+        let installing = updateCardView.card?.isEnabled == false || noticeCardView.notice?.swapsInPlace == true
+        let updateHeight = cardSlotMotion.height(toward: slotHeight, in: self, snaps: installing)
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
         // staged update card (UPDATE-CARD), the cards.

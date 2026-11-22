@@ -145,7 +145,7 @@ enum SidebarCardFeed {
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
-        if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
+        if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked).swapping(inPlace: updater.card == .installing) }
         if let text = updater.testFeedCardText {
             return SidebarNoticeCard(id: testFeedCardID, symbol: "testtube.2", title: text.title, detail: text.detail,
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])

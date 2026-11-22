@@ -18,9 +18,9 @@ extension UpdaterService: UpdateActionDelegate {
         UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now()) }, defaults: defaults)
         willRelaunch?()
         // Only a relaunch the person asked for (a click, or a click that took an automatic install
-        // over) takes the windows off the screen; its failure and stall paths bring them back. An
-        // install nobody clicked relaunches with the windows as they are, as before #22919.
-        if !automaticInstallInFlight { hidesForRelaunch?() }
+        // over) freezes the windows (on screen as they are, taking no clicks); its failure and stall
+        // paths unfreeze them. An install nobody clicked relaunches with the windows as they are.
+        if !automaticInstallInFlight { freezesForRelaunch?() }
     }
 
     /// An install nobody clicked, in an app the user was not in when it started (and is not in now),

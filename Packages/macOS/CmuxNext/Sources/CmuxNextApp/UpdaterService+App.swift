@@ -28,11 +28,11 @@ extension UpdaterService {
         // Before the settings apply (`apply(_:)`): Update When Idle installs nothing without its gate (UpdateIdleGate).
         let idle = UpdateIdleGate(activity: activity, daemon: services.machines.local) { [weak services] in services?.agentTabs.unsentDrafts.count }
         useIdleGate { idle.hold(idleMinutes: $0, lastInput: $1)?.rawValue }
-        // The windows leave the screen when Sparkle commits to the relaunch,
-        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
+        // The windows freeze where they are (no hide, no fade) when Sparkle commits to the
+        // relaunch, not at the click (`UpdateWindowHandoff`); a failed install unfreezes them.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        hidesForRelaunch = { _ = handoff.hide() }
+        freezesForRelaunch = { _ = handoff.freeze() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }

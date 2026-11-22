@@ -26,7 +26,7 @@ final class SidebarCardSlotMotion: MotionAnimating {
     var isMoving: Bool { height.map { $0.value != $0.target } ?? false }
 
     /// The height to lay out now in `view` for a slot whose real height is `target`; `snaps` lands
-    /// on it at once (a card that must not move the list on a spring: the Updated card on relaunch).
+    /// on it at once (a card that must not move the list on a spring: an update's Installing state).
     func height(toward target: CGFloat, in view: NSView, snaps: Bool = false) -> CGFloat {
         self.view = view
         guard var height else {

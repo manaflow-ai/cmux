@@ -22,6 +22,9 @@ final class SidebarCardPresence {
     private var generation = 0
     /// The next hide skips the exit: the card goes in one frame (Hide under Reduce Motion).
     var hidesNextAtOnce = false
+    /// The next show skips the entrance: the card is there in one frame (an update's Installing
+    /// state, whose relaunch plays no transition).
+    var showsNextAtOnce = false
 
     /// - Parameters:
     ///   - view: The card.
@@ -44,15 +47,17 @@ final class SidebarCardPresence {
         guard let view else { return }
         if shown {
             hidesNextAtOnce = false
+            let atOnce = showsNextAtOnce
+            showsNextAtOnce = false
             guard view.isHidden || isLeaving else { return }
             generation += 1
             if isLeaving {
-                // Back before it had gone: from where it is now to fully shown.
+                // Back before it had gone: from where it is now to fully shown (at once: the exit's animations go).
                 isLeaving = false
-                transition.enter(view)
+                if atOnce { transition.clear(view.layer) } else { transition.enter(view) }
             } else {
                 view.isHidden = false
-                pendingEnter = true
+                pendingEnter = !atOnce
                 view.needsLayout = true
             }
             return

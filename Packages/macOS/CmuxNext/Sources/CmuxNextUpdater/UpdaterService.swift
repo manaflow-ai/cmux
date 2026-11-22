@@ -132,11 +132,11 @@ public final class UpdaterService {
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// Takes the windows off the screen as Sparkle commits to a relaunch the
-    /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
-    /// at the click. ``installAbandoned`` undoes it when the install ends
-    /// without a relaunch.
-    @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
+    /// Freezes the windows on screen as they are (no hide, no transition) as
+    /// Sparkle commits to a relaunch the person asked for (set by the App:
+    /// ``UpdateWindowHandoff/freeze()``), not at the click. ``installAbandoned``
+    /// undoes it when the install ends without a relaunch.
+    @ObservationIgnored public var freezesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?

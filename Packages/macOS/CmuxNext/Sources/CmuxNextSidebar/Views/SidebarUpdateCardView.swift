@@ -168,8 +168,10 @@ final class SidebarUpdateCardView: NSView {
         // replaced must not restart cmux (Leo 2026-11-04: "i only clicked the "download" button
         // and it allegedly "updated" but i didnt restart the app/get a prompt to?").
         if previous == nil || !wasShowing || previous?.detail != card.detail { button.ignorePointer() }
-        // Restart to Update becoming Installing… crossfades instead of popping.
-        if let previous, wasShowing, previous.title != card.title || previous.detail != card.detail
+        // A change in what the card says crossfades instead of popping. Restart to Update becoming
+        // Installing… swaps in place: the relaunch it starts plays no transition (Leo 2026-11-22:
+        // "the hide then animation then going to the updated to nightly is just bad.").
+        if let previous, wasShowing, card.isEnabled, previous.title != card.title || previous.detail != card.detail
             || previous.buttonTitle != card.buttonTitle || previous.isEnabled != card.isEnabled {
             presence.transition.crossfade(layer)
         }

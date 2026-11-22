@@ -121,6 +121,8 @@ final class SidebarNoticeCardView: NSView {
             if let hidden = shown.hiddenAction { onAction?(shown.id, hidden) }
         }
         let wasShowing = !isHidden && !isLeaving
+        // An update's Installing state comes in with no entrance (``SidebarNoticeCard/swapsInPlace``).
+        presence.showsNextAtOnce = notice?.swapsInPlace == true
         presence.setShown(notice != nil)
         guard let notice else {
             // The exit shows the last notice as it was; only its spinner stops.
@@ -128,8 +130,9 @@ final class SidebarNoticeCardView: NSView {
             return
         }
         laidOut = notice
-        // A new message in a card already on screen (Checking… to Up to Date) crossfades.
-        if let previous, wasShowing, Self.changesMessage(from: previous, to: notice) {
+        // A new message in a card already on screen (Checking… to Up to Date) crossfades; one that
+        // swaps in place (an update's Installing state, ``SidebarNoticeCard/swapsInPlace``) does not.
+        if let previous, wasShowing, !notice.swapsInPlace, Self.changesMessage(from: previous, to: notice) {
             presence.transition.crossfade(content.layer)
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""

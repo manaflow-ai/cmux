@@ -98,6 +98,17 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// Something waits on the person's answer (``SidebarAsks``): the card
     /// takes the slot from every other card, the staged update card too.
     public var awaitsAnswer = false
+    /// The message swaps in place, with no crossfade: an update's Installing state, whose relaunch
+    /// plays no transition (Leo 2026-11-22: "the hide then animation then going to the updated to
+    /// nightly is just bad.").
+    public var swapsInPlace = false
+
+    /// This card with ``swapsInPlace`` set to `inPlace` (an update's Installing state, `UpdateWindowHandoff`).
+    public func swapping(inPlace: Bool) -> Self {
+        var card = self
+        card.swapsInPlace = inPlace
+        return card
+    }
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], trailing: Trailing? = nil, shortcut: String? = nil, dismissLabel: String? = nil,
