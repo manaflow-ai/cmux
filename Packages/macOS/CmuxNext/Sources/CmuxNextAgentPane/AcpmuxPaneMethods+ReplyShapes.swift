@@ -58,6 +58,15 @@ nonisolated extension AcpmuxPaneMethods {
                 ]),
             ])),
         ]),
+        // The move picker needs labels and placement state only. Keep transport endpoints,
+        // hostnames, and other daemon metadata out of the page.
+        "_acpmux/move_targets": .object([
+            "targets": .list(.object([
+                "id": .string, "label": .string, "kind": .string,
+                "status": .string, "reason": .string, "room": .number,
+            ])),
+            "pick": .string,
+        ]),
         // Reconnect returns the same safe peer state needed by the offline copy's banner. The
         // relay derives transport from `url` and drops the endpoint and all other metadata.
         "_acpmux/peer_reconnect": .object([

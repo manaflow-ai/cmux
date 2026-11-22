@@ -1,6 +1,7 @@
 // Page strings come from xcstrings tables (scripts/pages/gen-strings.mjs writes
 // `<page>/generated/strings.json`); no string lives only in TypeScript. The page picks the app's
 // language from `navigator.languages`, which WebKit sets from the app's preferred localizations.
+import { intl } from "../../ui/intl";
 
 export type StringTable = Record<string, Record<string, string>>;
 
@@ -59,7 +60,7 @@ export function createStrings(table: StringTable, tags: readonly string[] = navi
   const local = table[language] ?? {};
   const english = table.en ?? {};
   const t = (key: string) => local[key] ?? english[key] ?? key;
-  const rules = new Intl.PluralRules(language);
+  const rules = intl.PluralRules(language);
   // A plural string's text for the count, else the locale's plain text for the key (a catalog that
   // gave this language no plural forms), else English.
   const form = (key: string, args: readonly string[]) => {
