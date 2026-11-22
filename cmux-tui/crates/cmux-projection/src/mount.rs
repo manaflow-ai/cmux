@@ -19,26 +19,21 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs::File;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::FOPEN_KEEP_CACHE;
+use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
     ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
     ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
-use crate::manifest::Kind;
-use crate::overlay::{Attr, Overlay, Version};
-
-/// `FUSE_AUTO_INVAL_DATA` (ABI 7.20, which fuser 0.14 names only with its `abi-7-20` feature; the
-/// kernel reads the flag at any minor version).
-const FUSE_AUTO_INVAL_DATA: u32 = 1 << 12;
+use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
+use crate::upper::SetTime;
 
 /// How long the kernel may keep an answer about a path only in the manifest.
 pub const LOWER_TTL: Duration = Duration::from_secs(3600);
@@ -87,8 +82,70 @@ impl Drop for Mounted {
     }
 }
 
+/// How to mount.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Only the read-only view: every write answers `EROFS` from the kernel. The lower a kernel
+    /// overlay can stack an upper on, and what the conformance suites check alone.
+    pub read_only: bool,
+    /// Let users other than the mounting one in (`allow_other`: root, or `user_allow_other` in
+    /// `/etc/fuse.conf`). The product never sets it; the conformance suites, which switch users,
+    /// do.
+    pub allow_other: bool,
+    /// The source the mount table shows (default `cmux-projection`): a suite that finds its mount
+    /// by its device name sets one.
+    pub fsname: Option<String>,
+    /// Access times follow the machine's disk (its `relatime`) instead of staying put (`noatime`,
+    /// the default). A read-only mount always keeps them.
+    pub disk_atime: bool,
+}
+
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    mount_with(overlay, at, Options::default())
+}
+
+/// Mounts `overlay` at `at` (an existing, empty folder) as `options` say.
+pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow::Result<Mounted> {
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let session = fuser::spawn_mount2(fs, at, &mount_options(&options))?;
+    // Set before this returns, so before anything the caller starts opens through the mount.
+    let _ = notifier.set(session.notifier());
+    Ok(Mounted { session: Some(session) })
+}
+
+/// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
+/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
+    let options = Options::default();
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let mut session = fuser::Session::new(fs, at, &mount_options(&options))?;
+    // Set before the first request is read, so before any open.
+    let _ = notifier.set(session.notifier());
+    mounted();
+    session.run()?;
+    Ok(())
+}
+
+fn mount_options(options: &Options) -> Vec<MountOption> {
+    let mut mount_options = vec![
+        MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
+        MountOption::Subtype("cmux".into()),
+        MountOption::DefaultPermissions,
+        if options.disk_atime { MountOption::Atime } else { MountOption::NoAtime },
+        if options.read_only { MountOption::RO } else { MountOption::RW },
+    ];
+    if options.allow_other {
+        mount_options.push(MountOption::AllowOther);
+    }
+    mount_options
+}
+
+/// The file system, and where its session's notifier goes once the session exists.
+fn filesystem(
+    overlay: Arc<Overlay>,
+    options: &Options,
+) -> anyhow::Result<(Fs, Arc<OnceLock<Notifier>>)> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -103,27 +160,16 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
             }
         })?;
     }
+    overlay.keep_atime(options.read_only || !options.disk_atime);
     let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
     let fs = Fs {
         overlay,
         jobs: sender,
         listings: HashMap::new(),
-        next_handle: AtomicU64::new(1),
-        writers: Arc::new(Mutex::new(HashMap::new())),
-        versions: HashMap::new(),
+        versions: Arc::new(Mutex::new(HashMap::new())),
         notifier: notifier.clone(),
     };
-    let options = [
-        MountOption::FSName("cmux-projection".into()),
-        MountOption::Subtype("cmux".into()),
-        MountOption::DefaultPermissions,
-        MountOption::NoAtime,
-        MountOption::RW,
-    ];
-    let session = fuser::spawn_mount2(fs, at, &options)?;
-    // Set before this returns, so before anything the caller starts opens through the mount.
-    let _ = notifier.set(session.notifier());
-    Ok(Mounted { session: Some(session) })
+    Ok((fs, notifier))
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -141,46 +187,42 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
-    /// Folder listings by handle, taken at `opendir` so paging is stable and cheap.
+    /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
+    /// paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
-    /// Handles for files and folders alike.
-    next_handle: AtomicU64,
-    /// The upper file each open handle writes to, opened at its create or first write (so later
-    /// writes open nothing); dropped at its release.
-    writers: Arc<Mutex<HashMap<u64, Arc<File>>>>,
     /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
-    versions: HashMap<u64, Version>,
+    versions: Arc<Mutex<HashMap<u64, Version>>>,
     notifier: Arc<OnceLock<Notifier>>,
 }
 
-fn file_type(kind: Kind) -> FileType {
+fn file_type(kind: Type) -> FileType {
     match kind {
-        Kind::File => FileType::RegularFile,
-        Kind::Dir => FileType::Directory,
-        Kind::Link => FileType::Symlink,
+        Type::File => FileType::RegularFile,
+        Type::Dir => FileType::Directory,
+        Type::Link => FileType::Symlink,
+        Type::Fifo => FileType::NamedPipe,
+        Type::Socket => FileType::Socket,
+        Type::Char => FileType::CharDevice,
+        Type::Block => FileType::BlockDevice,
     }
 }
 
-fn time(ns: i64) -> SystemTime {
-    UNIX_EPOCH + Duration::from_nanos(u64::try_from(ns).unwrap_or(0))
-}
-
 fn file_attr(attr: &Attr) -> FileAttr {
-    let at = time(attr.mtime_ns);
+    let mtime = Overlay::time_of(attr.mtime_ns);
     FileAttr {
         ino: attr.ino,
         size: attr.size,
-        blocks: attr.size.div_ceil(512),
-        atime: at,
-        mtime: at,
-        ctime: at,
-        crtime: at,
+        blocks: attr.blocks,
+        atime: Overlay::time_of(attr.atime_ns),
+        mtime,
+        ctime: Overlay::time_of(attr.ctime_ns),
+        crtime: mtime,
         kind: file_type(attr.kind),
         perm: u16::try_from(attr.mode & 0o7777).unwrap_or(0o644),
         nlink: attr.nlink,
         uid: attr.uid,
         gid: attr.gid,
-        rdev: 0,
+        rdev: u32::try_from(attr.rdev).unwrap_or(0),
         blksize: 4096,
         flags: 0,
     }
@@ -190,46 +232,85 @@ fn name_of(name: &OsStr) -> Result<&str, i32> {
     name.to_str().ok_or(libc::EINVAL)
 }
 
-fn ns_of(value: TimeOrNow) -> i64 {
-    let at = match value {
-        TimeOrNow::SpecificTime(at) => at,
-        TimeOrNow::Now => SystemTime::now(),
-    };
-    at.duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|since| i64::try_from(since.as_nanos()).ok())
-        .unwrap_or(0)
+fn set_time(value: TimeOrNow) -> SetTime {
+    match value {
+        TimeOrNow::Now => SetTime::Now,
+        TimeOrNow::SpecificTime(at) => {
+            SetTime::At(match at.duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(since) => i64::try_from(since.as_nanos()).unwrap_or(i64::MAX),
+                Err(before) => {
+                    i64::try_from(before.duration().as_nanos()).map_or(i64::MIN, |ns| -ns)
+                }
+            })
+        }
+    }
+}
+
+fn who(req: &Request<'_>) -> Who {
+    Who { uid: req.uid(), gid: req.gid() }
 }
 
 impl Fs {
+    /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
+    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
+        let entries = self.overlay.readdir(ino)?;
+        let mut listing = Vec::with_capacity(entries.len() + 2);
+        listing.push((ino, FileType::Directory, ".".to_owned()));
+        listing.push((ino, FileType::Directory, "..".to_owned()));
+        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        Ok(listing)
+    }
+
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
     }
+}
 
-    /// `FOPEN_KEEP_CACHE` when file `ino` is at the version it had at its last open (the kernel's
-    /// pages are of these bytes), else nothing, which drops them. A changed file's cached
-    /// attributes go first, so the opener's `fstat` sees its size now. No page is held during an
-    /// open, so telling the kernel here, before the answer, cannot wait on this open.
-    fn open_flags(&mut self, ino: u64) -> u32 {
-        let Ok(Some(now)) = self.overlay.version(ino) else {
-            self.versions.remove(&ino);
-            return 0;
-        };
-        match self.versions.insert(ino, now) {
-            // An upper file changed under a second ago is never trusted equal (git's "racily
-            // clean"): on a disk with coarse timestamps a same-size rewrite in the same tick
-            // leaves size, mtime and ctime as they were.
-            Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
-            Some(_) => {
-                if let Some(notifier) = self.notifier.get() {
-                    // ENOENT: the kernel holds nothing of it, which is fine.
-                    let _ = notifier.inval_inode(ino, -1, 0);
-                }
-                0
+/// `FOPEN_KEEP_CACHE` when file `ino` is at the version it had at its last open (the kernel's
+/// pages are of these bytes), else nothing, which drops them. A changed file's cached attributes
+/// go first, so the opener's `fstat` sees its size now. No page is held during an open, so telling
+/// the kernel here, before the answer, cannot wait on this open.
+fn open_flags(
+    overlay: &Overlay,
+    versions: &Mutex<HashMap<u64, Version>>,
+    notifier: &OnceLock<Notifier>,
+    ino: u64,
+) -> u32 {
+    let mut versions = versions.lock().unwrap_or_else(PoisonError::into_inner);
+    let Ok(Some(now)) = overlay.version(ino) else {
+        versions.remove(&ino);
+        return 0;
+    };
+    let before = versions.insert(ino, now);
+    drop(versions);
+    match before {
+        // An upper file changed under a second ago is never trusted equal (git's "racily
+        // clean"): on a disk with coarse timestamps a same-size rewrite in the same tick leaves
+        // size, mtime and ctime as they were.
+        Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
+        Some(_) => {
+            if let Some(notifier) = notifier.get() {
+                // ENOENT: the kernel holds nothing of it, which is fine.
+                let _ = notifier.inval_inode(ino, -1, 0);
             }
-            None => 0,
+            0
         }
+        None => 0,
+    }
+}
+
+fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
+    match made {
+        Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
+        Err(errno) => reply.error(errno),
+    }
+}
+
+fn empty(reply: ReplyEmpty, done: Result<(), i32>) {
+    match done {
+        Ok(()) => reply.ok(),
+        Err(errno) => reply.error(errno),
     }
 }
 
@@ -242,14 +323,11 @@ impl Filesystem for Fs {
 
     fn forget(&mut self, _req: &Request<'_>, ino: u64, _nlookup: u64) {
         // The kernel let the inode go, and its pages with it.
-        self.versions.remove(&ino);
+        self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&ino);
     }
 
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        match name_of(name).and_then(|name| self.overlay.lookup(parent, name)) {
-            Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        entry(reply, name_of(name).and_then(|name| self.overlay.lookup(parent, name)));
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
@@ -264,10 +342,10 @@ impl Filesystem for Fs {
         _req: &Request<'_>,
         ino: u64,
         mode: Option<u32>,
-        _uid: Option<u32>,
-        _gid: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
         size: Option<u64>,
-        _atime: Option<TimeOrNow>,
+        atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         _ctime: Option<SystemTime>,
         fh: Option<u64>,
@@ -277,21 +355,14 @@ impl Filesystem for Fs {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let mtime = mtime.map(ns_of);
-        // A change through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's
-        // time that way) goes to the file that handle writes, without a lookup or an open.
-        let held = fh.and_then(|fh| {
-            self.writers.lock().unwrap_or_else(PoisonError::into_inner).get(&fh).cloned()
-        });
-        self.run(move |overlay| {
-            let result = match held {
-                Some(file) => overlay.setattr_open(ino, &file, size, mode, mtime),
-                None => overlay.setattr(ino, size, mode, mtime),
-            };
-            match result {
-                Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
-                Err(errno) => reply.error(errno),
-            }
+        let set =
+            Set { size, mode, uid, gid, atime: atime.map(set_time), mtime: mtime.map(set_time) };
+        // A size or mode change may copy a lower file up (a fetch): off the session loop. A change
+        // through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's time that
+        // way) goes to the file that handle holds, without a lookup or an open.
+        self.run(move |overlay| match overlay.setattr(ino, fh, set) {
+            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
+            Err(errno) => reply.error(errno),
         });
     }
 
@@ -302,47 +373,62 @@ impl Filesystem for Fs {
         }
     }
 
+    fn mknod(
+        &mut self,
+        req: &Request<'_>,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        let who = who(req);
+        let mode = (mode & libc::S_IFMT) | (mode & 0o7777 & !umask);
+        entry(
+            reply,
+            name_of(name)
+                .and_then(|name| self.overlay.mknod(parent, name, mode, u64::from(rdev), who)),
+        );
+    }
+
     fn mkdir(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
         umask: u32,
         reply: ReplyEntry,
     ) {
-        match name_of(name).and_then(|name| self.overlay.mkdir(parent, name, mode & !umask)) {
-            Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        let who = who(req);
+        entry(
+            reply,
+            name_of(name).and_then(|name| self.overlay.mkdir(parent, name, mode & !umask, who)),
+        );
     }
 
     fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        match name_of(name).and_then(|name| self.overlay.unlink(parent, name)) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+        empty(reply, name_of(name).and_then(|name| self.overlay.unlink(parent, name)));
     }
 
     fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        match name_of(name).and_then(|name| self.overlay.rmdir(parent, name)) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+        empty(reply, name_of(name).and_then(|name| self.overlay.rmdir(parent, name)));
     }
 
     fn symlink(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         link_name: &OsStr,
         target: &Path,
         reply: ReplyEntry,
     ) {
-        match name_of(link_name).and_then(|name| self.overlay.symlink(parent, name, target)) {
-            Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
-            Err(errno) => reply.error(errno),
-        }
+        let who = who(req);
+        entry(
+            reply,
+            name_of(link_name).and_then(|name| self.overlay.symlink(parent, name, target, who)),
+        );
     }
 
     fn rename(
@@ -355,33 +441,47 @@ impl Filesystem for Fs {
         flags: u32,
         reply: ReplyEmpty,
     ) {
-        if flags != 0 {
-            // RENAME_NOREPLACE, RENAME_EXCHANGE: not in this slice.
-            reply.error(libc::EINVAL);
-            return;
-        }
         let (Ok(name), Ok(newname)) = (name_of(name), name_of(newname)) else {
             reply.error(libc::EINVAL);
             return;
         };
         let (name, newname) = (name.to_owned(), newname.to_owned());
         // A rename may copy a lower file up (a fetch): off the session loop.
-        self.run(move |overlay| match overlay.rename(parent, &name, newparent, &newname) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
+        self.run(move |overlay| {
+            empty(reply, overlay.rename(parent, &name, newparent, &newname, flags));
         });
     }
 
-    fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-        let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-        reply.opened(handle, self.open_flags(ino));
+    fn link(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        newparent: u64,
+        newname: &OsStr,
+        reply: ReplyEntry,
+    ) {
+        let Ok(newname) = name_of(newname).map(str::to_owned) else {
+            reply.error(libc::EINVAL);
+            return;
+        };
+        // A link of a lower file copies it up (a fetch): off the session loop.
+        self.run(move |overlay| entry(reply, overlay.link(ino, newparent, &newname)));
+    }
+
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        let (versions, notifier) = (self.versions.clone(), self.notifier.clone());
+        // A write open copies a lower file up (a fetch): off the session loop.
+        self.run(move |overlay| match overlay.open_handle(ino, flags) {
+            Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
+            Err(errno) => reply.error(errno),
+        });
     }
 
     fn read(
         &mut self,
         _req: &Request<'_>,
         ino: u64,
-        _fh: u64,
+        fh: u64,
         offset: i64,
         size: u32,
         _flags: i32,
@@ -389,7 +489,7 @@ impl Filesystem for Fs {
         reply: ReplyData,
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
-        self.run(move |overlay| match overlay.read(ino, offset, size) {
+        self.run(move |overlay| match overlay.read_handle(fh, ino, offset, size) {
             Ok(bytes) => reply.data(&bytes),
             Err(errno) => reply.error(errno),
         });
@@ -409,30 +509,9 @@ impl Filesystem for Fs {
     ) {
         let offset = u64::try_from(offset).unwrap_or(0);
         let data = data.to_vec();
-        let writers = self.writers.clone();
-        // A write may copy a lower file up (a fetch): off the session loop.
-        self.run(move |overlay| {
-            let held = writers.lock().unwrap_or_else(PoisonError::into_inner).get(&fh).cloned();
-            let file = match held {
-                Some(file) => file,
-                None => match overlay.writer(ino) {
-                    Ok(file) => {
-                        let file = Arc::new(file);
-                        if fh != 0 {
-                            writers
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .insert(fh, file.clone());
-                        }
-                        file
-                    }
-                    Err(errno) => return reply.error(errno),
-                },
-            };
-            match Overlay::write_to(&file, offset, &data) {
-                Ok(written) => reply.written(written),
-                Err(errno) => reply.error(errno),
-            }
+        self.run(move |overlay| match overlay.write_handle(fh, ino, offset, &data) {
+            Ok(written) => reply.written(written),
+            Err(errno) => reply.error(errno),
         });
     }
 
@@ -453,29 +532,35 @@ impl Filesystem for Fs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        // The kernel releases a handle only after every write through it was answered.
-        self.writers.lock().unwrap_or_else(PoisonError::into_inner).remove(&fh);
+        self.overlay.release(fh);
         reply.ok();
     }
 
-    fn fsync(&mut self, _req: &Request<'_>, ino: u64, _fh: u64, _data: bool, reply: ReplyEmpty) {
-        match self.overlay.fsync(ino) {
-            Ok(()) => reply.ok(),
-            Err(errno) => reply.error(errno),
-        }
+    fn fsync(&mut self, _req: &Request<'_>, _ino: u64, fh: u64, _data: bool, reply: ReplyEmpty) {
+        self.run(move |overlay| empty(reply, overlay.fsync(fh)));
+    }
+
+    fn fallocate(
+        &mut self,
+        _req: &Request<'_>,
+        _ino: u64,
+        fh: u64,
+        offset: i64,
+        length: i64,
+        mode: i32,
+        reply: ReplyEmpty,
+    ) {
+        self.run(move |overlay| empty(reply, overlay.fallocate(fh, offset, length, mode)));
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-        match self.overlay.readdir(ino) {
-            Ok(entries) => {
-                let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-                let mut listing = vec![
-                    (ino, FileType::Directory, ".".to_owned()),
-                    (ino, FileType::Directory, "..".to_owned()),
-                ];
-                listing.extend(
-                    entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)),
-                );
+        // The overlay's handle keeps the folder's attributes readable (fstat) after it is deleted
+        // or renamed over, as an open folder on a disk does.
+        let listed = self.listing(ino).and_then(|listing| {
+            Ok((self.overlay.open_handle(ino, libc::O_RDONLY | libc::O_DIRECTORY)?, listing))
+        });
+        match listed {
+            Ok((handle, listing)) => {
                 self.listings.insert(handle, listing);
                 reply.opened(handle, 0);
             }
@@ -486,11 +571,24 @@ impl Filesystem for Fs {
     fn readdir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         fh: u64,
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
+        // POSIX has rewinddir see names made or deleted since the folder was opened.
+        if offset == 0 && self.listings.contains_key(&fh) {
+            match self.listing(ino) {
+                Ok(listing) => {
+                    self.listings.insert(fh, listing);
+                }
+                Err(errno) => {
+                    reply.error(errno);
+                    return;
+                }
+            }
+        }
         let Some(listing) = self.listings.get(&fh) else {
             reply.error(libc::EBADF);
             return;
@@ -514,11 +612,24 @@ impl Filesystem for Fs {
         reply: ReplyEmpty,
     ) {
         self.listings.remove(&fh);
+        self.overlay.release(fh);
         reply.ok();
     }
 
     fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
-        reply.statfs(1 << 40, 1 << 39, 1 << 39, 1 << 32, 1 << 31, 4096, 255, 4096);
+        match self.overlay.statfs() {
+            Ok(vfs) => reply.statfs(
+                vfs.f_blocks,
+                vfs.f_bfree,
+                vfs.f_bavail,
+                vfs.f_files,
+                vfs.f_ffree,
+                u32::try_from(vfs.f_bsize).unwrap_or(4096),
+                255,
+                u32::try_from(vfs.f_frsize).unwrap_or(4096),
+            ),
+            Err(errno) => reply.error(errno),
+        }
     }
 
     fn access(&mut self, _req: &Request<'_>, ino: u64, _mask: i32, reply: ReplyEmpty) {
@@ -530,7 +641,7 @@ impl Filesystem for Fs {
 
     fn create(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -538,16 +649,11 @@ impl Filesystem for Fs {
         _flags: i32,
         reply: ReplyCreate,
     ) {
-        match name_of(name).and_then(|name| self.overlay.create_open(parent, name, mode & !umask)) {
-            Ok((attr, file)) => {
-                let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-                // Its writes go straight to the file this create opened.
-                self.writers
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(handle, Arc::new(file));
+        let who = who(req);
+        match name_of(name).and_then(|name| self.overlay.create(parent, name, mode & !umask, who)) {
+            Ok((attr, handle)) => {
                 // A new file: whatever the kernel held under this number is not of it.
-                self.versions.remove(&attr.ino);
+                self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&attr.ino);
                 reply.created(&ttl(&attr), &file_attr(&attr), 0, handle, 0);
             }
             Err(errno) => reply.error(errno),

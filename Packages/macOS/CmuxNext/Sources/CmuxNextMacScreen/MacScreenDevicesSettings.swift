@@ -227,7 +227,7 @@ public final class MacScreenDevicesSettings {
     }
 
     public var state: State {
-        let labels = Labels.current
+        var labels = Labels.current
         guard box.configured else {
             return State(available: false, status: .init(text: L.t("devices.status.invalidHubAddress", "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."), tone: "neutral"),
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
@@ -249,6 +249,12 @@ public final class MacScreenDevicesSettings {
                          thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         let me = hub.identity.id
+        // Other Devices with no row: "sign in on your other Macs" only after a list read succeeded (ask-6a79af928f).
+        switch DeviceDiscovery.of(hub, shown: hub.otherDevices.count) {
+        case .list, .noDevices: break
+        case .finding: labels.noOthers = L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail): labels.noOthers = reason.words(detail: detail)
+        }
         let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
         let this = hub.thisDevice.map { device(for: $0, hub: hub, me: me) }
         let sharing = hub.thisDevice.map { _ in
@@ -446,6 +452,7 @@ public final class MacScreenDevicesSettings {
         case .expired: L.t("devices.history.expired", "No answer in time")
         case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
+        case .moved: L.t("devices.history.moved", "Moved to another device")
         case .other: L.t("devices.history.other", "Ended")
         }
     }

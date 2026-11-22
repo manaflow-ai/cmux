@@ -53,6 +53,16 @@ fn credential(machine_id: &str) -> machine::MachineCredential {
     serde_json::from_str(&record).unwrap()
 }
 
+/// [`machine::Join::read`] with the join at the stub hub `origin` (no deployment has it).
+fn read_at(origin: &str) -> impl Fn(&Path) -> Res<Option<machine::Join>> + '_ {
+    move |home| Ok(machine::load(home)?.map(|c| machine::Join::at(home, c, origin)))
+}
+
+/// The join `credential` from `home`, at the stub hub `origin`.
+fn join_at(home: &Path, credential: machine::MachineCredential, origin: &str) -> machine::Join {
+    machine::Join::at(home, credential, origin)
+}
+
 fn dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("cmux-rd-serving-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -60,13 +70,16 @@ fn dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// The acpmux home of the joins in `dir`'s cells; it holds the current join's credential, m-b.
-fn home(dir: &Path) -> PathBuf {
+/// The acpmux home of the joins in `dir`'s cells; it holds the current join's credential, m-b,
+/// joined at the stub hub `origin` (a loopback origin is its own hub in tests, [`machine::Join`]).
+fn home(dir: &Path, origin: &str) -> PathBuf {
     let home = dir.join("acpmux-home");
     if !home.join(machine::CREDENTIAL_FILE).exists() {
         identity::private_dir(&home).unwrap();
-        let record = br#"{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1}"#;
-        identity::write_private(&home.join(machine::CREDENTIAL_FILE), record).unwrap();
+        let record = format!(
+            r#"{{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1,"hub_origin":"{origin}"}}"#
+        );
+        identity::write_private(&home.join(machine::CREDENTIAL_FILE), record.as_bytes()).unwrap();
     }
     home
 }
@@ -89,7 +102,7 @@ fn hold(dir: &Path, origin: &str, before: Before) -> Option<Device> {
     device.save(dir).unwrap();
     account.save(dir).unwrap();
     if let Some(credential) = joined {
-        machine::Joined::of(&home(dir), &credential).save(dir).unwrap();
+        machine::Joined::of(&home(dir, origin), &credential).save(dir).unwrap();
     }
     Some(device)
 }
@@ -114,12 +127,12 @@ fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
         _ => (200, serde_json::json!({ "ok": true })),
     });
     let dir = dir(&tag);
-    let home = home(&dir);
+    let home = home(&dir, &origin);
     let old = hold(&dir, &origin, before);
     // What a host process started before this join serves as.
     let was = super::Serving::now(&dir).ok();
     let unit = Recorded::new(seen.clone(), !stop_works);
-    let got = super::super::join_device(&dir, &origin, Some((home, credential("m-b"))), &unit);
+    let got = super::join(&dir, &join_at(&home, credential("m-b"), &origin), &unit);
     let calls: Vec<(String, String)> =
         seen.lock().unwrap().iter().map(|s| (s.method.clone(), s.path.clone())).collect();
     let stops = unit.stops.lock().unwrap().clone();
@@ -137,7 +150,7 @@ fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
         let joined = machine::Joined::load(&dir).unwrap();
         let joined = joined.unwrap_or_else(|| panic!("{tag}: a person's p:a kept"));
         assert!(
-            super::current_join(&dir, &origin, &joined).is_err(),
+            super::current_join(&dir, &joined, read_at(&origin)).is_err(),
             "{tag}: a host starts as p:a"
         );
     }
@@ -299,6 +312,69 @@ fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of #45369: a hub that fails (a 5xx) has not signed the device out, so its pending
+/// sign-out is kept; only a hub that signs it out or does not know it (404) drops it.
+#[test]
+fn a_pending_sign_out_is_kept_until_the_hub_confirms_it() {
+    let dir = dir("pending-5xx");
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    let answering = |status: u16| {
+        stub(move |_, _| (status, serde_json::json!({ "error": { "code": "x", "message": "x" } })))
+    };
+    let point = |origin: String| {
+        let mut moved = super::load_pending(&dir).unwrap();
+        moved[0].hub = origin;
+        super::save_pending(&dir, &moved).unwrap();
+    };
+    for status in [500, 502, 503, 429] {
+        let (origin, seen) = answering(status);
+        point(origin);
+        super::retry_pending(&dir);
+        assert!(!seen.lock().unwrap().is_empty(), "{status}: not asked");
+        let left = super::load_pending(&dir).unwrap();
+        assert_eq!(left.len(), 1, "{status}: a failing hub dropped the pending sign-out");
+        assert_eq!(left[0].device.id, old.id);
+    }
+    let (origin, _) = answering(404);
+    point(origin);
+    super::retry_pending(&dir);
+    assert!(super::load_pending(&dir).unwrap().is_empty(), "a hub that does not know it");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of #45369: a pending sign-out keeps its device key on disk, so its file is private
+/// and its entries do not outlive the bound; one past it is dropped without asking the hub.
+#[test]
+fn a_pending_sign_out_is_private_and_dropped_once_it_is_old() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = dir("pending-age");
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    let file = dir.join(super::PENDING_FILE);
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    let pending = super::load_pending(&dir).unwrap();
+    assert_eq!(pending.len(), 1);
+    let since = pending[0].since_ms;
+    assert!(since > 0, "no time recorded");
+    // Still within the bound, at its last moment: kept (the hub still does not answer).
+    super::retry_pending_at(&dir, since + super::PENDING_MAX_AGE_MS);
+    assert_eq!(super::load_pending(&dir).unwrap().len(), 1);
+    // Past it: dropped, unasked, and the file with it.
+    let (origin, seen) = person_hub();
+    let mut moved = super::load_pending(&dir).unwrap();
+    moved[0].hub = origin;
+    super::save_pending(&dir, &moved).unwrap();
+    super::retry_pending_at(&dir, since + super::PENDING_MAX_AGE_MS + 1);
+    assert!(super::load_pending(&dir).unwrap().is_empty());
+    assert!(!file.exists());
+    let sign_out = format!("/v1/devices/{}/sign-out", old.id);
+    assert!(!seen.lock().unwrap().iter().any(|s| s.path == sign_out), "an aged entry was sent");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_host_started_for_an_earlier_join_serves_nothing() {
     let dir = dir("earlier-join");
@@ -312,14 +388,14 @@ fn a_host_started_for_an_earlier_join_serves_nothing() {
     };
     write("m-a");
     let joined = machine::Joined::of(&home, &machine::load(&home).unwrap().unwrap());
-    assert!(super::current_join(&dir, "http://127.0.0.1:1", &joined).is_ok());
+    assert!(super::current_join(&dir, &joined, read_at("http://127.0.0.1:1")).is_ok());
     // Joined again: the unit's record names the earlier join.
     write("m-b");
-    let e = super::current_join(&dir, "http://127.0.0.1:1", &joined).unwrap_err();
+    let e = super::current_join(&dir, &joined, read_at("http://127.0.0.1:1")).unwrap_err();
     assert!(e.is::<super::Fatal>() && e.to_string().contains("joined again"), "{e}");
     // Left: no credential at all.
     std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
-    assert!(super::current_join(&dir, "http://127.0.0.1:1", &joined)
+    assert!(super::current_join(&dir, &joined, read_at("http://127.0.0.1:1"))
         .unwrap_err()
         .is::<super::Fatal>());
     let _ = std::fs::remove_dir_all(&dir);
@@ -375,7 +451,7 @@ fn a_second_writer_waits_for_the_first() {
 #[test]
 fn after_a_failed_join_a_person_is_still_refused() {
     let dir = dir("joining");
-    let home = home(&dir);
+    let home = home(&dir, "http://127.0.0.1:1");
     let (origin, seen) = stub(|_, request| match request.path.as_str() {
         "/v1/auth/machine" => {
             (503, serde_json::json!({ "error": { "code": "unavailable", "message": "down" } }))
@@ -383,7 +459,7 @@ fn after_a_failed_join_a_person_is_still_refused() {
         _ => (200, serde_json::json!({ "ok": true })),
     });
     let unit = Recorded::new(seen, false);
-    assert!(super::join(&dir, &origin, &home, credential("m-b"), &unit).is_err());
+    assert!(super::join(&dir, &join_at(&home, credential("m-b"), &origin), &unit).is_err());
     assert!(Account::load(&dir).unwrap().is_none() && Device::load(&dir).unwrap().is_none());
     assert_eq!(machine::Joined::load(&dir).unwrap(), None);
     if std::env::var_os("ACPMUX_HOME").is_none() {
@@ -405,7 +481,7 @@ struct Unmarked {
     dir: PathBuf,
     home: PathBuf,
     old: Device,
-    got: Res<machine::MachineCredential>,
+    got: Res<machine::Join>,
 }
 
 /// A desktop the join m-b signed in as `recorded` before joins were marked; the hub now signs
@@ -424,8 +500,10 @@ fn unmarked(recorded: &str, hub_up: bool) -> Unmarked {
     let dir = dir(&format!("unmarked-{recorded}-{hub_up}"));
     let home = dir.join("acpmux-home");
     identity::private_dir(&home).unwrap();
-    let record = br#"{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1}"#;
-    identity::write_private(&home.join(machine::CREDENTIAL_FILE), record).unwrap();
+    let record = format!(
+        r#"{{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1,"hub_origin":"{origin}"}}"#
+    );
+    identity::write_private(&home.join(machine::CREDENTIAL_FILE), record.as_bytes()).unwrap();
     let old = Device::generate("lane-vm").unwrap();
     old.save(&dir).unwrap();
     Account { hub: origin.clone(), user_id: recorded.to_owned(), anchored_until: 0 }
@@ -433,14 +511,14 @@ fn unmarked(recorded: &str, hub_up: bool) -> Unmarked {
         .unwrap();
     let joined = machine::Joined { acpmux_home: home.clone(), ..Default::default() };
     joined.save(&dir).unwrap();
-    let got = super::current_join(&dir, &origin, &joined);
+    let got = super::current_join(&dir, &joined, read_at(&origin));
     Unmarked { dir, home, old, got }
 }
 
 #[test]
 fn a_join_signed_in_before_its_mark_keeps_serving_its_account_and_is_marked() {
     let c = unmarked("p:b", true);
-    let credential = c.got.unwrap_or_else(|e| panic!("{e}"));
+    let credential = c.got.unwrap_or_else(|e| panic!("{e}")).credential;
     assert_eq!(Device::load(&c.dir).unwrap().unwrap().id, c.old.id);
     assert_eq!(Account::load(&c.dir).unwrap().unwrap().user_id, "p:b");
     let marked = machine::Joined::of(&c.home, &credential);
@@ -451,7 +529,7 @@ fn a_join_signed_in_before_its_mark_keeps_serving_its_account_and_is_marked() {
 #[test]
 fn a_join_signed_in_before_its_mark_as_another_account_serves_the_current_join() {
     let c = unmarked("p:a", true);
-    let credential = c.got.unwrap_or_else(|e| panic!("{e}"));
+    let credential = c.got.unwrap_or_else(|e| panic!("{e}")).credential;
     assert_ne!(Device::load(&c.dir).unwrap().unwrap().id, c.old.id);
     assert_eq!(Account::load(&c.dir).unwrap().unwrap().user_id, "p:b");
     let marked = machine::Joined::of(&c.home, &credential);
@@ -467,4 +545,30 @@ fn a_join_signed_in_before_its_mark_serves_nothing_while_the_hub_is_down() {
     assert!(Device::load(&c.dir).unwrap().is_none());
     assert_eq!(machine::Joined::load(&c.dir).unwrap(), None);
     let _ = std::fs::remove_dir_all(&c.dir);
+}
+
+/// Review F2 of #45480: a host whose sign-in is at another deployment's hub than its join's
+/// serves nothing, and its credential is not sent there to sign the device out.
+#[test]
+fn a_host_signed_in_at_another_deployments_hub_serves_nothing_and_sends_it_nothing() {
+    let (elsewhere, seen) = stub(|_, _| (200, serde_json::json!({ "ok": true })));
+    let (origin, _) = stub(|_, _| (200, serde_json::json!({ "ok": true })));
+    let dir = dir("other-deployment");
+    let home = home(&dir, &origin);
+    let credential = machine::load(&home).unwrap().unwrap();
+    let joined = machine::Joined::of(&home, &credential);
+    joined.save(&dir).unwrap();
+    Device::generate("lane-vm").unwrap().save(&dir).unwrap();
+    Account { hub: elsewhere.clone(), user_id: "p:b".into(), anchored_until: 0 }
+        .save(&dir)
+        .unwrap();
+    let e = super::current_join(&dir, &joined, machine::Join::read).unwrap_err();
+    assert!(e.is::<super::Fatal>() && e.to_string().contains("another deployment"), "{e}");
+    // The next join's teardown asks no hub but the join's own to sign the old device out.
+    let unit = Recorded::new(seen.clone(), false);
+    let next = machine::Join::read(&home).unwrap().unwrap();
+    let _ = super::join(&dir, &next, &unit);
+    let at_elsewhere: Vec<String> = seen.lock().unwrap().iter().map(|s| s.path.clone()).collect();
+    assert!(at_elsewhere.is_empty(), "the other deployment's hub saw {at_elsewhere:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
