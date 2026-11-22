@@ -204,3 +204,87 @@ fn git_reads_the_written_index_as_the_commit() {
     assert!(debug.contains("mtime: 5:0"), "{debug}");
     assert!(debug.contains("size: 10"), "{debug}");
 }
+
+/// A blobless bare clone of `repo()`'s commit, as a machine with no copy of the repo makes one:
+/// trees only, blobs from its origin on demand. Origin answers `object-info` when `object_info`.
+fn blobless(object_info: bool) -> (tempfile::TempDir, PathBuf, String) {
+    let (dir, git_dir, commit) = repo();
+    let origin = dir.path().join("origin.git");
+    run(
+        dir.path(),
+        &["clone", "-q", "--bare", git_dir.to_str().unwrap(), origin.to_str().unwrap()],
+    );
+    run(&origin, &["config", "uploadpack.allowFilter", "true"]);
+    run(&origin, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    if object_info {
+        run(&origin, &["config", "transfer.advertiseObjectInfo", "true"]);
+    }
+    let mirror = dir.path().join("mirror.git");
+    let url = format!("file://{}", origin.display());
+    run(
+        dir.path(),
+        &["clone", "-q", "--bare", "--filter=blob:none", &url, mirror.to_str().unwrap()],
+    );
+    (dir, mirror, commit)
+}
+
+fn missing_count(git_dir: &Path, commit: &str) -> usize {
+    missing(git_dir, commit).unwrap().len()
+}
+
+#[test]
+fn a_lazy_tree_is_sized_without_fetching_a_file_blob() {
+    let (dir, mirror, commit) = blobless(true);
+    let files = 6; // README.md, a-b, a/c, crate/Cargo.lock, crate/src/main.rs, run.sh
+    assert_eq!(missing_count(&mirror, &commit), files + 1, "the clone holds no blob");
+    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    assert_eq!(tree.links_fetched, 1, "only the link's text is fetched");
+    assert_eq!(tree.missing.len(), files);
+    assert_eq!(missing_count(&mirror, &commit), files, "no file blob was fetched to size it");
+    let full = ls_tree(&dir.path().join("work/.git"), &commit).unwrap();
+    assert_eq!(tree.items, full, "same paths, modes, ids and sizes as ls-tree -l on a full store");
+}
+
+#[test]
+fn a_lazy_tree_takes_sizes_from_a_listing_when_origin_cannot_say() {
+    let (dir, mirror, commit) = blobless(false);
+    assert!(lazy_tree(&mirror, &commit, None).is_err(), "no object-info, no listing: an error");
+    let work = dir.path().join("work");
+    let listing = Command::new("git")
+        .args(["ls-tree", "-r", "-l", "-z", "--full-tree", &commit])
+        .current_dir(&work)
+        .output()
+        .unwrap()
+        .stdout;
+    let tree = lazy_tree(&mirror, &commit, Some(&listing)).unwrap();
+    assert_eq!(tree.items, ls_tree(&work.join(".git"), &commit).unwrap());
+    assert_eq!(missing_count(&mirror, &commit), 6);
+}
+
+#[test]
+fn a_lazy_read_fetches_its_folder_in_one_request_and_nothing_else() {
+    let (_dir, mirror, commit) = blobless(true);
+    let tree = lazy_tree(&mirror, &commit, None).unwrap();
+    let mut book = Book::default();
+    let links = link_texts(&mirror, &tree.items).unwrap();
+    let layout = Layout {
+        commit_ns: 1_000_000_000,
+        now_ns: 5_000_000_000,
+        gitfile: None,
+        real_root: Path::new("/real"),
+        links: &links,
+    };
+    let projection = Projection::build(&commit, &tree.items, &mut book, &layout).unwrap();
+    let main = projection.manifest.resolve("crate/src/main.rs").unwrap();
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let blobs = GitBlobs::new(&mirror, projection.sources).lazy(&projection.manifest, tree.missing);
+    assert_eq!(blobs.read(main, 0, 64).unwrap(), b"fn main() {}\n");
+    assert_eq!(blobs.fetches(), 1);
+    assert_eq!(missing_count(&mirror, &commit), 5, "only crate/src's one file came");
+    assert_eq!(blobs.read(readme, 0, 64).unwrap(), b"hello\n");
+    assert_eq!(blobs.fetches(), 2);
+    // The top folder's other files (a-b, run.sh) came with README.md; a/c and Cargo.lock did not.
+    assert_eq!(missing_count(&mirror, &commit), 2);
+    assert_eq!(blobs.read(main, 0, 64).unwrap(), b"fn main() {}\n");
+    assert_eq!(blobs.fetches(), 2, "a second read is local");
+}

@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE]
+//!                           [--name NAME] [--ready-file FILE] [--lazy [--sizes LISTING]]
 //! cmux-projection git-unmount --at PATH
 //! ```
 //!
@@ -14,6 +14,14 @@
 //! worktree's index are made anew. git sees PATH as a worktree of MIRROR named NAME (default
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
 //! and writes it to `--ready-file`.
+//!
+//! MIRROR may be a blobless clone (`git clone --bare --filter=blob:none`). Without `--lazy` the
+//! mount first fetches every blob the commit names, a full checkout's bytes. With `--lazy` it
+//! fetches only the links' blobs, and each file's blob (with its folder's other small missing
+//! files, in one request) on first read: a machine with no copy of the repo mounts it after one
+//! tree-only clone. A lazy mount needs the missing blobs' sizes without their bytes: from LISTING
+//! (`git ls-tree -r -l -z REV`, made where the blobs are), else from origin's protocol v2
+//! `object-info` (served when origin sets `transfer.advertiseObjectInfo`).
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
@@ -43,7 +51,8 @@ mod linux {
     use cmux_projection::overlay::Overlay;
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] \
+                         [--lazy [--sizes LISTING]]\n       \
                          cmux-projection git-unmount --at PATH";
 
     #[derive(Default)]
@@ -55,6 +64,8 @@ mod linux {
         name: Option<String>,
         ready_file: Option<PathBuf>,
         fresh: bool,
+        lazy: bool,
+        sizes: Option<PathBuf>,
     }
 
     fn parse(args: &[String]) -> anyhow::Result<Args> {
@@ -67,6 +78,11 @@ mod linux {
                 at += 1;
                 continue;
             }
+            if flag == "--lazy" {
+                parsed.lazy = true;
+                at += 1;
+                continue;
+            }
             let value =
                 args.get(at + 1).ok_or_else(|| anyhow::anyhow!("{flag} needs a value\n{USAGE}"))?;
             match flag {
@@ -76,6 +92,7 @@ mod linux {
                 "--keep" => parsed.keep = Some(value.into()),
                 "--name" => parsed.name = Some(value.clone()),
                 "--ready-file" => parsed.ready_file = Some(value.into()),
+                "--sizes" => parsed.sizes = Some(value.into()),
                 _ => anyhow::bail!("unknown flag {flag}\n{USAGE}"),
             }
             at += 2;
@@ -132,12 +149,23 @@ mod linux {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
-        let missing = git::missing(&git_dir, &commit)?;
-        git::fetch_missing(&git_dir, &missing)?;
+        let (items, missing, fetched) = if args.lazy {
+            let listing = args.sizes.as_ref().map(std::fs::read).transpose()?;
+            let tree = git::lazy_tree(&git_dir, &commit, listing.as_deref())?;
+            (Some(tree.items), tree.missing, tree.links_fetched)
+        } else {
+            let missing = git::missing(&git_dir, &commit)?;
+            git::fetch_missing(&git_dir, &missing)?;
+            let fetched = missing.len();
+            (None, Vec::new(), fetched)
+        };
         let fetch_ms = ms(phase);
 
         let phase = Instant::now();
-        let items = git::ls_tree(&git_dir, &commit)?;
+        let items = match items {
+            Some(items) => items,
+            None => git::ls_tree(&git_dir, &commit)?,
+        };
         let links = git::link_texts(&git_dir, &items)?;
         let ls_tree_ms = ms(phase);
 
@@ -179,17 +207,21 @@ mod linux {
         let phase = Instant::now();
         let entries = projection.manifest.len();
         let files = projection.index.len();
-        let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
+        let deferred = missing.len();
+        let mut blobs = GitBlobs::new(&git_dir, projection.sources);
+        if args.lazy {
+            blobs = blobs.lazy(&projection.manifest, missing);
+        }
+        let blobs = Arc::new(blobs);
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
         mount::serve(overlay, &at, move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
-                 \"missing_fetched\":{},\"fetch_ms\":{fetch_ms},\"ls_tree_ms\":{ls_tree_ms},\
+                 \"missing_fetched\":{fetched},\"missing_deferred\":{deferred},\"fetch_ms\":{fetch_ms},\"ls_tree_ms\":{ls_tree_ms},\
                  \"build_ms\":{build_ms},\"index_ms\":{index_ms},\"mount_ms\":{},\
                  \"total_ms\":{}}}",
-                missing.len(),
                 ms(phase),
                 ms(started),
             );
