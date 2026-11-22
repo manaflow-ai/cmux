@@ -128,7 +128,8 @@ mkdir -p "$build_root" "$cache_dir"
 slices=()
 for target in "${rust_targets[@]}"; do
   echo "==> building the Screen Sharing helper ($source_key, $target)"
-  (cd "$crate" && env "${size_profile[@]}" CARGO_TARGET_DIR="$build_root" cargo build --locked --release \
+  # CMUX_CU_DRIVER_BUILD: the Computer Use worker in this helper names its build in every result.
+  (cd "$crate" && env "${size_profile[@]}" CMUX_CU_DRIVER_BUILD="helper-$source_key" CARGO_TARGET_DIR="$build_root" cargo build --locked --release \
     --no-default-features --features "$features" --bin cmux-rd --target "$target")
   slice="$build_root/$target/release/cmux-rd"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }

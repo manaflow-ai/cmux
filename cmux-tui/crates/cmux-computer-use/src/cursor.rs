@@ -99,6 +99,11 @@ impl CursorEvent {
 /// Where cursor events go. The worker forwards them to its overlay.
 pub trait CursorSink: Send + Sync {
     fn show(&self, event: CursorEvent);
+    /// What draws the cursor on screen, for `status` and the behaviour
+    /// suite: `none` when nothing does (the events go nowhere visible).
+    fn overlay(&self) -> &'static str {
+        "none"
+    }
 }
 
 /// No overlay (headless, or the person turned the cursor off).
@@ -174,6 +179,10 @@ impl CursorSink for Lifecycle {
             self.preview.cursor(&event);
         }
         self.inner.show(event);
+    }
+
+    fn overlay(&self) -> &'static str {
+        self.inner.overlay()
     }
 }
 

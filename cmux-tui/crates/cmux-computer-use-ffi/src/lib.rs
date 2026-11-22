@@ -257,6 +257,12 @@ impl Host {
 }
 
 impl CursorSink for Host {
+    /// The host draws it when it passed a cursor callback (the Swift worker's
+    /// AgentCursorOverlay), else nothing does.
+    fn overlay(&self) -> &'static str {
+        if self.0.cursor.is_some() { "host" } else { "none" }
+    }
+
     fn show(&self, event: CursorEvent) {
         if let Some(f) = self.0.cursor
             && let Ok(text) = serde_json::to_string(&event)

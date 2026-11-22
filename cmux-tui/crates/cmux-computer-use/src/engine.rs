@@ -66,6 +66,30 @@ pub struct CallContext {
 /// where in the result's JSON it was (`tree` or `state.tree`).
 pub const OUTLINE_META: &str = "cmux/outline";
 
+/// The driver's name in every result's `driver` stamp and audit line.
+pub const DRIVER_NAME: &str = "cmux-computer-use";
+
+/// Which build of this driver answered: `CMUX_CU_DRIVER_BUILD` (the Screen
+/// Sharing helper's build stamps its source key), else
+/// `CMUX_TUI_BUILD_COMMIT` (release and CI builds of cmux-tui), else
+/// `unstamped` (a local build that set neither). Read at compile time, so
+/// the value names the binary that runs, never the caller's. Leo,
+/// 2026-11-22: "WHAT FUCKING VERSION OF OUR COMPUTER USE DID YOU GUYS EVEN
+/// FUCKING USE!?"
+pub fn driver_build() -> &'static str {
+    match (option_env!("CMUX_CU_DRIVER_BUILD"), option_env!("CMUX_TUI_BUILD_COMMIT")) {
+        (Some(b), _) if !b.is_empty() => b,
+        (_, Some(b)) if !b.is_empty() => b,
+        _ => "unstamped",
+    }
+}
+
+/// `{"name", "version", "build"}`: stamped on every tool result
+/// ([`Engine::call`]) and audit line, and in `status`.
+pub fn driver_stamp() -> Value {
+    json!({"name": DRIVER_NAME, "version": env!("CARGO_PKG_VERSION"), "build": driver_build()})
+}
+
 /// A tool's result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolOutput {
@@ -521,6 +545,13 @@ impl Engine {
     }
 
     pub fn call(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
+        let mut out = self.call_unstamped(ctx, name, args);
+        // Every result says which driver build answered it, refusals too.
+        set_key(&mut out.body, "driver", driver_stamp());
+        out
+    }
+
+    fn call_unstamped(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
         // The label reaches the person (approval panel, cursor, notifications):
         // any caller with the socket secret sets it, so it is bounded here.
         let safe;
@@ -1094,6 +1125,11 @@ impl Engine {
         ToolOutput::ok(json!({
             "engine": "cmux Computer Use",
             "version": env!("CARGO_PKG_VERSION"),
+            "build": driver_build(),
+            // Who draws the agent cursor here: `none` means no cursor is
+            // drawn at all (the setting `cursor` above says only whether
+            // the person wants one).
+            "cursor_overlay": self.cursor.overlay(),
             "machine": self.machine_name,
             "platform": self.desktop.info(),
             "permissions": self.desktop.permissions(),
@@ -2093,6 +2129,7 @@ impl Engine {
             "tool": tool, "app": app.map(|a| a.id.clone()),
             "ok": !out.is_error, "code": out.code,
             "route": out.body.get("route"),
+            "driver": driver_stamp(),
         });
         if let Some(report) = focus {
             set_key(&mut line, "focus", report.to_json());
@@ -2247,3 +2284,7 @@ mod observe_tests;
 #[cfg(test)]
 #[path = "engine_batch_tests.rs"]
 mod batch_tests;
+
+#[cfg(test)]
+#[path = "engine_duress_tests.rs"]
+mod duress_tests;
