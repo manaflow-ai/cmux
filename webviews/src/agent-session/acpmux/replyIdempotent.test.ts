@@ -13,12 +13,20 @@
 // background turn and gets the rest of the same message a new segment. Each path below must draw the message as
 // one row holding each paragraph exactly once: live in order, attached whole, chunks delivered twice, a chunk late,
 // a reconnect and a lag resync inside the reply.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { connectClient, FakeDaemon, VirtualClock } from "../../../bench/stateGrowth";
 import type { EventRecord } from "./direct";
+import { currentLanguage } from "./i18n";
 import { buildReplyChat, REPLY_PARAGRAPHS, REPLY_SESSION, type ReplyCut } from "./replyReplay.fixture";
 
 let clock: VirtualClock | undefined;
+// connectClient sets `window` to globalThis when there is none (the client's reconnect timers), and the pane's
+// i18n store follows its languagechange. Put back what was there and let the store move its listener off.
+const hadWindow = "window" in globalThis;
+afterAll(() => {
+  if (!hadWindow) delete (globalThis as { window?: unknown }).window;
+  currentLanguage();
+});
 afterEach(() => {
   clock?.uninstall();
   clock = undefined;
