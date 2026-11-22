@@ -29,6 +29,28 @@ const url = (variant, scheme) =>
 const ready = (page) =>
   page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, { timeout: 90_000 });
 const wait = (page, ms) => page.waitForTimeout(ms);
+// The matrix runner's trusted input driver (scripts/gallery-matrix/runner.ts), so plays act like a person.
+const installInput = (page) =>
+  page.exposeFunction("cmuxGalleryInput", async (action) => {
+    const at = () => page.mouse.move(action.x ?? 0, action.y ?? 0);
+    if (action.kind === "click") await page.mouse.click(action.x ?? 0, action.y ?? 0);
+    else if (action.kind === "hover" || action.kind === "move") await at();
+    else if (action.kind === "down") { await at(); await page.mouse.down(); }
+    else if (action.kind === "up") { await at(); await page.mouse.up(); }
+    else if (action.kind === "type") await page.keyboard.type(action.text ?? "");
+    else if (action.kind === "press") await page.keyboard.press(action.text ?? "");
+  });
+const playReport = (page) =>
+  page.evaluate(() => {
+    const r = window.cmuxGalleryPlayReport;
+    if (!r) return null;
+    return { status: r.status, error: r.error, steps: (r.steps ?? []).map((s) => [s.step ?? s.name, s.status ?? s.ok, s.error]).slice(0, 12) };
+  });
+const under = (page, x, y) =>
+  page.evaluate(([x, y]) => {
+    const e = document.elementFromPoint(x, y);
+    return e ? `${e.tagName}.${e.className} [${e.getAttribute("aria-label") ?? ""}]` : null;
+  }, [x, y]);
 
 const browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
 let failures = 0;
@@ -40,9 +62,11 @@ try {
     for (const variant of stills) {
       const context = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme: scheme });
       const page = await context.newPage();
+      await installInput(page);
       try {
         await page.goto(url(variant, scheme), { waitUntil: "domcontentloaded" });
         await ready(page);
+        if (scheme === "dark") console.log(JSON.stringify({ play: variant, report: await playReport(page) }).slice(0, 1500));
         await wait(page, 900);
         const file = path.join(out, "stills", `${variant}-${scheme}.png`);
         await page.screenshot({ path: file });
@@ -89,6 +113,15 @@ try {
         const box = await locator.boundingBox();
         return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
       };
+      {
+        const c = await center(card());
+        const f = await center(page.getByRole("button", { name: "Full Size" }));
+        console.log(JSON.stringify({ diag: scheme, cardAt: c, underCard: await under(page, c.x, c.y), underFull: await under(page, f.x, f.y) }));
+        const trial = await page.getByRole("button", { name: "Full Size" }).click({ trial: true, timeout: 3000 }).then(() => "ok", (e) => String(e).slice(0, 600));
+        console.log(JSON.stringify({ diag: scheme, fullSizeTrial: trial }));
+        const events = await page.evaluate(() => { window.__ev = []; for (const t of ["pointerdown","pointerup","click"]) addEventListener(t, (e) => window.__ev.push(`${t}:${e.target.className}`), true); return true; });
+        void events;
+      }
       const glide = async (to, steps = 25) => page.mouse.move(to.x, to.y, { steps });
       const press = async (locator) => {
         await glide(await center(locator));
@@ -106,6 +139,7 @@ try {
       await glide({ x: 140, y: viewport.height - 160 }, 45);
       await page.mouse.up();
       await wait(page, 1200);
+      console.log(JSON.stringify({ diag: scheme, afterDrag: await page.evaluate(() => ({ ev: window.__ev.slice(0, 8), placed: document.querySelector(".acpmux-cu-preview")?.getAttribute("style"), attrs: [...(document.querySelector(".acpmux-cu-preview")?.attributes ?? [])].map((a) => a.name) })) }));
       // A click that does not move: it enlarges; another shrinks it.
       await press(card());
       await wait(page, 1200);
