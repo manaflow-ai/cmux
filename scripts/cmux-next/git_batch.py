@@ -21,6 +21,10 @@ from pathlib import Path
 OBJECT_HEADER = re.compile(rb"^[0-9a-f]{40,64} (blob|tree|commit|tag) (\d+)$")
 # The longest the one prefetch of a partial clone's missing blobs may take before cat_file goes on without it.
 PREFETCH_TIMEOUT = 300
+# From this many `<rev>:<path>` specs of one rev, cat_file reads them by blob id from one `ls-tree -r` of the rev
+# (resolve_specs): git resolves each `<rev>:<path>` from the root tree again, about 4 ms a spec on big-red's cmux mirror
+# (13,462 specs: 57.7 s by path, 0.7 s ls-tree + 1.3 s by id). Below it the listing (0.35 s) costs more than it saves.
+RESOLVE_MIN_SPECS = 64
 _git_version: tuple[int, int] | None = None
 
 
@@ -115,32 +119,70 @@ def cat_file(repo: Path, specs: list[str], env: dict[str, str] | None = None, id
     """
     if not specs:
         return {}
+    # Many specs of one rev are read by blob id (resolve_specs): the same blobs, the same answer, a fraction of the time.
+    queries = resolve_specs(repo, specs, env)
     remote = promisor_remote(repo, env) if honors_no_lazy_fetch(env) else None
     if remote is None:
-        return _cat_file_batch(repo, specs, env, ids, set())
+        return _cat_file_batch(repo, specs, env, ids, set(), queries)
     missing: set[str] = set()
     quiet = {**(os.environ if env is None else env), "GIT_NO_LAZY_FETCH": "1"}
     try:
-        found = _cat_file_batch(repo, specs, quiet, ids, missing)
+        found = _cat_file_batch(repo, specs, quiet, ids, missing, queries)
     except GitError:
         # Fail open: the plain read, as before this probe existed.
         return _cat_file_batch(repo, specs, env, ids, set())
     if missing:
         again = [spec for spec in specs if spec in missing]
         fetch_blobs(repo, remote, again, env)
-        found.update(_cat_file_batch(repo, again, env, ids, set()))
+        found.update(_cat_file_batch(repo, again, env, ids, set(), queries))
     return found
 
 
+def resolve_specs(repo: Path, specs: list[str], env: dict[str, str] | None = None) -> dict[str, str]:
+    """{spec: the blob id it names} for each `<rev>:<path>` of SPECS whose rev has RESOLVE_MIN_SPECS specs or more,
+    from one `ls-tree -r` of that rev (trees only: local in a blobless clone, read with GIT_NO_LAZY_FETCH).
+
+    `cat-file --batch` resolves every `<rev>:<path>` from the rev's root tree again: on 2026-11-21 the pre-push gate's
+    trees of a merge push (about 13,000 files at each of four revs) spent 26-33 s a side in it on big-red, about 350 s
+    of the 798 s gate. A spec this leaves out (a path the rev lacks, a tree, a submodule, a rev ls-tree cannot read)
+    is asked by its own text as before, so its answer is unchanged."""
+    by_rev: dict[str, set[str]] = {}
+    for spec in specs:
+        rev, sep, path = spec.partition(":")
+        if sep and rev and path:
+            by_rev.setdefault(rev, set()).add(path)
+    quiet = {**(os.environ if env is None else env), "GIT_NO_LAZY_FETCH": "1"}
+    queries: dict[str, str] = {}
+    for rev, paths in by_rev.items():
+        if len(paths) < RESOLVE_MIN_SPECS:
+            continue
+        try:
+            listing = run(repo, ["ls-tree", "-r", "-z", "--full-tree", "--end-of-options", rev], env=quiet,
+                          timeout=PREFETCH_TIMEOUT)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if listing.returncode != 0:
+            continue
+        for entry in listing.stdout.split(b"\0"):
+            meta, _, name = entry.partition(b"\t")
+            fields = meta.split()
+            path = name.decode("utf-8", "surrogateescape")
+            if len(fields) == 3 and fields[1] == b"blob" and path in paths:
+                queries[f"{rev}:{path}"] = fields[2].decode()
+    return queries
+
+
 def _cat_file_batch(repo: Path, specs: list[str], env: dict[str, str] | None, ids: dict[str, str] | None,
-                    missing: set[str]) -> dict[str, bytes | None]:
-    """One `cat-file --batch` over SPECS (cat_file's answer); each spec git answers `missing` goes into MISSING."""
-    result = run(repo, ["cat-file", "--batch"], "".join(f"{spec}\n" for spec in specs).encode(), env)
+                    missing: set[str], queries: dict[str, str] | None = None) -> dict[str, bytes | None]:
+    """One `cat-file --batch` over SPECS (cat_file's answer); each spec git answers `missing` goes into MISSING.
+    QUERIES: what to ask git for a spec instead of its own text (resolve_specs' blob ids)."""
+    asked = [(queries or {}).get(spec, spec) for spec in specs]
+    result = run(repo, ["cat-file", "--batch"], "".join(f"{query}\n" for query in asked).encode(), env)
     if result.returncode != 0:
         raise GitError(f"git cat-file --batch exited {result.returncode}: "
                        f"{result.stderr.decode('utf-8', 'replace').strip()}")
     out, cursor, found = result.stdout, 0, {}
-    for spec in specs:
+    for spec, query in zip(specs, asked):
         end = out.find(b"\n", cursor)
         if end < 0:
             raise GitError(f"git cat-file --batch stopped before {spec!r} ({len(found)} of {len(specs)} answered)")
@@ -148,7 +190,7 @@ def _cat_file_batch(repo: Path, specs: list[str], env: dict[str, str] | None, id
         cursor = end + 1
         match = OBJECT_HEADER.match(header)
         if match is None:
-            if header == spec.encode() + b" missing":
+            if header == query.encode() + b" missing":
                 found[spec] = None
                 missing.add(spec)
                 continue
