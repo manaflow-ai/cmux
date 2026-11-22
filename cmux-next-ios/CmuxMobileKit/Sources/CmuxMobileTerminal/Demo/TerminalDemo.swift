@@ -249,9 +249,11 @@ final class TerminalDemoDriver {
     /// `keys` the same without the mouse (Ghostty's alternate scroll sends
     /// cursor keys). The UI test pans with one finger for 10 s; this
     /// measures while a finger is down (and 0.6 s after, for a fling):
-    /// `tuipan-VARIANT done frames=N p50=MS p95=MS hitches=N stalls=N
-    /// bytes=N appScrolls=N fetches=N touches=N` (`bytes`: what the phone sent
-    /// the "Mac"; `appScrolls`: wheel reports and cursor keys the app took).
+    /// `tuipan-VARIANT done frames=N p50=MS p95=MS max=MS hitches=N stalls=N
+    /// sendFrames=N maxSendsPerFrame=N bytes=N sends=N appScrolls=N fetches=N
+    /// touches=N` (`bytes`, `sends`: what the phone sent the "Mac", batched
+    /// per main-queue turn as `DaemonTerminalSession` does; `appScrolls`:
+    /// wheel reports and cursor keys the app took).
     private func tuiPan(_ variant: String) async {
         model.composerText = variant == "primary" ? "claudecli 1500 80" : "claudefull 1500 \(variant)"
         model.send()
@@ -261,8 +263,10 @@ final class TerminalDemoDriver {
             model.demoNote = "tuipan-\(variant) done error=nocontroller"
             return
         }
-        let meter = TerminalPanMeter(window: window)
-        let bytes = session.bytesFromPhone, fetches = session.historyFetches
+        session.batchesInputPerTurn = true
+        defer { session.batchesInputPerTurn = false }
+        let meter = TerminalPanMeter(window: window, sends: { [weak session] in session?.sends ?? 0 })
+        let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
         let scrolls = session.appScrolls
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
@@ -274,7 +278,7 @@ final class TerminalDemoDriver {
             if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
         }
         meter.stop()
-        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes)"
+        let result = meter.summary + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)
@@ -643,9 +647,17 @@ final class TerminalPanMeter: NSObject {
     private var link: CADisplayLink?
     private let watcher = TouchWatcher(target: nil, action: nil)
     private weak var window: UIWindow?
+    /// Sends to the "Mac" so far, read every frame.
+    private let sends: () -> Int
+    private var lastSends = 0
+    /// Measured frames that had a send, and the most sends in one frame.
+    private var sendFrames = 0
+    private var maxSendsPerFrame = 0
 
-    init(window: UIWindow) {
+    init(window: UIWindow, sends: @escaping () -> Int = { 0 }) {
         self.window = window
+        self.sends = sends
+        lastSends = sends()
         super.init()
         watcher.changed = { [weak self] down, time in
             guard let self else { return }
@@ -667,8 +679,12 @@ final class TerminalPanMeter: NSObject {
     @objc private func frame(_ link: CADisplayLink) {
         defer { lastFrame = link.timestamp }
         if link.duration > 0 { period = link.duration }
+        let sent = sends()
+        defer { lastSends = sent }
         guard active, let lastFrame else { return }
         intervals.append(link.timestamp - lastFrame)
+        if sent > lastSends { sendFrames += 1 }
+        maxSendsPerFrame = max(maxSendsPerFrame, sent - lastSends)
     }
 
     func stop() {
@@ -685,7 +701,8 @@ final class TerminalPanMeter: NSObject {
         }
         let hitches = intervals.filter { $0 > period * 1.5 }.count
         let stalls = intervals.filter { $0 > 0.05 }.count
-        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) hitches=\(hitches) stalls=\(stalls) periodMs=\(String(format: "%.1f", period * 1000))"
+        return "frames=\(intervals.count) p50=\(ms(0.5)) p95=\(ms(0.95)) max=\(ms(1)) hitches=\(hitches) stalls=\(stalls)"
+            + " sendFrames=\(sendFrames) maxSendsPerFrame=\(maxSendsPerFrame) periodMs=\(String(format: "%.1f", period * 1000))"
     }
 }
 #endif
