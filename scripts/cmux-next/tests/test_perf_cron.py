@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "terminal-scroll", "daemon-restart"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "web-ui-typing", "chat-disk", "terminal-scroll", "daemon-restart", "coord-sim"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -217,6 +217,50 @@ class RegressionTests(unittest.TestCase):
                             "floor": 0.1}]}
         rows = cron.rows_of_part(cron.PART_BY_NAME["throughput"], report, budgets_mod, {})
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.8)
+
+    def test_terminal_key_to_echo_rows_pool_rounds_with_the_perf_lead_target(self):
+        # typing-frame-bench.py's terminal runs: every round's keys pooled per phase into one row, p50 and p95 of key to
+        # echoed frame, judged against perf-lead.md's 8 ms (not the generic 10 ms). Other surfaces give no row here.
+        keys = lambda base: [base + i / 10 for i in range(20)]  # base .. base+1.9
+        report = {"runs": [
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(3.0)},
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(4.0)},
+            {"session": "light", "surface": "terminal", "phase": "load", "key_to_frame_values": keys(9.0)},
+            {"session": "stress", "surface": "terminal", "phase": "idle", "key_to_frame_values": keys(5.0)},
+            {"session": "light", "surface": "home", "phase": "idle", "key_to_frame_values": keys(1.0)},
+            {"session": "light", "surface": "terminal", "phase": "idle", "key_to_frame_ms": {"p95": 99.0}},
+        ]}
+        part = cron.PART_BY_NAME["typing"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(sorted(rows), ["terminal.key_to_echo.idle", "terminal.key_to_echo.load",
+                                        "terminal.key_to_echo.stress.idle"])
+        idle = rows["terminal.key_to_echo.idle"]
+        self.assertEqual(idle["n"], 40)
+        self.assertEqual(idle["p50"], round(budgets_mod.pct(keys(3.0) + keys(4.0), 0.5), 2))
+        self.assertEqual(idle["p95"], round(budgets_mod.pct(keys(3.0) + keys(4.0), 0.95), 2))
+        self.assertEqual((idle["unit"], idle["budget"]), ("ms", cron.TYPING_KEY_TO_ECHO_MS))
+        self.assertEqual(cron.TYPING_KEY_TO_ECHO_MS, 8.0)
+        self.assertEqual(cron.target_of("terminal.key_to_echo.idle@cmux21", idle, 8.33), 8.0)
+        self.assertFalse(cron.over_target("terminal.key_to_echo.idle@cmux21", idle, 8.33))
+        self.assertTrue(cron.over_target("terminal.key_to_echo.load@cmux21", rows["terminal.key_to_echo.load"], 8.33))
+        self.assertEqual(cron.part_for_row("terminal.key_to_echo.load@cmux21"), "typing")
+        self.assertEqual(cron.part_for_row("terminal.throughput.ratio@cmux21"), "throughput")
+        self.assertEqual(cron.rows_of_part(part, {"runs": [{"surface": "terminal", "phase": "idle"}]}, budgets_mod, {}), {})
+        # 9 ms is over 8 ms but under the generic 10: only the row's own target catches it.
+        regs = cron.find_regressions({"terminal.key_to_echo.idle@cmux21": row(9.0, budget=8.0)},
+                                     {"terminal.key_to_echo.idle@cmux21": row(7.5, budget=8.0)}, 8.33, 8.33, budgets_mod)
+        self.assertEqual([(r["name"], r["target"]) for r in regs], [("terminal.key_to_echo.idle@cmux21", 8.0)])
+
+    def test_typing_part_types_into_the_terminal_on_the_bench_build(self):
+        args = cron.PART_BY_NAME["typing"]["args"]
+        self.assertIn("--suite=typing-frame", args)
+        self.assertIn("--surfaces=terminal", args)
+        self.assertIn("--phases=idle", args, "the load phase measured no key on cmux23 (focus stayed on an agent chat)")
+        self.assertIn("--app-cache", args)
+        self.assertEqual([a for a in args if a.startswith("--config=")],
+                         [a for a in cron.PART_BY_NAME["throughput"]["args"] if a.startswith("--config=")],
+                         "one bench build serves typing and throughput")
+        self.assertFalse(cron.is_linux_part("typing"))
 
     def test_typing_stage_rows_are_stored_never_judged(self):
         # CMUX-571 typing-latency: to_listener and to_work say where acp.<engine>.typing.to_frame's time goes; they are
@@ -733,6 +777,53 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_idle_budget_part_judges_chromiums_idle_wakeups_per_kind(self):
+        """Chromium's GPU, renderer and utility processes at idle get judged rows (idle-budget.py's light session,
+        idle-budget.json: each <= 1 wakeup/s, plans/cmux-next/idle-wakeups.md section 7); every kind's wakeups/s is
+        stored. Before this part no cron row had a Chromium process's wakeups, and their budgets were null."""
+        self.assertIn("idle-budget", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["idle-budget"]
+        self.assertIn("--suite=idle-budget", part["args"])
+        self.assertIn("--sessions=light", part["args"])
+        self.assertEqual(cron.part_for_row("idle_budget.light.cef-gpu.wakeups_per_s@cmux20-bench"), "idle-budget")
+        self.assertEqual(cron.part_for_row("idle.terminals.app_cpu_pct@cmux20-bench"), "home-idle")
+        spec2 = importlib.util.spec_from_file_location("idle_budget", os.path.join(HERE, "..", "idle-budget.py"))
+        ib = importlib.util.module_from_spec(spec2)
+        # Its pure parts only: off macOS there is no libproc to load (test_idle_budget.py does the same).
+        with mock.patch("ctypes.CDLL") if os.uname().sysname != "Darwin" else contextlib.nullcontext():
+            spec2.loader.exec_module(ib)
+        with open(os.path.join(HERE, "..", "idle-budget.json")) as f:
+            budget = json.load(f)
+        for name in ("cef-gpu", "cef-renderer", "cef-utility"):
+            self.assertEqual(budget["kinds"][name]["wakeups_max"], 1.0, f"{name} is judged, not null")
+
+        def kind(wake, wmax, n=1):
+            return {"n": n, "threads": 20, "threads_max": 20, "wakeups_per_s": wake, "wakeups_max": wmax,
+                    "csw_per_s": 1.0, "cpu_pct": 0.1, "threads_ran": 1}
+        report = {"sessions": {"light": {"exit": 0, "kinds": {
+            "app": {**kind(0.4, 0.4), "main_wakes_per_s": 0}, "cef-gpu": kind(86.0, 86.0),
+            "cef-renderer": kind(3.0, 2.2, n=2), "cef-utility": kind(0.2, 0.2), "other:zsh": kind(5.0, 5.0)}}}}
+        out = ib.cron_report(report, budget)
+        self.assertNotIn("incomplete", out)
+        rows = cron.rows_of_part(part, out, budgets_mod, {})
+        gpu = rows["idle_budget.light.cef-gpu.wakeups_max"]
+        self.assertEqual((gpu["p95"], gpu["unit"], gpu["budget"]), (86.0, "/s", 1.0))
+        self.assertEqual(rows["idle_budget.light.cef-gpu.wakeups_per_s"]["p95"], 86.0, "per-kind wakeups are stored")
+        self.assertEqual(rows["idle_budget.light.cef-renderer.wakeups_max"]["p95"], 2.2, "judged per process")
+        self.assertEqual(rows["idle_budget.light.cef-renderer.wakeups_per_s"]["p95"], 3.0, "the kind's sum")
+        self.assertFalse(any(n.startswith("idle_budget.light.other:") for n in rows), "a shell is not the app's")
+        found = cron.find_regressions({"idle_budget.light.cef-gpu.wakeups_max": gpu}, {}, 8.33, 8.33, budgets_mod)
+        self.assertEqual([(f["name"], f["target"], f["why"]) for f in found],
+                         [("idle_budget.light.cef-gpu.wakeups_max", 1.0, cron.NO_REFERENCE)],
+                         "a first value over its budget is listed, not a silent pass")
+        under = {**gpu, "p50": 0.6, "p95": 0.6}
+        self.assertEqual(cron.find_regressions({"idle_budget.light.cef-gpu.wakeups_max": under}, {}, 8.33, 8.33, budgets_mod), [])
+        # A run with no Chromium process, or a session that failed, is not done (no silent drop of judged rows).
+        no_cef = {"sessions": {"light": {"exit": 0, "kinds": {"app": kind(0.4, 0.4)}}}}
+        self.assertTrue(cron.report_is_incomplete(part, ib.cron_report(no_cef, budget)))
+        failed = {"sessions": {"light": {"exit": 1, "error": "RuntimeError: launch"}}}
+        self.assertIn("launch", ib.cron_report(failed, budget)["incomplete"][0])
+
     def test_the_power_part_owns_its_rows_and_judges_them_against_their_budgets(self):
         """Leo, 2026-11-19: "having those measurements in so that we're aware of things". power-cron.py stores the
         app's mW idle with a terminal (budget: standalone Ghostty idle in the same run), with one page and scrolling
@@ -1016,6 +1107,34 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(rows["webui.daemon_restart.god_home.chat_attach_ms"]["floor"], 40.0)
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
+
+    def test_the_coord_sim_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("coord-sim"))
+        self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")
+        self.assertEqual(cron.part_for_row("webui.coord_sim.daemon.rss_slope_mb_per_min@linux"), "coord-sim")
+        runs = cron.linux_bench_runs("/r", "coord-sim")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "coordinators=3", "rate=10",
+                                            "seconds=300", "fanin=50,200", "fanin_window=60"])
+        self.assertEqual(cron.part_for_row("webui.coord_sim.fanin.n200.controller_rss_mb_per_session@linux"), "coord-sim")
+        # The report's last line, as `coord-sim report RUN_DIR --rows` prints it.
+        rows = cron.rows_of_part(cron.PART_BY_NAME["coord-sim"], {"rows": [
+            {"name": "coord_sim.delivery_ms", "p50": 4.1, "p95": 18.5, "unit": "ms", "target": 100, "version": 1},
+            {"name": "coord_sim.events.lost", "p50": 0, "p95": 0, "unit": "events", "target": 0, "floor": 0.5, "version": 1},
+            {"name": "coord_sim.daemon.rss_slope_mb_per_min", "p50": 2.5, "p95": 2.5, "unit": "MB/min", "floor": 1.0,
+             "version": 1}]}, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["p95"], 18.5)
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["budget"], 100)
+        self.assertEqual(rows["webui.coord_sim.events.lost"]["floor"], 0.5)
+        self.assertEqual(rows["webui.coord_sim.daemon.rss_slope_mb_per_min"]["unit"], "MB/min")
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("webui.coord_sim.delivery_ms"))
+
+    def test_coord_sim_runs_only_once_its_driver_is_built(self):
+        self.assertFalse(cron.coord_sim_ready(False, "pub fn run() {}"))
+        self.assertFalse(cron.coord_sim_ready(True, None))
+        self.assertFalse(cron.coord_sim_ready(True, 'pub fn run(_a: &[String]) -> Result<(), String> { Err("not built yet".into()) }'))
+        self.assertTrue(cron.coord_sim_ready(True, "pub fn run(args: &[String]) -> Result<(), String> { drive(args) }"))
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
