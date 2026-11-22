@@ -260,6 +260,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `tabs.shellIconTheme`; default (the `>_` glyph) when unset or invalid.
+    public var tabShellIconTheme: TabShellIconTheme = TabShellIconThemeSetting.fallback
     /// `tabs.verticalTabs`; off when unset or invalid.
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
@@ -491,6 +493,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
+        snapshot.take(TabShellIconThemeSetting.parse(root), \.tabShellIconTheme)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
