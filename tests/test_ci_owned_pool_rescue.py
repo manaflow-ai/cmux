@@ -3448,6 +3448,31 @@ class SideLanes(unittest.TestCase):
         self.assertLess(clock.seconds, rescue.FIRST_LOOK_SECONDS, summary)
         self.assertNotIn("rerun-failed", api.calls)
 
+    def test_a_refusal_in_an_attempt_already_re_run_is_judged_at_once(self):
+        # 2026-11-21 23-01Z: 24 completed wakes held a runner 20-60 min each, a look every 2 min "waiting for the
+        # rest of the run to finish" while a newer attempt ran, then said "someone else already re-ran the run".
+        # The watched attempt's jobs were all finished at the first look, so nothing could change.
+        passed = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
+        passed.update(conclusion="success", steps=[{"name": "Set up runner", "conclusion": "success"}])
+        refused = refused_job("cmux-next fast tier", labels=(SIDE,))
+        clock = Clock()
+
+        class ReRun(FakeAPI):
+            def run(self, run_id):
+                self.calls.append("run")
+                return {"status": "in_progress", "run_attempt": 2}
+
+        api = ReRun(clock, lambda seconds: [passed, refused])
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        code, summary = run_main(api, clock, payload=pull)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("someone else already re-ran the run", summary)
+        self.assertNotIn("waiting for the rest of the run to finish", summary)
+        self.assertLess(clock.seconds, rescue.IDLE_POLL_SECONDS, summary)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_completed_event_watches_only_cmux_next_and_never_past_the_bots_attempt_three(self):
         clock = Clock()
         api = FakeAPI(clock, lambda seconds: [])
