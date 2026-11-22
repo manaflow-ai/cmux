@@ -42,7 +42,7 @@ public nonisolated struct GlassBackdropPayload: Equatable, Sendable {
     /// The script that hands `fields` to a page that ran ``WebTheme/bootstrapScript``.
     public static func script(_ fields: [String: Any]) -> String? {
         guard JSONSerialization.isValidJSONObject(fields),
-              let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys, .withoutEscapingSlashes]),
+              let data = try? JSONSerialization.data(withJSONObject: fields, options: [.withoutEscapingSlashes]),
               let json = String(data: data, encoding: .utf8) else { return nil }
         return "window.cmuxTheme && window.cmuxTheme.backdrop && window.cmuxTheme.backdrop(\(json));"
     }
