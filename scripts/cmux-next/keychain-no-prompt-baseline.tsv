@@ -8,28 +8,8 @@
 # count, delete the row at 0. `keep` rows are prompts the person asked for
 # (their consent): mark the call `// keychain-prompt: consent` and drop the row.
 # Never raise a count or add a row.
-Packages/Shared/CmuxAppAttest/Sources/CmuxAppAttest/AttestKeyStore.swift	4	fix	App Attest key store; read and written on sign-in and refresh, no person asked
-Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/KeychainStackTokenStore.swift	9	fix	auth token store; read on launch and token refresh
-Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceCaptureNamespace.swift	2	fix	device hub capture namespace; read and cleared in the background
-Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceKeychain.swift	5	fix	device hub credentials; read on connect
-Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohKeychainCredentialStore.swift	5	fix	iroh transport credential store; read on connect
-Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohKeychainIdentityStore.swift	4	fix	iroh transport identity store; read on connect
-Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxJSONCache.swift	5	fix	irx transport cache; read and written in the background
-Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/V2/V2SystemKeychainAccess.swift	5	fix	irx v2 credential access; read on connect
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxMacApprover.swift	3	fix	mac approver enclave key; read and made on first use, no person asked
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMe.swift	3	fix	act-as-me flag store; read whenever the agent pane checks it
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift	1	keep	Touch ID or password before a password import the person started
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Passwords/PasswordGates.swift	1	keep	Touch ID or password gate the person asked for to see a saved password
-Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/CookieBackupKeys.swift	1	fix	cookie backup key add; runs on a backup, no person asked
-Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore/Core/BrowserHTTPCredentialStore.swift	3	fix	browser HTTP credential store writes and deletes
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/KeychainSafeStorageNames.swift	1	keep	browser import lists other browsers' Safe Storage items; the person started the import
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Cookies/SafeStorageKeys.swift	1	keep	browser import reads another browser's Safe Storage key; the prompt is the person's consent
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	1	keep	hand presence check signs with a key the person unlocks on purpose
-Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/Detection/LiveProbes.swift	1	fix	code router detection reads another app's secret during a probe
-Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/Keychain/KeychainAccountLabelSalt.swift	1	fix	account label salt add on first use
-Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/Keychain/ProviderKeyStore.swift	3	fix	provider key store writes and deletes
-Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenStore.swift	1	fix	deletes old mac-screen link pairings during a migration
-Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostSecItems.swift	4	fix	mobile host pairing seal; read and written in the background
-Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift	3	fix	remote VNC credential store writes and deletes
-Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushCrypto.swift	5	fix	phone push key; read and migrated in the background
-Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushSharedStateStorage.swift	6	fix	phone push shared state; read and written in the background

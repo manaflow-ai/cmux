@@ -1,0 +1,17 @@
+{
+  // A look's own thinking dots: a cmux.particles/1 document kept as a file of the look and named
+  // with {"$file": PATH}. Installing the look reads the file into agentPane.display.thinking.glyph. Needs cmux#47525.
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/starter-thinking-dots",
+  "name": "Starter Thinking Dots",
+  "tagline": "Three dots that trade size while an agent works, as a particles document.",
+  "description": "The thinking glyph as a cmux.particles/1 document: three accent dots that pulse in, trade size while the agent runs a command, and orbit while it reads. Jump to latest plays the same glyph. Needs cmux#47525.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.display.thinking.glyph": { "$file": "agent-pane/thinking-glyph.json" },
+    "agentPane.display.thinking.glyphSize": 2.4,
+    "agentPane.display.thinking.jumpButton": "glyph"
+  }
+}

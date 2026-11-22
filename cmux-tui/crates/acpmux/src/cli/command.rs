@@ -30,8 +30,12 @@ pub struct MoveSessionsArgs {
     #[arg(long, conflicts_with = "sessions")]
     pub all_idle: bool,
     /// Stop a running turn instead of refusing the move.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "after_turn")]
     pub interrupt: bool,
+    /// Let a running turn end on its own, then move: nothing is stopped or refused while it
+    /// runs, and prompts sent meanwhile move with the chat.
+    #[arg(long)]
+    pub after_turn: bool,
     /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
     #[arg(long)]
     pub leave_dirty: bool,
@@ -458,6 +462,19 @@ pub enum Command {
     /// `--json` with no filter is every session's full record.
     #[command(aliases = aliases::LS, after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
+    /// Archive chats: off the chat lists until unarchived; `ls --archived` lists them. One
+    /// archived already keeps its archive.
+    Archive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
+    /// Bring archived chats back to the lists. One that is not archived is left as it is.
+    Unarchive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
     Attach {
@@ -582,11 +599,23 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill,
-    /// background (Ctrl-B: move a chat's running work there).
-    #[command(subcommand, aliases = aliases::PROCESS)]
-    Process(crate::cli::process::ProcessCmd),
+    /// Read-only local branch board (Labs > Show Preview Features). Also `cmux board --json`.
+    Board,
+    /// With no subcommand (`acpmux ps`): every process acpmux started on this machine and the
+    /// state it keeps, with each one's owner now, session, age and state (in-use, idle,
+    /// orphaned, unknown) and why, read from the processes' own marks and their hosts' locks.
+    /// Subcommands: background processes agents left running (dev servers, watchers): list,
+    /// show (everything one printed, live with --follow), kill, background (Ctrl-B).
+    #[command(aliases = aliases::PROCESS)]
+    Process(crate::cli::process::ProcessArgs),
+    /// End what acpmux proves is orphaned: processes an ended agent host left behind and lock
+    /// files nothing holds. A dry run unless --apply; refuses anything a live host or session
+    /// still references; every end is logged with its reason in `process-kills.jsonl`.
+    Gc {
+        /// End them (default: only list what would be ended, and what is refused and why).
+        #[arg(long)]
+        apply: bool,
+    },
     /// This machine's git worktrees, cleaned up after the agents that made
     /// them: list, clean (archive work only there, then remove), restore,
     /// archives.
@@ -834,6 +863,8 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         interrupt: bool,
+        #[arg(long)]
+        after_turn: bool,
     },
     #[command(hide = true)]
     Harnesses,
@@ -1281,8 +1312,11 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
         /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "after_turn")]
         interrupt: bool,
+        /// Let a running turn end on its own, then move.
+        #[arg(long)]
+        after_turn: bool,
     },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
@@ -1668,8 +1702,8 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
-                Command::Transfer { session, to, cwd, name, interrupt }
+            SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+                Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Tail { session, last, follow, since } => {
@@ -2088,6 +2122,7 @@ mod help_contract_tests {
             host: "huge-blue".into(),
             all_idle: false,
             interrupt: true,
+            after_turn: false,
             leave_dirty: false,
             carry_changes: true,
             cwd: None,

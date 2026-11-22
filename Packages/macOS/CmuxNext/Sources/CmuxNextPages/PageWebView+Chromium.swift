@@ -344,6 +344,10 @@ extension PageWebView {
         case .ended:
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
+        case .engineStopped:
+            // The app quits: nothing reopens in WebKit, and the host hears no crash (``PageChromiumEvent/engineStopped``).
+            chromiumSession.questionKeys?.invalidate()
+            logger.info("page \(self.descriptor.id, privacy: .public) Chromium stopped for quit")
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):

@@ -1326,6 +1326,32 @@ impl TitlesConfig {
     }
 }
 
+/// `summaries` in the config: each chat's rolling summary and next action
+/// (`hub/rolling_summary.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SummariesConfig {
+    /// `generate`: ask the summary model after a person's turn that ended on no `wrap_up`.
+    /// Default on. Off, a turn's own `wrap_up` still summarizes it (it costs nothing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate: Option<bool>,
+    /// `command`: an argv that reads the request on stdin and prints the summary. Env
+    /// `ACPMUX_SUMMARY_COMMAND` (one program) wins. Unset: one completion on the chat's own
+    /// harness (`_acpmux/complete`), on `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    /// `model`: the completion's model. Unset: `titles.model`, else the harness's small model
+    /// (`haiku` on Claude).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl SummariesConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Opt-in synchronization of local agent memories and artifacts with cmux-platform.
 /// The feature is disabled unless `enabled` is explicitly set to true.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1646,6 +1672,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// `summaries`: each chat's rolling summary and next action (`hub/rolling_summary.rs`).
+    #[serde(default, skip_serializing_if = "SummariesConfig::is_default")]
+    pub summaries: SummariesConfig,
     /// `usageWarnings`: when a session's usage gets a visible warning (`hub/usage_warnings.rs`).
     #[serde(default, skip_serializing_if = "UsageWarningsConfig::is_default")]
     pub usage_warnings: UsageWarningsConfig,
@@ -1922,8 +1951,8 @@ pub use nested_env::{
 };
 pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
-pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
+pub(crate) use launchers::{which, which_in};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
