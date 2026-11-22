@@ -109,7 +109,7 @@ export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !sn
 /// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
 /// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
 export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
-  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot.summary?.family));
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot));
 
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
