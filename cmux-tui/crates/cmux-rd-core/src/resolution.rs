@@ -107,7 +107,7 @@ impl ResolutionLadder {
         Picture {
             width,
             height,
-            eighths: RUNGS[self.rung.min(RUNGS.len() - 1)],
+            eighths: rung_eighths(self.rung),
             fps: self.fps,
             max_qp: if self.ceiling_lifted { None } else { self.cfg.max_qp },
         }
@@ -199,9 +199,14 @@ impl ResolutionLadder {
     }
 
     fn size_at(&self, rung: usize) -> (u32, u32) {
-        let eighths = RUNGS[rung.min(RUNGS.len() - 1)];
+        let eighths = rung_eighths(rung);
         (scaled(self.width, eighths), scaled(self.height, eighths))
     }
+}
+
+/// The eighths of `rung`, clamped to the last rung.
+fn rung_eighths(rung: usize) -> u32 {
+    RUNGS.get(rung).or(RUNGS.last()).copied().unwrap_or(8)
 }
 
 /// `side` scaled to `eighths` / 8, even, at least [`MIN_SIDE`] (or `side` if smaller).
