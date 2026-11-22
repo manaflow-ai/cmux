@@ -51,8 +51,15 @@ public final class CmuxToastCenter {
     /// The style the person picked in the Toast Playground; the shared center's persists in
     /// `UserDefaults.standard`. A pick restyles every toast showing (``pick(_:)``).
     public let styles: CmuxToastStyleStore
-    /// The style every toast draws in now, unless it names its own (``CmuxToast/style``).
-    public var style: CmuxToastStyle { styles.style }
+    /// The style every toast draws in now, unless it names its own (``CmuxToast/style``): toasts v2
+    /// (``v2``) while it is on, else the pick.
+    public var style: CmuxToastStyle { v2 ? .v2 : styles.style }
+    /// Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`, off by default): every toast draws in
+    /// ``CmuxToastStyle/v2``, and closing a tab or workspace or archiving a chat offers Undo. The app sets it
+    /// from the setting; turning it on or off redraws the toasts showing.
+    public var v2 = false {
+        didSet { if v2 != oldValue { redrawEveryWindow() } }
+    }
 
     /// A notice by what it says: its id, message and detail.
     private struct QuietKey: Hashable {
@@ -116,7 +123,9 @@ public final class CmuxToastCenter {
         let newest = stack.serials.last
         // The same toast again while it shows (a repeated refusal): it stays in place and is not announced again.
         let repeats = newest.flatMap { entries[$0]?.handle.toast } == toast
-        let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
+        // A working toast's result takes its slot, wherever it rests: one card turns into its result.
+        let resolves = stack.serials.contains { entries[$0]?.handle.toast.id == toast.id && entries[$0]?.handle.toast.tone == .working }
+        let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true, keepsSlot: resolves)
         stacks[key] = stack
         entries[serial] = Entry(handle: handle, window: window, timer: DemandTimer(owner: "toast", clock: clock))
         // The host draws the change as one transition: a same-id predecessor goes at once (its

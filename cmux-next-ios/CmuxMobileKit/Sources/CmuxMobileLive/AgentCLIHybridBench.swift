@@ -4,6 +4,7 @@ import CmuxMobileArtifacts
 import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import QuartzCore
 import SwiftUI
 
@@ -31,12 +32,21 @@ import SwiftUI
 /// as of the newest frame (and, for the record, with the real one). The summary goes to
 /// `Documents/hybrid-bench.json`, the log (`[hybrid-bench]`) and, as one line of JSON, the
 /// accessibility label of `hybrid-bench.result` for the UI test to read.
+///
+/// The energy bench's `typical-hour-*` cases (`scripts/ci/cmux-next-ios-sim.sh energy`) set
+/// the same options as environment variables (`CMUX_MOBILE_HYBRID_BENCH_FILE`, `_MODE`) and
+/// `CMUX_MOBILE_HYBRID_BENCH_LOOP=1`: after the attach the session's stream plays again and
+/// again at its recorded pace, with `FRAMELOG list-stress holding hybrid` once it attached and
+/// the received-bytes total each second (`ReceivedByteCount`), while the bench samples the app.
 public struct AgentCLIHybridBenchRoot: View {
     @State private var bench = AgentCLIHybridBench()
 
     public init() {}
 
-    public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileHybridBench") }
+    public static var isRequested: Bool {
+        CommandLine.arguments.contains("-CmuxMobileHybridBench")
+            || ProcessInfo.processInfo.environment["CMUX_MOBILE_HYBRID_BENCH_FILE"] != nil
+    }
 
     public var body: some View {
         NavigationStack {
@@ -65,15 +75,20 @@ final class AgentCLIHybridBench {
     private let probe = TerminalBenchProbe()
     private let hybrid: Bool
     private let mode: String
+    /// The energy bench's loop (`CMUX_MOBILE_HYBRID_BENCH_LOOP=1`).
+    private let loops: Bool
 
     init() {
         let defaults = UserDefaults.standard
-        let mode = defaults.string(forKey: "CmuxMobileHybridBenchMode") ?? "pty"
+        let environment = ProcessInfo.processInfo.environment
+        loops = environment["CMUX_MOBILE_HYBRID_BENCH_LOOP"] == "1"
+        let mode = defaults.string(forKey: "CmuxMobileHybridBenchMode")
+            ?? environment["CMUX_MOBILE_HYBRID_BENCH_MODE"] ?? "pty"
         self.mode = mode
         hybrid = mode == "hybrid" || mode == "lean"
         // The setting the session reads at attach (off unless this run is hybrid).
         defaults.set(hybrid, forKey: DaemonTerminalSession.agentCLIHybridDefaultsKey)
-        let session = defaults.string(forKey: "CmuxMobileHybridBenchFile")
+        let session = (defaults.string(forKey: "CmuxMobileHybridBenchFile") ?? environment["CMUX_MOBILE_HYBRID_BENCH_FILE"])
             .flatMap { FileManager.default.contents(atPath: $0) }
             .flatMap { BenchSession($0) }
         daemon = HybridBenchDaemon(session: session, hybrid: hybrid, lean: mode == "lean")
@@ -133,6 +148,10 @@ final class AgentCLIHybridBench {
             finish(["mode": mode, "stillMs": stillMs, "firstFrameParity": firstParity.percent])
             return
         }
+        if loops {
+            await loop(session)
+            return
+        }
         // The rest of the session at its recorded pace, paused at each moment.
         let streamStart = daemon.streamedBytes
         let playStart = CACurrentMediaTime()
@@ -171,6 +190,21 @@ final class AgentCLIHybridBench {
             "moments": moments,
         ]
         finish(summary)
+    }
+
+    /// The energy bench: the stream after the attach moment, again and again at its recorded
+    /// pace, until the bench ends the app.
+    private func loop(_ session: BenchSession) async {
+        ReceivedByteCount.shared.startLogging()
+        Logger(subsystem: "dev.cmux.mobile", category: "frames").notice("FRAMELOG list-stress holding hybrid")
+        let daemon = daemon
+        while !Task.isCancelled {
+            daemon.rewind()
+            let (from, until, attachMs) = (CACurrentMediaTime(), session.durationMs, session.attachMs)
+            await Task.detached { await daemon.play(until: until, from: from, attachMs: attachMs) }.value
+            // The session's quiet tail, then the next pass.
+            try? await Task.sleep(for: .seconds(2))
+        }
     }
 
     /// The screen once nothing changed for 300 ms (at most 5 s).
@@ -349,6 +383,9 @@ final class HybridBenchDaemon: @unchecked Sendable {
     private var _declaredHybrid = false
     private var nextPTY = 0
     private var nextFrame = 0
+    /// Where the stream after the attach starts (``rewind()``).
+    private var firstPTY = 0
+    private var firstFrame = 0
     private var timer: DispatchSourceTimer?
 
     var attachAt: CFTimeInterval? { lock.withLock { _attachAt } }
@@ -366,7 +403,13 @@ final class HybridBenchDaemon: @unchecked Sendable {
             let attachFrame = session.attachFrame["frame"] as? Int ?? 0
             nextPTY = session.pty.firstIndex { $0.atMs > session.attachMs } ?? session.pty.count
             nextFrame = lean ? 0 : session.frames.firstIndex { ($0.event["frame"] as? Int ?? 0) > attachFrame } ?? session.frames.count
+            (firstPTY, firstFrame) = (nextPTY, nextFrame)
         }
+    }
+
+    /// The stream after the attach plays again from its start (the energy bench's loop).
+    func rewind() {
+        lock.withLock { (nextPTY, nextFrame) = (firstPTY, firstFrame) }
     }
 
     static func line(_ object: [String: Any]) -> Data {

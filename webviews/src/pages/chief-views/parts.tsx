@@ -9,6 +9,7 @@ import type { Strings } from "../shared/i18n";
 import { agentPR, ciKind, folderName, LOCAL_MACHINE, nextShortDuration, sameRowProps, shortDuration } from "./model";
 import type { ChiefViewManifest, ChiefViewProps } from "./registry";
 import type { AgentState, ChiefAgent } from "./types";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 const GLYPH: Record<AgentState, StatusGlyphName> = {
   working: "working",
@@ -85,10 +86,17 @@ export function OwnerChips({ owners, strings }: { owners: readonly ChiefAgent[];
   return (
     <span className="cv-owners">
       {owners.slice(0, 3).map((owner) => (
-        <span key={owner.id} className="cv-chip cv-owner" data-state={owner.state} aria-description={owner.title}>
-          <StateMark state={owner.state} strings={strings} />
-          <span className="cv-owner-name">{owner.name.split("/").at(-1)}</span>
-        </span>
+        <WithFacts
+          key={owner.id}
+          facts={[{ value: owner.title }, { value: owner.name !== owner.title ? owner.name : "", code: true }]}
+        >
+          {(facts) => (
+            <span {...facts} className="cv-chip cv-owner" data-state={owner.state}>
+              <StateMark state={owner.state} strings={strings} />
+              <span className="cv-owner-name">{owner.name.split("/").at(-1)}</span>
+            </span>
+          )}
+        </WithFacts>
       ))}
       {owners.length > 3 && <span className="cv-chip cv-owner">+{owners.length - 3}</span>}
     </span>
@@ -134,9 +142,13 @@ export const AgentRow = memo(function AgentRow({
             <span className="cv-row-title">{agent.title}</span>
             {!compact && showMachine && <span className="cv-row-machine">{machineLabel(agent, strings)}</span>}
             {!compact && folder && (
-              <span className="cv-row-folder" aria-description={agent.folder ?? undefined}>
-                {folder}
-              </span>
+              <WithFacts facts={[{ value: agent.folder ?? "", code: true }]}>
+                {(facts) => (
+                  <span {...facts} className="cv-row-folder">
+                    {folder}
+                  </span>
+                )}
+              </WithFacts>
             )}
           </span>
           {line && (
