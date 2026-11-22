@@ -16,6 +16,7 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { EventRecord } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { playbackAt, playbackWindow } from "../../src/agent-session/acpmux/sim/playback";
 import { createSimulation, runSimulationAsync, type SimResult } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../../src/agent-session/acpmux/sim/script";
@@ -194,17 +195,6 @@ export type WatchOptions = {
 /** After the steps before a window are drawn at once, the view settles this long before the window plays. */
 export const WINDOW_SETTLE_MS = 1500;
 
-/** Each step's time in the full playback (ms from its first step): its scaled wait since the step
- *  before, at least minGap and at most maxGap, as `watch` sleeps them. A whole run's video shows
- *  step i about this long after the run began, so a window read off one (`startS`) finds its steps. */
-export function playbackAt(ats: readonly number[], speed: number, minGap: number, maxGap: number): number[] {
-  let total = 0;
-  return ats.map((at, index) => {
-    if (index > 0) total += Math.min(maxGap, Math.max(minGap, (at - ats[index - 1]!) / speed));
-    return total;
-  });
-}
-
 export type WatchShot = { step: number; label: string; why: "turn-start" | "turn-end" | "every" | "end"; turn: number };
 
 /** What `watch` played. */
@@ -269,8 +259,7 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   const endMs = options.endS === undefined ? Number.POSITIVE_INFINITY : options.endS * 1000;
   const windowHook = (window as unknown as { __chatSimWindow?: (mark: "start") => Promise<void> }).__chatSimWindow;
   // The steps before the window: drawn at once (the last of them shown), then the view settles.
-  let first = 0;
-  while (first < scenario.steps.length && playback[first]! < startMs) first += 1;
+  const { first, end } = playbackWindow(playback, startMs, endMs);
   if (first > 0) {
     let rows: ReturnType<typeof sim.advance> = undefined;
     for (let index = 0; index < first; index += 1) {
@@ -290,7 +279,7 @@ async function watch(options: WatchOptions): Promise<WatchResult> {
   }
   if (windowHook) await windowHook("start");
   for (let index = first; index < scenario.steps.length; index += 1) {
-    if (performance.now() > deadline || playback[index]! > endMs) {
+    if (performance.now() > deadline || index >= end) {
       stoppedEarly = true;
       break;
     }
