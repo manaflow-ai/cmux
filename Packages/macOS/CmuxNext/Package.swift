@@ -2871,9 +2871,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMobile",
                 "CmuxNextTestSupport",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
-                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
-                .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
-                .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2896,7 +2893,6 @@ let package = Package(
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
-        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
         // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
         .package(path: "../../Shared/CmuxAppAttest"),
@@ -2925,10 +2921,6 @@ let package = Package(
         // Lock-free atomics on macOS 14 for CmuxNextCompat.Atomic (already resolved through
         // other dependencies; Apache-2.0).
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
-        // Test-only: the shipped iOS app's own RPC decoders verify the compat adapter.
-        .package(path: "../../iOS/CmuxMobileRPC"),
-        // Test-only: the iOS app's cmux-tui client drives the daemon lane end to end.
-        .package(path: "../../iOS/CmuxMobileSSH"),
     ],
     targets: packageTargets,
 )
