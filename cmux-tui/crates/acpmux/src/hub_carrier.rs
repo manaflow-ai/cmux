@@ -506,7 +506,7 @@ impl HubCarrier {
         // the hub has no carrier for it at all ([`ticket_refusal`]).
         let answer = self.tickets.connect(daemon).await.map_err(|e| {
             if e.contains("machine.not_found") {
-                ticket_refusal(e)
+                ticket_refusal(daemon, e)
             } else {
                 format!(
                     "{} no relay ticket: {e}",
@@ -1116,10 +1116,16 @@ pub(crate) fn carrier_not_serving(waited: Duration) -> String {
 }
 
 /// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` names a
-/// machine with no carrier to connect to ([`carrier_off`]); any other refusal keeps its text.
-pub(crate) fn ticket_refusal(text: String) -> String {
+/// machine `daemon` the hub does not know, so the fix is on that machine (join it), and the
+/// reason (`machine.not_joined`) is one the CLI ends on at once
+/// ([`cmux_remote::provider::TERMINAL_REFUSALS`]) instead of redialing into its timeout. Any
+/// other refusal keeps its text.
+pub(crate) fn ticket_refusal(daemon: &str, text: String) -> String {
     if text.contains("machine.not_found") {
-        carrier_off("the hub has no carrier registered for it")
+        format!(
+            "{daemon} is not joined to your hub: on that machine, join it (`cmux machine add \
+             --cloud-token-stdin` / sign in to the cmux app), then retry (machine.not_joined)"
+        )
     } else {
         text
     }
