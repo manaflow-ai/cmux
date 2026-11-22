@@ -1,6 +1,8 @@
 import { SignInContext, useSignIn } from "../signIn";
 import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
+import { loginFlowEnded, loginFlowTarget, loginFlowText, useLoginFlow } from "../loginFlow";
+import { captureStartIntent, intentStillApplies, takeStartIntent, type StartIntent } from "../startIntent";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, {
@@ -424,6 +426,14 @@ export function NewTabScreen(props: Props) {
   /// Return or Send was refused because the agent is signed out (first-run findings row 5: they did
   /// nothing, with no word why). The note over the field then leads with what to do first.
   const [signInAsked, setSignInAsked] = useState(false);
+  /// The start a sign-in got in the way of (startIntent.ts): once the sign-in is verified, the note
+  /// offers Start with it. The ref is what Start takes, once; the state draws the note.
+  const [pendingStart, setPendingStart] = useState<StartIntent>();
+  const pendingStartRef = useRef<StartIntent | undefined>(undefined);
+  const holdStart = (intent: StartIntent | undefined) => {
+    pendingStartRef.current = intent;
+    setPendingStart(intent);
+  };
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const [untouchedText, setUntouchedText] = useState(() =>
@@ -653,7 +663,9 @@ export function NewTabScreen(props: Props) {
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
-  const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
+  const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean, draft?: string) => void>(
+    () => {},
+  );
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
   const onSetup = useRef(props.onSetup);
@@ -854,6 +866,7 @@ export function NewTabScreen(props: Props) {
     // reports a sign-in that turns out missing.
     if (authBlocksSend(targetAuth)) {
       setSignInAsked(true);
+      holdStart(captureStartIntent({ harness: agent, host: targetHost, folder: targetCwd }, model, prompt, "signIn"));
       return false;
     }
     if (command.intercept(prompt, agent, attachments.length)) return false;
@@ -1136,12 +1149,59 @@ export function NewTabScreen(props: Props) {
       : signedOutAgent
         ? parentSignIn?.signedOut[signedOutAgent] || undefined
         : undefined;
+  // The agent's login, run as an observed flow for this composer's chosen target (loginFlow.ts):
+  // the terminal tab opens as before, and acpmux's own check says when the sign-in is done. With
+  // no flow (an older daemon, a host that does not relay it) the plain terminal login runs.
+  const openTargetLogin =
+    signedOutLogin && signedOutAgent
+      ? () =>
+          parentSignIn?.openLogIn
+            ? parentSignIn.openLogIn(signedOutAgent, signedOutLogin)
+            : (parentSignIn?.logIn(signedOutAgent, signedOutLogin), Promise.resolve(true))
+      : undefined;
+  const flowTarget = loginFlowTarget(authQuery);
+  const login = useLoginFlow(parentSignIn?.loginFlow, flowTarget, openTargetLogin);
+  const startTarget = { harness, host: targetHost, folder: targetCwd };
   const signInNow =
     signedOutLogin && signedOutAgent
-      ? () => parentSignIn?.logIn(signedOutAgent, signedOutLogin)
+      ? () => {
+          // Signing in before sending keeps the start too: the same agent, model and place.
+          if (!pendingStartRef.current)
+            holdStart(captureStartIntent(startTarget, chipModel, shell ? "" : typed.trim(), "signIn"));
+          void login.begin().then((ran) => {
+            if (!ran) parentSignIn?.logIn(signedOutAgent, signedOutLogin);
+          });
+        }
       : targetAuth?.credential === "cmux" && parentSignIn?.loginSession
         ? () => parentSignIn.loginSession?.(targetAuth)
         : undefined;
+  const signInDone = login.flow?.phase === "succeeded";
+  // A verified sign-in: read the target's sign-in again, so the note and Send agree with it.
+  useEffect(() => {
+    if (signInDone) recheckTarget();
+  }, [signInDone, recheckTarget]);
+  // Another agent, machine or folder picked: the held start is not this choice's.
+  const startKey = JSON.stringify([harness, targetHost, targetCwd]);
+  useEffect(() => {
+    const held = pendingStartRef.current;
+    if (held && !intentStillApplies(held, { harness, host: targetHost, folder: targetCwd })) {
+      pendingStartRef.current = undefined;
+      setPendingStart(undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startKey names the three
+  }, [startKey]);
+  const flowNote = login.flow && !signInDone ? loginFlowText(login.flow, t) : undefined;
+  const flowLive = Boolean(login.flow && !loginFlowEnded(login.flow.phase));
+  /// After a verified sign-in, the held start: Start runs it once, with the draft as it is now.
+  const readyToStart = signInDone && pendingStart !== undefined;
+  const startHeld = () => {
+    touch();
+    const intent = takeStartIntent(pendingStartRef);
+    setPendingStart(undefined);
+    login.clear();
+    setSignInAsked(false);
+    if (intent) continueAfterSetup.current(intent.harness, intent.model, false, intent.draft);
+  };
   const signInFirst = (() => {
     if (!targetAuth) return undefined;
     const party = authParty(targetAuth, t);
@@ -1558,12 +1618,13 @@ export function NewTabScreen(props: Props) {
     }
     requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
   };
-  const continueAfterSetupNow = (agent: string, model?: string, empty = false): void => {
+  const continueAfterSetupNow = (agent: string, model?: string, empty = false, draft?: string): void => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent, model, empty)) || created.current) return;
+    if (holdForAttachments(() => continueAfterSetup.current(agent, model, empty, draft)) || created.current) return;
     created.current = true;
-    const prompt = empty || shell ? "" : typed.trim();
+    // The draft as it is now wins; a pending start's own draft goes only when the field is empty.
+    const prompt = empty || shell ? "" : typed.trim() || (draft ?? "").trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
@@ -2289,20 +2350,42 @@ export function NewTabScreen(props: Props) {
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
-        {signedOut ? (
+        {readyToStart ? (
+          // The sign-in is verified (loginFlow.ts): the start it held waits for the person's Start,
+          // never sent on its own.
+          <output className="acpmux-composer-remote-note nt-signed-out">
+            <span className="nt-signed-out-text">{t("loginFlow.succeeded")}</span>
+            <span className="nt-signed-out-actions">
+              <button type="button" className="acpmux-trust-ask-action" onClick={startHeld}>
+                {t("loginFlow.start")}
+              </button>
+            </span>
+          </output>
+        ) : signedOut ? (
           // Signed out: say so before the person sends, say what to do first once they tried, and
           // offer the two fixes in place (first-run findings row 5).
           <div className="acpmux-composer-remote-note nt-signed-out" role="alert">
             <span className="nt-signed-out-text">
               {signInAsked && signInFirst ? <strong>{signInFirst}</strong> : null}
               {signInAsked && signInFirst ? " " : null}
-              {targetAuthText}
+              {flowNote ?? targetAuthText}
             </span>
             <span className="nt-signed-out-actions">
-              {signInNow && (
-                <button type="button" className="acpmux-trust-ask-action" onClick={signInNow}>
-                  {authLoginText(targetAuth, t)}
-                </button>
+              {flowLive ? (
+                <>
+                  <button type="button" className="acpmux-trust-ask-action" onClick={() => login.check()}>
+                    {t("loginFlow.checkNow")}
+                  </button>
+                  <button type="button" className="acpmux-trust-ask-action" onClick={login.cancel}>
+                    {t("loginFlow.cancel")}
+                  </button>
+                </>
+              ) : (
+                signInNow && (
+                  <button type="button" className="acpmux-trust-ask-action" onClick={signInNow}>
+                    {login.flow ? t("loginFlow.retry") : authLoginText(targetAuth, t)}
+                  </button>
+                )
               )}
               <button type="button" className="acpmux-trust-ask-action" onClick={() => openSetup()}>
                 {t("auth.useAnotherAgent")}

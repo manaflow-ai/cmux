@@ -89,6 +89,7 @@ nonisolated extension AcpmuxPaneMethods {
         // The sign-in check (direct.ts sessionAuth): a chat in scope, or a new chat's `target`
         // ({harness, host?, routeId?}), and `refresh` to ask the harness now instead of its last answer.
         "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
+        "_acpmux/login_flow": (["op", "target", "restart", "flowId", "ended"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         "_acpmux/race/start": (["parent", "prompt", "candidates", "reviewer"], []),
