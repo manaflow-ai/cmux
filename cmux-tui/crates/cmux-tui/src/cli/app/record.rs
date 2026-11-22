@@ -253,12 +253,12 @@ pub(super) fn run(global: &GlobalArgs, request: Request) -> i32 {
     if let Some(movie) = &place.movie {
         match ffmpeg() {
             None => {
-                let args = ffmpeg_args(&place.frames, request.fps, movie);
+                let args = ffmpeg_args(&place.frames, movie);
                 let words: Vec<String> = args.iter().map(|arg| shell_word(arg)).collect();
                 report["encode_command"] = json!(format!("ffmpeg {}", words.join(" ")));
                 note = Some(messages.no_ffmpeg.replace("{dir}", &place.frames.to_string_lossy()))
             }
-            Some(ffmpeg) => match encode(&ffmpeg, &place.frames, request.fps, movie) {
+            Some(ffmpeg) => match encode(&ffmpeg, &place.frames, movie) {
                 Ok(()) => {
                     let _ = std::fs::remove_dir_all(&place.frames);
                     report["frames_dir"] = Value::Null;
@@ -437,8 +437,9 @@ pub(super) fn concat_list(frames: &[Value]) -> String {
 const CONCAT_LIST: &str = "frames.ffconcat";
 
 /// ffmpeg's arguments after the program: the folder's concat list to `movie`, each frame for its
-/// own duration (variable frame rate, at most `fps` a second), even sides for yuv420p.
-pub(super) fn ffmpeg_args(folder: &Path, fps: u64, movie: &Path) -> Vec<String> {
+/// own duration (variable frame rate on a 1 ms time base: ffmpeg 9 refuses `-r` with `vfr`, and its
+/// default 1/25 time base dropped a sixth of a 30 fps recording), even sides for yuv420p.
+pub(super) fn ffmpeg_args(folder: &Path, movie: &Path) -> Vec<String> {
     let mut args: Vec<String> =
         ["-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i"]
             .map(str::to_owned)
@@ -450,8 +451,8 @@ pub(super) fn ffmpeg_args(folder: &Path, fps: u64, movie: &Path) -> Vec<String> 
             "pad=ceil(iw/2)*2:ceil(ih/2)*2",
             "-fps_mode",
             "vfr",
-            "-r",
-            &fps.to_string(),
+            "-enc_time_base",
+            "1/1000",
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -474,12 +475,12 @@ fn shell_word(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
-fn encode(ffmpeg: &Path, folder: &Path, fps: u64, movie: &Path) -> Result<(), String> {
+fn encode(ffmpeg: &Path, folder: &Path, movie: &Path) -> Result<(), String> {
     if let Some(parent) = movie.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let output = cmux_process::Command::new(ffmpeg)
-        .args(ffmpeg_args(folder, fps, movie))
+        .args(ffmpeg_args(folder, movie))
         .stdin(cmux_process::Stdio::null())
         .output()
         .map_err(|error| error.to_string())?;
@@ -590,11 +591,12 @@ mod tests {
 
     #[test]
     fn the_encode_reads_the_folders_list_at_the_frames_own_times() {
-        let args = ffmpeg_args(Path::new("/f"), 30, Path::new("/x/clip.mp4"));
+        let args = ffmpeg_args(Path::new("/f"), Path::new("/x/clip.mp4"));
         let at = |word: &str| args.iter().position(|arg| arg == word).unwrap();
         assert_eq!(args[at("-i") + 1], "/f/frames.ffconcat");
         assert_eq!(args[at("-fps_mode") + 1], "vfr");
-        assert_eq!(args[at("-r") + 1], "30");
+        assert_eq!(args[at("-enc_time_base") + 1], "1/1000");
+        assert!(!args.iter().any(|arg| arg == "-r"), "ffmpeg 9 refuses -r with vfr: {args:?}");
         assert_eq!(args.last().unwrap(), "/x/clip.mp4");
         assert_eq!(shell_word("/a b/c's"), "'/a b/c'\\''s'");
         assert_eq!(shell_word("pad=ceil(iw/2)*2"), "'pad=ceil(iw/2)*2'");
