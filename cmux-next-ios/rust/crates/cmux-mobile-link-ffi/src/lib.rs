@@ -633,6 +633,13 @@ pub struct ConnectOptions {
     /// the allocation had to use TLS). No TURN server fails the dial.
     #[uniffi(default = false)]
     pub relay_only: bool,
+    /// The direct peer path (off by default; `CMUX_MOBILE_DIRECT_PATH=1`
+    /// turns it on too): WireGuard offers and accepts tailnet endpoints,
+    /// marks its UDP as interactive traffic, and keeps probing direct routes
+    /// while a relay carries the link, so it moves to a direct path that
+    /// opens later without a redial (`DialOptions::direct_path`).
+    #[uniffi(default = false)]
+    pub direct_path: bool,
     /// Debug "simulate a network that blocks UDP": WireGuard sends and
     /// accepts no plain UDP and skips TURN over UDP, so it rides TURN over
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
@@ -704,6 +711,7 @@ pub async fn connect_with_options(
         transport,
         include_loopback: false,
         relay_only: options.relay_only,
+        direct_path: options.direct_path,
         block_udp: options.block_udp,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
@@ -729,6 +737,8 @@ pub struct ConnectRequest {
     pub transport: Transport,
     pub include_loopback: bool,
     pub relay_only: bool,
+    /// `ConnectOptions::direct_path`.
+    pub direct_path: bool,
     pub block_udp: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
@@ -1349,6 +1359,7 @@ async fn dial(
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
         block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        direct_path: request.direct_path || cmux_mobile_link::dial::direct_path_from_env(),
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,

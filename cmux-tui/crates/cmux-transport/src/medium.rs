@@ -22,6 +22,11 @@ pub enum Medium {
     /// An address on a network this machine is directly attached to
     /// (Ethernet, Wi-Fi).
     Lan,
+    /// A tailnet overlay address whose direct route the caller chose to rank
+    /// above other routed ones (the mobile link's direct peer path): below
+    /// the LAN, above a public or relayed route. [`medium_of`] never returns
+    /// it; a caller assigns it.
+    Tailnet,
     /// Anything routed: through a gateway, a VPN or overlay interface, a
     /// tailnet address, or a relay.
     Routed,
@@ -32,6 +37,7 @@ impl Medium {
         match self {
             Medium::Link => "link",
             Medium::Lan => "lan",
+            Medium::Tailnet => "tailnet",
             Medium::Routed => "routed",
         }
     }

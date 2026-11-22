@@ -546,6 +546,7 @@ dependencies = [
  "cmux-wg",
  "futures-util",
  "getrandom 0.3.4",
+ "libc",
  "rcgen",
  "reqwest",
  "rustls",

@@ -571,6 +571,9 @@ async fn answer_session(
         ice_servers,
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
+        // The direct peer path (off by default): tailnet endpoints despite
+        // exclude_cgnat, interactive QoS marks, upgrade probes from a relay.
+        direct_path: cmux_mobile_link::dial::direct_path_from_env(),
         timeline: timeline.clone(),
         stock_ice_waits: baseline,
         // Browser video on the media lane: a WebRTC track, or RTP inside the

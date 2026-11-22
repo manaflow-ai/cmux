@@ -99,6 +99,16 @@ pub struct DialOptions {
     /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
     /// TURN over TCP or TLS).
     pub block_udp: bool,
+    /// The direct peer path (off by default; `CMUX_MOBILE_DIRECT_PATH=1`,
+    /// [`direct_path_from_env`]). WireGuard then offers and accepts tailnet
+    /// endpoints (100.64.0.0/10) even with `exclude_cgnat`, ranked as
+    /// direct below the LAN; marks its underlay UDP as interactive traffic
+    /// (DSCP EF, and on Apple platforms the responsive-data service type);
+    /// and, while a relay carries the link, keeps probing the direct routes
+    /// (0.25, 0.5, 1, 2 s, then every 5 s, retrying routes the OS refused)
+    /// so a direct path that opens later (Local Network permission granted,
+    /// a tailnet direct connection made) carries the link without a redial.
+    pub direct_path: bool,
     /// Test support: trust these roots, not the public web PKI, for TURN
     /// over TLS (a test TURN server's self-signed certificate).
     #[doc(hidden)]
@@ -217,6 +227,7 @@ impl Default for DialOptions {
             exclude_cgnat: false,
             relay_only: false,
             block_udp: false,
+            direct_path: false,
             turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
@@ -237,6 +248,12 @@ impl Default for DialOptions {
             timeline: crate::Timeline::new(),
         }
     }
+}
+
+/// Whether `CMUX_MOBILE_DIRECT_PATH=1` turns the direct peer path on
+/// ([`DialOptions::direct_path`]).
+pub fn direct_path_from_env() -> bool {
+    std::env::var("CMUX_MOBILE_DIRECT_PATH").is_ok_and(|value| value.trim() == "1")
 }
 
 /// The number of TURN URLs (`turn:` or `turns:`) among `servers`.

@@ -69,6 +69,7 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             transport,
             include_loopback: true,
             relay_only: false,
+            direct_path: false,
             block_udp: false,
             video_lane: false,
             webrtc_media: false,

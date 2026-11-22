@@ -26,6 +26,8 @@ use cmux_transport::{
     local_networks, medium_of,
 };
 use cmux_wg::{DueProbes, PathWatch, ProbeConfig};
+use std::time::Duration;
+
 use tokio::time::Instant;
 
 use super::{Carrier, Route};
@@ -55,10 +57,44 @@ pub(super) struct Paths {
     networks: Vec<LocalNetwork>,
     probes: ProbeConfig,
     last_probe_id: u64,
+    /// The direct peer path ([`super::super::DialOptions::direct_path`]):
+    /// tailnet routes rank as [`Medium::Tailnet`], and while a relay carries
+    /// the link the direct routes are probed on [`UPGRADE_SCHEDULE`].
+    direct_path: bool,
+    upgrade: Upgrade,
+}
+
+/// While a relay carries the link (direct peer path on), the direct routes
+/// that do not answer are probed this long after the relay took over, then
+/// every [`UPGRADE_EVERY`]: a direct route that opens later (the Mac's
+/// Local Network permission granted, a tailnet direct connection made)
+/// carries the link within a few seconds, not at the dead path's 30 s turn.
+pub(super) const UPGRADE_SCHEDULE: [Duration; 4] =
+    [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1), Duration::from_secs(2)];
+pub(super) const UPGRADE_EVERY: Duration = Duration::from_secs(5);
+
+/// Where the upgrade probes stand.
+#[derive(Debug, Default, Clone, Copy)]
+struct Upgrade {
+    /// The relay's turn started: when the first upgrade probe is due, and
+    /// how many went out.
+    since: Option<Instant>,
+    sent: usize,
+    next: Option<Instant>,
+    /// A round went out that [`Paths::take_upgrade_round`] has not seen.
+    fresh: bool,
+    /// [`Paths::set_refused_routes`].
+    refused: bool,
+}
+
+impl Upgrade {
+    fn delay(sent: usize) -> Duration {
+        UPGRADE_SCHEDULE.get(sent).copied().unwrap_or(UPGRADE_EVERY)
+    }
 }
 
 impl Paths {
-    pub fn new() -> Self {
+    pub fn new(direct_path: bool) -> Self {
         Self {
             selector: Selector::new(SelectorConfig::default()),
             entries: Vec::new(),
@@ -66,12 +102,17 @@ impl Paths {
             networks: local_networks(),
             probes: ProbeConfig::default(),
             last_probe_id: 0,
+            direct_path,
+            upgrade: Upgrade::default(),
         }
     }
 
     fn rank_of(&self, wanted: Wanted) -> (PathKind, Medium) {
         if wanted.relayed || wanted.route.carrier == Carrier::Turn {
             return (PathKind::TurnRelay, Medium::Routed);
+        }
+        if self.direct_path && super::super::is_cgnat(wanted.route.addr.ip()) {
+            return (PathKind::DirectWan, Medium::Tailnet);
         }
         if self.networks.is_empty() {
             return (PathKind::DirectWan, default_medium(PathKind::DirectWan));
@@ -231,6 +272,7 @@ impl Paths {
 
     /// The probes due at `now`, after applying lost probes and silences.
     pub fn poll(&mut self, now: Instant) -> DueProbes {
+        let upgrade_at = self.poll_upgrade(now);
         let current = self.selector.current();
         let chosen = self.selector.chosen();
         let mut due = DueProbes::default();
@@ -281,7 +323,64 @@ impl Paths {
             }
             due.next = Some(now);
         }
+        if let Some(at) = upgrade_at {
+            due.next = Some(due.next.map_or(at, |next| next.min(at)));
+        }
         due
+    }
+
+    /// A relay carries the link: whether a direct route exists that is not
+    /// the one in use.
+    fn on_relay(&self) -> bool {
+        let Some(current) = self.selector.current() else { return false };
+        let relayed = self.selector.path(current).is_some_and(|view| !view.kind.class().is_direct());
+        relayed && (self.upgrade.refused || self.entries.iter().any(|entry| self.is_direct(entry.id)))
+    }
+
+    /// The underlay holds direct routes the OS refused (no path for them):
+    /// upgrade rounds run for them too, so it can retry them.
+    pub fn set_refused_routes(&mut self, any: bool) {
+        self.upgrade.refused = any;
+    }
+
+    fn is_direct(&self, id: PathId) -> bool {
+        self.selector.path(id).is_some_and(|view| view.kind.class().is_direct())
+    }
+
+    /// Direct peer path: while a relay carries the link, probe every direct
+    /// route on [`UPGRADE_SCHEDULE`], then every [`UPGRADE_EVERY`]. The
+    /// selector moves to the first that answers (direct beats relayed).
+    /// Returns when the next upgrade probe is due.
+    fn poll_upgrade(&mut self, now: Instant) -> Option<Instant> {
+        if !self.direct_path || !self.on_relay() {
+            self.upgrade = Upgrade { refused: self.upgrade.refused, ..Upgrade::default() };
+            return None;
+        }
+        let since = *self.upgrade.since.get_or_insert(now);
+        let next = *self.upgrade.next.get_or_insert(since + Upgrade::delay(0));
+        if now < next {
+            return Some(next);
+        }
+        let direct: Vec<PathId> =
+            self.entries.iter().map(|entry| entry.id).filter(|id| self.is_direct(*id)).collect();
+        for entry in &mut self.entries {
+            if direct.contains(&entry.id) {
+                entry.watch.probe_now(now);
+            }
+        }
+        self.upgrade.sent += 1;
+        self.upgrade.fresh = true;
+        let next = now + Upgrade::delay(self.upgrade.sent);
+        self.upgrade.next = Some(next);
+        tracing::trace!(sent = self.upgrade.sent, "WireGuard probes the direct routes from the relay");
+        Some(next)
+    }
+
+    /// An upgrade probe round went out since the last call (the underlay
+    /// then retries routes the OS refused, as a Local Network permission
+    /// granted since makes them work).
+    pub fn take_upgrade_round(&mut self) -> bool {
+        std::mem::take(&mut self.upgrade.fresh)
     }
 }
 
@@ -300,7 +399,7 @@ mod tests {
     }
 
     fn paths_on(networks: Vec<LocalNetwork>) -> Paths {
-        let mut paths = Paths::new();
+        let mut paths = Paths::new(false);
         paths.networks = networks;
         paths
     }
@@ -514,5 +613,54 @@ mod tests {
         assert!(!paths.drives());
         answer_all(&mut paths, Instant::now(), std::time::Duration::from_millis(2));
         assert_eq!(paths.current(), Some(lan));
+    }
+
+    /// Direct peer path: while the relay carries the link, a dead LAN path
+    /// is probed on the upgrade schedule (0.25, 0.5, 1, 2 s, then every
+    /// 5 s), not at its 30 s turn; without the flag it waits the 30 s.
+    #[test]
+    fn the_direct_path_probes_dead_direct_routes_on_the_upgrade_schedule() {
+        let ms = std::time::Duration::from_millis;
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        let probes_on_lan = |direct_path: bool| {
+            let mut paths = paths_on(lan_table());
+            paths.direct_path = direct_path;
+            paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+            // Only the relay ever answers: the LAN path dies.
+            let start = Instant::now();
+            let mut now = start;
+            let mut lan_probes = Vec::new();
+            for _ in 0..2000 {
+                now += ms(10);
+                let due = paths.poll(now);
+                for (id, probe) in due.pings {
+                    if paths.route_of(id) == Some(relay) {
+                        paths.on_pong(id, probe, now);
+                    } else {
+                        lan_probes.push(now);
+                    }
+                }
+            }
+            assert_eq!(paths.current(), Some(relay));
+            let dead_at = start + ms(4000);
+            lan_probes.into_iter().filter(|at| *at > dead_at).count()
+        };
+        // 16 s after the LAN died: one probe at its 30 s turn at most
+        // without the flag; with it, the schedule's rounds.
+        let without = probes_on_lan(false);
+        let with = probes_on_lan(true);
+        assert!(without <= 1, "{without} probes without the flag");
+        assert!(with >= 3, "{with} probes with the flag");
+    }
+
+    #[test]
+    fn the_direct_path_ranks_a_tailnet_route_below_the_lan_above_routed() {
+        let mut paths = paths_on(lan_table());
+        paths.direct_path = true;
+        let tailnet = Wanted { route: udp("100.80.2.3:4100"), relayed: false };
+        assert_eq!(paths.rank_of(tailnet), (PathKind::DirectWan, Medium::Tailnet));
+        paths.direct_path = false;
+        assert_eq!(paths.rank_of(tailnet), (PathKind::DirectWan, Medium::Routed));
     }
 }

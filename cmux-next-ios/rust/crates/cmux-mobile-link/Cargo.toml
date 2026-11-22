@@ -47,6 +47,10 @@ webrtc.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+# SO_NET_SERVICE_TYPE on the tunnel's UDP socket (direct peer path).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }

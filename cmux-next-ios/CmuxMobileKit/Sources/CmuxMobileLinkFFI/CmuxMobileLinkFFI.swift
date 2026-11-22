@@ -2747,6 +2747,14 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var relayOnly: Bool
     /**
+     * The direct peer path (off by default; `CMUX_MOBILE_DIRECT_PATH=1`
+     * turns it on too): WireGuard offers and accepts tailnet endpoints,
+     * marks its UDP as interactive traffic, and keeps probing direct routes
+     * while a relay carries the link, so it moves to a direct path that
+     * opens later without a redial (`DialOptions::direct_path`).
+     */
+    public var directPath: Bool
+    /**
      * Debug "simulate a network that blocks UDP": WireGuard sends and
      * accepts no plain UDP and skips TURN over UDP, so it rides TURN over
      * TLS on 443 (path `TurnTls`). WebRTC ignores it.
@@ -2781,6 +2789,13 @@ public struct ConnectOptions: Equatable, Hashable {
          * the allocation had to use TLS). No TURN server fails the dial.
          */relayOnly: Bool = false, 
         /**
+         * The direct peer path (off by default; `CMUX_MOBILE_DIRECT_PATH=1`
+         * turns it on too): WireGuard offers and accepts tailnet endpoints,
+         * marks its UDP as interactive traffic, and keeps probing direct routes
+         * while a relay carries the link, so it moves to a direct path that
+         * opens later without a redial (`DialOptions::direct_path`).
+         */directPath: Bool = false, 
+        /**
          * Debug "simulate a network that blocks UDP": WireGuard sends and
          * accepts no plain UDP and skips TURN over UDP, so it rides TURN over
          * TLS on 443 (path `TurnTls`). WebRTC ignores it.
@@ -2801,6 +2816,7 @@ public struct ConnectOptions: Equatable, Hashable {
          * every datagram, about 2-3x the bytes).
          */ultra: String = "auto") {
         self.relayOnly = relayOnly
+        self.directPath = directPath
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
@@ -2824,6 +2840,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         return
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
+                directPath: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
@@ -2833,6 +2850,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
 
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
+        FfiConverterBool.write(value.directPath, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)

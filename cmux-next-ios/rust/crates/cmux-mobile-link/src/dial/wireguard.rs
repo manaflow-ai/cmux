@@ -231,12 +231,61 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 /// retransmission timeout. The OS caps it (Linux `net.core.rmem_max`).
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
-/// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
-pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+/// The IPv4 TOS byte of the tunnel's UDP with the direct peer path: DSCP EF
+/// (46, expedited forwarding), so Wi-Fi (WMM) and routers that honor it
+/// queue the terminal's keystrokes and echoes as interactive traffic.
+pub(super) const INTERACTIVE_TOS: u32 = 0xB8;
+
+/// Apple's `SO_NET_SERVICE_TYPE` socket option and its responsive
+/// multimedia class (`<sys/socket.h>`; the libc crate does not define
+/// them): the system maps it onto Wi-Fi's video access category and its
+/// own interface queues.
+#[cfg(target_vendor = "apple")]
+mod apple_service_type {
+    pub const SO_NET_SERVICE_TYPE: libc::c_int = 0x1116;
+    pub const NET_SERVICE_TYPE_RV: libc::c_int = 5;
+}
+
+/// Mark `socket`'s datagrams as interactive (direct peer path): DSCP EF in
+/// IP_TOS, and on Apple platforms the responsive multimedia service type.
+/// Best effort: a network or OS that refuses either still carries them.
+pub(super) fn mark_interactive(socket: &socket2::Socket) {
+    if let Err(error) = socket.set_tos_v4(INTERACTIVE_TOS) {
+        tracing::debug!(%error, "IP_TOS refused on the tunnel's UDP socket");
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        let value: libc::c_int = apple_service_type::NET_SERVICE_TYPE_RV;
+        // SAFETY: a valid socket descriptor and a c_int option value of
+        // the size passed.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                apple_service_type::SO_NET_SERVICE_TYPE,
+                std::ptr::from_ref(&value).cast(),
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if result != 0 {
+            tracing::debug!(error = %io::Error::last_os_error(), "SO_NET_SERVICE_TYPE refused on the tunnel's UDP socket");
+        }
+    }
+}
+
+/// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers;
+/// with the direct peer path its datagrams are marked interactive
+/// ([`mark_interactive`]).
+pub(super) fn bind_udp_for(options: &DialOptions) -> io::Result<UdpSocket> {
+    let interactive = options.direct_path;
     let socket =
         socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
     let _ = socket.set_send_buffer_size(UDP_BUFFER);
+    if interactive {
+        mark_interactive(&socket);
+    }
     socket.set_nonblocking(true)?;
     socket.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into())?;
     UdpSocket::from_std(socket.into())
@@ -247,6 +296,14 @@ pub fn primary_local_ip() -> Option<IpAddr> {
     let probe = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     probe.connect("192.0.2.1:9").ok()?;
     probe.local_addr().ok().map(|addr| addr.ip()).filter(|ip| !ip.is_unspecified())
+}
+
+/// Whether `ip` is a tailnet (CGNAT range) address the options keep out of
+/// the offer and the peer's usable endpoints: `exclude_cgnat` asks for it,
+/// and the direct peer path ([`DialOptions::direct_path`]) overrides it, as
+/// a tailnet route is a direct one.
+fn excluded_overlay(ip: IpAddr, options: &DialOptions) -> bool {
+    options.exclude_cgnat && !options.direct_path && super::is_cgnat(ip)
 }
 
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
@@ -289,7 +346,7 @@ fn host_ips(primary: Option<IpAddr>, interfaces: &[IpAddr], options: &DialOption
                 || v4.is_unspecified()
                 || v4.is_multicast()
                 || v4.is_broadcast()
-                || (options.exclude_cgnat && super::is_cgnat(*ip)))
+                || excluded_overlay(*ip, options))
         }
         IpAddr::V6(_) => false,
     };
@@ -334,7 +391,7 @@ async fn resolve_stun(options: &DialOptions) -> Vec<SocketAddr> {
 fn offered(endpoints: impl IntoIterator<Item = SocketAddr>, options: &DialOptions) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for endpoint in endpoints {
-        if options.exclude_cgnat && super::is_cgnat(endpoint.ip()) {
+        if excluded_overlay(endpoint.ip(), options) {
             continue;
         }
         let text = endpoint.to_string();
@@ -444,7 +501,7 @@ fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> 
     endpoints
         .iter()
         .filter_map(|text| text.parse::<SocketAddr>().ok())
-        .filter(|addr| !(options.exclude_cgnat && super::is_cgnat(addr.ip())))
+        .filter(|addr| !excluded_overlay(addr.ip(), options))
         .filter(|addr| turn_reachable(addr, options))
         .collect()
 }
@@ -471,10 +528,7 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
     }
     endpoints
         .iter()
-        .filter(|text| {
-            text.parse::<SocketAddr>()
-                .is_ok_and(|addr| !(options.exclude_cgnat && super::is_cgnat(addr.ip())))
-        })
+        .filter(|text| text.parse::<SocketAddr>().is_ok_and(|addr| !excluded_overlay(addr.ip(), options)))
         .cloned()
         .collect()
 }
@@ -799,7 +853,7 @@ impl HybridUnderlay {
             replay_pending: false,
             recv_waker: None,
             handshake_repeat: None,
-            paths: paths::Paths::new(),
+            paths: paths::Paths::new(options.direct_path),
             selector_held: false,
             last_udp_source: None,
             last_turn_source: None,
@@ -1598,7 +1652,19 @@ impl Underlay for HybridUnderlay {
 
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
-        self.paths.poll(now)
+        self.paths.set_refused_routes(self.options.direct_path && !self.refused.is_empty());
+        let mut due = self.paths.poll(now);
+        // Direct peer path: an upgrade round from the relay retries the
+        // routes the OS refused (macOS Local Network privacy answers
+        // `EHOSTUNREACH` until the person allows it); a route still refused
+        // is refused again at its first probe.
+        if self.paths.take_upgrade_round() && !self.refused.is_empty() {
+            tracing::debug!(routes = self.refused.len(), "WireGuard retries the routes the OS refused");
+            self.refused.clear();
+            self.sync_paths();
+            due.next = Some(now);
+        }
+        due
     }
 
     fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
@@ -1947,7 +2013,7 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let socket = bind_udp().map_err(transport_error)?;
+            let socket = bind_udp_for(options).map_err(transport_error)?;
             let (stun_side, turn_side) = stun_turn_link();
             let (gathered, turn) = tokio::join!(
                 gather_endpoints(&socket, options, Some(stun_side)),
@@ -2136,7 +2202,7 @@ impl Dialer for WireGuardDialer {
                 .parse()
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
-            let socket = bind_udp().map_err(transport_error)?;
+            let socket = bind_udp_for(options).map_err(transport_error)?;
             // A Mac whose network answers no STUN (it drops UDP) takes its
             // own TURN allocation, over TLS when UDP to the server fails too.
             // It starts once STUN has been silent for STUN_SILENT, beside
@@ -2492,6 +2558,43 @@ mod tests {
         assert_eq!(host_ips(None, &interfaces, &no_cgnat), vec![ip("10.88.184.154"), ip("172.20.21.166")]);
     }
 
+    /// The direct peer path marks the tunnel's UDP socket DSCP EF; without
+    /// it the socket keeps the OS default.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn the_direct_path_marks_the_tunnel_socket_interactive() {
+        let tos = |options: &DialOptions| {
+            let socket = bind_udp_for(options).unwrap();
+            socket2::SockRef::from(&socket).tos_v4().unwrap()
+        };
+        assert_eq!(tos(&DialOptions::default()), 0);
+        assert_eq!(tos(&DialOptions { direct_path: true, ..DialOptions::default() }), INTERACTIVE_TOS);
+    }
+
+    /// The direct peer path offers and accepts tailnet endpoints even where
+    /// the host excludes CGNAT addresses (the Mac app sets
+    /// `CMUX_MOBILE_EXCLUDE_CGNAT=1`), so a phone and Mac on one tailnet
+    /// get a direct route.
+    #[test]
+    fn the_direct_path_flag_keeps_tailnet_endpoints_despite_exclude_cgnat() {
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        let interfaces = [ip("10.88.184.154"), ip("100.89.49.105")];
+        let excluded = DialOptions { exclude_cgnat: true, ..DialOptions::default() };
+        let direct = DialOptions { exclude_cgnat: true, direct_path: true, ..DialOptions::default() };
+        assert_eq!(host_ips(None, &interfaces, &excluded), vec![ip("10.88.184.154")]);
+        assert_eq!(host_ips(None, &interfaces, &direct), vec![ip("10.88.184.154"), ip("100.89.49.105")]);
+        let peer = vec![
+            "10.0.0.2:4100".to_owned(),
+            "100.80.2.3:4100".to_owned(),
+            "[fd7a:115c:a1e0::5]:4100".to_owned(),
+        ];
+        assert_eq!(usable_endpoints(&peer, &excluded), vec!["10.0.0.2:4100".to_owned()]);
+        assert_eq!(usable_endpoints(&peer, &direct), peer);
+        let endpoints = [SocketAddr::from(([100, 80, 2, 3], 4100))];
+        assert!(offered(endpoints, &excluded).is_empty());
+        assert_eq!(offered(endpoints, &direct), vec!["100.80.2.3:4100".to_owned()]);
+    }
+
     /// The answering Mac's first handshake initiation goes out when its tunnel
     /// starts, before the phone has a TURN permission for the Mac (the phone
     /// has not seen `wg-resp` yet), so the phone's TURN server drops it. Behind
@@ -2711,7 +2814,7 @@ mod tests {
             }],
             ..DialOptions::default()
         };
-        let socket = bind_udp().unwrap();
+        let socket = bind_udp_for(&DialOptions::default()).unwrap();
         let started = Instant::now();
         let gathered = gather_endpoints(&socket, &options, None).await;
         let took = started.elapsed();
@@ -2726,7 +2829,7 @@ mod tests {
         options: &DialOptions,
         eager: bool,
     ) -> (Gathered, Option<TurnCarrier>, Duration) {
-        let socket = bind_udp().unwrap();
+        let socket = bind_udp_for(&DialOptions::default()).unwrap();
         let (stun_side, turn_side) = stun_turn_link();
         let started = Instant::now();
         let (gathered, turn) = tokio::join!(
