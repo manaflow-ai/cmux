@@ -1652,6 +1652,11 @@ ACP agent: `initialize`, `session/new`, `session/load`, `session/list`, `session
 `session/set_config_option`, `session/close`, `session/delete`. Session ids are acpmux ids;
 a name works anywhere a `sessionId` is expected.
 
+`session/load` replays at most the chat's newest 100,000 records. When it leaves older ones out,
+its answer says so in `_meta.acpmux.replayTruncated: {skipped, total, limit}` (records are numbered
+from 1, so `skipped` older of `total`), and the daemon logs it; page further back with
+`_acpmux/events`.
+
 `session/new` accepts `_meta.acpmux: {agent, name, policy}`. `session/prompt` accepts
 `_meta.acpmux: {steer: true, promptId}`. Its response still comes at the end of the turn and adds
 `_meta.acpmux: {promptId, turnId, turnSeq}`; the prompting connection first gets
