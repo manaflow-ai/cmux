@@ -10,7 +10,7 @@ import Foundation
 /// page that asks to sign in (a password or user name field; Lawrence 2026-11-09), a glass card at its bottom
 /// offers to import sign-ins (cookies) from the most used browser on this Mac. Import
 /// opens Import from Browser with cookies checked, into the tab's profile;
-/// nothing (no keychain) is read before that click. Not Now keeps it away a week; Don't
+/// nothing (no keychain) is read before that click. Not Now keeps it away 30 days; Don't
 /// Show Again turns `browser.import.cookieBanner` off (``CookieBannerSwitch``);
 /// imported cookies end it; it offers itself once per profile (`BrowserImportOfferState`). It reads no browser
 /// data itself: the installed browsers come from Launch Services. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
@@ -109,7 +109,7 @@ final class BrowserImportOfferService {
     /// Import brings the data into it.
     func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         switch choice {
-        case .notNow: update { $0.recordNotNow() }  // kept: no card for a week, also after a relaunch
+        case .notNow: update { $0.recordNotNow() }  // kept: no card for 30 days, also after a relaunch
         case .never: bannerWrite = banner?.set(false) ?? bannerWrite
         case .importCookies:
             // A card left from before browser import was turned off opens and detects nothing.

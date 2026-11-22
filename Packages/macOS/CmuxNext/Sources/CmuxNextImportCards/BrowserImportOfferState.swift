@@ -4,7 +4,7 @@ public import Foundation
 
 /// What the Import Cookies banner remembers outside cmux.json: that cookies
 /// came over (from it, File > Import from Browser or a suggestion card), which
-/// ends it for good, and a Not Now, which keeps it away for a week
+/// ends it for good, and a Not Now, which keeps it away for 30 days
 /// (``notNowInterval``), and the profiles it already showed on, each of which it never asks again by
 /// itself (Leo 2026-11-22: "the whole import sign in to google chrome fires too often"). A small JSON value in the app's user defaults, whose
 /// domain is the bundle id, so each channel (release, nightly, each tagged dev
@@ -22,8 +22,11 @@ public struct BrowserImportOfferState: Codable, Equatable, Sendable {
     /// "it just needs a better lifecycle"). Show Import Cookies Banner asks again. Nil: an older record.
     public var shownOn: Set<String>?
 
-    /// How long a Not Now keeps the card away.
-    public static let notNowInterval: TimeInterval = 7 * 24 * 60 * 60
+    /// How long a Not Now keeps the card away: 30 days (Leo 2026-11-22: "the import from chrome apperaing on
+    /// every single focus and never expiring"). A week came back too soon for a card the person already
+    /// declined; a month is long enough not to nag, short enough that a new Mac or a newly used browser still
+    /// gets one more offer. Never for Chrome ends it for good (`browser.import.cookieBanner`).
+    public static let notNowInterval: TimeInterval = 30 * 24 * 60 * 60
 
     /// A fresh Mac: nothing imported yet.
     public init() {}
@@ -46,7 +49,7 @@ public struct BrowserImportOfferState: Codable, Equatable, Sendable {
 
     /// Whether a browser tab's page may show the banner: the person's own
     /// tab (never incognito, never an agent's) on a page that asks to sign in,
-    /// with no other notice on it, until cookies came over, not in the week after a Not Now, and never on a
+    /// with no other notice on it, until cookies came over, not in the 30 days after a Not Now, and never on a
     /// profile it already showed on.
     /// - Parameter now: The time asked about (tests pass their own).
     public func offers(_ page: BrowserImportOfferPage, now: Date = Date()) -> Bool {
