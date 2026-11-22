@@ -1160,7 +1160,10 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
 
     let deadline = Instant::now() + BOUND;
     let mut old = Link::open_with(addr, &listener.token, deadline, Wants::default()).await.unwrap();
-    let mut new = Link::open_with(addr, &listener.token, deadline, Wants { delta: true, ..Wants::default() }).await.unwrap();
+    let mut new =
+        Link::open_with(addr, &listener.token, deadline, Wants { delta: true, ..Wants::default() })
+            .await
+            .unwrap();
     assert!(
         new.capabilities.iter().any(|c| c == "session-changed-delta-v1"),
         "{:?}",
