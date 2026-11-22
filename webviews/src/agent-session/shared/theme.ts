@@ -73,7 +73,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
   // a look without `slots` (every host today) leaves every slot on its default.
   configureThemeSlots(theme.slots);
-  for (const [key, variable] of Object.entries(agentThemeVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
+  for (const [key, variable] of Object.entries(agentThemeVariables) as Array<
+    [keyof AgentSessionTheme, string | null]
+  >) {
     if (!variable) {
       continue;
     }

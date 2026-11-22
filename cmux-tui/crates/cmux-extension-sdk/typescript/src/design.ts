@@ -11,7 +11,7 @@
 //     export const renderStat = widget(() => WidgetFrame([design.text("numeral", "72°"), design.text("caption", "Lisbon")]))
 
 import { Badge, Button, Divider, HStack, Icon, ProgressView, Spacer, Text, Toggle, VStack, signal, type View } from "./index.ts"
-import { SPACE, TYPE_ROLES } from "./widget.ts"
+import { SPACE, TYPE_ROLES } from "./tokens.ts"
 
 /** The weights a type role may have. */
 export type DesignWeight = "regular" | "medium" | "semibold" | "bold"
