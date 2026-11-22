@@ -136,6 +136,8 @@ final class BrowserHibernation {
     var pageDeadline: Duration = .seconds(2)
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
+    /// Hibernating Chromium pages that kept no leave picture, by why (`snapshot(_:key:)`, `debug.surfaces`).
+    var missingSnapshots: [String: Int] = [:]
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium and WebKit pages in the app).

@@ -131,6 +131,8 @@ enum SurfaceDiagnosticsReport {
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
             "snapshots": JSONValue(hibernation.snapshots.count),
             "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),
+            "snapshot_evicted": JSONValue(hibernation.snapshots.evicted),
+            "snapshot_missing": .object(hibernation.missingSnapshots.mapValues { JSONValue($0) }),
             "wakes": hibernation.wakeLog.json,
         ]
     }
