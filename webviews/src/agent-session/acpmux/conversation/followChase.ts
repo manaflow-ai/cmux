@@ -195,6 +195,30 @@ function sendMsOf(node: HTMLElement, scale: number): number {
   return token ?? MOTION_SEND_MS * scale;
 }
 
+/// SEND-RISE (composerStates.css). Leo, 2026-11-22, after the send pop: "the chat transcript above
+/// doesn't quite smoothly account for things." The pop plays the sent bubble on its own 450 ms
+/// curve while the rows above it, on the 0 send step, jumped up by the room it took in one frame.
+/// With the pop on, the thread rises into that room on the pop's own clock and curve
+/// (`--agent-motion-send-rise`, `--agent-ease-send-rise`), so the rows above, the bubble and its
+/// thinking row move as one motion and rest in the same frame. Off (the default), the rise's clock
+/// is the send step's (0: everything lands at once, as before).
+export function sendRiseMs(node: HTMLElement): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, 1);
+}
+
+function sendRiseMsOf(node: HTMLElement, scale: number): number {
+  const style = node.ownerDocument.defaultView?.getComputedStyle(node);
+  return cssTimeMs(style?.getPropertyValue("--agent-motion-send-rise") ?? "") ?? sendMsOf(node, scale);
+}
+
+/// The rise's curve (`--agent-ease-send-rise`), the send motion's own when the page sets none.
+function sendRiseEase(node: HTMLElement): (progress: number) => number {
+  const raw = node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-ease-send-rise") ?? "";
+  const curve = raw.trim() ? parseBezier(raw.trim()) : undefined;
+  return curve ? (progress) => bezierAt(curve, progress) : sendEase;
+}
+
 /// What `alongsideMove` reads of one animation once: how far its keyframes move a row's `translate`
 /// (px, the y span) and its easing.
 type Slide = { span: number; ease: (progress: number) => number };
@@ -657,8 +681,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
             ? {
                 from: x,
                 at: 0,
-                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendMsOf(node, scale)) / 1000,
-                ease: sendEase,
+                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendRiseMsOf(node, scale)) / 1000,
+                ease: sendRiseEase(node),
                 sent: true,
               }
             : timed && arrived && arrivalLook(node)
