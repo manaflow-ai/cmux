@@ -929,7 +929,7 @@ pub fn rule(
     let present = rules.iter().any(|r| r.as_str() == Some(rule));
     let written = Written {
         agent: Agent::Claude,
-        key: key.clone(),
+        key,
         scope: scope.to_owned(),
         path: path.clone(),
         backup: None,
