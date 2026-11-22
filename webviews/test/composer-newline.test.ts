@@ -184,8 +184,15 @@ await requireBrowserLane("composer-newline.test.ts", async () => {
   };
 
   /** Presses `key` and checks the caret moved to the start of a new line, `text` the prompt after. */
-  async function newLine(page: Page, key: string, expected: { text: string; caret: number; block?: string }) {
+  /// `prepare` runs between the reading before and the key, with no wait between it and the key.
+  async function newLine(
+    page: Page,
+    key: string,
+    expected: { text: string; caret: number; block?: string },
+    prepare?: () => Promise<void>,
+  ) {
     const before = await read(page);
+    await prepare?.();
     await page.keyboard.press(key);
     const after = await read(page);
     expect({ text: after.text, caret: after.caret }).toEqual({ text: expected.text, caret: expected.caret });
@@ -342,9 +349,9 @@ await requireBrowserLane("composer-newline.test.ts", async () => {
         test("right after an input method commits", async () => {
           const page = await newChat(engine);
           await type(page, "say ");
-          await composeAndCommit(page, "こんにちは");
-          // Within ProseMirror's 500 ms after-composition window (its WebKit guard drops this key).
-          await newLine(page, key, { text: "say こんにちは\n", caret: 10 });
+          // The key comes within ProseMirror's 500 ms after-composition window (its WebKit guard drops
+          // any key there), as a person's Shift-Return right after picking a candidate does.
+          await newLine(page, key, { text: "say こんにちは\n", caret: 10 }, () => composeAndCommit(page, "こんにちは"));
           await page.close();
         });
 
