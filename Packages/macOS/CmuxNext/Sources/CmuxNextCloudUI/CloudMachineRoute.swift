@@ -36,15 +36,79 @@ public struct CloudMachineRoute: Sendable {
 
     private let exec: Exec
 
-    public init(exec: @escaping Exec) {
-        self.exec = exec
+    public init(exec: @escaping Exec, start: (@Sendable () async throws -> Void)? = nil) {
+        self.exec = Self.startingWhenStopped(exec, start: start)
         machineID = nil
     }
 
-    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec.
-    public init(api: CloudAPIClient, machineID: String) {
-        exec = { try await api.exec(machineID, command: $0, timeoutMs: $1) }
+    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
+    /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
+    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+        self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
+    }
+
+    /// ``init(api:machineID:start:)`` with its exec given (tests): a machine its start left not running ends the start
+    /// with its reason and Retry on `machineID`, not the route's bare refusal.
+    public init(machineID: String, exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) {
+        let started = Self.startingWhenStopped(exec, start: start)
+        let retried: Exec = { command, timeoutMs in
+            do { return try await started(command, timeoutMs) } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
+                throw CloudMoveFailure(message: await CloudMoveStrings.moveFailed(refusal.text()), retry: .move(machineID: machineID))
+            }
+        }
+        self.exec = start == nil ? started : retried
         self.machineID = machineID
+    }
+
+    /// A refused resume whose own error is the start's answer, never a generic failure with Retry: the person's cancel,
+    /// an approval still pending, a quota, or a plan's refusal (the caller checks the plan's own forms too).
+    public nonisolated static func keepsItsError(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        var code = (error as? CloudAppOpFailure)?.code ?? ""
+        if case .http(_, let sent?, _, _, _) = error as? CloudAPIError { code = sent }
+        // Whole words of the code (`cmux.cloud.plan_required`, `cloud.quota.vm_limit`), so `control_plane` is no plan.
+        return !Set(code.split(whereSeparator: { $0 == "." || $0 == "_" }).map(String.init)).isDisjoint(with: ["approval", "quota", "plan"])
+    }
+
+    /// `exec`, except that a refusal because the machine does not run (`vm_not_running`: the Cloud API's exec and file
+    /// routes run only on a machine whose record reads running) runs `start` and sends the command once more. The start's
+    /// link can be up on a machine whose record does not run: a click's link connect starts a paused machine and answers
+    /// before its record does, and an idle pause can land as the link comes up. The start's route check was the first
+    /// exec there, and its refusal ended the start with "the machine is not running; start it first" (cmux#47638). The
+    /// start runs at most once for every command this exec sends (a later refusal reuses its outcome, never starts again);
+    /// a second refusal, or any other one, is thrown as it came.
+    public static func startingWhenStopped(_ exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) -> Exec {
+        guard let start else { return exec }
+        let once = StartOnce(start)
+        return { command, timeoutMs in
+            do {
+                return try await exec(command, timeoutMs)
+            } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
+                do { try await once.run() } catch { throw StartFailed(error: error) }
+                return try await exec(command, timeoutMs)
+            }
+        }
+    }
+
+    /// The machine's start failed: its error is the route check's answer, thrown at once and never read as a route that
+    /// could not be read (which would update a machine that does not run first).
+    nonisolated struct StartFailed: Error { let error: any Error }
+
+    /// `error` as the route check's caller reads it: a failed start's own error.
+    private nonisolated static func unwrapped(_ error: any Error) -> any Error { (error as? StartFailed)?.error ?? error }
+
+    /// One start, shared by every caller: the first runs it, the others await its outcome.
+    private actor StartOnce {
+        private let start: @Sendable () async throws -> Void
+        private var started: Task<Void, any Error>?
+        init(_ start: @escaping @Sendable () async throws -> Void) { self.start = start }
+        func run() async throws {
+            // task-owner: started; the one start of a route check, awaited by each refusal that needs it
+            let task = started ?? Task { [start] in try await start() }
+            started = task
+            // A cancelled start (the person stopped the chat's start) ends its machine start too.
+            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+        }
     }
 
     /// The machine ``init(api:machineID:)`` named; a ``prepare(_:)`` refusal retries on it.
@@ -78,7 +142,14 @@ public struct CloudMachineRoute: Sendable {
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-        if await serves(), let route = try? await read(family: family) {
+        var checked: (verdict: Verdict, agent: Agent?)?
+        if await serves() {
+            do { checked = try await read(family: family) } catch {
+                // A machine that could not be started, or stays stopped, or a cancel: its own error now, with no update first.
+                if error is StartFailed || error is CloudMoveFailure || error is CancellationError { throw Self.unwrapped(error) }
+            }
+        }
+        if let route = checked {
             if Self.starts(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
                 return
@@ -100,9 +171,14 @@ public struct CloudMachineRoute: Sendable {
             }
             // The update gave the machine no route, but the chat's agent reaches a model anyway: the machine's own sign-in,
             // or the chat's own connection with its launch, to a daemon that takes one.
-            if Self.starts(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection), await serves() {
-                logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's agent signs in by itself or carries its connection")
-                return
+            if Self.starts(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) {
+                if await serves() {
+                    logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's agent signs in by itself or carries its connection")
+                    return
+                }
+                // The chat's connection would reach a model, but the machine's software could not be brought to one that
+                // takes it (Codex's sign-in with ChatGPT needs a daemon from 2026-11-18): say that, not "not routed".
+                if carriesConnection { throw CloudMoveFailure(message: Self.tooOld, retry: machineID.map { .move(machineID: $0) }) }
             }
             if Self.needsConnection(refused.verdict, agent: refused.agent, carriesConnection: carriesConnection) { throw NeedsConnection() }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
@@ -212,7 +288,8 @@ public struct CloudMachineRoute: Sendable {
     /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise, with `family`'s
     /// ``Agent`` reading. An exec that fails (the machine went away, the route timed out) throws its own error.
     public func verify(family: String? = nil) async throws {
-        let route = try await read(family: family)
+        let route: (verdict: Verdict, agent: Agent?)
+        do { route = try await read(family: family) } catch { throw Self.unwrapped(error) }
         guard route.verdict == .ready else { throw Refused(verdict: route.verdict, agent: route.agent) }
     }
 
@@ -236,7 +313,7 @@ public struct CloudMachineRoute: Sendable {
     public nonisolated static var tooOld: String {
         String(localized: "cloud.machineRoute.tooOld",
                defaultValue: "This Cloud machine's software is too old for this cmux and couldn't be updated. Try again in a few minutes, or update cmux.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
 
     nonisolated static func message(_ verdict: Verdict) -> String {
@@ -246,19 +323,19 @@ public struct CloudMachineRoute: Sendable {
         case .unsupported, .invalid:
             String(localized: "cloud.machineRoute.outdated",
                    defaultValue: "This Cloud machine's software couldn't be updated to match this app, so its agents can't reach models. Try again, or use a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         case .noDaemon:
             String(localized: "cloud.machineRoute.noDaemon",
                    defaultValue: "The agent service on this Cloud machine didn't start. Try again in a moment.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         case .holdsCredential:
             String(localized: "cloud.machineRoute.holdsCredential",
                    defaultValue: "This Cloud machine holds its own provider sign-in, so its agents skip the Cloud service's model route. Start the chat on a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         case .notEdge:
             String(localized: "cloud.machineRoute.notEdge",
                    defaultValue: "This Cloud machine's agents aren't routed through the Cloud service yet. Try again, or start the chat on a new machine.",
-                   table: "Cloud", bundle: .module)
+                   table: "Cloud", bundle: .localizedModule)
         }
     }
 }

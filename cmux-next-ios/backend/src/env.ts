@@ -22,6 +22,9 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** A second key of the same team for sandbox sends only (push.ts `signingConfig`): both or neither. */
+  readonly APNS_SANDBOX_KEY_P8?: string
+  readonly APNS_SANDBOX_KEY_ID?: string
   /** Comma-separated bundle ids a phone may register a push token for. */
   readonly APNS_TOPICS?: string
   /** Workers rate limiting bindings (absent in tests that do not configure them). */
@@ -53,6 +56,8 @@ export interface Env {
   readonly STACK_TEST_JWKS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */
   readonly STACK_TEST_TEAMS?: string
+  /** A fake MySQL connection: the store is the MySQL store on it instead of the memory store (test/schema-probe.test.ts). */
+  readonly TEST_MYSQL_CONN?: import("./store-mysql.ts").MysqlConn
   /** JSON {dev, prod}: each deployed environment's APNS_TOPICS from wrangler.jsonc (vitest.config.ts). */
   readonly TEST_DEPLOYED_APNS_TOPICS?: string
 }

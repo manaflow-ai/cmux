@@ -70,6 +70,8 @@ struct World {
     writes: &'static AtomicUsize,
     /// Those of them that wrote a seed bundle (or its part file).
     bundle_writes: &'static AtomicUsize,
+    /// The `git.seed.start` lines the machine was sent, as sent.
+    starts: &'static Mutex<Vec<String>>,
 }
 
 impl World {
@@ -104,7 +106,7 @@ impl World {
         std::fs::create_dir_all(home.join("work")).unwrap();
         let sockets = tempfile::Builder::new().prefix("ls").tempdir_in("/tmp").unwrap();
         let socket = sockets.path().join("m.sock");
-        let (writes, bundle_writes) = serve(&socket, &home, &github, serves);
+        let (writes, bundle_writes, starts) = serve(&socket, &home, &github, serves);
         Self {
             _dir: dir,
             _sockets: sockets,
@@ -115,6 +117,7 @@ impl World {
             socket,
             writes,
             bundle_writes,
+            starts,
         }
     }
 
@@ -184,7 +187,7 @@ fn serve(
     home: &Path,
     github: &Path,
     serves: Serves,
-) -> (&'static AtomicUsize, &'static AtomicUsize) {
+) -> (&'static AtomicUsize, &'static AtomicUsize, &'static Mutex<Vec<String>>) {
     let listener = UnixListener::bind(socket).unwrap();
     let roots = Roots::new([home.to_path_buf()]);
     let fs: &'static FsService = Box::leak(Box::new(FsService::new(roots.clone())));
@@ -194,6 +197,7 @@ fn serve(
         Box::leak(Box::new(GitSeedService::with_test_github(roots, github)));
     let writes: &'static AtomicUsize = Box::leak(Box::default());
     let bundle_writes: &'static AtomicUsize = Box::leak(Box::default());
+    let starts: &'static Mutex<Vec<String>> = Box::leak(Box::default());
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
@@ -219,6 +223,9 @@ fn serve(
                     {
                         blob_fetch::answer_line(Some(fetch), true, &line)
                     } else if git_seed::frame_command(&line).is_some() {
+                        if cmd == "git.seed.start" {
+                            starts.lock().unwrap().push(line.clone());
+                        }
                         if serves != Serves::CopyOnly {
                             git_seed::answer_line(Some(seed), true, &line)
                         } else {
@@ -248,7 +255,7 @@ fn serve(
             });
         }
     });
-    (writes, bundle_writes)
+    (writes, bundle_writes, starts)
 }
 
 const CREDENTIAL: &str = "person-token-for-tests";
@@ -888,5 +895,100 @@ fn a_seed_bundle_goes_over_the_link_without_a_store_or_a_machine_that_fetches_fr
         assert!(w.bundle_writes.load(Ordering::SeqCst) > 0, "the bundle never crossed the link");
         assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
         assert_eq!(files(&remote), files(&w.work));
+    }
+}
+
+impl World {
+    /// `cmux link start-chat copy` of `local` with the chat at `subpath`, projection on (the
+    /// default): its answer line, and the `git.seed.start` lines it sent.
+    fn start_chat(&self, local: &Path, subpath: &str, extra: &[&str]) -> (Value, Vec<String>) {
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
+            .env("CMUX_PROJECTED_FOLDERS", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["link", "start-chat", "copy", "--account", "leo", "--machine", "vm-a"])
+            .args(["--key", "0b0a0b0a-0b0a-4908-8706-0b0a0b0a0b0a"])
+            .arg("--socket")
+            .arg(&self.socket)
+            .arg("--local")
+            .arg(local)
+            .arg("--subpath")
+            .arg(subpath)
+            .arg("--work-root")
+            .arg(self.home.join("work"))
+            .args(extra)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let answer = stdout
+            .lines()
+            .rev()
+            .find_map(|line| serde_json::from_str::<Value>(line).ok())
+            .unwrap_or(Value::Null);
+        assert_eq!(
+            answer["ok"],
+            json!(true),
+            "start-chat copy: {stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (answer, self.starts.lock().unwrap().clone())
+    }
+}
+
+/// A machine without `projection-v1` (every one whose image predates it) gets the start's
+/// folder as before projection: a seed that asks for the chat's head first, so the chat opens
+/// while the machine fills the rest, never after the whole copy. The App's asking start
+/// (`--on-seed-refusal ask`) the same.
+#[test]
+fn a_start_the_machine_cannot_project_seeds_its_head_first_with_the_chats_subpath() {
+    for extra in [&[][..], &["--on-seed-refusal", "ask"][..]] {
+        let w = World::new(Serves::Seed);
+        write(&w.work.join("src/app/main.rs"), "fn main() {}\n");
+        // Off the head: the machine fills it after the chat opens.
+        write(&w.work.join("docs/guide.md"), "guide\n");
+        git(&w.work, &["add", "-A"]);
+        git(&w.work, &["commit", "-q", "-m", "app"]);
+        let (answer, starts) = w.start_chat(&w.work, "src/app", extra);
+        assert_eq!(answer["mode"], json!("seed"), "{extra:?}: {answer}");
+        assert_eq!(starts.len(), 1, "{starts:?}");
+        let start: Value = serde_json::from_str(&starts[0]).unwrap();
+        let params = if start.get("head_first").is_some() { &start } else { &start["params"] };
+        assert_eq!(params["head_first"], json!(true), "{extra:?}: {start}");
+        assert_eq!(params["subpath"], json!("src/app"), "{extra:?}: {start}");
+        // The whole folder is there once the fill is done.
+        let folder = PathBuf::from(answer["folder"].as_str().unwrap());
+        assert!(answer["chat"].as_str().unwrap().ends_with("/widget/src/app"), "{answer}");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !folder.join("docs/guide.md").exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let read = |path: &str| std::fs::read_to_string(folder.join(path)).unwrap();
+        assert_eq!(read("src/app/main.rs"), "fn main() {}\n");
+        assert_eq!(read("docs/guide.md"), "guide\n");
+    }
+}
+
+/// LFS in a folder off the chat's path (`extensions/models/.gitattributes`) no
+/// longer keeps the seed from opening at its head; LFS that can name a head file still does.
+#[test]
+fn only_lfs_that_can_reach_the_head_keeps_a_start_from_its_head() {
+    for (attributes, head_first) in
+        [("extensions/models/.gitattributes", true), (".gitattributes", false)]
+    {
+        let w = World::new(Serves::Seed);
+        write(&w.work.join(attributes), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+        git(&w.work, &["add", "-A"]);
+        git(&w.work, &["commit", "-q", "-m", "lfs"]);
+        let (answer, starts) = w.start_chat(&w.work, "src", &[]);
+        assert_eq!(answer["mode"], json!("seed"), "{attributes}: {answer}");
+        let start: Value = serde_json::from_str(&starts[0]).unwrap();
+        let params = if start.get("lfs").is_some() { &start } else { &start["params"] };
+        assert_eq!(params["lfs"], json!(true), "{attributes}: {start}");
+        assert_eq!(
+            params.get("head_first").is_some_and(|asked| asked == true),
+            head_first,
+            "{attributes}: {start}"
+        );
     }
 }

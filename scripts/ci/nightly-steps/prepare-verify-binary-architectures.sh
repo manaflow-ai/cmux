@@ -3,12 +3,17 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 APP="build-universal/Build/Products/Release/cmux.app"
+# cmux NEXT's code is CmuxNextApp.framework behind the stub Contents/MacOS/cmux (CMUX-629): its slices
+# are the app's. Classic and a static build have no such framework.
+app_code=()
+[ -f "$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" ] &&
+  app_code=("$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp")
 for binary in \
   "$APP/Contents/MacOS/cmux" \
+  ${app_code[@]+"${app_code[@]}"} \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
-  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar"
 do
   archs="$(lipo -archs "$binary")"
   echo "$binary: $archs"
@@ -31,10 +36,9 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
       [ "$archs" = "$NIGHTLY_VARIANT" ]
     fi
   done
-  # And the screen sharing executable, inside the Computer Use helper (one permission identity:
-  # scripts/cmux-next/bundle-screen-sharing-helper.sh --into-computer-use).
-  helpers=("$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing")
-  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing" >&2; exit 1; }
+  # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
+  helpers=("$APP/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Screen Sharing.app" >&2; exit 1; }
   for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"

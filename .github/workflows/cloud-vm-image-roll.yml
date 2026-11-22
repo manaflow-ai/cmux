@@ -62,10 +62,14 @@ concurrency:
   group: "${{ github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') || startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')) && format('cloud-vm-image-roll-own-{0}', github.run_id) || 'cloud-vm-image-roll' }}"
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   platform-readiness:
     if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: cmux-vm-production
     permissions:
@@ -80,6 +84,31 @@ jobs:
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: write
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: manaflow-ai/cmux-platform
@@ -96,11 +125,22 @@ jobs:
     # with LINUX_RUNNER on a 16-vCPU Blacksmith size, roll 44282278310 queued 41 min for plan and 20+ min for promote,
     # each a minute of work, while Blacksmith's vCPU cap had room for a small job. Only the bake needs the big runner.
     # Never on the roll's own commits (they change the lock), and only on feat-cmux-next.
+    # Every roll job (platform-readiness, plan, promote, report, and the bake it calls with roll: true) leads with
+    # cmux-gcp-deploy-jit-x64: production's deploy path, reserved for this workflow and served only by gha-runners'
+    # one-job JIT VMs (one VM per job, deleted after it, one kept warm; cmuxterm-hq gha-runners README "The deploy
+    # label"), so it never queues behind the build backlog. Roll 44506003283's plan waited 13 h for a runner on the
+    # shared labels (2026-11-19), and production's image lagged feat-cmux-next by 38 h. vars.CI_DEPLOY_SKIP_FLEET=1
+    # sends every job back to the labels below.
+    # Before it, attempt 1 took the owned GCP build lane (cmux-gcp-lane-build-x64, the label the nightly tree's short jobs
+    # use): plan holds no secret, no environment and a read-only token, and Blacksmith's vCPU cap with saturated
+    # hosted runners left roll 44351236121's plan queued 6 h 51 min. A re-run takes the pools. platform-readiness
+    # and promote (the production App key), the bake (Freestyle key) and report (a contents: write token) stay
+    # off the shared lane VMs.
     if: >-
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -110,6 +150,31 @@ jobs:
       dry_run: ${{ steps.plan.outputs.dry_run }}
       plan: ${{ steps.plan.outputs.plan }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -122,9 +187,18 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git reset -q --hard HEAD
+          fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Plan the roll
         id: plan
         env:
@@ -180,7 +254,7 @@ jobs:
   promote:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
     environment: cmux-vm-production
@@ -191,14 +265,55 @@ jobs:
       sha: ${{ steps.push.outputs.sha }}
       image: ${{ steps.message.outputs.image }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: feat-cmux-next
-          fetch-depth: 50
+      # Full history without blobs: image-roll-push.sh asks auto-roll.ts behind whether the roll's pin is older
+      # than the tip's, which a shallow window cannot answer (it refuses one). Only feat-cmux-next's: checkout's
+      # fetch-depth 0 took every branch and tag, then fetched the tip's blobs lazily in one request, which GitHub
+      # timed out (HTTP 408, run 44956612935, a good bake dropped). The tip comes with its blobs above.
+      - name: Fetch feat-cmux-next's history without blobs
+        run: |
+          set -euo pipefail
+          # A reused pool workspace can hold full history already, and --unshallow refuses a complete repository.
+          unshallow=()
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+          for try in 1 2 3; do
+            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --filter=blob:none "${unshallow[@]}" origin \
+              +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next && exit 0
+            echo "history fetch try $try failed; retrying"; sleep $((try * 15))
+          done
+          exit 1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Write the roll commit's message
         id: message
         env:
@@ -255,6 +370,29 @@ jobs:
           token: ${{ steps.platform-token.outputs.token }}
           persist-credentials: false
           sparse-checkout: workers/cmux-vm/wrangler.jsonc
+      # cmux-platform's CLOUD_VM_API_IMAGE pins (its root wrangler.jsonc): approve never trims one from a list. Production,
+      # 2026-11-20: the pin was an auto-rolled id a roll trimmed, and a create that booted it answered image_withdrawn.
+      # cmux-bot is installed on every repository (pr-autofix's installation does not have cmux-platform: roll
+      # 44852142963's mint answered 404, 2026-11-20). Read-only, cmux-platform alone.
+      - name: Mint the cmux-platform read token (its image pins)
+        id: pins-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: manaflow-ai
+          repositories: cmux-platform
+          permission-contents: read
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: manaflow-ai/cmux-platform
+          ref: main
+          path: cmux-platform-pins
+          token: ${{ steps.pins-token.outputs.token }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            wrangler.jsonc
       - name: Land the roll commit
         id: push
         env:
@@ -270,7 +408,8 @@ jobs:
           platform_args=()
           if [ -n "$PLATFORM_CHECKOUT" ]; then platform_args+=(--platform-checkout "$PLATFORM_CHECKOUT"); fi
           images/cmux-vm/image-roll-push.sh roll --candidate "$RUNNER_TEMP/candidate.json" --revision "$REVISION" \
-            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN "${platform_args[@]}" | tee "$RUNNER_TEMP/push.out"
+            --run "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --pin "$PIN" --message-file "$RUNNER_TEMP/message.txt" $DRY_RUN "${platform_args[@]}" \
+            --platform-wrangler "$GITHUB_WORKSPACE/cmux-platform-pins/wrangler.jsonc" | tee "$RUNNER_TEMP/push.out"
           tail -1 "$RUNNER_TEMP/push.out" | sed 's/^/Promotion: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the roll commit's diff
         if: always()
@@ -289,13 +428,38 @@ jobs:
   # one open cloud-image-roll issue. The GITHUB_TOKEN writes both; its push to the record branch starts nothing.
   report:
     needs: [plan, bake, promote]
-    if: always() && needs.plan.outputs.roll == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: write
       issues: write
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -311,6 +475,7 @@ jobs:
           SHA: ${{ needs.promote.outputs.sha }}
           IMAGE: ${{ needs.promote.outputs.image }}
           REVISION: ${{ needs.bake.outputs.revision }}
+          LIVE_FAILING: ${{ needs.bake.outputs.live_failing }}
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -330,6 +495,19 @@ jobs:
               rolled_back: false}' \
             | bash images/cmux-vm/image-roll-record.sh "$GITHUB_RUN_ID" || echo "::warning title=Image roll record::the record was not written"
           echo "Outcome: ${outcome}. Record: \`cloud-image-rolls:rolls/${GITHUB_RUN_ID}.json\`." >> "$GITHUB_STEP_SUMMARY"
+          # Checks that fail on the candidate and already failed on the live image warned and did not block: whatever
+          # the outcome, they go on the one open cloud-image-live-failing issue (opened when there is none).
+          if [ -n "${LIVE_FAILING//[[:space:]]/}" ]; then
+            live_body="$(printf 'Cloud VM image roll %s (outcome: %s): these checks fail on the candidate and already failed on the live image, so they warned and did not block. %s\n\n%s\n' "$GITHUB_RUN_ID" "$outcome" "$RUN_URL" "$LIVE_FAILING")"
+            live_issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label cloud-image-live-failing --state open --limit 1 --json number --jq '.[0].number // empty' || true)"
+            if [ -n "$live_issue" ]; then
+              gh issue comment "$live_issue" --repo "$GITHUB_REPOSITORY" --body "$live_body" || echo "::warning title=Cloud VM image roll::the live-failing comment was not posted"
+            else
+              gh label create cloud-image-live-failing --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A Cloud VM image check that already fails on the live image" --force > /dev/null || true
+              gh issue create --repo "$GITHUB_REPOSITORY" --label cloud-image-live-failing --title "Cloud VM image checks already failing on the live image" --body "$live_body" \
+                || echo "::warning title=Cloud VM image roll::the live-failing issue was not filed"
+            fi
+          fi
           case "$outcome" in
             pushed|dry-run|nothing) exit 0 ;;
           esac

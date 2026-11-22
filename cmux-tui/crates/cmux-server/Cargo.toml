@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 cmux-json.workspace = true
 base64.workspace = true
+cmux-build-space.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 # Shared elapsed authority budgets; cmux-link has no server dependency.
@@ -40,5 +41,6 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-build-space = { workspace = true, features = ["testing"] }
 tempfile = "3"
 ring.workspace = true

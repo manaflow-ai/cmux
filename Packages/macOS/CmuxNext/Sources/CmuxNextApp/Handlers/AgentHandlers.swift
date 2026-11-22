@@ -89,7 +89,7 @@ enum AgentHandlers {
                              } else { pane = try context.pane(invocation) }
                              guard let pane else { return }
                              context.services.macScreenTabs.open(try record(), in: pane, focus: ActionRunScope.viewChangeAllowed(), byPerson: byPerson)
-                         }, refusal: { registry.refuse(thrown: $0) }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
+                         }, refusal: { registry.refuse(thrown: $0) }, listedDevices: { [weak services = context.services] in (await services?.devices.readDevices()?.devices ?? []).compactMap { MacScreenListedDevice(name: $0.name, screenAction: $0.screen?.action, reason: $0.screen?.reason) } }, worker: context.services.cmuxRemote.screenSessionWorker).bind(into: registry, paletteRows: { context.services.palette.sources.extraProviders.append($0) })
         context.services.cmuxRemoteActions.bind(into: registry)
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
@@ -126,9 +126,28 @@ enum AgentHandlers {
                 return nil
             }))
         })
+        // Settings › Computer Use › Saved Approvals (the page's own buttons and the CLI): the worker's
+        // approvals, through the daemon's `computer-use-approvals` on this verified app's connection.
+        for id in ["computerUse.approval.forget", "computerUse.approval.set"] as [ActionID] {
+            registry.bindEffect(id, effect: { invocation in
+                guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
+                let decision = invocation["decision"]?.stringValue
+                if id == "computerUse.approval.set", decision != "always", decision != "never" {
+                    return .refused(ComputerUseSessionStrings.noDecision)
+                }
+                let remote = context.services.cmuxRemote
+                // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
+                return .waiting(.externalProcess) {
+                    do { try await remote.editComputerUseApproval(appID: app, decision: id == "computerUse.approval.set" ? decision : nil) } catch {
+                        return ActionWorkFailure(String(describing: error))
+                    }
+                    return nil
+                }
+            })
+        }
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
-        registry.bindAgentPane { invocation in
+        registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
         }
@@ -240,18 +259,18 @@ enum AgentHandlers {
             guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
-        // The focused chat's page takes the keyboard, then opens the model picker, file search,
-        // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
-        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView) -> Void)] = [
-            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { $0.showModelPicker() }),
-            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { $0.showFileSearch() }),
-            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { $0.askSideQuestion() }),
-        ]
+        // The focused chat's page takes the keyboard, then opens the model picker, file search, `/btw`'s side-question composer or a composer
+        // bar control (AgentComposerControl; the person's own Toggle Plan Mode key is its mode switch's gesture). The gate is published live from Debug Settings.
+        let keyboardCommands: [(ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { view, _ in view.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { view, _ in view.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { view, _ in view.askSideQuestion() }),
+        ] + AgentComposerControl.allCases.map { control -> (ActionID, () -> String, (AgentPaneView, ActionInvocation) -> Void) in (control.actionID, { MiscHandlerStrings.pickerNeedsFocus }, { $0.showComposerControl(control, byPerson: $1.isPersonsOwnRun, event: context.services.inputDispatch.event) }) }
         for (id, needsFocus, run) in keyboardCommands {
             registry.bind(id, run: { invocation in
                 guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
                 guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, id) }
-                run(view)
+                run(view, invocation)
             })
         }
         registry.bind("agentPane.createCheckpoint", run: { invocation in
@@ -278,12 +297,12 @@ enum AgentHandlers {
         AgentShareActions(host: context.services).bind(into: registry)
         AgentTeamsLaunch.bind(into: registry, context: context)
         let services = context.services
-        let helper = ComputerUseHelperDaemon.shared
         ComputerUseHandlers.bind(
             into: registry,
-            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
-                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
-                                             confirmRunning: { helper.confirmRunning() }),
+            sessions: CmuxRemoteComputerUseSessions(remote: services.cmuxRemote, ready: { [weak services] in
+                let now = services?.onboarding.computerUseSetup.phase ?? .off
+                guard now == .ready || now == .starting else { throw ComputerUseSessionError.notRunning(ComputerUseSessionStrings.notRunning(now)) }
+            }, refused: { ComputerUseSessionError.failed(ComputerUseSessionStrings.hostRefused("\($0)")) }),
             focus: AppComputerUseFocus(services: services))
     }
 
@@ -548,8 +567,6 @@ enum AgentHandlers {
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            context.services.editorApps.open(opening.url, withApplicationAt: editor)
-        }
+        context.services.editorApps.open(opening, line: invocation.editorLine)
     }
 }

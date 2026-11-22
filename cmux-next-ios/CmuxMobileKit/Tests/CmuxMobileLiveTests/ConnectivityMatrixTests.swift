@@ -50,6 +50,12 @@ private struct World {
     /// Whether a dial started at `t` reaches the Mac, and how long it takes
     /// (a refused dial fails after its time too).
     var dial: (_ t: Duration) -> (ok: Bool, after: Duration, reason: String)
+    /// Whether a probe sent at `t` on the link already up gets through
+    /// (its path carries traffic again). Never, unless a cell says so.
+    var linkCarries: (_ t: Duration) -> Bool = { _ in false }
+    /// When the link already up closes on its own (the Rust link's
+    /// keepalive timeout after its path went silent), if it does.
+    var linkClosesAt: Duration? = nil
 }
 
 /// Runs a `LinkMachine` on virtual time: dials resolve by `world`, retries
@@ -60,6 +66,11 @@ private struct Timeline {
     var now: Duration = .zero
     var phases: [(at: Duration, phase: LinkMachine.Phase)] = []
     var dials = 0
+    /// Links made by a dial after the first: each one re-attaches every
+    /// channel (the coordinator sees `onLink(nil)` then a new link).
+    var newLinks = 0
+    /// Links resumed from standby: nothing re-attached.
+    var resumed = 0
     private var pending: [(at: Duration, event: LinkMachine.Event)] = []
 
     mutating func run(world: World, external: [(Duration, LinkMachine.Event)], until end: Duration) {
@@ -75,8 +86,10 @@ private struct Timeline {
     }
 
     private mutating func apply(_ event: LinkMachine.Event, world: World) {
+        let wasConnected = machine.phase.isConnected
         let effects = machine.handle(event)
         phases.append((now, machine.phase))
+        if case .dialSucceeded = event, !wasConnected, machine.phase.isConnected, dials > 1 { newLinks += 1 }
         for effect in effects {
             switch effect {
             case .dial(let generation, _, _):
@@ -88,10 +101,33 @@ private struct Timeline {
                 pending.append((now + outcome.after, result))
             case .scheduleRetry(let generation, let after):
                 pending.append((now + after, .retryDue(generation: generation)))
-            case .close, .probe, .quickProbe:
+            case .keepStandby:
+                guard let generation = machine.standby else { break }
+                pending.append(standbyOutcome(generation: generation, world: world))
+            case .promoteStandby:
+                resumed += 1
+            case .close, .probe, .quickProbe, .closeStandby:
                 break
             }
         }
+    }
+
+    /// The standby probe loop of `LinkController.keepStandby()` on virtual
+    /// time: a probe that gets through answers in one round trip; one that
+    /// does not times out, then the next goes out after the gap. The link
+    /// closing on its own, or the standby limit, loses it.
+    private func standbyOutcome(generation: Int, world: World) -> (at: Duration, event: LinkMachine.Event) {
+        let rtt: Duration = .milliseconds(50)
+        let limit = now + LinkController.standbyLimit
+        let closes = world.linkClosesAt.map { max($0, now) } ?? limit
+        var t = now
+        while t < min(limit, closes) {
+            if world.linkCarries(t) {
+                return (t + rtt, .standbyAlive(generation: generation, path: .direct, rttMillis: 50))
+            }
+            t += LinkController.standbyProbeTimeout + LinkController.standbyProbeEvery
+        }
+        return (min(limit, closes), .standbyLost(generation: generation))
     }
 
     /// When the machine was first connected at or after `t`.
@@ -286,16 +322,69 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let controller = ScriptedDialer.controller(dialer)
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase.isConnected }
+        let generation = controller.dialGeneration
         let pressure = MemoryPressure(observesSystem: false)
         let owner = NSObject()
         var relieved = 0
         pressure.register(owner) { relieved += 1 }
         pressure.relieve()
-        try await Task.sleep(for: .milliseconds(50))
         report("app_memory_warning", "small", ["dials": dialer.dials, "relieved": relieved])
         #expect(relieved == 1)
         #expect(controller.phase.isConnected)
+        // No dial was started (a dial bumps the generation as it starts), and none was made.
+        #expect(controller.dialGeneration == generation)
         #expect(dialer.dials == 1)
+    }
+
+    /// The network goes dark for 8, 30 or 60 s with no path event (an
+    /// elevator, a dead cell, a 5G to LTE fall that keeps the interface).
+    /// The heartbeat finds the link silent within 5 s and redials; the
+    /// redial hangs on its 25 s dial timeout. Before: the old link is closed
+    /// at once, so recovery waits out that dial and every channel
+    /// re-attaches. After: the old link is kept beside the redial and probed;
+    /// the first probe through resumes it within 1.25 s plus a round trip of
+    /// the network being back, nothing re-attached. Bounded by when the old
+    /// link closes itself: the Rust link's 20 s keepalive today, 45 s with
+    /// it raised (the 60 s blackout is past both and redials).
+    @Test func cellNetworkBlackoutWithNoPathEvent() {
+        let lost: Duration = .seconds(5)
+        let detected = lost + LinkController.heartbeat + LinkController.probeTimeout + LinkController.probeGrace
+        for (blackout, keepalive) in [(8, 20), (30, 20), (30, 45), (60, 45)] {
+            let back = lost + .seconds(blackout)
+            let world = World(
+                dial: { t in t >= lost && t < back ? (false, .seconds(25), timeoutReason) : (true, dialTime, "") },
+                linkCarries: { t in t < lost || t >= back },
+                linkClosesAt: back <= lost + .seconds(keepalive) ? nil : lost + .seconds(keepalive)
+            )
+            var results: [String: Duration] = [:]
+            var reattached: [String: Int] = [:]
+            for (variant, keeps) in [("before", false), ("after", true)] {
+                var timeline = Timeline()
+                timeline.machine.keepsStandby = keeps
+                timeline.run(world: world, external: [
+                    (.zero, .target(studio)),
+                    (detected, .probeFailed(generation: 1, reason: timeoutReason)),
+                ], until: back + .seconds(120))
+                let resumed = timeline.connected(after: detected).map { $0 - back }
+                results[variant] = resumed ?? .seconds(3600)
+                reattached[variant] = timeline.newLinks
+                report("network_blackout_no_path_event", "\(blackout)s-keepalive\(keepalive)s-\(variant)", [
+                    "blackout_s": blackout, "rust_keepalive_s": keepalive,
+                    "flowing_after_back_ms": (resumed?.seconds ?? -1) * 1000,
+                    "channels_reattached": timeline.newLinks, "resumed_from_standby": timeline.resumed, "dials": timeline.dials,
+                ])
+            }
+            let after = results["after"]!
+            if blackout < keepalive {
+                #expect(after <= LinkController.standbyProbeTimeout + LinkController.standbyProbeEvery + .milliseconds(50),
+                        "\(blackout)s: \(after) after the network was back")
+                #expect(reattached["after"] == 0, "\(blackout)s: re-attached channels")
+                #expect(reattached["before"] == 1)
+                #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the resume")
+            } else {
+                #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the redial")
+            }
+        }
     }
 
     // MARK: Host side
@@ -420,10 +509,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         #expect(dialer.forcedRefresh == [false, true], "the second dial must mint a fresh token")
+        let generation = controller.dialGeneration
         for event: LinkMachine.Event in [.foreground, .resume, .macSignaled, .networkChanged, .retryDue(generation: controller.dialGeneration)] {
             controller.send(event)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_at_dial", "small", ["dials": dialer.dials, "status": controller.phase.statusLine(macName: "Studio") ?? ""])
         #expect(dialer.dials == 2, "a signed-out session dialed \(dialer.dials) times")
         #expect(controller.phase == .signedOut)
@@ -439,8 +530,10 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         controller.send(.target(nil))
+        let generation = controller.dialGeneration
         controller.send(.target(.init(macID: "m1", name: "Studio", isOnline: true)))
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_idle_close", "small", ["dials": dialer.dials])
         #expect(dialer.dials == 2, "an idle close and reopen redialed a signed-out session")
         #expect(controller.phase == .signedOut)
@@ -511,7 +604,7 @@ private final class ScriptedDialer: MacLinkDialer, @unchecked Sendable {
 @MainActor
 private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
                         sourceLocation: SourceLocation = #_sourceLocation) async throws {
-    let deadline = ContinuousClock.now + within
-    while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    var deadline = AwakeDeadline(within)
+    while !condition(), deadline.hasTimeLeft() { try await Task.sleep(for: .milliseconds(5)) }
     try #require(condition(), "timed out", sourceLocation: sourceLocation)
 }

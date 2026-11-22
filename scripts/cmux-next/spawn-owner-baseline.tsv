@@ -238,7 +238,7 @@ cmux-tui/crates/cmux-remote/src/http.rs	1
 cmux-tui/crates/cmux-remote/src/identity/auth_database.rs	2
 cmux-tui/crates/cmux-remote/src/link.rs	3
 cmux-tui/crates/cmux-remote/src/provider/iroh.rs	1
-cmux-tui/crates/cmux-remote/src/provider/relay.rs	5
+cmux-tui/crates/cmux-remote/src/provider/relay.rs	4
 cmux-tui/crates/cmux-remote/src/provider/ssh.rs	2
 cmux-tui/crates/cmux-remote/src/service.rs	3
 cmux-tui/crates/cmux-remote/src/session.rs	2
@@ -302,7 +302,6 @@ cmux-tui/crates/cmux-tui/src/link/mod.rs	1
 cmux-tui/crates/cmux-tui/src/link/sync_cli/local.rs	1
 cmux-tui/crates/cmux-tui/src/link/sync_cli/pull.rs	2
 cmux-tui/crates/cmux-tui/src/local_owner.rs	1
-cmux-tui/crates/cmux-tui/src/machine_agent/transport.rs	1
 cmux-tui/crates/cmux-tui/src/machine_provider_transport.rs	1
 cmux-tui/crates/cmux-tui/src/main.rs	1
 cmux-tui/crates/cmux-tui/src/plugin_manager.rs	1

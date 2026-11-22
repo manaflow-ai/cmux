@@ -1128,6 +1128,10 @@ class Remote:
     def argv(self, cmd):
         if self.via == "ssh":
             return ["ssh", "-o", "BatchMode=yes", self.name, cmd]
+        if self.via == "local":
+            # The orchestrator runs on the Mac itself: a lane VM's reach relay carries no stdin,
+            # and the session's signaling goes over the host's and viewer's stdin.
+            return ["/bin/bash", "-c", cmd]
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
@@ -1317,6 +1321,8 @@ class Orchestrator:
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
+            if self.a.encode_profile:
+                setup["encode_profile"] = self.a.encode_profile
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -1408,7 +1414,7 @@ class Orchestrator:
         """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
         t = rec.get("first_frame_times")
         opened = next((x for x in timing if "open_us" in x), None)
-        f = next((x for x in timing if t and x.get("release_us") == t.get("capture_us")), None)
+        f = next((x for x in timing if t and x.get("capture_us", x.get("release_us")) == t.get("capture_us")), None)
         if not (t and opened and f):
             return None
         off_us = offset_ns / 1000.0
@@ -1425,8 +1431,8 @@ class Orchestrator:
             "capture_start": ms(opened["desktop_ready_us"] - opened["open_us"]),
             # the capture's first frame arrives
             "first_capture": ms(arrived - opened["desktop_ready_us"]) if arrived else None,
-            "gate": ms(f["release_us"] - arrived) if arrived else None,
-            "encode": ms(f["encoded_us"] - f["release_us"]),
+            "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
+            "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
             "send": ms(f["sent_us"] - f["encoded_us"]),
             "down": ms(t["complete_ns"] / 1000.0 - (f["sent_us"] - off_us)),
             "decode": ms((t["decoded_ns"] - t["complete_ns"]) / 1000.0),
@@ -1443,7 +1449,7 @@ class Orchestrator:
             if "inject_us" in line:
                 injects.append(line)
             elif "release_us" in line:
-                frames[line["release_us"]] = line
+                frames[line.get("capture_us", line["release_us"])] = line
         injects.sort(key=lambda x: x["inject_us"])
         rows = []
         off_us = offset_ns / 1000.0
@@ -1468,8 +1474,8 @@ class Orchestrator:
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
-                "gate": ms(f["release_us"] - arrived) if arrived else None,
-                "encode": ms(f["encoded_us"] - f["release_us"]),
+                "gate": ms(f.get("encode_start_us", f["release_us"]) - arrived) if arrived else None,
+                "encode": ms(f["encoded_us"] - f.get("encode_start_us", f["release_us"])),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
                 "down": ms(s["complete_ns"] / 1000.0 - v(f["sent_us"])),
@@ -1790,7 +1796,8 @@ def main():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh"], default="reach")
+    r.add_argument("--via", choices=["reach", "ssh", "local"], default="reach",
+                   help="local: both Macs are this one (run the orchestrator on the shared Mac)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")
@@ -1815,6 +1822,9 @@ def main():
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)
     r.add_argument("--max-fps", type=int, default=60)
+    r.add_argument("--encode-profile", choices=("standard", "ultra"),
+                   help="the cmux stack's profile, asked in the setup line as the app's viewer "
+                        "asks it (default: none sent, so the host runs standard)")
     r.add_argument("--clock-count", type=int, default=200)
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))

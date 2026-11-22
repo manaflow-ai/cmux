@@ -7,7 +7,7 @@ import CmuxNextHomeEngine
 extension AppServices: CloudTeamHost {
     func cloudTeamCall(_ path: String, _ body: [String: Any], team: String?) async throws -> [String: Any] { try await feed.call(path, body, team: team) }
     var cloudTeamSignedIn: Bool { cloud.isSignedIn }
-    var cloudTeamID: String? { cloud.isSignedIn ? GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID, userID: cloud.auth.user?.id, stackTeamID: cloud.auth.teamID, managed: cloud.auth.managedTeamID != nil) : nil }
+    var cloudTeamID: String? { cloud.carrierTeam }
     var cloudTeamUserID: String? { (cloud.auth.user?.id).map(cloudTeamWorkerUser) }
     func cloudTeamWorkerUser(_ stackUser: String) -> String { CloudIdentity.workerUserID(stackProjectID: cloud.auth.configuration.stackProjectID, stackUserID: stackUser) }
     var cloudTeamMachineIDs: [String] { machines.cloud.map(\.machineID) }

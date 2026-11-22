@@ -65,6 +65,17 @@ final class EventLog: @unchecked Sendable {
         #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"device_removed"}"#)
             == .sessionRevoked(sessionID: "s1", reason: "device_removed"))
         #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"bye"}"#) == .sessionEnded(sessionID: "s1", reason: "bye"))
+        // P7: a pushed or moved share. Absent fields read as an ordinary ticket (above), malformed ones too.
+        #expect(ticket.pushed == false && ticket.movedFrom == nil)
+        let pushedText = ticketText.replacingOccurrences(of: #""scope":"view"}"#, with: #""scope":"view","pushed":true,"movedFrom":"s0"}"#)
+        var pushed = ticket
+        pushed.pushed = true
+        pushed.movedFrom = "s0"
+        #expect(DeviceHubPush(text: pushedText) == .sessionTicket(pushed))
+        let oddText = ticketText.replacingOccurrences(of: #""scope":"view"}"#, with: #""scope":"view","pushed":"yes","movedFrom":7}"#)
+        #expect(DeviceHubPush(text: oddText) == .sessionTicket(ticket))
+        #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"moved","movedTo":"s2"}"#)
+            == .sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
         #expect(DeviceHubPush(text: #"{"type":"pong"}"#) == .pong)
         #expect(DeviceHubPush(text: #"{"type":"later.thing"}"#) == .unknown("later.thing"))
         #expect(DeviceHubPush(text: "not json") == nil)

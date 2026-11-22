@@ -21,10 +21,12 @@ extension SettingsSchema {
         "appearance.backgroundLight": "domain:backdrop_picture", "appearance.backgroundDark": "domain:backdrop_picture",
         "appearance.backgroundSchedule": "domain:backdrop_schedule",
         "appearance.backgroundLocation": "domain:backdrop_location",
+        "appearance.backgroundMemory": "domain:backdrop_memory",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
         "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
+        "agentPane.display.transcriptTokens": "domain:transcript_tokens",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",
@@ -44,8 +46,7 @@ extension SettingsSchema {
         "appearance.chromeStyle": [.string("default"), .string("flat-sidebar-line")],
         "appearance.focusIndicator": [.string("both")], "browser.hibernation": [.string("moderate")],
         "browser.links.cmdClick": [.string("backgroundTab")], "browser.omnibar.glass": [.string("transparent")],
-        "computerUse.driver": [.string("legacy")], "diff.layout": [.string("unified")],
-        "diff.wordDiffs": [.bool(false)], "focusRing.enabled": [.bool(true)],
+        "diff.layout": [.string("unified")], "diff.wordDiffs": [.bool(false)], "focusRing.enabled": [.bool(true)],
         "layout.defaultColumnWidth": [.number(0.5)], "layout.newColumnWidth": [.string("matchCurrent")],
         "notifications.attention.moveToTop": [.bool(true)], "notifications.attention.style": [.string("blink")],
         "notifications.dismissal": [.string("keystroke"), .string("click")],

@@ -289,6 +289,12 @@ pub struct StartChatPlan {
     pub target_pane: Option<String>,
     pub create_team: Option<String>,
     pub create_sent: bool,
+    /// The route the sent create took (`direct` or `relay`); none: not sent, or sent on the relay
+    /// before routes were kept.
+    pub create_route: Option<String>,
+    /// The ledger keeps a sent create's route (`create-sent --route`): only then may the App send
+    /// a person's own create direct, since a retry must take the first send's route.
+    pub keeps_create_route: bool,
     pub environment_id: Option<String>,
     pub setup: Option<Setup>,
     /// `machine` was made for this send by this plan (the platform's workspace machine it created
@@ -314,6 +320,8 @@ pub fn start_chat_plan(
         target_pane: string(object, "target_pane"),
         create_team: string(object, "create_team"),
         create_sent: boolean(object, "create_sent").unwrap_or(false),
+        create_route: string(object, "create_route"),
+        keeps_create_route: boolean(object, "create_routes").unwrap_or(false),
         environment_id: info.environment_id,
         setup: info.setup,
         made_for_send: string(object, "machine").is_some()
@@ -444,6 +452,14 @@ pub enum Call {
     },
     /// `link machine pin`: the Linux build this client pins.
     MachinePin,
+    /// `inference gateway status --json [--team TEAM]`: a team's inference gateway and the agents it serves now
+    /// (`serves`), which the Cloud start gate counts when nothing of the person's own serves the chat (hq#15762).
+    /// `team`: the backend team the start's machines are made in (the install's own). A team's gateway serves only
+    /// that team's machines, so the gate reads that one, never the active team's (`--team` absent).
+    InferenceGatewayStatus {
+        #[serde(default)]
+        team: Option<String>,
+    },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
         release: bool,
@@ -476,6 +492,9 @@ pub enum Call {
         account: String,
         team: String,
         create_key: String,
+        /// `direct` or `relay`; named only for a ledger that keeps routes (the plan's `keepsCreateRoute`).
+        #[serde(default)]
+        route: Option<String>,
     },
     StartChatCreateRefused {
         key: String,
@@ -667,6 +686,14 @@ pub fn invocation(call: &Call) -> Invocation {
             timeout_seconds: Some(150),
             min_timeout_seconds: None,
         },
+        // One status read on a start's path, before any machine: short, so a slow API costs a start little.
+        Call::InferenceGatewayStatus { team } => {
+            let mut args = words(&["inference", "gateway", "status", "--json"]);
+            if let Some(team) = team {
+                args.extend(words(&["--team", team]));
+            }
+            Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
+        }
         Call::StartChatReservation { release, request } => Invocation {
             args: words(&[
                 "link",
@@ -717,19 +744,25 @@ pub fn invocation(call: &Call) -> Invocation {
             "--create-key",
             create_key,
         ])),
-        Call::StartChatCreateSent { key, account, team, create_key } => ledger(words(&[
-            "link",
-            "start-chat",
-            "create-sent",
-            "--key",
-            key,
-            "--account",
-            account,
-            "--team",
-            team,
-            "--create-key",
-            create_key,
-        ])),
+        Call::StartChatCreateSent { key, account, team, create_key, route } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "create-sent",
+                "--key",
+                key,
+                "--account",
+                account,
+                "--team",
+                team,
+                "--create-key",
+                create_key,
+            ]);
+            if let Some(route) = route {
+                args.extend(words(&["--route", route]));
+            }
+            ledger(args)
+        }
         Call::StartChatCreateRefused { key, account, create_key } => ledger(words(&[
             "link",
             "start-chat",

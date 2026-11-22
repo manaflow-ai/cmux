@@ -25,6 +25,8 @@ struct AccountPage: View {
     let auth: CmuxMobileAuthModel
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
+    /// The account `methods` was loaded for.
+    @State private var methodsUserID: String?
     @State private var confirmsDeletion = false
     /// Apple's subscription page while the App Store warning is up.
     @State private var renewingSubscription: URL?
@@ -128,7 +130,7 @@ struct AccountPage: View {
         // the App Store. This alert stands in for the confirmation above, so
         // its Delete Account deletes.
         .alert(
-            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your App Store subscription will keep renewing", bundle: .module)),
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your subscription keeps renewing", bundle: .module)),
             isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
             presenting: renewingSubscription
         ) { manageURL in
@@ -138,7 +140,7 @@ struct AccountPage: View {
             Button("Delete Account", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store. Deleting your account also signs you out everywhere and can't be undone.", bundle: .module))
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent.", bundle: .module))
         }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -177,7 +179,12 @@ struct AccountPage: View {
     }
 
     private func loadMethods() async {
-        methods = .loading
+        // The page reloads each time it is shown again (a tab switch back to Settings): it keeps
+        // the rows it has instead of swapping them for "Loading" and back, as the Team page does.
+        // Only a first load or another account shows "Loading".
+        let userID = auth.user?.id
+        if case .loaded = methods, methodsUserID == userID {} else { methods = .loading }
+        methodsUserID = userID
         do {
             methods = .loaded(try await auth.signInMethods())
         } catch is CancellationError {
@@ -384,10 +391,19 @@ struct ComposerPage: View {
 struct NotificationsPage: View {
     let settings: SettingsStore
     /// The account's Macs, for per-Mac on and off.
-    var macs: [MacDevice] = []
+    let macs: [MacDevice]
     @State private var permission: NotificationPermission?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+
+    /// `permission` is the answer the Settings root already read, so the page opens with the
+    /// "Allow notifications" value, its footer and the dimmed sections drawn instead of popping
+    /// in a moment later. `refresh()` still reads the system again when the page appears.
+    init(settings: SettingsStore, macs: [MacDevice] = [], permission: NotificationPermission? = nil) {
+        self.settings = settings
+        self.macs = macs
+        _permission = State(initialValue: permission)
+    }
 
     private var push: Bool { BuildCapabilities.current.push }
 
@@ -563,7 +579,7 @@ struct TransportPage: View {
                 }
                 .accessibilityIdentifier("settings.transport.agentCLIHybrid")
             } footer: {
-                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
+                Text("A terminal running an agent CLI such as Claude Code or Codex, or a plain shell, comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. Full-screen programs still come as they are. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
             }
             #if !DEBUG
             Section {

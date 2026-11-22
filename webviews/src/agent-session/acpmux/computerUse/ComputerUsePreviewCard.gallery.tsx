@@ -110,7 +110,7 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
       {/* With Session Info open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
       <div className="acpmux-main" data-cu-preview={shown && !sessionInfo ? "" : undefined}>
         <div className="acpmux-stage" style={{ height: "100%" }}>
-          <ComputerUsePreviewCard preview={shown} onOpen={() => {}} onClose={() => setClosed(true)} />
+          <ComputerUsePreviewCard preview={shown} onClose={() => setClosed(true)} />
           {chat && (
             <div style={{ position: "relative", flex: 1, marginTop: 52 }}>
               <div className="acpmux-row acpmux-user" style={{ top: 0 }}>
@@ -124,6 +124,13 @@ function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
     </div>
   );
 }
+
+/// A click on the card: it enlarges.
+const expand =
+  (name: string): Play =>
+  async (ctx) => {
+    await ctx.click({ role: "button", name });
+  };
 
 /// The close button hovered: a little brighter and a little larger.
 const closeHover: Play = async (ctx) => {
@@ -173,6 +180,10 @@ export default componentEntry<Props>({
       note: "Only the agent's cursor: the helper's dart at the window's scale, at its last click, as before. The person's pointer is not over the window.",
       props: { preview: { ...running, telepointers: { agent: { x: 0.83, y: 0.9, visible: true, idle: false } } } },
     },
+    "agent-only-before": {
+      note: "Before: between the agent's actions its cursor was gone, so the window showed no sign of the agent while it thought. Now the cursor stays at its last click until the turn ends (agent-only).",
+      props: { preview: { ...running, pointer: undefined } },
+    },
     "both-pointers": {
       note: "Co-driving: the agent's cursor at the = key and the person's pointer over the display, a plain arrow in the page's text tone labelled You on a small-radius rect. Both are metadata over the frame, never in its pixels; the agent's cursor draws on top.",
       props: { preview: withPerson },
@@ -215,6 +226,16 @@ export default componentEntry<Props>({
       note: "The close button hovered: its fill a little brighter, scaled up a little. The card itself does not move on hover.",
       props: { preview: running },
       play: closeHover,
+    },
+    expanded: {
+      note: "A click on the card enlarges it over the chat's top right (as the Codex app does); another click shrinks it back.",
+      props: { preview: running, chat: true },
+      play: expand("Calculator, live"),
+    },
+    "expanded-done": {
+      note: "Enlarged when the agent's Computer Use ended: the last frame, dimmed, with the check.",
+      props: { preview: { ...running, done: true } },
+      play: expand("Calculator, done"),
     },
     close: {
       note: "A close: the card fades and scales down, then it is gone.",

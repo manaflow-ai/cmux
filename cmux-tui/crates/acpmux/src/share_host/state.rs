@@ -56,10 +56,17 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 static RUNNING: OnceLock<Arc<Shared>> = OnceLock::new();
 static NOT_RUNNING: Mutex<Option<NotRunning>> = Mutex::new(None);
+/// On Linux: how setting up cmux-rd's host went (`super::linux::status_json`).
+static LINUX: Mutex<Option<Value>> = Mutex::new(None);
 
 /// Records why this daemon runs no share host.
 pub(crate) fn not_running(why: NotRunning) {
     *lock(&NOT_RUNNING) = Some(why);
+}
+
+/// Records the state of this Linux machine's cmux-rd host.
+pub(crate) fn linux(status: Value) {
+    *lock(&LINUX) = Some(status);
 }
 
 impl Shared {
@@ -182,15 +189,19 @@ pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {
         return shared.status_json();
     }
+    if let Some(status) = lock(&LINUX).clone() {
+        return status;
+    }
     let why = lock(&NOT_RUNNING).clone();
-    not_running_json(why.as_ref(), cfg!(target_os = "macos"))
+    not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
 }
 
-/// The status of a share host that does not run, and why.
-pub(crate) fn not_running_json(why: Option<&NotRunning>, mac: bool) -> Value {
+/// The status of a share host that does not run, and why. `supported`: this daemon's system has
+/// a share host (macOS, Linux).
+pub(crate) fn not_running_json(why: Option<&NotRunning>, supported: bool) -> Value {
     let (state, detail) = match why {
         Some(why) => (why.code, why.detail.clone()),
-        None if !mac => ("unsupported", "the share host runs on macOS".to_owned()),
+        None if !supported => ("unsupported", "the share host runs on macOS and Linux".to_owned()),
         None => ("not_started", "this daemon did not start the share host".to_owned()),
     };
     json!({"schema": SCHEMA, "running": false, "state": state, "detail": detail})
