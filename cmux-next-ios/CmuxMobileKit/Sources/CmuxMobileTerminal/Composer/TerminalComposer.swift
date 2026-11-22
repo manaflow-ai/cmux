@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// container with the send circle inside it, riding the last line. Picked
 /// attachments sit inside the field, above the text and starting where it
 /// starts (Messages, ChatGPT, Claude). Voice mode has no button unless the
-/// user turns one on (Settings → Chief Calls; Leo, 2026-11-22: "im hiding
+/// user turns one on (Settings → Composer; Leo, 2026-11-22: "im hiding
 /// this by default"); then it is the send circle while the draft is empty, or
 /// a circle left of the field. Why each control is here, with sources:
 /// cmuxterm-hq docs/design/ios-composer-controls.md. Send delivers the draft as one

@@ -39,7 +39,7 @@ public struct VoiceCallVoice: Hashable, Sendable, Identifiable {
 /// Where a composer shows the voice mode button. Off by default (Leo,
 /// 2026-11-22: "im hiding this by default"): voice mode runs on the user's
 /// own OpenAI key, so a button shown to everyone is a button most people
-/// can't use. Turned on in Settings → Chief Calls, never a dead button.
+/// can't use. Turned on in Settings → Composer, never a dead button.
 public enum ComposerVoicePlacement: String, CaseIterable, Sendable, Identifiable {
     /// No voice button (the default).
     case off

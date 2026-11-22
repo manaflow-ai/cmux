@@ -87,22 +87,6 @@ struct ChiefCallsPage: View {
             }
 
             Section {
-                Picker(selection: $preferences.composerVoice) {
-                    ForEach(ComposerVoicePlacement.allCases) { placement in
-                        Text(placement.title).tag(placement)
-                    }
-                } label: {
-                    SettingsLabel("Voice Button", symbol: "waveform.circle")
-                }
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("settings.chiefCalls.composerVoice")
-            } header: {
-                Text("Composer")
-            } footer: {
-                Text("Adds a voice mode button to the composer. Voice mode reads the agent’s replies aloud and sends what you say, using your OpenAI key. To dictate into the field, use the keyboard’s microphone.")
-            }
-
-            Section {
                 LinkRow("Get an API key", symbol: "key", url: "https://platform.openai.com/api-keys")
                 LinkRow("Usage and billing", symbol: "chart.bar", url: "https://platform.openai.com/usage")
             }

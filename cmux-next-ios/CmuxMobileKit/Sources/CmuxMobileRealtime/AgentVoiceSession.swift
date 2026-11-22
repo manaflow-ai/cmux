@@ -406,7 +406,7 @@ public final class AgentVoiceLauncher {
     }
 
     /// Where the composers show the voice button: off when signed out or
-    /// while the user hasn't turned it on (Settings → Chief Calls).
+    /// while the user hasn't turned it on (Settings → Composer).
     public var placement: ComposerVoicePlacement {
         handler == nil ? .off : preferences.composerVoice
     }

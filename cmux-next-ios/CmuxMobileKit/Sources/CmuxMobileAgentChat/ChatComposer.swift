@@ -252,7 +252,7 @@ struct ChatComposer: View {
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice
                 // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                // Hidden unless turned on in Settings → Chief Calls (Leo, 2026-11-22: "im
+                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
                 // hiding this by default"); "Left of Field" puts it after +.
                 let voiceInSend = voice.placement == .sendButton
                 if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }

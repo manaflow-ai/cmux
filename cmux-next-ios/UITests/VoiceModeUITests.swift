@@ -7,7 +7,7 @@ import XCTest
 /// turn, and each reading voice mode asks for is played back as captions, which must never hold
 /// code or a diff.
 ///
-/// The button is hidden unless turned on (Settings → Chief Calls → Voice Button; Leo, 2026-11-22:
+/// The button is hidden unless turned on (Settings → Composer → Voice Button; Leo, 2026-11-22:
 /// "im hiding this by default"), so these launches turn it on with `-composer.voiceButton`.
 ///
 /// The frames attached while it runs (`voice-chat-NNN`, `voice-terminal-NNN`) are the recording.
