@@ -78,6 +78,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var noCardPictures: Bool
     /// `CMUX_MOBILE_LIST_GIANT=1`: giant pasted-log prompts (`MockStressContent.giantPrompt`).
     public var giant: Bool
+    /// `CMUX_MOBILE_LIST_TALL_ANSWER=1` (chat): the newest answer is the 240-line log.
+    public var tallAnswer: Bool
     /// `CMUX_MOBILE_LIST_REFRESH_SECONDS=S`: a mock pull to refresh lasting S seconds.
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
@@ -119,6 +121,7 @@ public struct ListStressSettings: Equatable, Sendable {
         plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
         noCardPictures = environment["CMUX_MOBILE_LIST_NO_CARD_PICTURES"] == "1"
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
+        tallAnswer = environment["CMUX_MOBILE_LIST_TALL_ANSWER"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
         filter = environment["CMUX_MOBILE_LIST_FILTER"]

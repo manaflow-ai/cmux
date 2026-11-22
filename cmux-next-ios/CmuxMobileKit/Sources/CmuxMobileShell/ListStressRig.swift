@@ -42,6 +42,8 @@ final class ListStressRig: NSObject {
 
     static func runIfConfigured(shell: ShellModel) async {
         let settings = ListStressSettings.shared
+        // A main thread busy for 2 s records its stack (UI tests attach it).
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_STALL_WATCHDOG"] == "1" { MainStallWatchdog.start() }
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
         running = rig

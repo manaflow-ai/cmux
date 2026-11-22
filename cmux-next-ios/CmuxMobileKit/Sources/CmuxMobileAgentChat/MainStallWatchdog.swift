@@ -9,7 +9,7 @@ import os
 /// each time it has not run a turn for 2 s: the watchdog thread pings the main queue, and when
 /// the ping goes unanswered it signals the main thread, whose handler records its own stack.
 /// A diagnostic for the list rig (`CMUX_MOBILE_STALL_WATCHDOG=1`), never a product path.
-enum MainStallWatchdog {
+public enum MainStallWatchdog {
     private static let log = Logger(subsystem: "dev.cmux.mobile", category: "stall")
     private static let depth: Int32 = 128
     nonisolated(unsafe) private static var mainThread: pthread_t?
@@ -34,7 +34,7 @@ enum MainStallWatchdog {
 
     /// Starts once, from the main thread.
     @MainActor
-    static func start() {
+    public static func start() {
         guard !started else { return }
         started = true
         mainThread = pthread_self()
