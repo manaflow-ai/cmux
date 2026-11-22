@@ -52,8 +52,6 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
-        // The language cmux's own text is in; ends no work.
-        "app.language",
         "tabs.overflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
@@ -68,7 +66,7 @@ extension SettingsSchema {
         // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
         "agents.modelRouter.model",
         "layout.minimumPaneWidth", "layout.minimumPaneHeight", "appearance.theme", "appearance.appTheme",
-        "appearance.accent",
+        "appearance.accent", "appearance.selection",
         // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork
         "appearance.iconTheme",
         // The app's one selected-text color (looks only)
@@ -92,7 +90,7 @@ extension SettingsSchema {
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
         "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
-        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.twoTone", "appearance.cornerFlush",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.cornerFlush",
         "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
         "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
         "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",
@@ -123,9 +121,9 @@ extension SettingsSchema {
         "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "sidebar.showProjects",
         "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
-        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
-        "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
-        "browser.showLoadingBar",
+        "sidebar.groupBy", "sidebar.nav", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+        "browser.defaultEngine", "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar",
+        "browser.vimKeys", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
@@ -147,7 +145,7 @@ extension SettingsSchema {
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
         "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
-        "experiments.agentBadgesBeam",
+        "experiments.agentBadgesBeam", "experiments.toastsV2",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.

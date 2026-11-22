@@ -77,5 +77,17 @@ class ReadTest(unittest.TestCase):
             self.assertEqual(run([(200, bad)])[0], "none", bad)
 
 
+class WorkflowCallsIt(unittest.TestCase):
+    def test_every_stub_call_runs_without_gnu_timeout(self):
+        # Mac runners have no GNU timeout: "timeout: command not found" made every stub word "none", so each
+        # head compiled twice (2026-11-21 from 18Z). The script bounds its own wait (--wait) and the job has
+        # timeout-minutes.
+        wf = Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml"
+        calls = [l for l in wf.read_text().splitlines() if "python3 scripts/ci/fleet_compile_result.py" in l]
+        self.assertTrue(calls)
+        for line in calls:
+            self.assertNotRegex(line, r"\btimeout\s+\d", line.strip())
+
+
 if __name__ == "__main__":
     unittest.main()
