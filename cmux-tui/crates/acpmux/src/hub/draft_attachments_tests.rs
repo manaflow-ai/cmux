@@ -69,20 +69,21 @@ async fn keep(hub: &Hub, session: &Session) {
     assert_eq!(held, ["img-1", "paste-3", "pdf-2"], "contents held for every chip");
 }
 
-/// App or daemon restart: a new hub on the same folder reads the chips back.
+/// App or daemon restart: the chips are on disk in the chat's folder, and a new daemon's read
+/// of that folder (`draft_attachments`, which holds nothing in memory) brings them back. The
+/// text's own restart is `durable_gate_tests.rs` ("the draft after the kill"); the store's
+/// journal stays held by this process, so the reopen reads the folder as the next daemon does.
 #[tokio::test]
 async fn draft_attachments_survive_a_restart() {
     let dir = tempfile::tempdir().unwrap();
-    {
-        let hub = disk_hub(dir.path());
-        let s = chat(&hub, "restart");
-        keep(&hub, &s).await;
-        hub.store.save(&s.meta()).unwrap();
-    }
     let hub = disk_hub(dir.path());
     let s = chat(&hub, "restart");
-    let kept = hub.draft_attachments(&s).await;
+    keep(&hub, &s).await;
+    let folder = hub.store.session_path("restart").unwrap().join(DIR);
+    assert!(folder.join(LIST).is_file(), "kept on disk");
+    let kept = read(&folder);
     assert_in_place(&hub, &s, &kept);
+    assert_eq!(hub.draft_attachments(&s).await, kept, "the daemon reads the folder");
 }
 
 /// Session switch (A, then B, then A again) and a pane move or second client: each chat reads

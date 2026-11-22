@@ -170,6 +170,7 @@ import {
   composerDraft,
   DRAFT_SETTLE_MS,
   notifyDraftActionsChanged,
+  onDraftActionsChanged,
   useDraftActionsVersion,
   hasPendingDraftWrite,
   readDurableDraftState,
@@ -236,6 +237,7 @@ import {
   remoteRecordingAttachment,
 } from "./attachments";
 import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
+import { draftAttachmentsStore } from "./composer/draftAttachmentsStore";
 import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
@@ -1159,9 +1161,9 @@ const postNewChatDraft = () =>
   postUnsentDraft(
     [...newChatDraft.kept, ...newChatDraft.held, newChatDraft.typed].filter((part) => part.trim()).join("\n\n"),
   );
-/// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
-/// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
-const keptAttachments: KeptAttachments = {
+/// The host's store of each chat's unsent chips (AgentPaneDraftAttachments.swift), where they lived
+/// before acpmux kept them. A host without the store (the gallery, an older app) keeps none.
+const hostKeptAttachments: KeptAttachments = {
   read: (sessionId) =>
     callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
       (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
@@ -1170,6 +1172,22 @@ const keptAttachments: KeptAttachments = {
   write: (sessionId, attachments) =>
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
 };
+/// Each chat's unsent chips, kept by acpmux with the chat's session so reopening, restoring, a
+/// restart or another client brings them back; an older daemon's page keeps them with the host
+/// (composer/draftAttachmentsStore.ts).
+const keptAttachments: KeptAttachments = draftAttachmentsStore(
+  () => {
+    const actions = window.cmuxAcpmuxActions;
+    const read = actions?.["chat.readDraftAttachments"];
+    const write = actions?.["chat.writeDraftAttachments"];
+    return {
+      read: read && ((sessionId) => read({ sessionId })),
+      write: write && ((sessionId, attachments) => write({ sessionId, attachments })),
+    };
+  },
+  hostKeptAttachments,
+  { actionsChanged: onDraftActionsChanged },
+);
 /// The host names the tab a page a tab adopted after its handshake now is (``setSessionInfoTab``).
 const PANE_TAB_EVENT = "acpmux-pane-tab";
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj): the host
@@ -9871,6 +9889,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
           "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+          "chat.readDraftAttachments": ({ sessionId }) => client.readDraftAttachments(String(sessionId)),
+          "chat.writeDraftAttachments": ({ sessionId, attachments }) =>
+            client.writeDraftAttachments(String(sessionId), Array.isArray(attachments) ? attachments : []),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
