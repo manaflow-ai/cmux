@@ -152,14 +152,14 @@
         {
           "key": "agents.chats.archiveInactive",
           "name": "archiveInactive",
-          "note": "The local daemon archives sessions using the same timestamp tag as the chat menu. Never (zero days) disables the pass.",
+          "note": "Never by default (Leo, 2026-11-18: \"there's the archived/settled chats for it, etc\", the Claude app's Archive inactive sessions). A number of days: the acpmux daemon archives every chat with no activity for that long (tags archived=<ms> and archivedBy=auto), never one that is running or waiting, has background commands or subagents, is pinned or is a side chat; a pass every 10 minutes, read from the settings file at each pass (cmux-tui acpmux hub/inactive_archive.rs). The daemon also reads a plain number of days.",
           "title": {
             "key": "settings.chats.archiveInactive",
             "text": "Archive Inactive Chats"
           },
           "help": {
             "key": "settings.chats.archiveInactive.help",
-            "text": "Move inactive local chats to the archive. Pinned chats, nested chats and chats with work in progress stay in place."
+            "text": "Archives chats after a period of no activity. Chats that are running or have background work never are."
           },
           "kind": "choice",
           "choices": [
@@ -178,10 +178,10 @@
               }
             },
             {
-              "value": "2d",
+              "value": "3d",
               "title": {
-                "key": "settings.choice.archiveInactiveTwoDays",
-                "text": "After 2 Days"
+                "key": "settings.choice.archiveInactiveThreeDays",
+                "text": "After 3 Days"
               }
             },
             {
@@ -189,13 +189,6 @@
               "title": {
                 "key": "settings.choice.archiveInactiveSevenDays",
                 "text": "After 7 Days"
-              }
-            },
-            {
-              "value": "14d",
-              "title": {
-                "key": "settings.choice.archiveInactiveFourteenDays",
-                "text": "After 14 Days"
               }
             },
             {

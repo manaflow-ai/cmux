@@ -32,12 +32,6 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
             if let Some(set) = set {
-                if set
-                    .keys()
-                    .any(|key| super::inactive_archive::PARENT_TAGS.contains(&key.as_str()))
-                {
-                    self.archive_tree_revision.fetch_add(1, Ordering::SeqCst);
-                }
                 for (k, v) in set {
                     let value = match v {
                         Value::String(s) => s.clone(),
@@ -49,11 +43,17 @@ impl Hub {
             for k in remove {
                 m.tags.remove(k);
             }
+            // The automatic archive's marker describes that archive only: any other change of
+            // `archived` (an unarchive, an archive by hand, a `_acpmux/tag` write) drops it
+            // (`inactive_archive.rs`).
+            use super::inactive_archive::{ARCHIVED_BY_TAG, ARCHIVED_TAG};
+            let sets = |key: &str| set.is_some_and(|set| set.contains_key(key));
+            if (sets(ARCHIVED_TAG) || remove.iter().any(|k| k == ARCHIVED_TAG))
+                && !sets(ARCHIVED_BY_TAG)
+            {
+                m.tags.remove(ARCHIVED_BY_TAG);
+            }
         }
-        self.persist_tags(session)
-    }
-
-    pub(super) fn persist_tags(&self, session: &Session) -> Result<(), RpcError> {
         self.child_tags.note(session);
         self.lane_tags_changed(session);
         // The line first, then the metadata: with the event journal, a crash keeps records as a

@@ -158,7 +158,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. Days unused before a chat is compressed. Busy chats never are. |
-| `agents.chats.archiveInactive` | string | `"never"` | `never`, `1d`, `2d`, `7d`, `14d`, `30d` | Archive Inactive Chats. Move inactive local chats to the archive. Pinned chats, nested chats and chats with work in progress stay in place. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. Listed under Locations. Use full or ~/ paths. |
 | `screenshots.findTools` | boolean | `true` |  | Find Screenshot Apps. Also shows the folders of apps like CleanShot X and Shottr. |

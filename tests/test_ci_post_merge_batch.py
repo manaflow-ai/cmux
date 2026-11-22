@@ -10,6 +10,8 @@ import tempfile
 import unittest
 import unittest.mock
 from argparse import Namespace
+from unittest import mock
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -345,7 +347,11 @@ class StartBranchTest(unittest.TestCase):
     def test_creates_the_ref_at_the_tip(self) -> None:
         calls = []
         pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
-        self.assertEqual(calls, [("repos/o/r/git/refs", {"method": "POST", "fields": {"ref": "refs/heads/revert/x", "sha": "abc"}})])
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "push", "GH_TOKEN": "job"}):
+            pmb.start_branch("o/r", "revert/y", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls[0][0], "repos/o/r/git/refs")
+        self.assertEqual(calls[0][1]["fields"], {"ref": "refs/heads/revert/x", "sha": "abc"})
+        self.assertEqual(calls[1][1]["tokens"], ["push"])
 
     def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
         def exists(path, **kw):
@@ -357,7 +363,24 @@ class StartBranchTest(unittest.TestCase):
             raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
 
         with self.assertRaises(RuntimeError):
-            pmb.start_branch("o/r", "revert/x", "abc", api=denied)
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied, sleep=lambda s: None)
+
+    def test_a_github_5xx_is_retried_then_raises(self) -> None:
+        tries, waits = [], []
+
+        def flaky(path, **kw):
+            tries.append(1)
+            if len(tries) < 2:
+                raise RuntimeError("gh api POST repos/o/r/git/refs: gh: Server Error (HTTP 502)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=flaky, sleep=waits.append)
+        self.assertEqual((len(tries), waits), (2, [15]))
+
+        def down(path, **kw):
+            raise RuntimeError("gh: Server Error (HTTP 502)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=down, sleep=lambda s: None)
 
 
 if __name__ == "__main__":

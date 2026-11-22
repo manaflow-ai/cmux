@@ -1,134 +1,191 @@
-//! Apply the chat menu's reversible archive tag to inactive local sessions.
+//! Part of `Hub`; see `hub/mod.rs`. Archived chats, and the automatic archive of inactive ones.
+//!
+//! Leo, 2026-11-18: "there's the archived/settled chats for it, etc", of the Claude app's Code
+//! tab, whose setting reads "Archive inactive sessions: Automatically archive local sessions
+//! after a period of no activity. Sessions that are running or have background work are never
+//! archived".
+//!
+//! A chat is archived while it carries the tag `archived` (not past an expiry), valued with when
+//! (Unix ms): the lists leave it out (webviews `sessionList.ts`, the app's `AgentChatDetail`),
+//! `acpmux ls --archived` lists it. `_acpmux/archive` and `acpmux archive` / `acpmux unarchive`
+//! set or remove it through [`Hub::set_archived`]. One the daemon archived on its own also
+//! carries `archivedBy=auto`, so a list can say so; any other change of `archived` (an unarchive,
+//! an archive by hand, a `_acpmux/tag` write) drops that marker (`tags.rs`).
+//!
+//! With `agents.chats.archiveInactive` set to a number of days (`never`, the default, is off), a
+//! pass [`FIRST_PASS_AFTER`] after the daemon read its chats, then every [`PASS_EVERY`], archives
+//! each chat with no activity for that long: its `updatedAt`,
+//! which every logged record moves (a prompt, a reply, a status, a tag change). So an unarchive,
+//! which logs its tag change, starts a new period: the chat is not archived again until it has
+//! been inactive that long since. A chat is never archived while it works or waits on someone
+//! (its turn, queue, a pending permission or question, a background command or subagent, a
+//! continuation, work below it, a move or a load), nor when it is pinned or a side chat
+//! ([`Hub::inactive_archivable`]). A pass reads the setting from the settings file each time,
+//! visits every chat once without sorting (O(chats), metadata only, no log read), archives at
+//! most [`PASS_MAX`] (the rest go on the next pass), and stops between two chats at a shutdown.
+//!
+//! The worker holds the hub weakly and runs in the hub's scope, so it ends with the daemon (its
+//! stop condition): the scope's cancel at shutdown, a shutdown begun, or the hub gone.
 
-use super::plan_build::ARCHIVED_TAG;
 use super::*;
-use std::collections::HashSet;
-use std::time::Duration;
 
-const SETTING: &str = "agents.chats.archiveInactive";
-const PASS_EVERY: Duration = Duration::from_secs(10 * 60);
-const FIRST_PASS_AFTER: Duration = Duration::from_secs(60);
+/// The tag an archived chat carries, valued with when (webviews `sessionList.ts` `ARCHIVED_TAG`).
+pub(crate) use super::plan_build::ARCHIVED_TAG;
+/// Who archived it, when not the person: `auto` for this pass.
+pub(crate) const ARCHIVED_BY_TAG: &str = "archivedBy";
+/// [`ARCHIVED_BY_TAG`]'s value for a chat this pass archived.
+pub(crate) const ARCHIVED_BY_AUTO: &str = "auto";
+/// After how many days of no activity a chat is archived on its own; `never` (the default) is off.
+pub(crate) const SETTING: &str = "agents.chats.archiveInactive";
+/// How often a pass runs: the threshold is days, so a chat is archived at most this late.
+const PASS_EVERY: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// The first pass: soon after a start, so a daemon restarted often still passes, but never in the
+/// start's own busy seconds.
+const FIRST_PASS_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+/// The most chats one pass archives: the first pass after the setting is turned on may find
+/// thousands; each is a metadata save.
 const PASS_MAX: usize = 200;
+/// The tags that keep a chat out of the automatic archive: pinned, and side chats (and an aside's
+/// throwaway copy), which no list shows anyway.
+const KEPT_TAGS: [&str; 3] = ["pinned", "side", "aside"];
 
-fn archive_after(doc: &Value) -> Option<Duration> {
+/// How long a chat stays inactive before a pass archives it, from the settings document; None
+/// when the setting is `never`, absent or not a positive number of days (`7`, `"7"`, `"7d"`).
+pub(crate) fn archive_after(doc: &Value) -> Option<std::time::Duration> {
     let days = match crate::user_settings::value(doc, SETTING)? {
-        Value::String(s) => s.strip_suffix('d').unwrap_or(&s).parse::<u64>().ok()?,
         Value::Number(n) => n.as_u64()?,
+        Value::String(s) => {
+            let s = s.trim();
+            s.strip_suffix('d').unwrap_or(s).parse::<u64>().ok()?
+        }
         _ => return None,
     };
-    matches!(days, 1 | 2 | 7 | 14 | 30).then(|| Duration::from_secs(days * 86_400))
+    (days > 0).then(|| std::time::Duration::from_secs(days.saturating_mul(86_400)))
 }
 
-fn live_tag<'a>(m: &'a SessionMeta, key: &str, now: u64) -> Option<&'a str> {
-    m.tags.get(key).filter(|t| t.expires_at.is_none_or(|at| at > now)).map(|t| t.value.as_str())
+/// [`archive_after`] of the settings file as it is now.
+fn archive_after_now() -> Option<std::time::Duration> {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => archive_after(&doc),
+        _ => None,
+    }
 }
 
-pub(super) const PARENT_TAGS: [&str; 5] =
-    [super::views::SPAWNED_BY_TAG, "mux.parent", super::lane_reports::TAG, "side", "aside"];
-
-// Older clients recorded links in tags, sometimes without a local parent row.
-fn parents(m: &SessionMeta, now: u64) -> impl Iterator<Item = &str> {
-    [
-        m.lineage.as_ref().map(|link| link.parent.as_str()),
-        m.subsession.as_ref().map(|link| link.started_by.as_str()),
-        m.parent_id.as_deref(),
-        m.lineage.as_ref().map(|link| link.root.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .chain(PARENT_TAGS.into_iter().filter_map(move |key| live_tag(m, key, now)))
-}
-
-fn due(m: &SessionMeta, cutoff: u64, now: u64) -> bool {
-    m.updated_at > 0
-        && m.updated_at <= cutoff
-        && m.moved_to.is_none()
-        && !matches!(m.status, SessionStatus::Running | SessionStatus::Waiting)
-        && live_tag(m, ARCHIVED_TAG, now).is_none()
-        && live_tag(m, "pinned", now).is_none()
-        && parents(m, now).next().is_none()
+/// Whether `meta` carries tag `key`, not past its expiry at `now`.
+fn has_tag(meta: &SessionMeta, key: &str, now: u64) -> bool {
+    meta.tags.get(key).is_some_and(|tag| tag.expires_at.is_none_or(|at| at > now))
 }
 
 impl Hub {
-    fn inactive_archive_candidates(&self, cutoff: u64, now: u64) -> (u64, Vec<Arc<Session>>) {
-        let revision = self.archive_tree_revision.load(Ordering::SeqCst);
-        let mut sessions = self.session_handles();
-        let mut has_children = HashSet::new();
-        for session in &sessions {
-            session.read_meta(|m| {
-                has_children.extend(parents(m, now).map(str::to_owned));
-            });
-        }
-        sessions.retain(|s| !has_children.contains(&s.id) && s.read_meta(|m| due(m, cutoff, now)));
-        (revision, sessions)
-    }
-
-    fn inactive_archive_pass(&self, after: Duration, now: u64) -> usize {
-        let cutoff = now.saturating_sub(after.as_millis() as u64);
-        let (revision, sessions) = self.inactive_archive_candidates(cutoff, now);
-        self.archive_candidates(sessions, revision, cutoff, now)
-    }
-
-    fn archive_candidates(
+    /// Archive `session` (`archived`) or bring it back; `auto` marks an archive the daemon made
+    /// on its own ([`ARCHIVED_BY_TAG`]). Whether anything changed: an unarchive of a chat that is
+    /// not archived, or an archive of one archived the same way, logs nothing. An archive in force
+    /// keeps its time when only who archived it changes.
+    pub(crate) fn set_archived(
         &self,
-        sessions: Vec<Arc<Session>>,
-        revision: u64,
+        session: &Session,
+        archived: bool,
+        auto: bool,
+    ) -> Result<bool, RpcError> {
+        let now = now_ms();
+        let (since, marked) = session.read_meta(|m| {
+            let since = has_tag(m, ARCHIVED_TAG, now)
+                .then(|| m.tags.get(ARCHIVED_TAG).map(|t| t.value.clone()))
+                .flatten();
+            (since, m.tags.contains_key(ARCHIVED_BY_TAG))
+        });
+        if !archived {
+            if since.is_none() && !marked {
+                return Ok(false);
+            }
+            let remove = [ARCHIVED_TAG.to_owned(), ARCHIVED_BY_TAG.to_owned()];
+            self.set_tags_answered(session, None, &remove, None)?;
+            return Ok(true);
+        }
+        if since.is_some() && marked == auto {
+            return Ok(false);
+        }
+        let mut set = serde_json::Map::new();
+        set.insert(ARCHIVED_TAG.into(), Value::String(since.unwrap_or_else(|| now.to_string())));
+        if auto {
+            set.insert(ARCHIVED_BY_TAG.into(), Value::String(ARCHIVED_BY_AUTO.into()));
+        }
+        self.set_tags_answered(session, Some(&set), &[], None)?;
+        Ok(true)
+    }
+
+    /// Whether a pass may archive `session`, inactive since before `cutoff` (Unix ms), or why
+    /// not (module docs).
+    pub(super) fn inactive_archivable(
+        &self,
+        session: &Session,
         cutoff: u64,
         now: u64,
-    ) -> usize {
+    ) -> Result<(), &'static str> {
+        session.read_meta(|m| {
+            if has_tag(m, ARCHIVED_TAG, now) {
+                return Err("archived");
+            }
+            if KEPT_TAGS.iter().any(|tag| has_tag(m, tag, now)) {
+                return Err("kept");
+            }
+            if m.updated_at > cutoff {
+                return Err("recent");
+            }
+            if matches!(m.status, SessionStatus::Running | SessionStatus::Waiting) {
+                return Err("working");
+            }
+            Ok(())
+        })?;
+        if self.archive_held(session) { Err("working") } else { Ok(()) }
+    }
+
+    /// Whether anything runs or waits in `session`, as the idle reaper reads it
+    /// (`idle.rs` `idle_eligible`), whatever its status.
+    fn archive_held(&self, session: &Session) -> bool {
+        session.turn().is_some()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.asks_in_flight.load(Ordering::SeqCst) > 0
+            || self.secrets.waiting_in(&session.id)
+            || session.queued() > 0
+            || !session.pending_permissions().is_empty()
+            || self.any_process_running(session)
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+            || session.agent_requests.load(Ordering::SeqCst) > 0
+            || self.continuation_pending(session)
+            || session.work_below_since.lock().is_ok_and(|v| *v != 0)
+            || session.moving().is_some()
+            || session.loading.load(Ordering::SeqCst)
+            || session.purged.load(Ordering::SeqCst)
+            || session.replaced.load(Ordering::SeqCst)
+    }
+
+    /// One automatic pass at `now`: archives every chat inactive for longer than `after`, at
+    /// most [`PASS_MAX`], and answers how many.
+    pub(crate) fn inactive_archive_pass(&self, after: std::time::Duration, now: u64) -> usize {
+        let cutoff = now.saturating_sub(u64::try_from(after.as_millis()).unwrap_or(u64::MAX));
         let mut archived = 0;
-        for session in sessions {
-            if self.shutting_down() || archived == PASS_MAX {
+        for session in self.session_handles() {
+            if archived >= PASS_MAX || self.shutting_down() {
                 break;
             }
-            // Take the idle reaper's leases so a turn, fork or start can't begin
-            // between checking for work and committing the archive.
-            let Ok(_turn) = session.turn_lock.try_lock() else { continue };
-            let Ok(_using) = session.harness_use.try_write() else { continue };
-            let Ok(_spawn) = session.spawn_lock.try_lock() else { continue };
-            if self.shown(&session)
-                || self.at_work(&session).is_some()
-                || self.secrets.waiting_in(&session.id)
-                || session.loading.load(Ordering::SeqCst)
-                || session.purged.load(Ordering::SeqCst)
-                || session.replaced.load(Ordering::SeqCst)
-            {
+            if self.inactive_archivable(&session, cutoff, now).is_err() {
                 continue;
             }
-            {
-                let mut m = session.meta.lock().unwrap_or_else(|error| error.into_inner());
-                // A recent event, pin or new parent link wins until the tag write.
-                if !due(&m, cutoff, now) {
-                    continue;
-                }
-                let previous = m.tags.insert(
-                    ARCHIVED_TAG.into(),
-                    crate::store::Tag { value: now.to_string(), expires_at: None },
-                );
-                // A local child may have appeared since the tree was read. Validate
-                // after inserting, while the tentative tag is still private to this lock.
-                if self.archive_tree_revision.load(Ordering::SeqCst) != revision {
-                    match previous {
-                        Some(tag) => {
-                            m.tags.insert(ARCHIVED_TAG.into(), tag);
-                        }
-                        None => {
-                            m.tags.remove(ARCHIVED_TAG);
-                        }
-                    }
-                    break;
-                }
-            }
-            match self.persist_tags(&session) {
-                Ok(()) => archived += 1,
+            match self.set_archived(&session, true, true) {
+                Ok(true) => archived += 1,
+                Ok(false) => {}
                 Err(e) => tracing::warn!(session = %session.id, "inactive archive: {}", e.message),
             }
+        }
+        if archived > 0 {
+            tracing::info!("inactive archive: {archived} chats inactive for {after:?}");
         }
         archived
     }
 
-    // Started after log recovery. A disabled pass reads only the setting, and
-    // cancelling the daemon scope ends the worker.
+    /// The daemon's one inactive-archive worker (module docs): a pass [`FIRST_PASS_AFTER`] from
+    /// now, then every [`PASS_EVERY`], while the setting is on.
     pub(crate) fn inactive_archive_worker(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         self.scope.spawn_until_cancelled("inactive-archive", async move {
@@ -140,11 +197,9 @@ impl Hub {
                 if hub.shutting_down() {
                     return;
                 }
+                // The settings file and each archive's save are disk work.
                 let pass = tokio::task::spawn_blocking(move || {
-                    if let crate::user_settings::Settings::Parsed(doc) =
-                        crate::user_settings::read()
-                        && let Some(after) = archive_after(&doc)
-                    {
+                    if let Some(after) = archive_after_now() {
                         hub.inactive_archive_pass(after, now_ms());
                     }
                 });

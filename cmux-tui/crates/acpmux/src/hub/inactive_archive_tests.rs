@@ -33,84 +33,110 @@ fn tag(session: &Session, key: &str) -> Option<String> {
 }
 
 #[test]
-fn setting_accepts_only_the_offered_periods() {
-    assert!(archive_after(&json!({})).is_none());
-    for value in [json!(0), json!("never"), json!(-1), json!(3), json!("soon")] {
-        assert!(archive_after(&json!({SETTING: value})).is_none());
-    }
-    for days in [1, 2, 7, 14, 30] {
-        let after = Some(Duration::from_secs(days * 86_400));
-        assert_eq!(archive_after(&json!({SETTING: days})), after);
-        assert_eq!(
-            archive_after(&json!({"agents": {"chats": {"archiveInactive": format!("{days}d")}}})),
-            after
-        );
-    }
+fn the_setting_is_never_by_default_and_reads_days() {
+    let days = |n: u64| Some(std::time::Duration::from_secs(n * 86_400));
+    assert_eq!(archive_after(&json!({})), None);
+    assert_eq!(archive_after(&json!({"agents": {"chats": {"archiveInactive": "never"}}})), None);
+    assert_eq!(archive_after(&json!({"agents": {"chats": {"archiveInactive": 0}}})), None);
+    assert_eq!(archive_after(&json!({"agents": {"chats": {"archiveInactive": true}}})), None);
+    assert_eq!(archive_after(&json!({"agents": {"chats": {"archiveInactive": "7d"}}})), days(7));
+    assert_eq!(archive_after(&json!({"agents": {"chats": {"archiveInactive": 3}}})), days(3));
+    assert_eq!(archive_after(&json!({"agents.chats.archiveInactive": "30"})), days(30));
 }
 
 #[tokio::test]
-async fn pass_archives_at_the_deadline_and_keeps_work_and_families() {
+async fn a_pass_archives_only_inactive_chats_with_nothing_at_work() {
     let hub = hub();
     let now = 100 * DAY_MS;
-    let old = now - 7 * DAY_MS;
-    let after = Duration::from_millis(7 * DAY_MS);
+    let old = now - 10 * DAY_MS;
+    let closed = chat(&hub, "closed", "closed", old, json!({}));
     let idle = chat(&hub, "idle", "idle", old, json!({}));
-    let recent = chat(&hub, "recent", "idle", old + 1, json!({}));
-    let pinned = chat(&hub, "pin", "closed", old, json!({"pinned":"1"}));
-    let running = chat(&hub, "run", "running", old, json!({}));
-    let waiting = chat(&hub, "wait", "waiting", old, json!({}));
-    let root = chat(&hub, "root", "idle", old, json!({}));
-    let child = chat(&hub, "child", "idle", old, json!({}));
-    child.meta.lock().unwrap().lineage = Some(
-        serde_json::from_value(json!({
-            "root": "root", "parent": "root", "depth": 1
-        }))
-        .unwrap(),
-    );
-    let grandchild = chat(&hub, "grandchild", "closed", old, json!({"spawnedBy":"child"}));
-    let detached = chat(&hub, "detached", "idle", old, json!({"mux.parent":"missing"}));
-    let shelved = chat(&hub, "shelved", "closed", old, json!({"archived":"1"}));
-    let starting = chat(&hub, "starting", "ready", old, json!({}));
-    let lease = starting.turn_lock.lock().await;
+    let recent = chat(&hub, "recent", "idle", now - DAY_MS, json!({}));
+    let running = chat(&hub, "running", "running", old, json!({}));
+    let waiting = chat(&hub, "waiting", "waiting", old, json!({}));
+    let pinned = chat(&hub, "pinned", "closed", old, json!({"pinned": "1"}));
+    let side = chat(&hub, "side", "closed", old, json!({"side": "closed"}));
+    let shelved = chat(&hub, "shelved", "closed", old, json!({"archived": "5"}));
+    let gone = chat(&hub, "gone", "idle", old, json!({}));
+    gone.purged.store(true, Ordering::SeqCst);
 
-    assert_eq!(hub.inactive_archive_pass(after, now), 1);
-    assert_eq!(tag(&idle, ARCHIVED_TAG), Some(now.to_string()));
-    for kept in [recent, pinned, running, waiting, root, child, grandchild, detached] {
-        assert_eq!(tag(&kept, ARCHIVED_TAG), None, "{}", kept.id);
+    assert_eq!(hub.inactive_archive_pass(std::time::Duration::from_millis(7 * DAY_MS), now), 2);
+    for archived in [&closed, &idle] {
+        assert!(
+            tag(archived, ARCHIVED_TAG).unwrap().parse::<u64>().unwrap() > 0,
+            "{}",
+            archived.id
+        );
+        assert_eq!(tag(archived, ARCHIVED_BY_TAG).as_deref(), Some(ARCHIVED_BY_AUTO));
     }
-    assert_eq!(tag(&shelved, ARCHIVED_TAG).as_deref(), Some("1"));
-    assert_eq!(hub.inactive_archive_pass(after, now), 0);
-    assert_eq!(tag(&starting, ARCHIVED_TAG), None);
-    drop(lease);
-
-    // The ordinary unarchive removes the tag and records fresh activity.
-    hub.set_tags_answered(&idle, None, &[ARCHIVED_TAG.to_owned()], None).unwrap();
-    let restored = idle.read_meta(|m| m.updated_at);
-    hub.inactive_archive_pass(after, restored + 7 * DAY_MS - 1);
-    assert_eq!(tag(&idle, ARCHIVED_TAG), None);
-    hub.inactive_archive_pass(after, restored + 7 * DAY_MS);
-    assert!(tag(&idle, ARCHIVED_TAG).is_some());
+    for kept in [&recent, &running, &waiting, &pinned, &side, &gone] {
+        assert_eq!(tag(kept, ARCHIVED_TAG), None, "{}", kept.id);
+    }
+    // One archived already keeps its own archive: its time, and no marker.
+    assert_eq!(tag(&shelved, ARCHIVED_TAG).as_deref(), Some("5"));
+    assert_eq!(tag(&shelved, ARCHIVED_BY_TAG), None);
+    // A second pass finds nothing more.
+    assert_eq!(hub.inactive_archive_pass(std::time::Duration::from_millis(7 * DAY_MS), now), 0);
     hub.shutdown_all().await;
 }
 
 #[tokio::test]
-async fn a_parent_is_protected_when_a_child_is_linked_or_restored_during_the_pass() {
+async fn an_unarchived_chat_waits_a_whole_new_period() {
     let hub = hub();
-    let now = 3 * DAY_MS;
-    let cutoff = now - DAY_MS;
-    let root = chat(&hub, "root", "idle", 1, json!({}));
-    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
-    let child = chat(&hub, "child", "idle", now, json!({}));
-    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
+    let after = std::time::Duration::from_millis(7 * DAY_MS);
+    let chat = chat(&hub, "c", "closed", 1, json!({}));
+    assert_eq!(hub.inactive_archive_pass(after, now_ms()), 1);
+    assert!(hub.set_archived(&chat, false, false).unwrap());
+    assert_eq!(tag(&chat, ARCHIVED_TAG), None);
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG), None);
+    // The unarchive is activity: no pass archives it again until the period passed since.
+    let unarchived = chat.read_meta(|m| m.updated_at);
+    assert!(unarchived + DAY_MS > now_ms());
+    assert_eq!(hub.inactive_archive_pass(after, now_ms()), 0);
+    assert_eq!(hub.inactive_archive_pass(after, unarchived + 6 * DAY_MS), 0);
+    assert_eq!(hub.inactive_archive_pass(after, unarchived + 8 * DAY_MS), 1);
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG).as_deref(), Some(ARCHIVED_BY_AUTO));
+    hub.shutdown_all().await;
+}
 
-    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
-    let links = json!({"mux.parent": "root", "archived": "1"});
-    hub.set_tags_answered(&child, links.as_object(), &[], None).unwrap();
-    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
+#[tokio::test]
+async fn archive_and_unarchive_change_only_what_differs() {
+    let hub = hub();
+    let chat = chat(&hub, "c", "idle", 1, json!({}));
+    let seq = || chat.read_meta(|m| m.last_seq);
+    // Unarchive of a chat that is not archived: a success that logs nothing.
+    assert!(!hub.set_archived(&chat, false, false).unwrap());
+    assert_eq!(seq(), 0);
+    assert!(hub.set_archived(&chat, true, false).unwrap());
+    let at = tag(&chat, ARCHIVED_TAG).unwrap();
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG), None);
+    // Archived again by hand: unchanged, the first time kept.
+    let logged = seq();
+    assert!(!hub.set_archived(&chat, true, false).unwrap());
+    assert_eq!(seq(), logged);
+    assert_eq!(tag(&chat, ARCHIVED_TAG), Some(at));
+    hub.shutdown_all().await;
+}
 
-    let (revision, candidates) = hub.inactive_archive_candidates(cutoff, now);
-    hub.set_tags_answered(&child, None, &[ARCHIVED_TAG.into()], None).unwrap();
-    assert_eq!(hub.archive_candidates(candidates, revision, cutoff, now), 0);
-    assert!(tag(&root, ARCHIVED_TAG).is_none());
+#[tokio::test]
+async fn any_other_change_of_the_archive_drops_the_automatic_marker() {
+    let hub = hub();
+    let chat = chat(&hub, "c", "idle", 1, json!({}));
+    assert!(hub.set_archived(&chat, true, true).unwrap());
+    let at = tag(&chat, ARCHIVED_TAG).unwrap();
+    // Archived by hand after: the same archive, now the person's.
+    assert!(hub.set_archived(&chat, true, false).unwrap());
+    assert_eq!(tag(&chat, ARCHIVED_TAG), Some(at));
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG), None);
+    // An unarchive through `_acpmux/tag`, as the chat menu's sends it, drops it too.
+    assert!(hub.set_archived(&chat, true, true).unwrap());
+    hub.set_tags_answered(&chat, None, &[ARCHIVED_TAG.to_owned()], None).unwrap();
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG), None);
+    // And an archive set through it.
+    assert!(hub.set_archived(&chat, true, true).unwrap());
+    let mut set = serde_json::Map::new();
+    set.insert(ARCHIVED_TAG.into(), json!("9"));
+    hub.set_tags_answered(&chat, Some(&set), &[], None).unwrap();
+    assert_eq!(tag(&chat, ARCHIVED_BY_TAG), None);
     hub.shutdown_all().await;
 }

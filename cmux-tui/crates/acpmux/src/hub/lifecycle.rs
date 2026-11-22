@@ -410,7 +410,7 @@ impl Hub {
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
-            self.insert_local_session(&mut sessions, &session);
+            sessions.insert(id.clone(), session.clone());
             // A purge this run fenced the id (a trigger's fixed id, recreated): the new chat's
             // answers and spend are recorded again. Sent under the insert lock, so before any of
             // its records.
