@@ -55,13 +55,13 @@ export function ProducedRow({
     <button
       type="button"
       className="acpmux-session-info-row acpmux-session-info-row--button"
-      title={link.url}
+      aria-description={link.url}
       onClick={() => onOpen(link.url)}
     >
       {content}
     </button>
   ) : (
-    <div className="acpmux-session-info-row" title={link.url}>
+    <div className="acpmux-session-info-row" aria-description={link.url}>
       {content}
     </div>
   );
