@@ -53,7 +53,8 @@ impl Supervisor {
                 let read_only = entry.get("class").and_then(Value::as_str) == Some("read");
                 let destructive = entry.get("risk").and_then(Value::as_str) == Some("destructive");
                 let docs = entry.get("docs").and_then(Value::as_str).unwrap_or_default();
-                let title = package.manifest["name"].as_str().unwrap_or(&package.id);
+                let title =
+                    package.manifest.get("name").and_then(Value::as_str).unwrap_or(&package.id);
                 by_name.entry(name.clone()).or_default().push(json!({
                     "name": name,
                     "app": package.id,
