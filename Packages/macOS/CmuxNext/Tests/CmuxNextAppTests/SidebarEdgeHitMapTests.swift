@@ -125,11 +125,10 @@ import Testing
         let band = Self.band(f)
         let strip = try #require(f.scroller.superview).convert(f.scroller.grabZone, to: f.root)
         #expect(strip.maxX <= band.minX + 0.001, "strip \(strip) overlaps band \(band)")
-        // Off the band it grabs only the wide knob's column, so it covers no more of a row's trailing
-        // button than the full 14 pt strip at the surface edge did, give or take the 2 pt of the knob's old edge inset.
+        // Off the band it grabs only the wide knob's column (8 pt): with the default 6 pt gutter that is
+        // 2 pt more of a row's trailing button than the old strip's 6 pt over the rows, the knob's width.
         #expect(strip.width == SidebarView.dividerScrollerGrab)
-        let surfaceEdge = f.root.sidebar.frame.maxX + f.root.sidebar.paneReach
-        #expect(strip.minX >= surfaceEdge - ThinScroller.width - 2 - 0.001)
+        #expect(strip.minX >= band.minX - SidebarView.dividerScrollerGrab - 0.001)
         #expect(knob.minX >= strip.minX - 0.001)
         #expect(knob.maxX <= band.minX + 0.001)
         for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) {
