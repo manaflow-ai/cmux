@@ -3052,7 +3052,7 @@
       "kind": "validation",
       "name": "welcome with extra field",
       "type": "ProviderWelcome",
-      "valid": false,
+      "valid": true,
       "value": {
         "provider": "p",
         "router_key": "AAAA",

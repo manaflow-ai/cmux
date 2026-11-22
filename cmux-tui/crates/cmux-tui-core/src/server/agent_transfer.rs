@@ -354,7 +354,6 @@ impl Mux {
 // MARK: Requests
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
@@ -365,7 +364,6 @@ struct ReceiveParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct WriteParams {
     receive_id: String,
     path: String,
@@ -374,7 +372,6 @@ struct WriteParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FinishParams {
     receive_id: String,
     #[serde(default)]
@@ -385,19 +382,16 @@ struct FinishParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveAbortParams {
     receive_id: String,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SourceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -407,7 +401,6 @@ struct BeginParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReadParams {
     transfer_id: String,
     path: String,
@@ -417,7 +410,6 @@ struct ReadParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CommitParams {
     surface: SurfaceId,
     transfer_id: String,
@@ -425,7 +417,6 @@ struct CommitParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AbortParams {
     surface: SurfaceId,
     transfer_id: String,

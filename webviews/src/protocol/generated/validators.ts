@@ -9,35 +9,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const KNOWN_4: ReadonlySet<string> = new Set(["kind","path","url"]);
-const KNOWN_12: ReadonlySet<string> = new Set(["files"]);
-const KNOWN_18: ReadonlySet<string> = new Set(["additions","deletions","patch","path"]);
-const KNOWN_23: ReadonlySet<string> = new Set(["base","cwd","include_patch"]);
-const KNOWN_28: ReadonlySet<string> = new Set(["index","path","worktree"]);
-const KNOWN_34: ReadonlySet<string> = new Set(["branch","files"]);
-const KNOWN_37: ReadonlySet<string> = new Set(["cwd"]);
-const KNOWN_41: ReadonlySet<string> = new Set(["name","scope"]);
-const KNOWN_45: ReadonlySet<string> = new Set(["sha256","version"]);
-const KNOWN_50: ReadonlySet<string> = new Set(["kind","name","scope"]);
-const KNOWN_53: ReadonlySet<string> = new Set(["name"]);
-const KNOWN_56: ReadonlySet<string> = new Set(["message"]);
-const KNOWN_63: ReadonlySet<string> = new Set(["name","providers","version"]);
-const KNOWN_66: ReadonlySet<string> = new Set(["name"]);
-const KNOWN_71: ReadonlySet<string> = new Set(["interfaces"]);
-const ENUM_73: ReadonlyArray<unknown> = ["webkit","cef","browser"];
-const KNOWN_88: ReadonlySet<string> = new Set(["consumes","engines","entry","id","namespace","provider","route","scopes"]);
-const KNOWN_93: ReadonlySet<string> = new Set(["kind"]);
-const KNOWN_101: ReadonlySet<string> = new Set(["args","command","kind"]);
-const KNOWN_105: ReadonlySet<string> = new Set(["kind"]);
-const KNOWN_107: ReadonlySet<string> = new Set([]);
-const KNOWN_112: ReadonlySet<string> = new Set(["pages"]);
-const KNOWN_133: ReadonlySet<string> = new Set(["app","credential","endpoints","events","interfaces","ir","namespaces","ops","proto"]);
-const KNOWN_140: ReadonlySet<string> = new Set(["app_id","endpoints","namespace"]);
-const KNOWN_144: ReadonlySet<string> = new Set(["provider","router_key"]);
-const KNOWN_147: ReadonlySet<string> = new Set(["namespace"]);
-const KNOWN_155: ReadonlySet<string> = new Set(["app_id","endpoint","exp","ir","namespace","token"]);
-const KNOWN_158: ReadonlySet<string> = new Set(["token"]);
-const KNOWN_162: ReadonlySet<string> = new Set(["exp","token"]);
+const ENUM_43: ReadonlyArray<unknown> = ["webkit","cef","browser"];
 
 function checkEndpoint(value: unknown, path: string, errs: ValidationIssue[]): void {
   if (!(isObject(value))) {
@@ -60,30 +32,26 @@ function checkEndpoint(value: unknown, path: string, errs: ValidationIssue[]): v
         errs.push({ path: path + "/url", message: "expected string or null" });
       }
     }
-    for (const key5 of Object.keys(value)) {
-      if (KNOWN_4.has(key5)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key5)}` });
-    }
   }
 }
 
 function checkEndpointKind(value: unknown, path: string, errs: ValidationIssue[]): void {
-  let matched6 = 0;
-  const branch7: ValidationIssue[] = [];
+  let matched4 = 0;
+  const branch5: ValidationIssue[] = [];
   if (!(typeof value === "string")) {
-    branch7.push({ path: path, message: "expected string" });
+    branch5.push({ path: path, message: "expected string" });
   } else {
-    if (value !== "ws") branch7.push({ path: path, message: "expected \"ws\"" });
+    if (value !== "ws") branch5.push({ path: path, message: "expected \"ws\"" });
   }
-  if (branch7.length === 0) matched6 += 1;
-  const branch8: ValidationIssue[] = [];
+  if (branch5.length === 0) matched4 += 1;
+  const branch6: ValidationIssue[] = [];
   if (!(typeof value === "string")) {
-    branch8.push({ path: path, message: "expected string" });
+    branch6.push({ path: path, message: "expected string" });
   } else {
-    if (value !== "unix") branch8.push({ path: path, message: "expected \"unix\"" });
+    if (value !== "unix") branch6.push({ path: path, message: "expected \"unix\"" });
   }
-  if (branch8.length === 0) matched6 += 1;
-  if (matched6 !== 1) errs.push({ path: path, message: `matched ${matched6} of 2 schemas, expected exactly one` });
+  if (branch6.length === 0) matched4 += 1;
+  if (matched4 !== 1) errs.push({ path: path, message: `matched ${matched4} of 2 schemas, expected exactly one` });
 }
 
 function checkGitDiff(value: unknown, path: string, errs: ValidationIssue[]): void {
@@ -92,19 +60,15 @@ function checkGitDiff(value: unknown, path: string, errs: ValidationIssue[]): vo
   } else {
     if (!Object.hasOwn(value, "files")) errs.push({ path: path, message: "missing required property \"files\"" });
     if (Object.hasOwn(value, "files")) {
-      const prop9: unknown = value["files"];
-      if (!(Array.isArray(prop9))) {
+      const prop7: unknown = value["files"];
+      if (!(Array.isArray(prop7))) {
         errs.push({ path: path + "/files", message: "expected array" });
       } else {
-        for (let i10 = 0; i10 < prop9.length; i10 += 1) {
-          const item11: unknown = prop9[i10];
-          checkGitDiffFile(item11, path + "/files" + "/" + i10, errs);
+        for (let i8 = 0; i8 < prop7.length; i8 += 1) {
+          const item9: unknown = prop7[i8];
+          checkGitDiffFile(item9, path + "/files" + "/" + i8, errs);
         }
       }
-    }
-    for (const key13 of Object.keys(value)) {
-      if (KNOWN_12.has(key13)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key13)}` });
     }
   }
 }
@@ -117,38 +81,34 @@ function checkGitDiffFile(value: unknown, path: string, errs: ValidationIssue[])
     if (!Object.hasOwn(value, "additions")) errs.push({ path: path, message: "missing required property \"additions\"" });
     if (!Object.hasOwn(value, "deletions")) errs.push({ path: path, message: "missing required property \"deletions\"" });
     if (Object.hasOwn(value, "additions")) {
-      const prop14: unknown = value["additions"];
-      if (!((typeof prop14 === "number" && Number.isInteger(prop14)))) {
+      const prop10: unknown = value["additions"];
+      if (!((typeof prop10 === "number" && Number.isInteger(prop10)))) {
         errs.push({ path: path + "/additions", message: "expected integer" });
       } else {
-        if (prop14 < 0) errs.push({ path: path + "/additions", message: "less than 0" });
-        if (!Number.isInteger(prop14) || prop14 < 0 || prop14 > 9007199254740991) errs.push({ path: path + "/additions", message: "not a valid uint64" });
+        if (prop10 < 0) errs.push({ path: path + "/additions", message: "less than 0" });
+        if (!Number.isInteger(prop10) || prop10 < 0 || prop10 > 9007199254740991) errs.push({ path: path + "/additions", message: "not a valid uint64" });
       }
     }
     if (Object.hasOwn(value, "deletions")) {
-      const prop15: unknown = value["deletions"];
-      if (!((typeof prop15 === "number" && Number.isInteger(prop15)))) {
+      const prop11: unknown = value["deletions"];
+      if (!((typeof prop11 === "number" && Number.isInteger(prop11)))) {
         errs.push({ path: path + "/deletions", message: "expected integer" });
       } else {
-        if (prop15 < 0) errs.push({ path: path + "/deletions", message: "less than 0" });
-        if (!Number.isInteger(prop15) || prop15 < 0 || prop15 > 9007199254740991) errs.push({ path: path + "/deletions", message: "not a valid uint64" });
+        if (prop11 < 0) errs.push({ path: path + "/deletions", message: "less than 0" });
+        if (!Number.isInteger(prop11) || prop11 < 0 || prop11 > 9007199254740991) errs.push({ path: path + "/deletions", message: "not a valid uint64" });
       }
     }
     if (Object.hasOwn(value, "patch")) {
-      const prop16: unknown = value["patch"];
-      if (!(typeof prop16 === "string" || prop16 === null)) {
+      const prop12: unknown = value["patch"];
+      if (!(typeof prop12 === "string" || prop12 === null)) {
         errs.push({ path: path + "/patch", message: "expected string or null" });
       }
     }
     if (Object.hasOwn(value, "path")) {
-      const prop17: unknown = value["path"];
-      if (!(typeof prop17 === "string")) {
+      const prop13: unknown = value["path"];
+      if (!(typeof prop13 === "string")) {
         errs.push({ path: path + "/path", message: "expected string" });
       }
-    }
-    for (const key19 of Object.keys(value)) {
-      if (KNOWN_18.has(key19)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key19)}` });
     }
   }
 }
@@ -159,26 +119,22 @@ function checkGitDiffParams(value: unknown, path: string, errs: ValidationIssue[
   } else {
     if (!Object.hasOwn(value, "cwd")) errs.push({ path: path, message: "missing required property \"cwd\"" });
     if (Object.hasOwn(value, "base")) {
-      const prop20: unknown = value["base"];
-      if (!(typeof prop20 === "string" || prop20 === null)) {
+      const prop14: unknown = value["base"];
+      if (!(typeof prop14 === "string" || prop14 === null)) {
         errs.push({ path: path + "/base", message: "expected string or null" });
       }
     }
     if (Object.hasOwn(value, "cwd")) {
-      const prop21: unknown = value["cwd"];
-      if (!(typeof prop21 === "string")) {
+      const prop15: unknown = value["cwd"];
+      if (!(typeof prop15 === "string")) {
         errs.push({ path: path + "/cwd", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "include_patch")) {
-      const prop22: unknown = value["include_patch"];
-      if (!(typeof prop22 === "boolean")) {
+      const prop16: unknown = value["include_patch"];
+      if (!(typeof prop16 === "boolean")) {
         errs.push({ path: path + "/include_patch", message: "expected boolean" });
       }
-    }
-    for (const key24 of Object.keys(value)) {
-      if (KNOWN_23.has(key24)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key24)}` });
     }
   }
 }
@@ -191,26 +147,22 @@ function checkGitFileStatus(value: unknown, path: string, errs: ValidationIssue[
     if (!Object.hasOwn(value, "index")) errs.push({ path: path, message: "missing required property \"index\"" });
     if (!Object.hasOwn(value, "worktree")) errs.push({ path: path, message: "missing required property \"worktree\"" });
     if (Object.hasOwn(value, "index")) {
-      const prop25: unknown = value["index"];
-      if (!(typeof prop25 === "string")) {
+      const prop17: unknown = value["index"];
+      if (!(typeof prop17 === "string")) {
         errs.push({ path: path + "/index", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "path")) {
-      const prop26: unknown = value["path"];
-      if (!(typeof prop26 === "string")) {
+      const prop18: unknown = value["path"];
+      if (!(typeof prop18 === "string")) {
         errs.push({ path: path + "/path", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "worktree")) {
-      const prop27: unknown = value["worktree"];
-      if (!(typeof prop27 === "string")) {
+      const prop19: unknown = value["worktree"];
+      if (!(typeof prop19 === "string")) {
         errs.push({ path: path + "/worktree", message: "expected string" });
       }
-    }
-    for (const key29 of Object.keys(value)) {
-      if (KNOWN_28.has(key29)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key29)}` });
     }
   }
 }
@@ -222,25 +174,21 @@ function checkGitStatus(value: unknown, path: string, errs: ValidationIssue[]): 
     if (!Object.hasOwn(value, "branch")) errs.push({ path: path, message: "missing required property \"branch\"" });
     if (!Object.hasOwn(value, "files")) errs.push({ path: path, message: "missing required property \"files\"" });
     if (Object.hasOwn(value, "branch")) {
-      const prop30: unknown = value["branch"];
-      if (!(typeof prop30 === "string" || prop30 === null)) {
+      const prop20: unknown = value["branch"];
+      if (!(typeof prop20 === "string" || prop20 === null)) {
         errs.push({ path: path + "/branch", message: "expected string or null" });
       }
     }
     if (Object.hasOwn(value, "files")) {
-      const prop31: unknown = value["files"];
-      if (!(Array.isArray(prop31))) {
+      const prop21: unknown = value["files"];
+      if (!(Array.isArray(prop21))) {
         errs.push({ path: path + "/files", message: "expected array" });
       } else {
-        for (let i32 = 0; i32 < prop31.length; i32 += 1) {
-          const item33: unknown = prop31[i32];
-          checkGitFileStatus(item33, path + "/files" + "/" + i32, errs);
+        for (let i22 = 0; i22 < prop21.length; i22 += 1) {
+          const item23: unknown = prop21[i22];
+          checkGitFileStatus(item23, path + "/files" + "/" + i22, errs);
         }
       }
-    }
-    for (const key35 of Object.keys(value)) {
-      if (KNOWN_34.has(key35)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key35)}` });
     }
   }
 }
@@ -251,14 +199,10 @@ function checkGitStatusParams(value: unknown, path: string, errs: ValidationIssu
   } else {
     if (!Object.hasOwn(value, "cwd")) errs.push({ path: path, message: "missing required property \"cwd\"" });
     if (Object.hasOwn(value, "cwd")) {
-      const prop36: unknown = value["cwd"];
-      if (!(typeof prop36 === "string")) {
+      const prop24: unknown = value["cwd"];
+      if (!(typeof prop24 === "string")) {
         errs.push({ path: path + "/cwd", message: "expected string" });
       }
-    }
-    for (const key38 of Object.keys(value)) {
-      if (KNOWN_37.has(key38)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key38)}` });
     }
   }
 }
@@ -270,20 +214,16 @@ function checkHelloEventRef(value: unknown, path: string, errs: ValidationIssue[
     if (!Object.hasOwn(value, "name")) errs.push({ path: path, message: "missing required property \"name\"" });
     if (!Object.hasOwn(value, "scope")) errs.push({ path: path, message: "missing required property \"scope\"" });
     if (Object.hasOwn(value, "name")) {
-      const prop39: unknown = value["name"];
-      if (!(typeof prop39 === "string")) {
+      const prop25: unknown = value["name"];
+      if (!(typeof prop25 === "string")) {
         errs.push({ path: path + "/name", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "scope")) {
-      const prop40: unknown = value["scope"];
-      if (!(typeof prop40 === "string")) {
+      const prop26: unknown = value["scope"];
+      if (!(typeof prop26 === "string")) {
         errs.push({ path: path + "/scope", message: "expected string" });
       }
-    }
-    for (const key42 of Object.keys(value)) {
-      if (KNOWN_41.has(key42)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key42)}` });
     }
   }
 }
@@ -295,20 +235,16 @@ function checkHelloIr(value: unknown, path: string, errs: ValidationIssue[]): vo
     if (!Object.hasOwn(value, "version")) errs.push({ path: path, message: "missing required property \"version\"" });
     if (!Object.hasOwn(value, "sha256")) errs.push({ path: path, message: "missing required property \"sha256\"" });
     if (Object.hasOwn(value, "sha256")) {
-      const prop43: unknown = value["sha256"];
-      if (!(typeof prop43 === "string")) {
+      const prop27: unknown = value["sha256"];
+      if (!(typeof prop27 === "string")) {
         errs.push({ path: path + "/sha256", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "version")) {
-      const prop44: unknown = value["version"];
-      if (!(typeof prop44 === "string")) {
+      const prop28: unknown = value["version"];
+      if (!(typeof prop28 === "string")) {
         errs.push({ path: path + "/version", message: "expected string" });
       }
-    }
-    for (const key46 of Object.keys(value)) {
-      if (KNOWN_45.has(key46)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key46)}` });
     }
   }
 }
@@ -321,26 +257,22 @@ function checkHelloOpRef(value: unknown, path: string, errs: ValidationIssue[]):
     if (!Object.hasOwn(value, "kind")) errs.push({ path: path, message: "missing required property \"kind\"" });
     if (!Object.hasOwn(value, "scope")) errs.push({ path: path, message: "missing required property \"scope\"" });
     if (Object.hasOwn(value, "kind")) {
-      const prop47: unknown = value["kind"];
-      if (!(typeof prop47 === "string")) {
+      const prop29: unknown = value["kind"];
+      if (!(typeof prop29 === "string")) {
         errs.push({ path: path + "/kind", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "name")) {
-      const prop48: unknown = value["name"];
-      if (!(typeof prop48 === "string")) {
+      const prop30: unknown = value["name"];
+      if (!(typeof prop30 === "string")) {
         errs.push({ path: path + "/name", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "scope")) {
-      const prop49: unknown = value["scope"];
-      if (!(typeof prop49 === "string")) {
+      const prop31: unknown = value["scope"];
+      if (!(typeof prop31 === "string")) {
         errs.push({ path: path + "/scope", message: "expected string" });
       }
-    }
-    for (const key51 of Object.keys(value)) {
-      if (KNOWN_50.has(key51)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key51)}` });
     }
   }
 }
@@ -351,14 +283,10 @@ function checkHelloParams(value: unknown, path: string, errs: ValidationIssue[])
   } else {
     if (!Object.hasOwn(value, "name")) errs.push({ path: path, message: "missing required property \"name\"" });
     if (Object.hasOwn(value, "name")) {
-      const prop52: unknown = value["name"];
-      if (!(typeof prop52 === "string")) {
+      const prop32: unknown = value["name"];
+      if (!(typeof prop32 === "string")) {
         errs.push({ path: path + "/name", message: "expected string" });
       }
-    }
-    for (const key54 of Object.keys(value)) {
-      if (KNOWN_53.has(key54)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key54)}` });
     }
   }
 }
@@ -369,14 +297,10 @@ function checkHelloResult(value: unknown, path: string, errs: ValidationIssue[])
   } else {
     if (!Object.hasOwn(value, "message")) errs.push({ path: path, message: "missing required property \"message\"" });
     if (Object.hasOwn(value, "message")) {
-      const prop55: unknown = value["message"];
-      if (!(typeof prop55 === "string")) {
+      const prop33: unknown = value["message"];
+      if (!(typeof prop33 === "string")) {
         errs.push({ path: path + "/message", message: "expected string" });
       }
-    }
-    for (const key57 of Object.keys(value)) {
-      if (KNOWN_56.has(key57)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key57)}` });
     }
   }
 }
@@ -389,34 +313,30 @@ function checkInterfaceListing(value: unknown, path: string, errs: ValidationIss
     if (!Object.hasOwn(value, "version")) errs.push({ path: path, message: "missing required property \"version\"" });
     if (!Object.hasOwn(value, "providers")) errs.push({ path: path, message: "missing required property \"providers\"" });
     if (Object.hasOwn(value, "name")) {
-      const prop58: unknown = value["name"];
-      if (!(typeof prop58 === "string")) {
+      const prop34: unknown = value["name"];
+      if (!(typeof prop34 === "string")) {
         errs.push({ path: path + "/name", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "providers")) {
-      const prop59: unknown = value["providers"];
-      if (!(Array.isArray(prop59))) {
+      const prop35: unknown = value["providers"];
+      if (!(Array.isArray(prop35))) {
         errs.push({ path: path + "/providers", message: "expected array" });
       } else {
-        for (let i60 = 0; i60 < prop59.length; i60 += 1) {
-          const item61: unknown = prop59[i60];
-          checkProviderInfo(item61, path + "/providers" + "/" + i60, errs);
+        for (let i36 = 0; i36 < prop35.length; i36 += 1) {
+          const item37: unknown = prop35[i36];
+          checkProviderInfo(item37, path + "/providers" + "/" + i36, errs);
         }
       }
     }
     if (Object.hasOwn(value, "version")) {
-      const prop62: unknown = value["version"];
-      if (!((typeof prop62 === "number" && Number.isInteger(prop62)))) {
+      const prop38: unknown = value["version"];
+      if (!((typeof prop38 === "number" && Number.isInteger(prop38)))) {
         errs.push({ path: path + "/version", message: "expected integer" });
       } else {
-        if (prop62 < 0) errs.push({ path: path + "/version", message: "less than 0" });
-        if (!Number.isInteger(prop62) || prop62 < 0 || prop62 > 4294967295) errs.push({ path: path + "/version", message: "not a valid uint32" });
+        if (prop38 < 0) errs.push({ path: path + "/version", message: "less than 0" });
+        if (!Number.isInteger(prop38) || prop38 < 0 || prop38 > 4294967295) errs.push({ path: path + "/version", message: "not a valid uint32" });
       }
-    }
-    for (const key64 of Object.keys(value)) {
-      if (KNOWN_63.has(key64)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key64)}` });
     }
   }
 }
@@ -426,14 +346,10 @@ function checkInterfacesListParams(value: unknown, path: string, errs: Validatio
     errs.push({ path: path, message: "expected object" });
   } else {
     if (Object.hasOwn(value, "name")) {
-      const prop65: unknown = value["name"];
-      if (!(typeof prop65 === "string" || prop65 === null)) {
+      const prop39: unknown = value["name"];
+      if (!(typeof prop39 === "string" || prop39 === null)) {
         errs.push({ path: path + "/name", message: "expected string or null" });
       }
-    }
-    for (const key67 of Object.keys(value)) {
-      if (KNOWN_66.has(key67)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key67)}` });
     }
   }
 }
@@ -444,19 +360,15 @@ function checkInterfacesListResult(value: unknown, path: string, errs: Validatio
   } else {
     if (!Object.hasOwn(value, "interfaces")) errs.push({ path: path, message: "missing required property \"interfaces\"" });
     if (Object.hasOwn(value, "interfaces")) {
-      const prop68: unknown = value["interfaces"];
-      if (!(Array.isArray(prop68))) {
+      const prop40: unknown = value["interfaces"];
+      if (!(Array.isArray(prop40))) {
         errs.push({ path: path + "/interfaces", message: "expected array" });
       } else {
-        for (let i69 = 0; i69 < prop68.length; i69 += 1) {
-          const item70: unknown = prop68[i69];
-          checkInterfaceListing(item70, path + "/interfaces" + "/" + i69, errs);
+        for (let i41 = 0; i41 < prop40.length; i41 += 1) {
+          const item42: unknown = prop40[i41];
+          checkInterfaceListing(item42, path + "/interfaces" + "/" + i41, errs);
         }
       }
-    }
-    for (const key72 of Object.keys(value)) {
-      if (KNOWN_71.has(key72)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key72)}` });
     }
   }
 }
@@ -465,7 +377,7 @@ function checkPageEngine(value: unknown, path: string, errs: ValidationIssue[]):
   if (!(typeof value === "string")) {
     errs.push({ path: path, message: "expected string" });
   } else {
-    if (!ENUM_73.includes(value)) errs.push({ path: path, message: "expected one of [\"webkit\",\"cef\",\"browser\"]" });
+    if (!ENUM_43.includes(value)) errs.push({ path: path, message: "expected one of [\"webkit\",\"cef\",\"browser\"]" });
   }
 }
 
@@ -479,167 +391,146 @@ function checkPageManifest(value: unknown, path: string, errs: ValidationIssue[]
     if (!Object.hasOwn(value, "namespace")) errs.push({ path: path, message: "missing required property \"namespace\"" });
     if (!Object.hasOwn(value, "provider")) errs.push({ path: path, message: "missing required property \"provider\"" });
     if (Object.hasOwn(value, "consumes")) {
-      const prop74: unknown = value["consumes"];
-      if (!(Array.isArray(prop74))) {
+      const prop44: unknown = value["consumes"];
+      if (!(Array.isArray(prop44))) {
         errs.push({ path: path + "/consumes", message: "expected array" });
       } else {
-        for (let i75 = 0; i75 < prop74.length; i75 += 1) {
-          const item76: unknown = prop74[i75];
-          if (!(typeof item76 === "string")) {
-            errs.push({ path: path + "/consumes" + "/" + i75, message: "expected string" });
+        for (let i45 = 0; i45 < prop44.length; i45 += 1) {
+          const item46: unknown = prop44[i45];
+          if (!(typeof item46 === "string")) {
+            errs.push({ path: path + "/consumes" + "/" + i45, message: "expected string" });
           }
         }
       }
     }
     if (Object.hasOwn(value, "engines")) {
-      const prop77: unknown = value["engines"];
-      if (!(Array.isArray(prop77))) {
+      const prop47: unknown = value["engines"];
+      if (!(Array.isArray(prop47))) {
         errs.push({ path: path + "/engines", message: "expected array" });
       } else {
-        for (let i78 = 0; i78 < prop77.length; i78 += 1) {
-          const item79: unknown = prop77[i78];
-          checkPageEngine(item79, path + "/engines" + "/" + i78, errs);
+        for (let i48 = 0; i48 < prop47.length; i48 += 1) {
+          const item49: unknown = prop47[i48];
+          checkPageEngine(item49, path + "/engines" + "/" + i48, errs);
         }
       }
     }
     if (Object.hasOwn(value, "entry")) {
-      const prop80: unknown = value["entry"];
-      if (!(typeof prop80 === "string")) {
+      const prop50: unknown = value["entry"];
+      if (!(typeof prop50 === "string")) {
         errs.push({ path: path + "/entry", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "id")) {
-      const prop81: unknown = value["id"];
-      if (!(typeof prop81 === "string")) {
+      const prop51: unknown = value["id"];
+      if (!(typeof prop51 === "string")) {
         errs.push({ path: path + "/id", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "namespace")) {
-      const prop82: unknown = value["namespace"];
-      if (!(typeof prop82 === "string")) {
+      const prop52: unknown = value["namespace"];
+      if (!(typeof prop52 === "string")) {
         errs.push({ path: path + "/namespace", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "provider")) {
-      const prop83: unknown = value["provider"];
-      checkPageProvider(prop83, path + "/provider", errs);
+      const prop53: unknown = value["provider"];
+      checkPageProvider(prop53, path + "/provider", errs);
     }
     if (Object.hasOwn(value, "route")) {
-      const prop84: unknown = value["route"];
-      if (!(typeof prop84 === "string")) {
+      const prop54: unknown = value["route"];
+      if (!(typeof prop54 === "string")) {
         errs.push({ path: path + "/route", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "scopes")) {
-      const prop85: unknown = value["scopes"];
-      if (!(Array.isArray(prop85))) {
+      const prop55: unknown = value["scopes"];
+      if (!(Array.isArray(prop55))) {
         errs.push({ path: path + "/scopes", message: "expected array" });
       } else {
-        for (let i86 = 0; i86 < prop85.length; i86 += 1) {
-          const item87: unknown = prop85[i86];
-          if (!(typeof item87 === "string")) {
-            errs.push({ path: path + "/scopes" + "/" + i86, message: "expected string" });
+        for (let i56 = 0; i56 < prop55.length; i56 += 1) {
+          const item57: unknown = prop55[i56];
+          if (!(typeof item57 === "string")) {
+            errs.push({ path: path + "/scopes" + "/" + i56, message: "expected string" });
           }
         }
       }
-    }
-    for (const key89 of Object.keys(value)) {
-      if (KNOWN_88.has(key89)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key89)}` });
     }
   }
 }
 
 function checkPageProvider(value: unknown, path: string, errs: ValidationIssue[]): void {
-  let matched90 = 0;
-  const branch91: ValidationIssue[] = [];
+  let matched58 = 0;
+  const branch59: ValidationIssue[] = [];
   if (!(isObject(value))) {
-    branch91.push({ path: path, message: "expected object" });
+    branch59.push({ path: path, message: "expected object" });
   } else {
-    if (!Object.hasOwn(value, "kind")) branch91.push({ path: path, message: "missing required property \"kind\"" });
+    if (!Object.hasOwn(value, "kind")) branch59.push({ path: path, message: "missing required property \"kind\"" });
     if (Object.hasOwn(value, "kind")) {
-      const prop92: unknown = value["kind"];
-      if (!(typeof prop92 === "string")) {
-        branch91.push({ path: path + "/kind", message: "expected string" });
+      const prop60: unknown = value["kind"];
+      if (!(typeof prop60 === "string")) {
+        branch59.push({ path: path + "/kind", message: "expected string" });
       } else {
-        if (prop92 !== "daemon-module") branch91.push({ path: path + "/kind", message: "expected \"daemon-module\"" });
+        if (prop60 !== "daemon-module") branch59.push({ path: path + "/kind", message: "expected \"daemon-module\"" });
       }
     }
-    for (const key94 of Object.keys(value)) {
-      if (KNOWN_93.has(key94)) continue;
-      branch91.push({ path: path, message: `unexpected property ${JSON.stringify(key94)}` });
-    }
   }
-  if (branch91.length === 0) matched90 += 1;
-  const branch95: ValidationIssue[] = [];
+  if (branch59.length === 0) matched58 += 1;
+  const branch61: ValidationIssue[] = [];
   if (!(isObject(value))) {
-    branch95.push({ path: path, message: "expected object" });
+    branch61.push({ path: path, message: "expected object" });
   } else {
-    if (!Object.hasOwn(value, "kind")) branch95.push({ path: path, message: "missing required property \"kind\"" });
-    if (!Object.hasOwn(value, "command")) branch95.push({ path: path, message: "missing required property \"command\"" });
+    if (!Object.hasOwn(value, "kind")) branch61.push({ path: path, message: "missing required property \"kind\"" });
+    if (!Object.hasOwn(value, "command")) branch61.push({ path: path, message: "missing required property \"command\"" });
     if (Object.hasOwn(value, "args")) {
-      const prop96: unknown = value["args"];
-      if (!(Array.isArray(prop96))) {
-        branch95.push({ path: path + "/args", message: "expected array" });
+      const prop62: unknown = value["args"];
+      if (!(Array.isArray(prop62))) {
+        branch61.push({ path: path + "/args", message: "expected array" });
       } else {
-        for (let i97 = 0; i97 < prop96.length; i97 += 1) {
-          const item98: unknown = prop96[i97];
-          if (!(typeof item98 === "string")) {
-            branch95.push({ path: path + "/args" + "/" + i97, message: "expected string" });
+        for (let i63 = 0; i63 < prop62.length; i63 += 1) {
+          const item64: unknown = prop62[i63];
+          if (!(typeof item64 === "string")) {
+            branch61.push({ path: path + "/args" + "/" + i63, message: "expected string" });
           }
         }
       }
     }
     if (Object.hasOwn(value, "command")) {
-      const prop99: unknown = value["command"];
-      if (!(typeof prop99 === "string")) {
-        branch95.push({ path: path + "/command", message: "expected string" });
+      const prop65: unknown = value["command"];
+      if (!(typeof prop65 === "string")) {
+        branch61.push({ path: path + "/command", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "kind")) {
-      const prop100: unknown = value["kind"];
-      if (!(typeof prop100 === "string")) {
-        branch95.push({ path: path + "/kind", message: "expected string" });
+      const prop66: unknown = value["kind"];
+      if (!(typeof prop66 === "string")) {
+        branch61.push({ path: path + "/kind", message: "expected string" });
       } else {
-        if (prop100 !== "process") branch95.push({ path: path + "/kind", message: "expected \"process\"" });
+        if (prop66 !== "process") branch61.push({ path: path + "/kind", message: "expected \"process\"" });
       }
     }
-    for (const key102 of Object.keys(value)) {
-      if (KNOWN_101.has(key102)) continue;
-      branch95.push({ path: path, message: `unexpected property ${JSON.stringify(key102)}` });
-    }
   }
-  if (branch95.length === 0) matched90 += 1;
-  const branch103: ValidationIssue[] = [];
+  if (branch61.length === 0) matched58 += 1;
+  const branch67: ValidationIssue[] = [];
   if (!(isObject(value))) {
-    branch103.push({ path: path, message: "expected object" });
+    branch67.push({ path: path, message: "expected object" });
   } else {
-    if (!Object.hasOwn(value, "kind")) branch103.push({ path: path, message: "missing required property \"kind\"" });
+    if (!Object.hasOwn(value, "kind")) branch67.push({ path: path, message: "missing required property \"kind\"" });
     if (Object.hasOwn(value, "kind")) {
-      const prop104: unknown = value["kind"];
-      if (!(typeof prop104 === "string")) {
-        branch103.push({ path: path + "/kind", message: "expected string" });
+      const prop68: unknown = value["kind"];
+      if (!(typeof prop68 === "string")) {
+        branch67.push({ path: path + "/kind", message: "expected string" });
       } else {
-        if (prop104 !== "external") branch103.push({ path: path + "/kind", message: "expected \"external\"" });
+        if (prop68 !== "external") branch67.push({ path: path + "/kind", message: "expected \"external\"" });
       }
     }
-    for (const key106 of Object.keys(value)) {
-      if (KNOWN_105.has(key106)) continue;
-      branch103.push({ path: path, message: `unexpected property ${JSON.stringify(key106)}` });
-    }
   }
-  if (branch103.length === 0) matched90 += 1;
-  if (matched90 !== 1) errs.push({ path: path, message: `matched ${matched90} of 3 schemas, expected exactly one` });
+  if (branch67.length === 0) matched58 += 1;
+  if (matched58 !== 1) errs.push({ path: path, message: `matched ${matched58} of 3 schemas, expected exactly one` });
 }
 
 function checkPagesListParams(value: unknown, path: string, errs: ValidationIssue[]): void {
   if (!(isObject(value))) {
     errs.push({ path: path, message: "expected object" });
-  } else {
-    for (const key108 of Object.keys(value)) {
-      if (KNOWN_107.has(key108)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key108)}` });
-    }
   }
 }
 
@@ -649,19 +540,15 @@ function checkPagesListResult(value: unknown, path: string, errs: ValidationIssu
   } else {
     if (!Object.hasOwn(value, "pages")) errs.push({ path: path, message: "missing required property \"pages\"" });
     if (Object.hasOwn(value, "pages")) {
-      const prop109: unknown = value["pages"];
-      if (!(Array.isArray(prop109))) {
+      const prop69: unknown = value["pages"];
+      if (!(Array.isArray(prop69))) {
         errs.push({ path: path + "/pages", message: "expected array" });
       } else {
-        for (let i110 = 0; i110 < prop109.length; i110 += 1) {
-          const item111: unknown = prop109[i110];
-          checkPageManifest(item111, path + "/pages" + "/" + i110, errs);
+        for (let i70 = 0; i70 < prop69.length; i70 += 1) {
+          const item71: unknown = prop69[i70];
+          checkPageManifest(item71, path + "/pages" + "/" + i70, errs);
         }
       }
-    }
-    for (const key113 of Object.keys(value)) {
-      if (KNOWN_112.has(key113)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key113)}` });
     }
   }
 }
@@ -676,89 +563,85 @@ function checkProviderHello(value: unknown, path: string, errs: ValidationIssue[
     if (!Object.hasOwn(value, "ops")) errs.push({ path: path, message: "missing required property \"ops\"" });
     if (!Object.hasOwn(value, "ir")) errs.push({ path: path, message: "missing required property \"ir\"" });
     if (Object.hasOwn(value, "app")) {
-      const prop114: unknown = value["app"];
-      if (!(typeof prop114 === "string")) {
+      const prop72: unknown = value["app"];
+      if (!(typeof prop72 === "string")) {
         errs.push({ path: path + "/app", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "credential")) {
-      const prop115: unknown = value["credential"];
-      if (!(typeof prop115 === "string" || prop115 === null)) {
+      const prop73: unknown = value["credential"];
+      if (!(typeof prop73 === "string" || prop73 === null)) {
         errs.push({ path: path + "/credential", message: "expected string or null" });
       }
     }
     if (Object.hasOwn(value, "endpoints")) {
-      const prop116: unknown = value["endpoints"];
-      if (!(Array.isArray(prop116))) {
+      const prop74: unknown = value["endpoints"];
+      if (!(Array.isArray(prop74))) {
         errs.push({ path: path + "/endpoints", message: "expected array" });
       } else {
-        for (let i117 = 0; i117 < prop116.length; i117 += 1) {
-          const item118: unknown = prop116[i117];
-          checkEndpoint(item118, path + "/endpoints" + "/" + i117, errs);
+        for (let i75 = 0; i75 < prop74.length; i75 += 1) {
+          const item76: unknown = prop74[i75];
+          checkEndpoint(item76, path + "/endpoints" + "/" + i75, errs);
         }
       }
     }
     if (Object.hasOwn(value, "events")) {
-      const prop119: unknown = value["events"];
-      if (!(Array.isArray(prop119))) {
+      const prop77: unknown = value["events"];
+      if (!(Array.isArray(prop77))) {
         errs.push({ path: path + "/events", message: "expected array" });
       } else {
-        for (let i120 = 0; i120 < prop119.length; i120 += 1) {
-          const item121: unknown = prop119[i120];
-          checkHelloEventRef(item121, path + "/events" + "/" + i120, errs);
+        for (let i78 = 0; i78 < prop77.length; i78 += 1) {
+          const item79: unknown = prop77[i78];
+          checkHelloEventRef(item79, path + "/events" + "/" + i78, errs);
         }
       }
     }
     if (Object.hasOwn(value, "interfaces")) {
-      const prop122: unknown = value["interfaces"];
-      if (!(Array.isArray(prop122))) {
+      const prop80: unknown = value["interfaces"];
+      if (!(Array.isArray(prop80))) {
         errs.push({ path: path + "/interfaces", message: "expected array" });
       } else {
-        for (let i123 = 0; i123 < prop122.length; i123 += 1) {
-          const item124: unknown = prop122[i123];
-          if (!(typeof item124 === "string")) {
-            errs.push({ path: path + "/interfaces" + "/" + i123, message: "expected string" });
+        for (let i81 = 0; i81 < prop80.length; i81 += 1) {
+          const item82: unknown = prop80[i81];
+          if (!(typeof item82 === "string")) {
+            errs.push({ path: path + "/interfaces" + "/" + i81, message: "expected string" });
           }
         }
       }
     }
     if (Object.hasOwn(value, "ir")) {
-      const prop125: unknown = value["ir"];
-      checkHelloIr(prop125, path + "/ir", errs);
+      const prop83: unknown = value["ir"];
+      checkHelloIr(prop83, path + "/ir", errs);
     }
     if (Object.hasOwn(value, "namespaces")) {
-      const prop126: unknown = value["namespaces"];
-      if (!(Array.isArray(prop126))) {
+      const prop84: unknown = value["namespaces"];
+      if (!(Array.isArray(prop84))) {
         errs.push({ path: path + "/namespaces", message: "expected array" });
       } else {
-        for (let i127 = 0; i127 < prop126.length; i127 += 1) {
-          const item128: unknown = prop126[i127];
-          if (!(typeof item128 === "string")) {
-            errs.push({ path: path + "/namespaces" + "/" + i127, message: "expected string" });
+        for (let i85 = 0; i85 < prop84.length; i85 += 1) {
+          const item86: unknown = prop84[i85];
+          if (!(typeof item86 === "string")) {
+            errs.push({ path: path + "/namespaces" + "/" + i85, message: "expected string" });
           }
         }
       }
     }
     if (Object.hasOwn(value, "ops")) {
-      const prop129: unknown = value["ops"];
-      if (!(Array.isArray(prop129))) {
+      const prop87: unknown = value["ops"];
+      if (!(Array.isArray(prop87))) {
         errs.push({ path: path + "/ops", message: "expected array" });
       } else {
-        for (let i130 = 0; i130 < prop129.length; i130 += 1) {
-          const item131: unknown = prop129[i130];
-          checkHelloOpRef(item131, path + "/ops" + "/" + i130, errs);
+        for (let i88 = 0; i88 < prop87.length; i88 += 1) {
+          const item89: unknown = prop87[i88];
+          checkHelloOpRef(item89, path + "/ops" + "/" + i88, errs);
         }
       }
     }
     if (Object.hasOwn(value, "proto")) {
-      const prop132: unknown = value["proto"];
-      if (!(typeof prop132 === "string")) {
+      const prop90: unknown = value["proto"];
+      if (!(typeof prop90 === "string")) {
         errs.push({ path: path + "/proto", message: "expected string" });
       }
-    }
-    for (const key134 of Object.keys(value)) {
-      if (KNOWN_133.has(key134)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key134)}` });
     }
   }
 }
@@ -771,31 +654,27 @@ function checkProviderInfo(value: unknown, path: string, errs: ValidationIssue[]
     if (!Object.hasOwn(value, "namespace")) errs.push({ path: path, message: "missing required property \"namespace\"" });
     if (!Object.hasOwn(value, "endpoints")) errs.push({ path: path, message: "missing required property \"endpoints\"" });
     if (Object.hasOwn(value, "app_id")) {
-      const prop135: unknown = value["app_id"];
-      if (!(typeof prop135 === "string")) {
+      const prop91: unknown = value["app_id"];
+      if (!(typeof prop91 === "string")) {
         errs.push({ path: path + "/app_id", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "endpoints")) {
-      const prop136: unknown = value["endpoints"];
-      if (!(Array.isArray(prop136))) {
+      const prop92: unknown = value["endpoints"];
+      if (!(Array.isArray(prop92))) {
         errs.push({ path: path + "/endpoints", message: "expected array" });
       } else {
-        for (let i137 = 0; i137 < prop136.length; i137 += 1) {
-          const item138: unknown = prop136[i137];
-          checkEndpoint(item138, path + "/endpoints" + "/" + i137, errs);
+        for (let i93 = 0; i93 < prop92.length; i93 += 1) {
+          const item94: unknown = prop92[i93];
+          checkEndpoint(item94, path + "/endpoints" + "/" + i93, errs);
         }
       }
     }
     if (Object.hasOwn(value, "namespace")) {
-      const prop139: unknown = value["namespace"];
-      if (!(typeof prop139 === "string")) {
+      const prop95: unknown = value["namespace"];
+      if (!(typeof prop95 === "string")) {
         errs.push({ path: path + "/namespace", message: "expected string" });
       }
-    }
-    for (const key141 of Object.keys(value)) {
-      if (KNOWN_140.has(key141)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key141)}` });
     }
   }
 }
@@ -807,20 +686,16 @@ function checkProviderWelcome(value: unknown, path: string, errs: ValidationIssu
     if (!Object.hasOwn(value, "router_key")) errs.push({ path: path, message: "missing required property \"router_key\"" });
     if (!Object.hasOwn(value, "provider")) errs.push({ path: path, message: "missing required property \"provider\"" });
     if (Object.hasOwn(value, "provider")) {
-      const prop142: unknown = value["provider"];
-      if (!(typeof prop142 === "string")) {
+      const prop96: unknown = value["provider"];
+      if (!(typeof prop96 === "string")) {
         errs.push({ path: path + "/provider", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "router_key")) {
-      const prop143: unknown = value["router_key"];
-      if (!(typeof prop143 === "string")) {
+      const prop97: unknown = value["router_key"];
+      if (!(typeof prop97 === "string")) {
         errs.push({ path: path + "/router_key", message: "expected string" });
       }
-    }
-    for (const key145 of Object.keys(value)) {
-      if (KNOWN_144.has(key145)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key145)}` });
     }
   }
 }
@@ -831,14 +706,10 @@ function checkResolveParams(value: unknown, path: string, errs: ValidationIssue[
   } else {
     if (!Object.hasOwn(value, "namespace")) errs.push({ path: path, message: "missing required property \"namespace\"" });
     if (Object.hasOwn(value, "namespace")) {
-      const prop146: unknown = value["namespace"];
-      if (!(typeof prop146 === "string")) {
+      const prop98: unknown = value["namespace"];
+      if (!(typeof prop98 === "string")) {
         errs.push({ path: path + "/namespace", message: "expected string" });
       }
-    }
-    for (const key148 of Object.keys(value)) {
-      if (KNOWN_147.has(key148)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key148)}` });
     }
   }
 }
@@ -854,47 +725,43 @@ function checkResolveResult(value: unknown, path: string, errs: ValidationIssue[
     if (!Object.hasOwn(value, "namespace")) errs.push({ path: path, message: "missing required property \"namespace\"" });
     if (!Object.hasOwn(value, "token")) errs.push({ path: path, message: "missing required property \"token\"" });
     if (Object.hasOwn(value, "app_id")) {
-      const prop149: unknown = value["app_id"];
-      if (!(typeof prop149 === "string")) {
+      const prop99: unknown = value["app_id"];
+      if (!(typeof prop99 === "string")) {
         errs.push({ path: path + "/app_id", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "endpoint")) {
-      const prop150: unknown = value["endpoint"];
-      checkEndpoint(prop150, path + "/endpoint", errs);
+      const prop100: unknown = value["endpoint"];
+      checkEndpoint(prop100, path + "/endpoint", errs);
     }
     if (Object.hasOwn(value, "exp")) {
-      const prop151: unknown = value["exp"];
-      if (!((typeof prop151 === "number" && Number.isInteger(prop151)) || prop151 === null)) {
+      const prop101: unknown = value["exp"];
+      if (!((typeof prop101 === "number" && Number.isInteger(prop101)) || prop101 === null)) {
         errs.push({ path: path + "/exp", message: "expected integer or null" });
       } else {
-        if (typeof prop151 === "number") {
-          if (prop151 < 0) errs.push({ path: path + "/exp", message: "less than 0" });
-          if (!Number.isInteger(prop151) || prop151 < 0 || prop151 > 9007199254740991) errs.push({ path: path + "/exp", message: "not a valid uint64" });
+        if (typeof prop101 === "number") {
+          if (prop101 < 0) errs.push({ path: path + "/exp", message: "less than 0" });
+          if (!Number.isInteger(prop101) || prop101 < 0 || prop101 > 9007199254740991) errs.push({ path: path + "/exp", message: "not a valid uint64" });
         }
       }
     }
     if (Object.hasOwn(value, "ir")) {
-      const prop152: unknown = value["ir"];
-      if (!(typeof prop152 === "string")) {
+      const prop102: unknown = value["ir"];
+      if (!(typeof prop102 === "string")) {
         errs.push({ path: path + "/ir", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "namespace")) {
-      const prop153: unknown = value["namespace"];
-      if (!(typeof prop153 === "string")) {
+      const prop103: unknown = value["namespace"];
+      if (!(typeof prop103 === "string")) {
         errs.push({ path: path + "/namespace", message: "expected string" });
       }
     }
     if (Object.hasOwn(value, "token")) {
-      const prop154: unknown = value["token"];
-      if (!(typeof prop154 === "string" || prop154 === null)) {
+      const prop104: unknown = value["token"];
+      if (!(typeof prop104 === "string" || prop104 === null)) {
         errs.push({ path: path + "/token", message: "expected string or null" });
       }
-    }
-    for (const key156 of Object.keys(value)) {
-      if (KNOWN_155.has(key156)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key156)}` });
     }
   }
 }
@@ -905,14 +772,10 @@ function checkTokenRefreshParams(value: unknown, path: string, errs: ValidationI
   } else {
     if (!Object.hasOwn(value, "token")) errs.push({ path: path, message: "missing required property \"token\"" });
     if (Object.hasOwn(value, "token")) {
-      const prop157: unknown = value["token"];
-      if (!(typeof prop157 === "string")) {
+      const prop105: unknown = value["token"];
+      if (!(typeof prop105 === "string")) {
         errs.push({ path: path + "/token", message: "expected string" });
       }
-    }
-    for (const key159 of Object.keys(value)) {
-      if (KNOWN_158.has(key159)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key159)}` });
     }
   }
 }
@@ -924,23 +787,19 @@ function checkTokenRefreshResult(value: unknown, path: string, errs: ValidationI
     if (!Object.hasOwn(value, "token")) errs.push({ path: path, message: "missing required property \"token\"" });
     if (!Object.hasOwn(value, "exp")) errs.push({ path: path, message: "missing required property \"exp\"" });
     if (Object.hasOwn(value, "exp")) {
-      const prop160: unknown = value["exp"];
-      if (!((typeof prop160 === "number" && Number.isInteger(prop160)))) {
+      const prop106: unknown = value["exp"];
+      if (!((typeof prop106 === "number" && Number.isInteger(prop106)))) {
         errs.push({ path: path + "/exp", message: "expected integer" });
       } else {
-        if (prop160 < 0) errs.push({ path: path + "/exp", message: "less than 0" });
-        if (!Number.isInteger(prop160) || prop160 < 0 || prop160 > 9007199254740991) errs.push({ path: path + "/exp", message: "not a valid uint64" });
+        if (prop106 < 0) errs.push({ path: path + "/exp", message: "less than 0" });
+        if (!Number.isInteger(prop106) || prop106 < 0 || prop106 > 9007199254740991) errs.push({ path: path + "/exp", message: "not a valid uint64" });
       }
     }
     if (Object.hasOwn(value, "token")) {
-      const prop161: unknown = value["token"];
-      if (!(typeof prop161 === "string")) {
+      const prop107: unknown = value["token"];
+      if (!(typeof prop107 === "string")) {
         errs.push({ path: path + "/token", message: "expected string" });
       }
-    }
-    for (const key163 of Object.keys(value)) {
-      if (KNOWN_162.has(key163)) continue;
-      errs.push({ path: path, message: `unexpected property ${JSON.stringify(key163)}` });
     }
   }
 }

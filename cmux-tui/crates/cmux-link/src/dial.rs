@@ -51,6 +51,7 @@ pub enum Service {
 /// WireGuard public key, standard base64 of 32 bytes. The answer is one
 /// [`RekeyReply`] line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
 #[serde(deny_unknown_fields)]
 pub struct RekeyRequest {
     pub public_key: String,
@@ -58,6 +59,7 @@ pub struct RekeyRequest {
 
 /// The receiving link's answer to a [`RekeyRequest`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// skew: strict wireguard rekey: a node key exchange between links, nothing else belongs in it
 #[serde(deny_unknown_fields)]
 pub struct RekeyReply {
     pub ok: bool,
@@ -90,7 +92,6 @@ pub const RELAY_AVAILABLE: bool = false;
 
 /// `{"op":"link.dial","host":"<install>","service":"daemon"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialRequest {
     pub op: DialOp,
     pub host: String,
@@ -182,7 +183,6 @@ impl DialReply {
 /// `{"op":"link.reload"}`: re-read the pairing file (sent by `cmux link
 /// peer add|remove` to a running link). The reply is `{"ok":true|false}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ReloadRequest {
     pub op: ReloadOp,
 }
@@ -197,7 +197,6 @@ pub enum ReloadOp {
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ServiceHello {
     pub service: Service,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,7 +290,11 @@ mod tests {
             line(&ServiceHello::paired(Service::Daemon))
         );
         assert!(ServiceHello::parse(&padded).is_none());
-        assert!(ServiceHello::parse(r#"{"service":"daemon","extra":true}"#).is_none());
+        // A newer link's hello may carry a field this receiver does not know.
+        assert_eq!(
+            ServiceHello::parse(r#"{"service":"daemon","extra":true}"#),
+            Some(ServiceHello::paired(Service::Daemon))
+        );
     }
 
     #[test]
@@ -344,9 +347,19 @@ mod tests {
             r#"{"op":"link.dial","host":"inst","service":"shell"}"#,
             r#"{"op":"link.listen","host":"inst","service":"daemon"}"#,
             r#"{"op":"link.dial","host":"../x","service":"daemon"}"#,
-            r#"{"op":"link.dial","host":"inst","service":"daemon","command":"sh"}"#,
         ] {
             assert_eq!(parse_request(bad), Err(DialError::BadRequest), "{bad}");
         }
+    }
+
+    #[test]
+    fn requests_from_a_newer_caller_ignore_unknown_fields() {
+        let request =
+            parse_request(r#"{"op":"link.dial","host":"inst","service":"daemon","command":"sh"}"#)
+                .expect("an unknown dial field is ignored");
+        assert_eq!((request.host.as_str(), request.service), ("inst", Service::Daemon));
+        let reload: ReloadRequest = parse_line(r#"{"op":"link.reload","later":1}"#)
+            .expect("an unknown reload field is ignored");
+        assert_eq!(reload.op, ReloadOp::Reload);
     }
 }
