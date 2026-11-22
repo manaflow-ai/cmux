@@ -4047,18 +4047,58 @@ jobs:
 
       # A persistent pool runner keeps this job's whole target between its jobs and gives each source
       # whose bytes are unchanged its recorded mtime back, so cargo rebuilds only the crates a change
-      # reaches and their dependents (scripts/ci/pool-warm-target.sh). Elsewhere it does nothing.
+      # reaches and their dependents (scripts/ci/pool-warm-target.sh); on Blacksmith a sticky disk holds it.
       # The warm target's own test, where cargo is: unchanged bytes stay fresh, a changed crate and its
       # dependents rebuild, an unrecorded job leaves nothing to trust (a three-crate workspace, ~5 s).
       - name: Test the warm cargo target
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         run: bash scripts/ci/tests/pool-warm-target.test.sh
 
+      # On Blacksmith (RUNNER_POOLS sends the job there when the pool is down or overflowing) the same
+      # tree lives on a sticky disk, as cmux-tui-spec.yml's warm clippy target: feat-cmux-next pushes
+      # commit it, every other run mounts a clone and never writes it back. Keys are literal
+      # (tests/test_ci_testbox_broker_guard.py).
+      - name: Mount the warm cargo target (feat-cmux-next push, commits)
+        id: warm-next
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-next-fast-tier-cargo-warm-v1
+          path: /home/runner/cmux-next-fast-tier-cargo-warm
+          commit: on-change
+
+      - name: Mount the warm cargo target (other runs, read-only)
+        id: warm-read
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-next-fast-tier-cargo-warm-v1
+          path: /home/runner/cmux-next-fast-tier-cargo-warm
+          commit: "false"
+
+      # A run that never writes the disk links it only when a feat-cmux-next run recorded a tree there;
+      # an empty disk would be a cold build where rust-cache holds the third-party crates.
       - name: Link this runner's warm cargo target
         id: warm
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo
+        env:
+          DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
+          WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          disk=()
+          if [[ "$DISK_MOUNTED" == true ]]; then
+            d=/home/runner/cmux-next-fast-tier-cargo-warm
+            if [[ "$WARM_WRITES" == true ]] || compgen -G "$d/fast-tier-cargo/*/rust-*/.cmux-testbox-source-mtimes.tsv" > /dev/null; then
+              disk=("$d")
+            else
+              echo "pool warm target: miss (no feat-cmux-next tree on the sticky disk yet); rust-cache restore instead"
+            fi
+          fi
+          bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo "${disk[@]}"
 
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
       # Skipped when the warm target above is linked.
@@ -4092,18 +4132,19 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
+          D=/home/runner/cmux-next-fast-tier-cargo-warm
+          bash scripts/ci/pool-warm-target.sh record fast-tier-cargo $D
           measure() {
             # A fresh checkout: every file and directory but .git dated now.
             find "$GITHUB_WORKSPACE" -path "$GITHUB_WORKSPACE/.git" -prune -o -exec touch {} + 2>/dev/null
-            bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo
+            bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo $D
             start=$(date +%s.%N)
             (cd cmux-tui && cargo test --locked --no-run -v -p cmux-tui-core -p cmux-layout-reducer) > "$RUNNER_TEMP/m.log" 2>&1
             rc=$?
             end=$(date +%s.%N)
             echo "MEASURE $1: rc=$rc seconds=$(python3 -c "print(round($end-$start,1))") compiled=$(grep -cE '^ +Compiling ' "$RUNNER_TEMP/m.log") fresh=$(grep -cE '^ +Fresh ' "$RUNNER_TEMP/m.log")"
             grep -E '^ +Compiling ' "$RUNNER_TEMP/m.log" | sed "s/^/MEASURE $1 /" | head -20
-            bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
+            bash scripts/ci/pool-warm-target.sh record fast-tier-cargo $D
           }
           measure unchanged
           echo '// measurement: a leaf edit' >> cmux-tui/crates/cmux-tui-core/src/lib.rs
@@ -4117,7 +4158,7 @@ jobs:
       - name: Record this runner's warm cargo target
         if: ${{ !cancelled() && steps.warm.outputs.linked == 'true' }}
         continue-on-error: true
-        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo
+        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}

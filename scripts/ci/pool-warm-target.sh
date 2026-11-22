@@ -3,8 +3,15 @@
 # persistent pool (build-fleet/swift-linux-builder/gha-runners: a `cmux-runner-pool-*`
 # runner keeps its HOME across jobs; the job-done hook wipes only work/ and /tmp).
 #
-# usage: scripts/ci/pool-warm-target.sh restore|record NAME
+# usage: scripts/ci/pool-warm-target.sh restore|record NAME [DISK]
 #   (from the repository root, after the pinned Rust is set up; NAME names the job's tree)
+#
+# DISK: a mounted Blacksmith sticky disk, for the same job when RUNNER_POOLS sends it to
+# Blacksmith instead (the pool is down or overflowing; run 44977580895, job 137071412072
+# compiled 89 workspace units in 4 min 52 s after rust-cache restored the third-party
+# ones). The tree lives on the disk instead of under HOME; the workflow mounts it
+# read-only for pull requests and commits it only from feat-cmux-next pushes. Without a
+# mounted DISK on a Blacksmith runner both commands do nothing.
 #
 # Why: cmux-next.yml's fast tier (cargo) restored a Swatinem/rust-cache entry, which holds
 # third-party builds only, and found none on the pool ("No cache found"), so every run
@@ -31,11 +38,11 @@
 # Anywhere but the persistent pool both commands do nothing, and the job builds cold.
 set -euo pipefail
 
-if (($# != 2)) || [[ "$1" != restore && "$1" != record ]]; then
-  echo "usage: $0 restore|record NAME" >&2
+if (($# != 2 && $# != 3)) || [[ "$1" != restore && "$1" != record ]]; then
+  echo "usage: $0 restore|record NAME [DISK]" >&2
   exit 2
 fi
-command=$1 name=$2
+command=$1 name=$2 disk=${3:-}
 [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "invalid name: $name" >&2; exit 2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -46,17 +53,27 @@ min_free_gib="${CMUX_POOL_WARM_TARGET_MIN_FREE_GIB:-40}"
 [[ "$max_gib" =~ ^[0-9]+$ && "$min_free_gib" =~ ^[0-9]+$ ]] || { echo "the GiB bounds must be integers" >&2; exit 2; }
 
 pool_runner() { [[ "${RUNNER_NAME:-}" == cmux-runner-pool-* && -n "${HOME:-}" ]]; }
-pool_root() { printf '%s\n' "$HOME/.cache/cmux-next-ci/pool-cargo/$name"; }
+# CMUX_POOL_WARM_TARGET_TEST_MOUNTED names a directory the test treats as a mounted disk.
+disk_mounted() {
+  [[ -n "$disk" && "$disk" == /* && -d "$disk" ]] || return 1
+  [[ "${CMUX_POOL_WARM_TARGET_TEST_MOUNTED:-}" == "$disk" ]] || mountpoint -q "$disk"
+}
+usable() { pool_runner || disk_mounted; }
+pool_root() {
+  if pool_runner; then printf '%s\n' "$HOME/.cache/cmux-next-ci/pool-cargo/$name"; else printf '%s\n' "$disk/$name"; fi
+}
 
 restore() {
-  if ! pool_runner; then
-    echo "pool warm target: miss (${RUNNER_NAME:-no runner name} is not a persistent pool runner); cold build"
+  if ! usable; then
+    echo "pool warm target: miss (${RUNNER_NAME:-no runner name} is not a persistent pool runner and no sticky disk is mounted${disk:+ at $disk}); cold build"
     return 0
   fi
-  # One runner runs one job at a time, so RUNNER_NAME keeps this tree to this job. Cargo's
-  # fingerprints hold absolute source paths, so another workspace path is another tree.
-  local worker toolchain root target
-  worker="$(printf '%s\n' "$RUNNER_NAME" "$repo" | sha256sum | cut -c1-16)"
+  # One runner runs one job at a time, so RUNNER_NAME keeps a pool tree to this job (a sticky
+  # disk is this job's own clone). Cargo's fingerprints hold absolute source paths, so another
+  # workspace path is another tree.
+  local worker toolchain root target owner="$RUNNER_NAME"
+  disk_mounted && ! pool_runner && owner=sticky-disk
+  worker="$(printf '%s\n' "$owner" "$repo" | sha256sum | cut -c1-16)"
   # What builds the tree that Cargo's fingerprints do not see: the build scripts' C
   # compiler and zig (ghostty-vt-sys), the host and its system libraries.
   toolchain="$( { rustc -vV 2>/dev/null || echo no-rustc; cargo -V 2>/dev/null || echo no-cargo; cat "$repo/cmux-tui/rust-toolchain.toml" 2>/dev/null || true
@@ -71,6 +88,8 @@ restore() {
     echo "pool warm target: removing another toolchain's tree $previous"
     rm -rf -- "$previous"
   done
+  # A sticky disk is its own filesystem, sized for the tree: it needs room for one build only.
+  pool_runner || min_free_gib="${CMUX_POOL_WARM_TARGET_DISK_MIN_FREE_GIB:-8}"
   local free_kib
   free_kib="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
   if [[ ! "$free_kib" =~ ^[0-9]+$ ]] || ((free_kib < min_free_gib * 1024 * 1024)); then
@@ -101,14 +120,14 @@ restore() {
 
 record() {
   local target="${CARGO_TARGET_DIR:-}"
-  if ! pool_runner || [[ -z "$target" || "$target" != "$(pool_root)"/*/rust-* || ! -d "$target" || -L "$target" ]]; then
+  if ! usable || [[ -z "$target" || "$target" != "$(pool_root)"/*/rust-* || ! -d "$target" || -L "$target" ]]; then
     echo "pool warm target: CARGO_TARGET_DIR is not this job's pool tree; nothing to record"
     return 0
   fi
   rm -f -- "$target/.pool-warm-source"
   python3 -I "$mtimes" record "$repo" "$target/$manifest_name"
   git -C "$repo" rev-parse HEAD > "$target/.pool-warm-source" 2>/dev/null || true
-  echo "pool warm target: recorded $(du -sxh "$target" | cut -f1) for the next job on $RUNNER_NAME"
+  echo "pool warm target: recorded $(du -sxh "$target" | cut -f1) for the next job on $(pool_runner && echo "$RUNNER_NAME" || echo "the sticky disk $disk")"
 }
 
 "$command"

@@ -5,7 +5,8 @@
 # - unchanged bytes with new mtimes: nothing recompiles;
 # - a changed core: core and its dependent app recompile, side stays fresh, and app prints the change;
 # - a job that never recorded (cancelled): its manifest is gone, so every workspace crate rebuilds;
-# - not a pool runner: no CARGO_TARGET_DIR at all.
+# - not a pool runner: no CARGO_TARGET_DIR at all;
+# - a Blacksmith runner with the job's sticky disk mounted: the same, on the disk.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -34,7 +35,8 @@ pool() {
   : > "$TMP/env"
   env -u CARGO_TARGET_DIR RUNNER_NAME="${RUNNER:-cmux-runner-pool-test-1}" HOME="$TMP/home" GITHUB_ENV="$TMP/env" \
     GITHUB_OUTPUT="$TMP/out" CMUX_POOL_WARM_TARGET_MIN_FREE_GIB=0 ${TARGET:+CARGO_TARGET_DIR="$TARGET"} \
-    bash "$repo/scripts/ci/pool-warm-target.sh" "$@" fast-tier-cargo
+    ${DISK:+CMUX_POOL_WARM_TARGET_TEST_MOUNTED="${MOUNTED-$DISK}"} \
+    bash "$repo/scripts/ci/pool-warm-target.sh" "$@" fast-tier-cargo ${DISK:+"$DISK"}
 }
 restore() { pool restore > "$TMP/restore.log"; TARGET=$(sed -n 's/^CARGO_TARGET_DIR=//p' "$TMP/env"); }
 build() {
@@ -81,4 +83,24 @@ RUNNER=blacksmith-4vcpu-ubuntu-2404 TARGET="" pool restore > "$TMP/restore.log"
 [[ ! -s "$TMP/env" && ! -s "$TMP/out" ]] || fail "a non-pool runner gets no warm target"
 RUNNER=blacksmith-4vcpu-ubuntu-2404 pool record | grep -q "nothing to record" || fail "a non-pool runner records nothing"
 TARGET="$TMP/elsewhere" pool record | grep -q "nothing to record" || fail "a foreign CARGO_TARGET_DIR is never recorded"
+# A Blacksmith runner with the job's sticky disk mounted: the tree is on the disk, keyed by the
+# workspace path only (every Blacksmith runner has another name), and it is just as incremental.
+export RUNNER=blacksmith-8vcpu-ubuntu-2404-a DISK="$TMP/disk"; mkdir -p "$DISK"; TARGET=""
+restore
+[[ "$TARGET" == "$DISK/fast-tier-cargo/"*/rust-* ]] || fail "the tree is on the disk, got $TARGET"
+grep -q "miss (no recorded build" "$TMP/restore.log" || fail "an empty disk is a miss"
+build; [[ $compiled == 3 ]] || fail "disk cold: 3 crates compile, got $compiled"
+pool record | grep -q "the sticky disk" || fail "the disk tree records"
+checkout_again; RUNNER=blacksmith-8vcpu-ubuntu-2404-b; first=$TARGET; TARGET=""; restore
+[[ "$TARGET" == "$first" ]] || fail "another Blacksmith runner finds the same tree"
+grep -q "hit" "$TMP/restore.log" || fail "a recorded disk is a hit"
+build; [[ $compiled == 0 && $fresh == 3 ]] || fail "disk, unchanged bytes: 0 compiled, 3 fresh; got $compiled/$fresh"
+checkout_again; echo 'pub fn side() -> u32 { 8 }' > "$repo/ws/side/src/lib.rs"; TARGET=""; restore
+build; [[ $compiled == 1 ]] && grep -qE '^ +Compiling side ' "$TMP/build.log" \
+  || fail "disk, a changed leaf: only it recompiles, got $compiled"
+pool record > /dev/null
+# The same path, not mounted: nothing linked.
+: > "$TMP/out"; TARGET=""; MOUNTED=none pool restore > "$TMP/restore.log"
+[[ ! -s "$TMP/env" && ! -s "$TMP/out" ]] || fail "an unmounted disk path gets no warm target"
+unset RUNNER DISK
 echo "pool-warm-target: ok"
