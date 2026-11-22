@@ -46,6 +46,8 @@ cmux customize use ~/.local/state/cmux/customize/recipes/glass.json
 
 Or ask: "make the window see-through glass"
 
+To put glass behind a piece of a view of your own, see [glass.md](glass.md).
+
 ## Layout
 
 ### A compact sidebar
@@ -131,6 +133,21 @@ cmux customize use ~/.local/state/cmux/customize/recipes/pane-keys.json
 Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
 
 ## App looks
+
+Each of these changes the whole window at once: the colors, the sidebar, the chat and the
+composer. Each turns on a theme file of its own and a chat stylesheet, so to make one your own,
+edit `~/.config/cmux/themes/NAME.json` and `~/.config/cmux/agent-pane/theme.css` after you apply it.
+
+### Like the Codex app
+
+A gray sidebar of your chats by project with how long ago each ran, a white page, your prompts
+in gray pills, and a large rounded composer.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
+```
+
+Or ask: "make cmux look and work like the Codex app"
 
 ### Like the Claude desktop app
 

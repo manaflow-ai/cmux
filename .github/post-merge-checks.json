@@ -22,10 +22,6 @@
     }
   },
   "workflows": {
-    "acpmux-sim-sweep.yml": {
-      "kind": "check",
-      "why": "the full acpmux simulation sweep runs per acpmux merge; pull requests run the fixed-window acpmux-sim (#48513)"
-    },
     "app-ffi-release.yml": {
       "kind": "publish",
       "why": "publishes the app FFI release from the base"
@@ -109,10 +105,6 @@
     "cmux-next-web-lint.yml": {
       "kind": "check",
       "why": "web lint fails here on push; cmux-next-fast-gates.yml re-creates it for pull requests"
-    },
-    "cmux-next-web.yml": {
-      "kind": "check",
-      "why": "the base's web verdict, coalesced; pull requests get theirs from ci.yml's copy of the jobs"
     },
     "cmux-tui-artifacts.yml": {
       "kind": "check",

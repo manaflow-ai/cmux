@@ -36,6 +36,7 @@ import {
 } from "./unreadState";
 import { sinceRead } from "./sinceRead.experiment";
 import "./unread.css";
+import { intl } from "../../../ui/intl";
 
 export { sinceDone } from "./unreadState";
 
@@ -158,7 +159,7 @@ export function SinceDivider({
 let clock: Intl.DateTimeFormat | undefined;
 /// 3:42 PM, in the person's locale.
 const clockLabel = (at: number) =>
-  (clock ??= new Intl.DateTimeFormat(undefined, {
+  (clock ??= intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   })).format(new Date(at));

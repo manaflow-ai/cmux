@@ -46,6 +46,18 @@ pub(crate) struct Events {
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
     tee: std::sync::OnceLock<Arc<TeeHandle>>,
+    /// Connections' fan-out tasks subscribed now (`Hub::subscribe_fanout`): how many takes each
+    /// event's fan-out clock waits for.
+    fanout_connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// A connection's fan-out task's place in [`Events::fanout_connections`], given up on drop.
+pub struct FanoutSeat(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for FanoutSeat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Events {
@@ -59,6 +71,7 @@ impl Events {
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
             tee: Default::default(),
+            fanout_connections: Default::default(),
         }
     }
 
@@ -99,14 +112,30 @@ impl Events {
         }
     }
 
+    /// Every send goes out here: its fan-out clock starts, owed by each connection's fan-out task
+    /// subscribed now (`gauges.fanout`).
+    fn send_now(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        event.row.fanout.arm(self.fanout_connections.load(Ordering::Acquire));
+        self.tx.send(event)
+    }
+
+    /// A connection's fan-out task subscribes: it counts toward each event's fan-out until the
+    /// guard drops.
+    pub(super) fn subscribe_fanout(&self) -> (broadcast::Receiver<HubEvent>, FanoutSeat) {
+        // Counted before it subscribes: an event sent between the two is owed one more take than
+        // it gets, so it is no sample, never a sample taken before every connection had it.
+        self.fanout_connections.fetch_add(1, Ordering::AcqRel);
+        (self.tx.subscribe(), FanoutSeat(self.fanout_connections.clone()))
+    }
+
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
-            return self.tx.send(event);
+            return self.send_now(event);
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
-        self.tx.send(event)
+        self.send_now(event)
     }
 
     /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
@@ -213,7 +242,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.stamp_streamed(&event.session_id);
-        self.tx.send(event)
+        self.send_now(event)
     }
 
     /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
@@ -227,6 +256,46 @@ impl Events {
             self.mark_remote_tee(&remote.peer, &event.session_id);
         }
         self.stamped(event)
+    }
+
+    /// Sends many changes of `peer`'s rows at once (`Hub::announce_remote_rows`), each marked
+    /// [`HubEvent::peer_batch`], then the batch's close ([`super::PEER_ROWS_CHANGED`]). They are
+    /// stamped and sent under one hold of the row log, so their positions are consecutive and
+    /// nothing goes out between them: a watcher that applied every notice before the close holds
+    /// a cursor below the batch's first row, and the close names the position before that row
+    /// (`afterSeq`) and its last (`listSeq`). A follow from `afterSeq` (or any cursor below it)
+    /// answers every row of the batch as it is when read.
+    pub(super) fn send_remote_batch(&self, peer: &str, events: Vec<HubEvent>) {
+        for event in &events {
+            self.mark_remote_tee(peer, &event.session_id);
+        }
+        let count = events.len();
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        let after = rows.head();
+        for mut event in events {
+            debug_assert!(event.remote.as_ref().is_some_and(|r| r.peer == peer));
+            if let Some((key, gone)) = super::row_log::row_change(&event) {
+                event.list_seq = rows.stamp(key, gone);
+            }
+            event.peer_batch = true;
+            let _ = self.tx.send(event);
+        }
+        let _ = self.tx.send(HubEvent {
+            session_id: String::new(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: crate::store::now_ms(),
+                dir: "peer".into(),
+                kind: super::PEER_ROWS_CHANGED.into(),
+                msg: json!({"count": count, "afterSeq": after}),
+                host_seq: None,
+            }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Value::Null.into() }),
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: rows.head(),
+            peer_batch: false,
+        });
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): of the
