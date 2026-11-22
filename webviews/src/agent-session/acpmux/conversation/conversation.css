@@ -8829,6 +8829,13 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   min-width: calc(100% - var(--cv-bubble-pad-inline) + var(--cv-action-inset));
   justify-content: flex-start;
 }
+/* Its note keeps that start, and its buttons keep the row's end slot (RowSlots.tsx): the footer
+   spans the row, so Copy's right edge is a landed prompt's at every text length, never after the
+   note's words (Leo, 2026-11-17: "STOP MAKING THE COPY BUTTON MOVE WITH THE TEXT WHY WAS IT NOT
+   JUST AT THE RIGHT EDGE"; doc transcript-motion-model.md rule 10). */
+.cv-user__actions--pending > .cv-row-slots {
+  flex: 1 1 auto;
+}
 
 /* A read's file name (ReadLabel.tsx): underlined under the pointer, as the Codex app's is; its full
    path shows as the pane's tooltip. */
