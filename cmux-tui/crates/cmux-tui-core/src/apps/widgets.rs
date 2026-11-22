@@ -809,10 +809,17 @@ impl Supervisor {
             self.timers.cancel(timer);
         }
         if !visible {
+            // The signals this mount watches sleep while nobody sees it (`signals_cache.rs`).
+            self.signals_mount_visible_locked(&inner, &key, false);
             return Ok(json!({}));
         }
         mount.budget.settle(now, SETTLE);
-        if std::mem::take(&mut widget.retry_due) {
+        let retry_due = std::mem::take(&mut widget.retry_due);
+        let missed = widget.every.is_some_and(|every| {
+            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
+        });
+        self.signals_mount_visible_locked(&inner, &key, true);
+        if retry_due {
             // The remount it missed while hidden runs now; its fresh mount starts a fresh clock.
             let outs = self.widget_remount_locked(&mut inner, &key);
             self.schedule_tick_locked(&mut inner, &key);
@@ -820,9 +827,6 @@ impl Supervisor {
             self.emit(outs);
             return Ok(json!({}));
         }
-        let missed = widget.every.is_some_and(|every| {
-            now_ms.saturating_sub(widget.last_tick_ms) >= every.saturating_mul(1000)
-        });
         if missed {
             self.send_tick_locked(&mut inner, &key, now_ms);
         }
