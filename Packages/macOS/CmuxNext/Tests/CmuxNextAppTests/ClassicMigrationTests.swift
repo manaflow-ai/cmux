@@ -289,9 +289,15 @@ struct ClassicMigrationTests {
     /// Downgrade to classic, which makes a workspace in the Backend group and
     /// renames one that already came over, then upgrade again: only the new
     /// workspace comes over, into the same group; the rename is not merged.
-    @Test func aReUpgradeMergesOnlyWhatClassicMadeMeanwhile() async throws {
+    @Test(arguments: 0..<8) func aReUpgradeMergesOnlyWhatClassicMadeMeanwhile(_ attempt: Int) async throws {
         let mac = try Mac()
         let tree = try await launch(mac) { services in
+            // DIAGNOSTIC: what the first launch's run left before the re-upgrade.
+            let first = try await #require(services.onboarding.classicMigrationRun).value
+            let before = try mac.readLedger()
+            print("REUPGRADE-DIAG attempt=\(attempt) first=\(first) ledger=\(before.workspaces)")
+            #expect(first.failures.isEmpty, "REUPGRADE-DIAG first run: \(first)")
+            #expect(before.workspaces.values.allSatisfy { $0.stage == "done" || $0.stage == "skipped" }, "REUPGRADE-DIAG \(before.workspaces)")
             try mac.write { root in
                 root["createdAt"] = 1_891_728_605.0
                 var windows = root["windows"] as? [[String: Any]] ?? []
