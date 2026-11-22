@@ -106,6 +106,17 @@ the window in the background, and a blue cmux cursor shows them where you act.
 `delivery: "foreground"` is only for a step that cannot work in the background,
 and only when the person allowed it in Settings.
 
+## A video of the screen: record
+
+`record` saves a display as an MP4 (H.264). `{"seconds": 10}` records 10
+seconds and returns the file; or `{"action": "start", "max_seconds": 120}`,
+do the work, then `{"action": "stop"}`. The result has `path`, `duration_ms`,
+`frames`, `bytes`, `width`, `height` and `ended` (why it ended: `stopped`,
+`max_seconds`, `locked`, ...). One recording at a time per machine
+(`already_recording`); it ends by itself at its cap. Denied apps are out of
+every frame, as in a screenshot. On another machine, get the bytes with
+`{"action": "read", "recording_id", "offset"}` or the CLI's `--machine`.
+
 ## Other machines
 
 `list_machines` lists the person's other machines this one reaches (their
@@ -144,8 +155,8 @@ Shortcuts).
 ## From a shell
 
 `cmux computer-use status|tools|call <tool> --args JSON|screenshot --out FILE
-[--window ID | --display ID]|displays|doctor|approvals list|machines` reaches
-the same worker as the CLI caller. `displays` (the `list_displays` tool) gives
+[--window ID | --display ID]|record --out FILE --seconds N|displays|doctor|approvals list|machines`
+reaches the same worker as the CLI caller. `displays` (the `list_displays` tool) gives
 each display's id, the string `screenshot`'s `display` takes, with its frame,
 scale and which is main. `doctor [--machine M] [--json]` says whether capture
 and input would work and, for each thing that would stop them, the one step

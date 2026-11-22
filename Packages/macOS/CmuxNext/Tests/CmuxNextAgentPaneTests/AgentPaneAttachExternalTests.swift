@@ -189,6 +189,17 @@ struct AgentPaneAttachExternalTests {
 
     /// Files that come while a new chat opens for earlier ones join them: one new chat, not two;
     /// a chat that could not start leaves nothing waiting.
+    /// The chat that took files answers when it took them, so the screenshot-into-chat probe times a door from
+    /// the app's stamp, not its 250 ms reads of the composer.
+    @Test func theReadbackOfTheChatThatTookFilesCarriesWhenItTookThem() {
+        let at = Date(timeIntervalSince1970: 1_795_350_000.25)
+        let state = AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: at)
+        #expect(state.objectValue?["attached_at_ms"] == .number(1_795_350_000_250))
+        #expect(state.objectValue?["attachments"] == .array([]))
+        #expect(AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: nil) == AgentPaneExternalAttach.noComposer)
+        #expect(AgentPaneExternalAttach.stamped(.null, attachedAt: at) == .null)
+    }
+
     @Test func filesWhileANewChatOpensJoinIt() {
         let route = AgentPaneExternalAttach()
         var opened = 0
