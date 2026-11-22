@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fe0ceb34f934671810d62f054bfc825902a333fc7c065a3d25260c2c3738832.
+// cmux-tui mux protocol 12, IR a077271ae3dbe8a00f0e9831aa1780e0b105dcd1218806c08f5c4dc995903460.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3449,6 +3449,8 @@ pub struct SendRequest {
     pub expect_foreground: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub flow: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3925,6 +3927,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
@@ -5789,6 +5793,9 @@ impl CmuxClient {
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
         }
+        if !request.key.is_missing() {
+            self.require_capability_field("send", "send-key-v1")?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -6027,6 +6034,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.if_idle.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "daemon-stop-if-idle-v1")?;
         }
         if request.keep_layout.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;
