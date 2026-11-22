@@ -200,7 +200,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// stops the page, as in UIKit; it never opens the link under it).
     private weak var shellTap: UITapGestureRecognizer?
     private var tapStoppedScroll = false
-    /// In a full-screen app a two-finger drag scrolls the app; one finger reads, sending nothing (T-SCROLL-12).
+    /// A vertical drag in a full-screen app scrolls the app (T-SCROLL-12).
     private let tuiScroll = TerminalTUIScrollController()
     /// A tap in a full-screen app: a click when the app asked for the mouse,
     /// and it focuses the terminal (not a tap that stops a fling).
