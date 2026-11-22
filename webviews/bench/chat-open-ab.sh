@@ -3,7 +3,9 @@
 # lands on both sides (goals/chat-attach-p95.md). Usage, from webviews/:
 #   bench/chat-open-ab.sh [BASE_REF] [ROUNDS] [PER]
 # BASE_REF (default HEAD): the side "base" is webviews/src at that ref, "head" is the working tree's
-# src (commits after BASE_REF and uncommitted edits). Each round runs `PAIRED=1 FIXTURE=god` with PER
+# src (commits after BASE_REF and uncommitted edits). BASE_REF may instead be a patch file (base to head
+# of webviews/src, `git diff BASE HEAD -- src` from webviews/): a CI job holding only the head commit
+# has no ref to diff against, so the base comes in as that patch, reversed. Each round runs `PAIRED=1 FIXTURE=god` with PER
 # timed loads per chat (default 3) on each side, base first on odd rounds and head first on even ones.
 # Prints every round's paired rows and, per side, the median over rounds of each row. The working
 # tree is restored on exit, even on failure.
@@ -14,7 +16,7 @@ per="${3:-3}"
 cd "$(dirname "$0")/.."
 patch="$(mktemp -t chat-open-ab.XXXXXX.patch)"
 log="$(mktemp -t chat-open-ab.XXXXXX.log)"
-git diff --binary "$base_ref" -- src >"$patch"
+if [[ -f "$base_ref" ]]; then cp "$base_ref" "$patch"; else git diff --binary "$base_ref" -- src >"$patch"; fi
 if [[ ! -s "$patch" ]]; then
   echo "chat-open-ab: webviews/src is the same at $base_ref and in the working tree; nothing to compare" >&2
   exit 2
