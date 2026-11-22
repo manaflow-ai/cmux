@@ -235,7 +235,7 @@ final class TerminalDemoDriver {
             // A long session: 3,000 transcript rows, all reprinted every 2 s.
             ("claude-inline-long", "claudeinline 50 40 3000"),
             // Full screen: the drag is the wheel (T-SCROLL-12), not the page.
-            ("claude-full", "claudefull 50"),
+            ("claude-full", "claudewheel 50"),
         ]
         model.composerText = "stream 600 1"
         model.send()
@@ -329,7 +329,7 @@ final class TerminalDemoDriver {
         (model.session as? MockTerminalSession)?.stampsRedraws = true
         model.composerText = screen == "primary"
             ? (load ? "claudecli 12000 16" : "claudecli 1500 80")
-            : (load ? "claudetui 12000 \(screen) stream=16" : "claudetui 1500 \(screen)")
+            : (load ? "claudefull 12000 \(screen) stream=16" : "claudefull 1500 \(screen)")
         model.send()
         await wait(load ? 6 : 3)
         guard let controller = model.controller, let window = controller.view.window,
@@ -681,6 +681,7 @@ final class TerminalDemoDriver {
         await wait(1)
     }
 }
+
 /// DEBUG bench (`tuipan`): display frames while a finger is on the screen
 /// (and 0.6 s after it lifts, for the fling). A frame interval over 1.5
 /// display periods is a hitch, over 50 ms a main-thread stall. Touches are

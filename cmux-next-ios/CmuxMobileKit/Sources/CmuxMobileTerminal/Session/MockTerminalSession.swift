@@ -51,7 +51,7 @@ public final class MockTerminalSession: TerminalSession {
     /// DEBUG bench: every byte the phone sent this "Mac" (keys, wheel
     /// reports, cursor keys). A local scroll sends none (`tuipan`).
     public private(set) var bytesFromPhone = 0
-    /// DEBUG bench: wheel reports and cursor keys `claudetui` scrolled by.
+    /// DEBUG bench: wheel reports and cursor keys `claudefull` scrolled by.
     public private(set) var appScrolls = 0
     /// Stamps every write as hostd stamps a redraw (`.paintMark`), so the screen reports
     /// when it painted it (``reportPaint(_:)``): the simulator's receive-to-paint.
@@ -80,26 +80,26 @@ public final class MockTerminalSession: TerminalSession {
         /// rows, the transcript, and its input box on the last rows with the
         /// cursor in it.
         case agent
-        /// Claude Code in its full-screen mode (`claudetui`): the
+        /// Claude Code in its full-screen mode (`claudefull`): the
         /// alternate screen, the transcript scrolled by the app itself (a
         /// wheel report or a cursor key moves it 3 rows and redraws the
         /// whole screen), a spinner redrawn every 80 ms. `mouse`: it asked
         /// for the mouse (DECSET 1000 + 1006).
-        case agentTUI(MockClaudeFull)
+        case agentFull(MockClaudeFull)
         /// Claude Code on the primary screen (`claudecli`): its transcript
         /// in the scrollback and its live region (spinner, input box)
         /// redrawn in place every few tens of ms, new rows above it.
         case agentCLI
-        /// `claudefull`: Claude Code's full-screen mode, scrolled by the
+        /// `claudewheel`: Claude Code's full-screen mode, scrolled by the
         /// wheel (it asks for the mouse), with a live spinner row.
-        case agentFull
+        case agentWheel
     }
 
-    /// DEBUG bench: the wheel reports `claudefull` has taken, and the rows
+    /// DEBUG bench: the wheel reports `claudewheel` has taken, and the rows
     /// they scrolled its transcript.
     public private(set) var wheelReports = 0
     public private(set) var wheelRows = 0
-    /// `claudefull`'s transcript and how many rows it is scrolled up.
+    /// `claudewheel`'s transcript and how many rows it is scrolled up.
     private var fullTranscript: [String] = []
     private var fullOffset = 0
     private var fullTick = 0
@@ -164,12 +164,12 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     private func deliver(_ bytes: Data) {
-        if case .agentTUI(var full) = program {
+        if case .agentFull(var full) = program {
             // The app reads its own wheel reports and cursor keys.
             let before = full.scrolls
             if full.handle(bytes) { exitProgram(); return }
             appScrolls += full.scrolls - before
-            program = .agentTUI(full)
+            program = .agentFull(full)
             write(full.render(columns: columns, rows: rows))
             return
         }
@@ -196,9 +196,9 @@ public final class MockTerminalSession: TerminalSession {
             write(vim.render(columns: columns, rows: rows))
             program = .vim(vim)
         case .agent: drawAgent()
-        case .agentTUI(let full): write(full.render(columns: columns, rows: rows))
+        case .agentFull(let full): write(full.render(columns: columns, rows: rows))
         case .agentCLI: break
-        case .agentFull: drawFull()
+        case .agentWheel: drawFull()
         }
     }
 
@@ -243,14 +243,14 @@ public final class MockTerminalSession: TerminalSession {
             program = .vim(vim)
         case .agent:
             replay += "\u{1B}[?1049h" + agentScreen()
-        case .agentTUI(let full):
+        case .agentFull(let full):
             replay += "\u{1B}[?1049h" + (full.mouse ? Self.htopMouse : "") + full.render(columns: columns, rows: rows)
         case .agentCLI: break
-        case .agentFull:
+        case .agentWheel:
             replay += "\u{1B}[?1049h\u{1B}[H\u{1B}[2J" + Self.htopMouse
         }
         handler?(.output(Data(replay.utf8)))
-        if case .agentFull = program { drawFull() }
+        if case .agentWheel = program { drawFull() }
     }
 
     /// `historywindow`'s older rows: the Mac's reset and replay, `delay` ms
@@ -373,9 +373,9 @@ public final class MockTerminalSession: TerminalSession {
                 program = .vim(vim)
             }
         case .agent: if key == .control("c") || key == .escape { exitProgram() }
-        case .agentTUI: break
+        case .agentFull: break
         case .agentCLI: if key == .control("c") { exitProgram() }
-        case .agentFull:
+        case .agentWheel:
             if key == .control("c") || key == .escape { return exitProgram() }
             if case .wheel(let up) = key {
                 // Claude Code scrolls its transcript three rows a report.
@@ -517,15 +517,15 @@ public final class MockTerminalSession: TerminalSession {
             handler?(.output(Data(Self.htopMouse.utf8)))
             startHtopTicker()
             return
-        case "claudefull":
-            // claudefull [MS=50]: Claude Code CLI's full-screen mode (Leo,
+        case "claudewheel":
+            // claudewheel [MS=50]: Claude Code CLI's full-screen mode (Leo,
             // 2026-11-21: "this claude code cli is often slow to scroll up
             // and down from ios"). On the alternate screen, it reports the
             // mouse: a drag on the phone is wheel reports, each one redraws
             // the transcript three rows on, and every MS ms the spinner row
             // is redrawn (a transcript row every third tick). Ctrl-C quits.
             busy = false
-            program = .agentFull
+            program = .agentWheel
             setAlternate(true, program: "claude")
             handler?(.output(Data(Self.htopMouse.utf8)))
             fullTranscript = (1...400).map(Self.fullRow)
@@ -536,7 +536,7 @@ public final class MockTerminalSession: TerminalSession {
             tasks.append(Task { [weak self] in
                 while !Task.isCancelled {
                     do { try await self?.pause(delay) } catch { return }
-                    guard let self, case .agentFull = self.program else { return }
+                    guard let self, case .agentWheel = self.program else { return }
                     self.fullTick += 1
                     if self.fullTick % 3 == 0 {
                         self.fullTranscript.append(Self.fullRow(self.fullTranscript.count + 1))
@@ -585,8 +585,8 @@ public final class MockTerminalSession: TerminalSession {
             }
             tasks.append(task)
             return
-        case "claudetui":
-            // claudetui [ROWS=1500] [mouse|keys] [stream=MS]: Claude Code's
+        case "claudefull":
+            // claudefull [ROWS=1500] [mouse|keys] [stream=MS]: Claude Code's
             // full-screen mode on the alternate screen; `mouse` asks for the
             // mouse. `stream=MS`: a new transcript row and a whole-screen
             // redraw every MS ms (a reply streaming in), else the spinner
@@ -596,21 +596,21 @@ public final class MockTerminalSession: TerminalSession {
             let stream = parts.first { $0.hasPrefix("stream=") }.flatMap { Int($0.dropFirst(7)) }.map { max(5, $0) }
             busy = false
             let full = MockClaudeFull(rows: count, mouse: mouse)
-            program = .agentTUI(full)
+            program = .agentFull(full)
             setAlternate(true, program: "claude")
             if mouse { handler?(.output(Data(Self.htopMouse.utf8))) }
             write(full.render(columns: columns, rows: rows))
             let task = Task { [weak self] in
                 while !Task.isCancelled {
                     do { try await self?.pause(stream ?? 80) } catch { return }
-                    guard let self, case .agentTUI(var full) = self.program else { return }
+                    guard let self, case .agentFull(var full) = self.program else { return }
                     full.tick += 1
                     if stream != nil {
                         // A scrolled-back view stays on its rows as new ones come.
                         full.rows += 1
                         if full.offset > 0 { full.offset += 1 }
                     }
-                    self.program = .agentTUI(full)
+                    self.program = .agentFull(full)
                     self.write(stream != nil ? full.render(columns: self.columns, rows: self.rows) : full.statusRow(rows: self.rows))
                 }
             }
@@ -694,7 +694,7 @@ public final class MockTerminalSession: TerminalSession {
         }
     }
 
-    // MARK: claudefull
+    // MARK: claudewheel
 
     /// The transcript's rows on screen: below the 3-row header, above the
     /// spinner row, a blank and the 3-row input box.
