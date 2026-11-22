@@ -22,40 +22,84 @@ extension CEFPaneHost {
     }
 
     /// Moves `tab`, whose view appears in the App's pane `pane`, into that pane's host. Leaves it where it is when it
-    /// is a popup's, an agent's or a spare's, still waits for a window, or the pane's host shows another tab on screen
-    /// (two views of one pane in two windows): the tab then shows from its own window, as before.
+    /// is a popup's, an agent's or a spare's, or still waits for a window. When the pane's host cannot take it now
+    /// (it shows another tab on screen, its window is still being made, the fork refused the move), the tab still
+    /// leaves a host whose view shows another tab on screen (`leaveSharedHost`), so two panes never share one view.
     func regroup(_ tab: CEFTab, into pane: BrowserPaneID) {
         guard key.pane != pane, !holdsOwnTab, !isSpare, !tab.awaitsWindowMove, !tab.isCreationPending, !tab.isClosed,
               tabs.contains(where: { $0 === tab }) else { return }
         let target = paneKey(pane)
+        // A pane host left with no tab and no window (its tabs closed or hibernated) is as good as none.
+        if let stale = runtime.hosts[target], stale !== self, stale.tabs.isEmpty, stale.window == .none, !stale.isSpare,
+           !stale.hasLentTabs {
+            runtime.hosts[target] = nil
+        }
         guard let paneHost = runtime.hosts[target] else {
-            // The first tab of its store the pane shows: its host becomes the pane's, with no Chromium work.
-            guard tabs.allSatisfy({ $0 === tab || $0 === placeholder }) else { return }
-            lifecycleTrace.record(tab.id, "pane-group rekey pane=\(pane.rawValue)")
-            if runtime.hosts[key] === self { runtime.hosts[key] = nil }
-            key = target
-            runtime.hosts[target] = self
+            if tabs.allSatisfy({ $0 === tab || $0 === placeholder }), !hasLentTabs {
+                // The first tab of its store the pane shows: its host becomes the pane's, with no Chromium work.
+                lifecycleTrace.record(tab.id, "pane-group rekey pane=\(pane.rawValue)")
+                if runtime.hosts[key] === self { runtime.hosts[key] = nil }
+                key = target
+                runtime.hosts[target] = self
+            } else {
+                // The tab left a pane with other web tabs (dragged to a split): the new pane gets a host of its own.
+                move(tab, to: runtime.host(for: target, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus))
+            }
             return
         }
-        guard paneHost !== self, !paneHost.holdsOwnTab, !paneHost.isSpare, !paneHost.showsOnScreen(besides: tab) else { return }
+        guard paneHost !== self, !paneHost.holdsOwnTab, !paneHost.isSpare, !paneHost.showsOnScreen(besides: tab),
+              move(tab, to: paneHost) else { return leaveSharedHost(tab) }
+    }
+
+    /// Moves `tab` from this host into `destination`: a tab with no browser only changes host; one with a browser
+    /// moves into `destination`'s live window, or waits in its opener's window for one `destination` makes
+    /// (`ensureOwnWindow`), as an agent's background tab does. False when it stays.
+    @discardableResult
+    func move(_ tab: CEFTab, to destination: CEFPaneHost) -> Bool {
+        var waits = false
         if let browser = tab.browserID {
-            guard paneHost.isLive, let anchor = paneHost.anchorBrowser, let shim = runtime.shim else { return }
-            #if DEBUG || CMUX_BENCH_HOOKS
-            let moved = runtime.benchMarks.span("cef.tab_move") { shim.tabMoveToWindow(browser, anchor, -1) }
-            #else
-            let moved = shim.tabMoveToWindow(browser, anchor, -1)
-            #endif
-            guard moved == 1 else {
-                runtime.logger.error("CEF tab \(browser) could not move into its pane's window; it keeps its own")
-                return
+            if destination.isLive, let anchor = destination.anchorBrowser, let shim = runtime.shim {
+                #if DEBUG || CMUX_BENCH_HOOKS
+                let moved = runtime.benchMarks.span("cef.tab_move") { shim.tabMoveToWindow(browser, anchor, -1) }
+                #else
+                let moved = shim.tabMoveToWindow(browser, anchor, -1)
+                #endif
+                guard moved == 1 else {
+                    runtime.logger.error("CEF tab \(browser) could not move into its pane's window; it keeps its own")
+                    return false
+                }
+            } else if case .creating = destination.window {
+                return false
+            } else {
+                waits = true
             }
         }
-        lifecycleTrace.record(tab.id, "pane-group join pane=\(pane.rawValue) browser=\(tab.browserID.map(String.init) ?? "none")")
+        lifecycleTrace.record(tab.id, "pane-group join pane=\(destination.key.pane.rawValue) browser=\(tab.browserID.map(String.init) ?? "none") waits=\(waits)")
         if hostView.superview === tab.container { hostView.removeFromSuperview() }
         removed(tab)
-        tab.host = paneHost
-        paneHost.add(tab)
-        if tab.browserID != nil { paneHost.hostView.layerHosting.windowBrowsersChanged(paneHost.tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID)) }
+        tab.host = destination
+        tab.awaitsWindowMove = waits
+        // A tab the fork then cannot move in comes back here rather than close (`CEFPaneHost+Popups`).
+        tab.regroupedFrom = waits ? self : nil
+        destination.add(tab)
+        if tab.browserID != nil, !waits {
+            destination.hostView.layerHosting.windowBrowsersChanged(destination.tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
+        }
+        return true
+    }
+
+    /// `tab` could not join its pane's host: when this host's view shows another tab on screen, the tab goes to a
+    /// host of its own (a window per tab, as before panes shared one), so presenting it never takes that view.
+    func leaveSharedHost(_ tab: CEFTab) {
+        guard showsOnScreen(besides: tab), !isOwnTabHost else { return }
+        let own = paneKey(BrowserPaneID(rawValue: Self.ownTabPrefix + tab.id.rawValue))
+        move(tab, to: runtime.host(for: own, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus))
+    }
+
+    /// A background tab of this pane an agent drives from its own window points home here (`homeHost`): this host
+    /// keeps its key while one does, or the tab would go home to another pane.
+    var hasLentTabs: Bool {
+        runtime.hosts.values.contains { $0.isAgentHost && $0.tabs.contains { $0.homeHost === self } }
     }
 
     /// True when this host's view shows a tab other than `tab` in a window, unhidden: reparenting it would take

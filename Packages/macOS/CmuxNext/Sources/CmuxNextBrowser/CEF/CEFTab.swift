@@ -286,6 +286,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored weak var homeHost: CEFPaneHost?
     /// The App pane that shows this tab next (`willShow(inPane:)`): its view joins that pane's Chromium window when it appears.
     @ObservationIgnored var shownPane: BrowserPaneID?
+    /// The host this tab left for a pane host whose window it waits for (`CEFPaneHost.move`): it goes back there if the fork cannot move it in.
+    @ObservationIgnored weak var regroupedFrom: CEFPaneHost?
     /// The fork could not move this tab into an agent window: it stays in its pane's window from then on.
     @ObservationIgnored var agentWindowRefused = false
     @ObservationIgnored unowned let runtime: CEFRuntime
