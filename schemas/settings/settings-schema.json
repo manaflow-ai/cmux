@@ -10,16 +10,6 @@
         ],
         "groups" : [
           {
-            "key" : "settings.group.language",
-            "rows" : [
-              "app.language"
-            ],
-            "title" : {
-              "key" : "settings.group.language",
-              "text" : "Language"
-            }
-          },
-          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -1288,6 +1278,7 @@
               "agents.chats.sessionRecap",
               "agents.chats.coldArchive",
               "agents.chats.coldArchiveAfterDays",
+              "agents.chats.archiveInactive",
               "chat.on"
             ],
             "title" : {
@@ -1607,18 +1598,6 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
-            }
-          },
-          {
-            "key" : "settings.group.notificationDelivery",
-            "rows" : [
-              "notifications.delivery.permissionRequest",
-              "notifications.delivery.question",
-              "notifications.delivery.taskComplete"
-            ],
-            "title" : {
-              "key" : "settings.group.notificationDelivery",
-              "text" : "Delivery by Event"
             }
           },
           {
@@ -2251,7 +2230,9 @@
             "key" : "settings.group.experiments",
             "rows" : [
               "experiments.glassToolbarGroups",
-              "experiments.composerV2"
+              "experiments.composerV2",
+              "experiments.agentBadges",
+              "experiments.agentBadgesBeam"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -2457,7 +2438,7 @@
         "zh-Hant"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -2681,7 +2662,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -2693,11 +2674,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -24206,6 +24185,183 @@
     },
     {
       "accepts" : [
+        "never",
+        "1d",
+        "3d",
+        "7d",
+        "30d"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveOneDay",
+            "text" : "After 1 Day"
+          },
+          "value" : "1d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveThreeDays",
+            "text" : "After 3 Days"
+          },
+          "value" : "3d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveSevenDays",
+            "text" : "After 7 Days"
+          },
+          "value" : "7d"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.archiveInactiveThirtyDays",
+            "text" : "After 30 Days"
+          },
+          "value" : "30d"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "never",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chats",
+        "text" : "Chats"
+      },
+      "help" : {
+        "key" : "settings.chats.archiveInactive.help",
+        "text" : "Archives chats after a period of no activity. Chats that are running or have background work never are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.chats.archiveInactive",
+      "keywords" : [
+        "agents",
+        "chats",
+        "archive",
+        "archived",
+        "settled",
+        "inactive",
+        "idle",
+        "auto archive",
+        "days"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "chats",
+        "archiveInactive"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.chats.archiveInactive"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.chats.archiveInactive",
+        "text" : "Archive Inactive Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -39321,7 +39477,7 @@
         "plumAmber"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -39470,7 +39626,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -39482,11 +39638,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -68896,146 +69050,6 @@
         "text" : "Sidebar"
       },
       "help" : {
-        "key" : "settings.sidebar.showAutomaticSessions.help",
-        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showAutomaticSessions",
-      "keywords" : [
-        "sidebar",
-        "automatic",
-        "auto",
-        "script",
-        "automation",
-        "background",
-        "hidden",
-        "hide",
-        "fold",
-        "sessions",
-        "tidy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showAutomaticSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:sidebar.showAutomaticSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.sidebar.showAutomaticSessions",
-        "text" : "Show Automatic Sessions"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
         "key" : "settings.sidebar.detailedStatusIcons.help",
         "text" : "Icons for working, waiting, error and done. Off: a spinner and a dot."
       },
@@ -69436,6 +69450,146 @@
       "title" : {
         "key" : "settings.sidebar.settleFinished",
         "text" : "Settle Finished Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showAutomaticSessions.help",
+        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showAutomaticSessions",
+      "keywords" : [
+        "sidebar",
+        "automatic",
+        "auto",
+        "script",
+        "automation",
+        "background",
+        "hidden",
+        "hide",
+        "fold",
+        "sessions",
+        "tidy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showAutomaticSessions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.showAutomaticSessions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.showAutomaticSessions",
+        "text" : "Show Automatic Sessions"
       },
       "validation" : "portable"
     },
@@ -105864,7 +106018,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -105944,7 +106098,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -105956,11 +106110,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -106018,7 +106170,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -106098,7 +106250,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -106110,11 +106262,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -106171,7 +106321,7 @@
         "banner"
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "choices" : [
         {
           "title" : {
@@ -106244,7 +106394,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -106256,11 +106406,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -107670,6 +107818,283 @@
       "title" : {
         "key" : "settings.experiments.composerV2",
         "text" : "Composer Refresh"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.agentBadges.help",
+        "text" : "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.agentBadges",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "agent",
+        "badge",
+        "badges",
+        "count",
+        "unread",
+        "approval",
+        "status",
+        "pill",
+        "running",
+        "done"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "agentBadges"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.agentBadges"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.agentBadges",
+        "text" : "Agent Badges"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.agentBadgesBeam.help",
+        "text" : "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.agentBadgesBeam",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "agent",
+        "badges",
+        "beam",
+        "light",
+        "running",
+        "border",
+        "edge"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "agentBadgesBeam"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.agentBadgesBeam"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.agentBadgesBeam",
+        "text" : "Agent Badges: Running Beam"
       },
       "validation" : "portable"
     },
