@@ -251,3 +251,21 @@ fn tailscales_asks_are_left_for_a_person() {
         assert_eq!(check(&a, "Don't Allow").unwrap_err().code, CODE_UNKNOWN, "{text}");
     }
 }
+
+/// As read on a fleet mini (cmuxs-mac-mini-6, 2026-11-22): the warning is a
+/// layer 0 window with a title, no static text and these three buttons.
+#[test]
+fn the_screen_recording_warning_as_a_fleet_mini_showed_it() {
+    assert!(is_alert_window("universalAccessAuthWarn", 0));
+    let a = RawAlert {
+        layer: 0,
+        title: "Screen Recording".into(),
+        ..alert("universalAccessAuthWarn", &[], &["Open System Settings", "Deny", "Help"])
+    };
+    assert_eq!(classify(&a), "screen-recording");
+    assert_eq!(read(&a).put_off, ["Deny"]);
+    assert_eq!(check(&a, "Deny").unwrap(), "Deny");
+    for refused in ["Open System Settings", "Help"] {
+        assert_eq!(check(&a, refused).unwrap_err().code, CODE_BUTTON, "{refused}");
+    }
+}
