@@ -23,7 +23,7 @@ mod agent_tools;
 mod agent_wait_tool;
 mod automation_tools;
 mod browser_tools;
-mod caller_scope;
+use super::caller_scope;
 mod chat_tools;
 mod cloud_connect_tools;
 mod cloud_repo_tools;
