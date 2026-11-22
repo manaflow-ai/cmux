@@ -13,6 +13,13 @@ public protocol BrowserDevToolsHosting: AnyObject {
     /// Whether `window` is this tab's docked tools window (a child window
     /// over the pane), so a key change there is focus on the tools.
     func devToolsContains(window: NSWindow) -> Bool
+    /// Whether `view` is in this tab's docked tools while they show in the cmux window's own view tree (in-tree
+    /// pages), so a first responder there is focus on the tools.
+    func devToolsContains(view: NSView) -> Bool
+}
+
+public extension BrowserDevToolsHosting {
+    func devToolsContains(view: NSView) -> Bool { false }
 }
 
 /// Tells the host what the tools of a tab did, for its focus model.

@@ -242,7 +242,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard let devTools = page as? any BrowserDevToolsHosting, devTools.devTools.isOpen else {
             return focusPage(page, in: window)
         }
-        if window.firstResponder !== window { FocusRoute(.system, "focus model: devtools window").moveKeyboard(in: window, to: nil) }
+        // In tree the tools' view holds the keys as this window's first responder; with a DevTools window it does not.
+        let inTree = window.firstResponder.flatMap { $0 as? NSView }.map { devTools.devToolsContains(view: $0) } ?? false
+        if window.firstResponder !== window, !inTree { FocusRoute(.system, "focus model: devtools window").moveKeyboard(in: window, to: nil) }
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.

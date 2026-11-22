@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 import CmuxNextFocus
 
 /// Maps an AppKit first responder of a cmux window to what the focus state
@@ -12,6 +13,11 @@ enum FocusResponderClassifier {
         }
         if let content = controller.content {
             for pane in content.panes.values where view.isDescendant(of: pane.view) {
+                // In tree a docked DevTools' view is in the pane's own view tree: its first responder is the tools'.
+                if case .browser(let entry)? = pane.currentContent, let devTools = entry.tab as? any BrowserDevToolsHosting,
+                   devTools.devToolsContains(view: view) {
+                    return .devTools(pane: pane.paneKey)
+                }
                 if case .browser(let entry)? = pane.currentContent, let region = entry.chrome?.region(of: view) {
                     switch region {
                     case .addressBar: return .addressBar(pane: pane.paneKey)
