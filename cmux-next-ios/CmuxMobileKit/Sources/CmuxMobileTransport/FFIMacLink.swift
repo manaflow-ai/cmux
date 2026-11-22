@@ -334,7 +334,7 @@ extension CmuxMobileError {
         case .InvalidArgument(let message): LinkError(code: "invalid_argument", message: message)
         case .Signaling(let message): LinkError(code: "signaling", message: message)
         case .Refused(let code, let message): LinkError(code: code, message: message)
-        case .Timeout: LinkError(code: "timeout", message: "The Mac didn't answer in time.")
+        case .Timeout: LinkError(code: "timeout", message: "link request timed out")
         case .Transport(let message): LinkError(code: "transport", message: message)
         case .Closed(let message): LinkError(code: "closed", message: message)
         }

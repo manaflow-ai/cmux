@@ -21,7 +21,7 @@ ok kept "" warm unknown "" "" small || { echo "snapshot=unknown refused" >&2; ex
 ! ok kept update warm own "" "" small || { echo "case=update without base= accepted" >&2; exit 1; }
 ! ok bare "" cold own "" "" small || { echo "state=fresh daemon=cold accepted" >&2; exit 1; }
 ! ok bare "" warm own home "" small || { echo "state=fresh front=home accepted" >&2; exit 1; }
-! ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 accepted" >&2; exit 1; }
+ok kept "" warm own tab "" stress3 || { echo "front=tab session=stress3 refused" >&2; exit 1; }
 echo 'launch-ready cases: the case arguments combine as agreed'
 
 # cold_daemon: kills only the pids running from OUT/SIDE/.

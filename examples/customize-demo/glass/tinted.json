@@ -8,10 +8,37 @@
     "layout.paneCornerRadius": 12,
     "sidebar.groupGradient": "aurora",
     "sidebar.groupHeader.background": "glass",
-    "sidebar.groupPalette": "gradient"
+    "sidebar.groupPalette": "gradient",
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill"
   },
   "files": {
     "agent-pane/theme.css": "/* Glass: tinted, in the agent pane: links and the caret in the cyan accent, and the chat's glass\n   (composer, popovers, menus) kept vivid behind its frost so the indigo stain reads through it.\n   Colors come from the theme file. */\n:root {\n  --agent-link: var(--agent-accent);\n  --glass-material-saturate: 2.1;\n  --ds-glass-popover-tint: 72%;\n}\n\ntextarea,\n[contenteditable=\"true\"] {\n  caret-color: var(--agent-accent);\n}\n",
-    "themes/glass-tinted.json": "// Glass: tinted. Liquid Glass over the live desktop, stained a deep indigo with aurora-colored\n// workspace groups and an accent-tinted address bar: the same native glass as the other looks, in\n// color. Move a window behind it and it shows through, bent and tinted.\n{\n  \"name\": \"Glass: tinted\",\n  \"description\": \"Indigo-stained Liquid Glass over the live desktop, aurora workspace groups, a cyan accent.\",\n\n  \"appearance.theme\": \"Apple System Colors\",\n  \"colors\": { \"background\": \"#0e1024\", \"foreground\": \"#e9ecff\", \"selection\": \"#2b2f63\", \"accent\": \"#67e8f9\" },\n  \"appearance.accent\": \"theme\",\n\n  // The window: regular Liquid Glass over the desktop and the windows behind it, no picture.\n  \"appearance.background\": \"none\",\n  \"appearance.backgroundBlur\": \"glass\",\n  \"appearance.backgroundOpacity\": 0.6,\n  \"appearance.glassTransparency\": 0.3,\n  \"appearance.wallpaperTint\": true,\n\n  // The stain: indigo on every surface, lightest on the chrome.\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#1b1650\",\n  \"appearance.surfaces.sidebar.opacity\": 0.5,\n  \"appearance.surfaces.tabBar.color\": \"#1b1650\",\n  \"appearance.surfaces.tabBar.opacity\": 0.55,\n  \"appearance.surfaces.terminal.color\": \"#0e1024\",\n  \"appearance.surfaces.terminal.opacity\": 0.8,\n  \"appearance.surfaces.agentPane.color\": \"#0e1024\",\n  \"appearance.surfaces.agentPane.opacity\": 0.82,\n  \"appearance.surfaces.newTabPage.color\": \"#1b1650\",\n  \"appearance.surfaces.newTabPage.opacity\": 0.45,\n  \"appearance.surfaces.splitDivider.color\": \"#67e8f9\",\n  \"appearance.surfaces.splitDivider.opacity\": 0.35,\n\n  // The address bar takes the accent through its glass.\n  \"browser.omnibar.glass\": \"regular\",\n  \"browser.omnibar.glassTint\": \"accent\",\n  \"browser.omnibar.glassTintStrength\": 0.45,\n\n  // Cards for the sidebar sections, panes floating on the glass.\n  \"sidebar.sectionLook\": \"card\",\n  \"appearance.chromeStyle\": \"floating\",\n  \"appearance.titleAreaTone\": \"subtleTone\",\n  \"appearance.statusIndicator.style\": \"arc\",\n  \"appearance.statusIndicator.color\": \"#67e8f9\"\n}\n"
+    "themes/glass-tinted.json": "// Glass: tinted. Liquid Glass over the live desktop, stained a deep indigo with aurora-colored\n// workspace groups and an accent-tinted address bar: the same native glass as the other looks, in\n// color. Move a window behind it and it shows through, bent and tinted.\n{\n  \"name\": \"Glass: tinted\",\n  \"description\": \"Indigo-stained Liquid Glass over the live desktop, aurora workspace groups, a cyan accent.\",\n\n  \"appearance.theme\": \"Apple System Colors\",\n  \"colors\": { \"background\": \"#0e1024\", \"foreground\": \"#e9ecff\", \"selection\": \"#2b2f63\", \"accent\": \"#67e8f9\" },\n  \"appearance.accent\": \"theme\",\n\n  // The window: regular Liquid Glass over the desktop and the windows behind it, no picture.\n  \"appearance.background\": \"none\",\n  \"appearance.backgroundBlur\": \"glass\",\n  \"appearance.backgroundOpacity\": 0.6,\n  \"appearance.glassTransparency\": 0.3,\n  \"appearance.wallpaperTint\": true,\n\n  // The stain: indigo on every surface, lightest on the chrome.\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#1b1650\",\n  \"appearance.surfaces.sidebar.opacity\": 0.5,\n  \"appearance.surfaces.tabBar.color\": \"#1b1650\",\n  \"appearance.surfaces.tabBar.opacity\": 0.55,\n  \"appearance.surfaces.terminal.color\": \"#0e1024\",\n  \"appearance.surfaces.terminal.opacity\": 0.8,\n  \"appearance.surfaces.agentPane.color\": \"#0e1024\",\n  \"appearance.surfaces.agentPane.opacity\": 0.82,\n  \"appearance.surfaces.newTabPage.color\": \"#1b1650\",\n  \"appearance.surfaces.newTabPage.opacity\": 0.45,\n  \"appearance.surfaces.splitDivider.color\": \"#67e8f9\",\n  \"appearance.surfaces.splitDivider.opacity\": 0.35,\n\n  // The address bar takes the accent through its glass.\n  \"browser.omnibar.glass\": \"regular\",\n  \"browser.omnibar.glassTint\": \"accent\",\n  \"browser.omnibar.glassTintStrength\": 0.45,\n\n  // Cards for the sidebar sections, panes floating on the glass.\n  \"sidebar.sectionLook\": \"card\",\n  \"appearance.chromeStyle\": \"floating\",\n  \"appearance.titleAreaTone\": \"subtleTone\",\n  \"appearance.statusIndicator.style\": \"arc\",\n  \"appearance.statusIndicator.color\": \"#67e8f9\",\n\n  // Shape, not only color (Leo: \"customizing the tabs/sidebars a lot deeper\"): tinted glass pills: 14 pt tabs and rows, a 290 pt sidebar.\n  \"density\": { \"basedOn\": \"comfortable\", \"tokens\": {\"tabCornerRadius\": 14, \"verticalTabCornerRadius\": 12, \"sidebarCornerRadius\": 12, \"itemCornerRadius\": 10, \"sidebarWidth\": 290, \"sidebarRowGap\": 2, \"tabGap\": 5 } },\n  \"window.titlebarButtons\": \"hover\",\n  \"tabs.plusButton\": \"hover\",\n  \"agentPane.display.sessionInfo.placement\": \"overlay\"\n}\n"
   }
 }

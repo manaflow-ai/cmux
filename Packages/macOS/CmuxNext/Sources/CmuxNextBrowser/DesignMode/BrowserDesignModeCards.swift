@@ -13,8 +13,16 @@ public import Foundation
 /// for card in cards.receive(message, pageURL: tab.state.url) { send(card) }
 /// ```
 public nonisolated struct BrowserDesignModeCards: Sendable {
-    /// Per highlight key the latest snapshot holds: its card id and the edits its card carries.
-    private var sent: [String: (id: String, edits: String)] = [:]
+    /// Per pick key the latest snapshot holds: its card id and what its card says that can change
+    /// (the edits, the comment and the pin's number), so a change of any of them replaces the card.
+    private var sent: [String: Sent] = [:]
+
+    private struct Sent: Sendable, Equatable {
+        var id: String
+        var edits: String
+        var comment: String
+        var number: Int
+    }
 
     public init() {}
 
@@ -38,24 +46,50 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
             ($0["selector"] as? String).map { !$0.isEmpty } ?? false
         }
         let edits = Self.editsText(snapshot)
-        var next: [String: (id: String, edits: String)] = [:]
+        var next: [String: Sent] = [:]
         var cards: [BrowserDesignModeCard] = []
         for (index, selection) in selections.enumerated() {
             guard let key = selection["selector"] as? String else { continue }
             let selected = index == selections.count - 1
-            let mine = selected ? edits : ""
-            // An element no longer selected keeps the card (and edits) it was sent with.
-            if let old = sent[key], !selected || old.edits == mine {
+            let old = sent[key]
+            // An element no longer selected keeps the edits it was sent with.
+            let mine = selected ? edits : (old?.edits ?? "")
+            let comment = ((selection["comment"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let number = (selection["number"] as? NSNumber)?.intValue ?? index + 1
+            if let old, old.edits == mine, old.comment == comment, old.number == number {
                 next[key] = old
                 continue
             }
-            let card = Self.card(selection, key: key, pageURL: pageURL, edits: mine)
-            next[key] = (card.id, mine)
+            let card = Self.card(selection, key: key, pageURL: pageURL, edits: mine, comment: comment, number: number)
+            next[key] = Sent(id: card.id, edits: mine, comment: comment, number: number)
             cards.append(card)
         }
         let removed = sent.filter { next[$0.key] == nil }.map(\.value.id).sorted()
         sent = next
         return BrowserDesignModeChange(cards: cards, removed: removed)
+    }
+
+    /// The page selector of card `id` (to take its pick off the page when the chat lets it go),
+    /// nil for a card this tab does not hold.
+    public func selector(of id: String) -> String? {
+        sent.first { $0.value.id == id }?.key
+    }
+
+    /// The runtime call that completes a drawn region (`annotation_capture_requested`): cmux-next
+    /// crops regions from its own page capture, so the stroke's bounds are the region. Nil for any
+    /// other message.
+    public static func captureCompletion(_ message: Data) -> String? {
+        guard let body = object(message), body["type"] as? String == "annotation_capture_requested",
+              let request = body["request"] as? [String: Any], let id = request["id"] as? String,
+              let bounds = request["stroke_bounds"] as? [String: Any],
+              let viewport = request["viewport"] as? [String: Any] else { return nil }
+        let quoted = (try? JSONSerialization.data(withJSONObject: [id])).flatMap { String(data: $0, encoding: .utf8) }
+            .map { String($0.dropFirst().dropLast()) } ?? "\"\""
+        let values = [number(bounds["x"]), number(bounds["y"]), number(bounds["width"]), number(bounds["height"]),
+                      number(request["scroll_x"]), number(request["scroll_y"]),
+                      number(viewport["width"]), number(viewport["height"])]
+        return "globalThis.__cmuxDesignMode?.completeAnnotationCapture(\(quoted), "
+            + values.map { "\($0)" }.joined(separator: ", ") + "); true"
     }
 
     /// Forgets what was sent (a new document) without taking cards out.
@@ -87,13 +121,14 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    private static func card(_ selection: [String: Any], key: String, pageURL: URL?, edits: String) -> BrowserDesignModeCard {
+    private static func card(_ selection: [String: Any], key: String, pageURL: URL?, edits: String,
+                             comment: String, number: Int) -> BrowserDesignModeCard {
         let tag = (selection["tag_name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "element"
         let host = pageURL.map { $0.isFileURL ? $0.lastPathComponent : ($0.host() ?? $0.absoluteString) } ?? ""
         let bounds = selection["bounds"] as? [String: Any]
         let viewport = selection["viewport"] as? [String: Any]
         let picked = pickedVariation(selection, key: key)
-        var text = agentText(selection, key: key, tag: tag, pageURL: pageURL)
+        var text = agentText(selection, key: key, tag: tag, pageURL: pageURL, comment: comment, number: number)
         if !edits.isEmpty { text += "\nEdits made in design mode:\n" + edits }
         if let picked {
             let title = ((selection["text_content"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,12 +137,14 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         }
         return BrowserDesignModeCard(
             id: "design-" + stableHash(key + "|" + (pageURL?.absoluteString ?? "")),
-            name: Strings.designModeCardName(tag: tag, host: host),
+            name: Strings.designModeCardName(number: number, comment: comment, tag: tag, host: host),
             text: text,
-            bounds: CGRect(x: number(bounds?["x"]), y: number(bounds?["y"]),
-                           width: number(bounds?["width"]), height: number(bounds?["height"])),
-            viewportWidth: number(viewport?["width"]),
-            pickedVariation: picked
+            bounds: CGRect(x: Self.number(bounds?["x"]), y: Self.number(bounds?["y"]),
+                           width: Self.number(bounds?["width"]), height: Self.number(bounds?["height"])),
+            viewportWidth: Self.number(viewport?["width"]),
+            pickedVariation: picked,
+            comment: comment,
+            number: number
         )
     }
 
@@ -122,9 +159,13 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         return nil
     }
 
-    /// What the agent reads. Plain English on purpose: it is prompt text for the agent, not UI.
-    private static func agentText(_ selection: [String: Any], key: String, tag: String, pageURL: URL?) -> String {
-        var lines = ["Design mode highlight from the cmux browser."]
+    /// What the agent reads. Plain English on purpose: it is prompt text for the agent, not UI. The
+    /// pick's number (its pin on the page) and the person's comment come first, so several picks
+    /// sent together read as a numbered list of asks.
+    private static func agentText(_ selection: [String: Any], key: String, tag: String, pageURL: URL?,
+                                  comment: String, number: Int) -> String {
+        var lines = ["Design mode highlight from the cmux browser.", "Pick: \(number)"]
+        if !comment.isEmpty { lines.append("Comment: \(comment)") }
         if let pageURL { lines.append("Page: \(pageURL.absoluteString)") }
         lines.append("Element: <\(tag)>")
         lines.append("Selector: \(key)")

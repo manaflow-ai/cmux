@@ -85,6 +85,79 @@ class CloseFactTests(unittest.TestCase):
         self.assertEqual(late["order"], "the strip changed 2 frames after the content area")
         early, _ = self.fact([dict(OLD_ROW, strip=(0.2, 0))] + [GONE] * 238, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
         self.assertEqual(early["order"], "the strip changed 1 frames before the content area")
+        # Each frame directly before the 2 first changes has a row: the 2 frames are proved.
+        self.assertEqual((late.get("strip_first_can_be_frames_earlier"), late.get("content_gone_can_be_frames_earlier")), (0, 0))
+
+    def test_a_frame_with_no_row_directly_before_the_strips_first_change_makes_the_order_a_range(self):
+        two = (tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        # The content gone in frame 3, no row for frame 4, the strip's change in the row of frame 5: the strip can
+        # have changed in frame 4. `after` is proved (frame 3's row has the old strip), the count of frames is not.
+        hole, faults = self.fact([STRIP_LATE, None] + [GONE] * 237, *two)
+        self.assertEqual(faults, [])
+        self.assertEqual((hole["content_gone"]["frame"], hole["strip_first"]["frame"]), (3, 5))
+        self.assertEqual((hole.get("strip_first_can_be_frames_earlier"), hole.get("content_gone_can_be_frames_earlier")), (1, 0))
+        self.assertEqual(hole["order"], "the strip changed 1 to 2 frames after the content area (frames with no row directly before "
+                                        "the first change: the strip's 1, the content area's 0)")
+        # The strip's change in the row of frame 4 with no row for frame 3, the content gone in frame 5.
+        before, _ = self.fact([None, dict(OLD_ROW, strip=(0.2, 0))] + [GONE] * 237, *two)
+        self.assertEqual((before["strip_first"]["frame"], before["content_gone"]["frame"]), (4, 5))
+        self.assertEqual(before["order"], "the strip changed 1 to 2 frames before the content area (frames with no row directly before "
+                                          "the first change: the strip's 1, the content area's 0)")
+        # No row for frame 3, and both changed in the row of frame 4: which one changed first is not proved.
+        both, _ = self.fact([None] + [GONE] * 238, *two)
+        self.assertEqual((both["strip_first"]["frame"], both["content_gone"]["frame"]), (4, 4))
+        self.assertEqual(both["order"], "not proved: the strip changed from 1 frames before to 1 frames after the content area (frames with "
+                                        "no row directly before the first change: the strip's 1, the content area's 1)")
+        self.assertEqual((both.get("strip_first_can_be_frames_earlier"), both.get("content_gone_can_be_frames_earlier")), (1, 1))
+        # The first row after the key has both changes, and the display's frame before it (frame 1) has no row.
+        reply = base.take([GONE] * 239, spans=[], before_send_ms=SENT)
+        first, _ = nsf.close_of(nsf.one_key(reply, "w", asked_hz=120), reply["spans"], *two, 0)
+        self.assertEqual((first["strip_first"]["frame"], first["content_gone"]["frame"]), (2, 2))
+        self.assertEqual((first.get("strip_first_can_be_frames_earlier"), first.get("content_gone_can_be_frames_earlier")), (1, 1))
+        self.assertTrue(first["order"].startswith("not proved: the strip changed from 1 frames before to 1 frames after "), first["order"])
+        # The case's line says in how many of its valid rows `strip_first` is the latest frame and not a proved one.
+        rows = [{"invalid": [], "close_tab": fact} for fact in (hole, before, self.fact([STRIP_LATE] * 2 + [GONE] * 237, *two)[0])]
+        summary = nsf.close_summary(rows)
+        self.assertEqual(summary.get("strip_first_not_proved"), 2)
+        # Frame 5's row is at 33 ms after the reply's zero (4 frame times, whole ms), and the key went in 2 ms before it.
+        self.assertIn("strip's first change frame 5 (max 5), 35 ms (max 35) [in 2 of the 3 rows a frame with no row is directly before "
+                      "it: there it is the latest frame]; order: ", nsf.close_cell(summary))
+        self.assertIn(" strip_first=[5, 35.0] strip_first_can_be_frames_earlier=1 ", new_surface_screen.close_said({"close_tab": hole}))
+        self.assertNotIn("can_be_frames_earlier", new_surface_screen.close_said({"close_tab": rows[2]["close_tab"]}))
+
+    def test_a_frame_with_no_row_before_the_content_areas_change_alone_and_two_such_frames_make_a_range_too(self):
+        two = (tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        # The strip's change in the row of frame 3 (proved: frame 2 has a row), no row for frame 4, the content gone
+        # in the row of frame 5: the content can have gone in frame 4. `before` is proved, the count of frames is not.
+        content, _ = self.fact([dict(OLD_ROW, strip=(0.2, 0)), None] + [GONE] * 237, *two)
+        self.assertEqual((content["strip_first"]["frame"], content["content_gone"]["frame"]), (3, 5))
+        self.assertEqual((content.get("strip_first_can_be_frames_earlier"), content.get("content_gone_can_be_frames_earlier")), (0, 1))
+        self.assertEqual(content["order"], "the strip changed 1 to 2 frames before the content area (frames with no row directly before "
+                                           "the first change: the strip's 0, the content area's 1)")
+        # 2 frames with no row directly before the strip's change, and directly before the content's: the count is 2.
+        strip, _ = self.fact([STRIP_LATE, None, None] + [GONE] * 236, *two)
+        self.assertEqual((strip["content_gone"]["frame"], strip["strip_first"]["frame"]), (3, 6))
+        self.assertEqual((strip.get("strip_first_can_be_frames_earlier"), strip.get("content_gone_can_be_frames_earlier")), (2, 0))
+        self.assertEqual(strip["order"], "the strip changed 1 to 3 frames after the content area (frames with no row directly before "
+                                         "the first change: the strip's 2, the content area's 0)")
+        far, _ = self.fact([dict(OLD_ROW, strip=(0.2, 0)), None, None] + [GONE] * 236, *two)
+        self.assertEqual((far.get("strip_first_can_be_frames_earlier"), far.get("content_gone_can_be_frames_earlier")), (0, 2))
+        self.assertEqual(far["order"], "the strip changed 1 to 3 frames before the content area (frames with no row directly before "
+                                       "the first change: the strip's 0, the content area's 2)")
+
+    def test_the_line_of_a_close_tab_row_with_a_display_reason_says_not_known_for_the_order(self):
+        # The order is a count of frames, and a row with a `display` reason has a frame time that does not see a
+        # frame with no row: the row's line gives no order, and says why. The reason does not have to be the first.
+        fact, _ = self.fact([STRIP_LATE] * 2 + [GONE] * 237, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
+        self.assertEqual(fact["order"], "the strip changed 2 frames after the content area")
+        said = new_surface_screen.close_said
+        self.assertTrue(said({"close_tab": fact, "invalid": []}).endswith(" order='the strip changed 2 frames after the content area'"))
+        self.assertTrue(said({"close_tab": fact, "invalid": ["input: 1 key sent"]}).endswith(" order='the strip changed 2 frames after the content area'"))
+        low = said({"close_tab": fact, "invalid": ["no-row: 1 of the 3 frames have no row", "display: 8 steps one after the other"]})
+        self.assertTrue(low.endswith(" blank=0 order='not known (the asked display rate is not proved)'"), low)
+        self.assertNotIn("frames after the content area", low)
+        none = said({"close_tab": fact, "invalid": [nsf.NO_RATE]})
+        self.assertTrue(none.endswith(" blank=0 order='not known (no asked display rate)'"), none)
 
     def test_frames_with_the_closed_tabs_content_gone_and_no_content_yet_are_counted(self):
         fact, faults = self.fact([BLANK] * 3 + [GONE] * 236, tabs("term-0", "page-1", shown="page-1"), tabs("term-0", shown="term-0"))
@@ -177,6 +250,8 @@ class CloseApp(base.FakeApp):
         self.closes, self.mark_before, self.focus = True, 100.0, True
         # Each key sequence by `debug.key`: its params. `refuse_sequence`: the app's refusal of each one.
         self.sequences, self.refuse_sequence = [], None
+        # An app that a person works in: it is active and its shell window is the key window (a hold runs only then).
+        self.active = self.is_key = True
 
     def clock(self):
         return self.now
@@ -308,8 +383,13 @@ class CloseScreenTests(unittest.TestCase):
 
     def test_a_close_tab_row_of_a_run_with_no_asked_display_rate_is_invalid(self):
         # The same pictures as the test above, which are valid at an asked rate.
-        report, _ = self.run_mode(CloseApp(self.folder), display_hz=0)
+        report, said = self.run_mode(CloseApp(self.folder), display_hz=None)
         self.assertEqual([[reason.split(":")[0] for reason in row["invalid"]] for row in report["rows"]], [["display"]] * 4)
+        # Each row's line gives no order of the strip and the content area: a count of frames is not known there.
+        lines = [line for line in said.splitlines() if line.startswith("NEW-SURFACE-SCREEN-ROW ")]
+        self.assertEqual(len(lines), 4)
+        for line in lines:
+            self.assertIn(" order='not known (no asked display rate)' ", line)
 
     def test_the_asked_display_rate_gets_to_the_reader_of_a_close_tab_key(self):
         # The closed tab's content is gone in the third row; after it the recorder gives a row for each third frame of

@@ -98,11 +98,11 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
       await pickDot(page, ".nt-style", "minimal");
       await page.waitForSelector('.nt-screen[data-template="minimal"]');
       expect(await page.$(".nt-style, .nt-composer[data-composer-look]")).toBeNull();
-      await open(page, "agent-pane.new-tab", "template-cards");
-      expect(await page.$(".nt-composer[data-composer-look], .nt-look-dots")).toBeNull();
+      // Minimal opened fresh (Cards no longer ships, Leo 2026-11-18): Claude's look, no dots.
+      await open(page, "agent-pane.new-tab", "minimal-default");
+      expect(await page.$(".nt-composer[data-composer-look], .nt-look-dots, .nt-style")).toBeNull();
       expect(await page.$(".nt-composer .nt-above")).not.toBeNull();
       expect(await page.$(".nt-composer .nt-foot .acpmux-model")).not.toBeNull();
-      expect(await page.$(".nt-style input[value=cards]:checked")).not.toBeNull();
       expect(await page.evaluate(() => localStorage.getItem("cmux.composer.look"))).toBe("codex");
     } finally {
       await context.close();

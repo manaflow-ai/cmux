@@ -169,7 +169,7 @@ The nightly app itself sends its crashes and its main-thread lag spikes of 250 m
 `CmuxSentryTelemetry` package). Each event carries its OS version, so the Sentry issues split by OS.
 
 Reproduce a finding: `vm.sh --majors 15 --replay <run>/15/steps.jsonl BUILD`. Save a minimal repro as
-`repros/<name>.jsonl`; after it lands, `os-matrix.sh --suite repro:<name>` replays it on the fleet. The same seed with the same
+`repros/<name>.jsonl`; after it lands, `os-matrix.sh --suite repro:<name>` replays it on the fleet. A saved step (inside `"step"`) may add `"shot": "<name>"` (a screenshot `shot-<name>.png` after it), and `{"kind": "wait", "seconds": N}` (at most 120) pauses for the app to answer, so a repro can show a flow screen by screen. The same seed with the same
 build gives the same steps. `fuzz.py --replay … --minimize` delta-debugs a crashing replay to a minimal step list
 (`minimal.jsonl`). At each death the fuzzer saves the app's stderr (`dead-N.stderr.txt`): the Swift runtime's
 fatal-error text is not in the `.ips`. For allocator bugs, `FUZZ_DYLIB=<dylib>` loads a diagnostic dylib into the

@@ -18,11 +18,11 @@ import {
   TRANSCRIPT_LINE_TO_LIVE_STEP,
   TRANSCRIPT_LIVE_STEP_GAP,
   TRANSCRIPT_LIVE_STEP_GAP_TOKEN,
-  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  TRANSCRIPT_LIVE_LINE_BOX,
 } from "./transcriptGrid";
 
 /// The live line under a one-line row: its distance comes from its box and gap in transcriptGrid.ts, never typed here.
-const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_STEP_HEIGHT} box, half (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX)`;
+const LIVE_STEP_SOURCE = `${TRANSCRIPT_LINE_ROW} line, half each side + ${TRANSCRIPT_LIVE_STEP_GAP_TOKEN} ${TRANSCRIPT_LIVE_STEP_GAP} + the live line's ${TRANSCRIPT_LIVE_LINE_BOX} box, half (transcriptGrid.ts LIVE_GAP_LOOKS)`;
 
 export type SpacingRow = {
   /** The measurement's id, as the test names it. */
@@ -101,9 +101,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "call-pitch",
     between: "two consecutive calls listed in a running turn's run (sent message lines, a command), centre to centre",
-    value: 26,
+    value: 22,
     tolerance: 0.5,
-    source: "22 line + grid base 4 between a run's calls (.cv-tools gap, #42247); Codex desktop 26",
+    source:
+      "the one-line pitch: a row's lines stack flush as rows do (.cv-tools, gap 0). #42247's 4 between them put a row's first line 26 over the next while the rest were 22 (Leo, 2026-11-16: \"why is the spacing different on the first thinking tool call?\")",
   },
   {
     id: "run-to-step",
