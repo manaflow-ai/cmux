@@ -98,6 +98,15 @@ and takes screenshots through the app's window (`surface(_:)`) or the screen,
 never through `app` itself, judges only controls in the app's window (the
 system keyboard spans the whole screen), and tells iPad from iPhone by the
 simulator's model, since `UIDevice` says phone in compatibility mode.
+
+A pull request does not walk the iPad leg while the app is iPhone-only (every
+`TARGETED_DEVICE_FAMILY` in `project.yml` is `"1"`, checked by the plan job on each
+run): the plan writes an `ipad.skipped.json` marker and the report accepts it in place
+of the iPad result. A feat-cmux-next push, a dispatch and the production pipeline's
+call still walk iPad and require its result, so an iPad-only break (dark mode, the
+compatibility window) is red on base before any upload. The leg comes back on pull
+requests by itself once the app targets iPad (`"1,2"`). Leo, 2026-11-21: "for
+connection and ci, we can simply move. and go."
 Each launch closes Safari first: after a link hands off to it, Safari stays in
 front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
 content, not a fixed number of swipes, since rows per swipe depend on the screen.

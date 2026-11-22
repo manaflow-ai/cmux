@@ -11,7 +11,7 @@ extension TerminalSurfaceView {
 
     public override func accessibilityLabel() -> String? {
         let title = session?.model.title ?? ""
-        return title.isEmpty ? String(localized: "terminal.accessibility.label", defaultValue: "Terminal", bundle: .module) : title
+        return title.isEmpty ? String(localized: "terminal.accessibility.label", defaultValue: "Terminal", bundle: .localizedModule) : title
     }
 
     public override func accessibilitySelectedText() -> String? {
