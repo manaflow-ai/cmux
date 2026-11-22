@@ -167,7 +167,7 @@ export function MachineDetailView({
                   type="button"
                   className={`cloud-button cloud-machine-keep${kept ? " on" : ""}`}
                   aria-pressed={kept}
-                  title={t(L.keepHint)}
+                  aria-description={t(L.keepHint)}
                   disabled={busy}
                   onClick={() => void store.keep(machine.id, !kept)}
                 >
