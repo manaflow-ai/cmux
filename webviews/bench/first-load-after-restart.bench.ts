@@ -68,6 +68,19 @@
 // bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
 // NO_TAIL=1 serves no kept tail; WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
+// Composer chips (Leo, 2026-11-22: "the bypass permissions appears then disappears after it loaded in"; nothing that
+// appeared on a pane's load may disappear and reappear): each frame also reads the chips the layer on top draws (the
+// access chip, the model and effort forms the row fits, the harness mark, the location chips). Per round `vanished`
+// lists each label painted after first content that a later frame lacked (seen, gone and back ms, and the layer of
+// each), `chipChanges` each slot whose label was replaced; each mode prints `CHIPS_VANISHED_JSON {...}`, and GATE=1
+// fails on any vanish. The chat is a Claude Code chat in Bypass permissions: its listed row names only
+// `currentModeId`, the attach's detail and the kept tail carry `modes` (NO_MODES=1: no mode at all, as before).
+// Knobs for the relaunch only (the warm load that writes the copy is untouched):
+//   EARLY_CHANGE=1      acpmux sends the shown chat's `_acpmux/session_changed` (its listed row, no `modes`) right
+//                       after the list answers, and the attach answers only after it;
+//   ATTACH_DELAY_MS=N   the attach answers N ms after it was asked (a slow daemon);
+//   PRESS=key|click|wheel  one input (Shift, a click in the transcript, a wheel up) 100 ms after first content,
+//                       while the copy shows: a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -332,7 +345,82 @@ type Painted = FrameRecord & {
 };
 /// One composer chip as painted: its slot (access, model, effort, harness, location:KIND) and its visible words.
 type Chip = { slot: string; label: string };
-type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
+/// The layer a frame was read from: the copy, the live page, or nothing (the live root held clear, no copy).
+type Layer = "copy" | "live" | "hidden";
+const layerOf = (frame: Painted): Layer => (frame.copyShown ? "copy" : frame.rootHidden ? "hidden" : "live");
+/// A chip label painted after first content and then absent from a later frame (Leo, 2026-11-22: "the bypass
+/// permissions appears then disappears after it loaded in"): when it first showed, when it went and came back
+/// (null: it never did), the layer of each of those frames, and what its slot showed instead (null: nothing).
+type ChipVanish = {
+  slot: string;
+  label: string;
+  seenMs: number;
+  seenLayer: Layer;
+  goneMs: number;
+  goneLayer: Layer;
+  slotThen: string | null;
+  backMs: number | null;
+  backLayer: Layer | null;
+};
+/// A slot whose label was replaced by another from one frame to the next (a placeholder, then the real one).
+type ChipChange = { slot: string; from: string; to: string; atMs: number; fromLayer: Layer; toLayer: Layer };
+type ChipReport = { vanished: ChipVanish[]; vanishedLabels: string[]; chipChanges: ChipChange[] };
+/// The composer's chips over one load's frames from its first content on: each label's disappearances, and
+/// each slot's label changes. A load that holds its chips from first content has neither.
+function chipReport(frames: Painted[], firstContentMs: number | null): ChipReport {
+  const vanished: ChipVanish[] = [];
+  const chipChanges: ChipChange[] = [];
+  if (firstContentMs === null) return { vanished, vanishedLabels: [], chipChanges };
+  const key = (chip: Chip) => `${chip.slot}\u0000${chip.label}`;
+  const firstSeen = new Map<string, { at: number; layer: Layer }>();
+  const away = new Map<string, ChipVanish>();
+  let previous: Painted | undefined;
+  for (const frame of frames) {
+    if (frame.t < firstContentMs) continue;
+    const layer = layerOf(frame);
+    const now = new Map(frame.chips.map((chip) => [key(chip), chip]));
+    for (const [id, chip] of now) {
+      if (!firstSeen.has(id)) firstSeen.set(id, { at: frame.t, layer });
+      const gone = away.get(id);
+      if (gone) {
+        gone.backMs = Math.round(frame.t);
+        gone.backLayer = layer;
+        away.delete(id);
+      }
+      const before = previous?.chips.find((one) => one.slot === chip.slot);
+      if (before && before.label !== chip.label && !now.has(key(before)))
+        chipChanges.push({
+          slot: chip.slot,
+          from: before.label,
+          to: chip.label,
+          atMs: Math.round(frame.t),
+          fromLayer: layerOf(previous!),
+          toLayer: layer,
+        });
+    }
+    for (const chip of previous?.chips ?? []) {
+      const id = key(chip);
+      if (now.has(id) || away.has(id)) continue;
+      const first = firstSeen.get(id)!;
+      const gone: ChipVanish = {
+        slot: chip.slot,
+        label: chip.label,
+        seenMs: Math.round(first.at),
+        seenLayer: first.layer,
+        goneMs: Math.round(frame.t),
+        goneLayer: layer,
+        slotThen: frame.chips.find((one) => one.slot === chip.slot)?.label ?? null,
+        backMs: null,
+        backLayer: null,
+      };
+      vanished.push(gone);
+      away.set(id, gone);
+    }
+    previous = frame;
+  }
+  return { vanished, vanishedLabels: [...new Set(vanished.map((one) => `${one.slot}: ${one.label}`))], chipChanges };
+}
+type LayoutShiftSeen ={ at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
   /// The layout-shift entries' sum over the recording (none with recent input).
@@ -720,6 +808,14 @@ function printProfile(): void {
 type Round = {
   mode: Mode;
   metrics: FrameMetrics;
+  /// The composer's chips over the round (`chipReport`): what vanished after first content, what changed.
+  chips: ChipReport;
+  /// PRESS: the input sent, when (ms from navigation) and whether the copy showed then.
+  press: { kind: string; atMs: number; copyShown: boolean } | null;
+  /// EARLY_CHANGE: when the shown chat's `session_changed` went out (ms from navigation), and how many attaches
+  /// were answered with none sent first (the page asked for no list on that socket).
+  earlyChangeMs: number | null;
+  earlyChangeMissed: number;
   frames: Painted[];
   /// When the live page, with no copy over it, first showed the newest answer (ms from navigation),
   /// else null: a round whose copy never gave way to the read chat has not loaded.
@@ -767,6 +863,7 @@ try {
     attachAnsweredAt: 0,
     bytesDown: 0,
     earlyChangeAt: 0,
+    earlyChangeMissed: 0,
   };
   /// A relaunch (or reopen) round is loading: EARLY_CHANGE and ATTACH_DELAY_MS apply, not to the warm load.
   let relaunching = false;
@@ -1296,9 +1393,14 @@ try {
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
         .map((frame) => ({ ...frame, t: frame.t - start.at }));
+      const metrics = classifyFrames(frames);
       return {
         mode: "reopen-spare",
-        metrics: classifyFrames(frames),
+        metrics,
+        chips: chipReport(frames, metrics.firstContentMs),
+        press: null,
+        earlyChangeMs: null,
+        earlyChangeMissed: 0,
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
@@ -1355,6 +1457,7 @@ try {
         attachAnsweredAt: 0,
         bytesDown: 0,
         earlyChangeAt: 0,
+        earlyChangeMissed: 0,
       };
       relaunching = true;
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
@@ -1363,6 +1466,28 @@ try {
       const upAt = downUntil;
       wireT0 = Date.now();
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
+      // PRESS: one input PRESS_AFTER_MS after the first frame with content, as a person's would be.
+      let press: Round["press"] = null;
+      if (PRESS) {
+        await page.waitForFunction(
+          () => (window as unknown as BenchWindow).__firstLoad.frames.some((frame) => frame.rows.length > 0),
+          undefined,
+          { timeout: windowMs, polling: "raf" },
+        );
+        // fixed-wait: the press's time after first content is the condition PRESS measures.
+        await page.waitForTimeout(PRESS_AFTER_MS);
+        const before = await page.evaluate(() => {
+          const frames = (window as unknown as BenchWindow).__firstLoad.frames;
+          return { atMs: performance.now(), copyShown: frames.at(-1)?.copyShown ?? false };
+        });
+        if (PRESS === "key") await page.keyboard.press("Shift");
+        else if (PRESS === "click") await page.mouse.click(RELAUNCH_VIEWPORT.width / 2, 300);
+        else {
+          await page.mouse.move(RELAUNCH_VIEWPORT.width / 2, 300);
+          await page.mouse.wheel(0, -200);
+        }
+        press = { kind: PRESS, atMs: Math.round(before.atMs), copyShown: before.copyShown };
+      }
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
@@ -1400,9 +1525,14 @@ try {
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const metrics = classifyFrames(got.frames);
       return {
         mode,
-        metrics: classifyFrames(got.frames),
+        metrics,
+        chips: chipReport(got.frames, metrics.firstContentMs),
+        press,
+        earlyChangeMs: since(load.earlyChangeAt),
+        earlyChangeMissed: load.earlyChangeMissed,
         frames: got.frames,
         liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
@@ -1428,6 +1558,7 @@ try {
     } finally {
       downMode = undefined;
       downUntil = 0;
+      relaunching = false;
       servedCopy = null;
       if (context === warmContext) for (const one of pages) await one.close();
       else await context.close();
@@ -1596,8 +1727,39 @@ try {
     // recording paints no blank and no shift.
     for (const r of rounds)
       if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
+    // The composer's chips: a label painted after first content never leaves (Leo, 2026-11-22).
+    const chipsRow = {
+      mode,
+      knobs: {
+        earlyChange: EARLY_CHANGE,
+        attachDelayMs: ATTACH_DELAY_MS,
+        press: PRESS || null,
+        noModes: NO_MODES,
+        noTail: NO_TAIL,
+      },
+      vanishedRounds: rounds.filter((r) => r.chips.vanished.length > 0).length,
+      rounds: rounds.map((r) => ({
+        firstContentMs: r.metrics.firstContentMs === null ? null : Math.round(r.metrics.firstContentMs),
+        swapMs: r.swapMs === null ? null : Math.round(r.swapMs),
+        attachMs: r.attachAnsweredMs === null ? null : Math.round(r.attachAnsweredMs),
+        earlyChangeMs: r.earlyChangeMs === null ? null : Math.round(r.earlyChangeMs),
+        earlyChangeMissed: r.earlyChangeMissed,
+        press: r.press,
+        firstChips: r.frames.find((frame) => frame.rows.length > 0)?.chips ?? [],
+        lastChips: r.frames.at(-1)?.chips ?? [],
+        vanished: r.chips.vanished,
+        chipChanges: r.chips.chipChanges,
+      })),
+    };
+    console.log(`CHIPS_VANISHED_JSON ${JSON.stringify(chipsRow)}`);
+    for (const [at, r] of rounds.entries())
+      for (const gone of r.chips.vanished)
+        console.log(
+          `  round ${at + 1} chip vanished: ${gone.slot} "${gone.label}" seen ${gone.seenMs} ms (${gone.seenLayer}), gone ${gone.goneMs} ms (${gone.goneLayer}${gone.slotThen === null ? ", slot empty" : `, slot shows "${gone.slotThen}"`}), back ${gone.backMs === null ? "never" : `${gone.backMs} ms (${gone.backLayer})`}`,
+        );
     const bad = rounds.filter(
       (r) =>
+        r.chips.vanished.length > 0 ||
         r.metrics.blankAfterContent > 0 ||
         r.metrics.shiftFrames > 0 ||
         r.liveLatestMs === null ||
@@ -1606,7 +1768,7 @@ try {
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
-      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames;
+      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames + r.chips.vanished.length;
       const worst = [...rounds].sort(
         (a, b) => score(b) - score(a) || (b.metrics.finalFirstPaintMs ?? 0) - (a.metrics.finalFirstPaintMs ?? 0),
       )[0];
@@ -1627,6 +1789,7 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              `chips ${frame.chips.map((chip) => `${chip.slot}=${chip.label}`).join(", ") || "-"}`,
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
             ].join(" | "),
           );
@@ -1700,7 +1863,7 @@ try {
   printProfile();
   if (GATE && failed) {
     console.error(
-      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
+      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, lost a composer chip it had drawn, or never drew live content (GATE=1)",
     );
     process.exitCode = 1;
   }
