@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextSettings
+public import CmuxNextSettings
 import ImageIO
 import QuartzCore
 import os
@@ -104,7 +104,7 @@ public final class ComputerUseFloatingPreview {
         apply()
     }
 
-    func take(_ payload: JSONValue) {
+    func take(_ payload: CmuxNextDaemon.JSONValue) {
         guard case .object(let line) = payload, case .string(let session)? = line["session"] else { return }
         let next: Card? = if case .object(let raw)? = line["card"] { Self.card(raw) } else { nil }
         let running = next.map { !$0.done } ?? false
@@ -116,7 +116,7 @@ public final class ComputerUseFloatingPreview {
     }
 
     /// The panel's card of a preview line's `card`, nil without a session or a frame.
-    static func card(_ raw: [String: JSONValue]) -> Card? {
+    static func card(_ raw: [String: CmuxNextDaemon.JSONValue]) -> Card? {
         guard case .string(let session)? = raw["session"], case .string(let frame)? = raw["frame"], frame.hasPrefix("data:image/")
         else { return nil }
         let app: String = if case .string(let app)? = raw["app"] { app } else { "" }
