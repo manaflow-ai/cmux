@@ -27,6 +27,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.history"),
             GroupSpec(group: "settings.group.workspaceHibernation"),
             GroupSpec(group: "settings.group.autoArchive"),
+            // Machine cleanup: agent worktrees and build caches on this Mac (acpmux hub/worktree_care.rs).
+            GroupSpec(group: "settings.group.storage"),
             GroupSpec(group: "settings.group.picker"),
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),

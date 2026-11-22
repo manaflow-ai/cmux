@@ -64,6 +64,15 @@ extension CloudAgentStartSetting {
     public nonisolated static let fallback = true
 }
 
+extension MachineSettingsSchema {
+    /// `worktrees.autoCleanup`: On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).
+    nonisolated static let autoCleanupPath = ["worktrees", "autoCleanup"]
+    nonisolated static let autoCleanupDefault = true
+    /// `worktrees.cleanBuildCaches`: Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).
+    nonisolated static let cleanBuildCachesPath = ["worktrees", "cleanBuildCaches"]
+    nonisolated static let cleanBuildCachesDefault = false
+}
+
 extension MobileSettings {
     /// `mobile.allowIPhoneConnections`.
     public nonisolated static let allowIPhoneConnectionsPath = ["mobile", "allowIPhoneConnections"]
@@ -344,45 +353,29 @@ extension MachineSettingsSchema {
 }
 
 extension MachineSettingsSchema {
-    static var mobile: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.mobile", "iPhone")
+    static var storage: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.storage", "Storage")
         return [
             SettingDescriptor(
-                MobileSettings.allowIPhoneConnectionsPath,
-                section: .accounts,
+                MachineSettingsSchema.autoCleanupPath,
+                section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
-                summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
+                title: SettingsText.keyed("settings.worktrees.autoCleanup", "Clean Up Agent Worktrees"),
+                help: SettingsText.keyed("settings.worktrees.autoCleanup.help", "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens."),
                 kind: .toggle,
-                default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
-                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
+                default: .bool(MachineSettingsSchema.autoCleanupDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
             ),
             SettingDescriptor(
-                MobileSettings.terminalSizingPath,
-                section: .accounts,
+                MachineSettingsSchema.cleanBuildCachesPath,
+                section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
-                kind: .choice([
-                    SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
-                    SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
-                    SettingChoice(MobileTerminalSizing.latest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.latest", "Prefer the Active Device")),
-                    SettingChoice(MobileTerminalSizing.priority.rawValue, SettingsText.keyed("settings.choice.terminalSizing.priority", "Priority Order")),
-                ]),
-                default: .string(MobileSettings.terminalSizingDefault.rawValue),
-                keywords: ["iphone", "phone", "mobile", "terminal", "size", "sizing", "shared", "priority", "columns"]
+                title: SettingsText.keyed("settings.worktrees.cleanBuildCaches", "Clean Up Build Caches"),
+                help: SettingsText.keyed("settings.worktrees.cleanBuildCaches.help", "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."),
+                kind: .toggle,
+                default: .bool(MachineSettingsSchema.cleanBuildCachesDefault),
+                keywords: ["disk", "storage", "cleanup", "worktree", "cache", "DerivedData", "free space"]
             ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingOrderPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
-                kind: .stringList,
-                default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
-                keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
-            ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
 }
