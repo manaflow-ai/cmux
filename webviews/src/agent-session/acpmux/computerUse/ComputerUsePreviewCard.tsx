@@ -40,6 +40,7 @@ import {
   dragFraction,
   moveComputerUsePreview,
   showComputerUsePreview,
+  useComputerUsePreviewMoves,
   type ComputerUsePreview,
   type ComputerUsePreviewMove,
 } from "./computerUsePreview";
@@ -75,7 +76,8 @@ export function ComputerUsePreviewCard({
   const press = useRef<Press | null>(null);
   // A drag just ended: the click it fires is the drag's, not an enlarge.
   const dragged = useRef(false);
-  const { card: shown, leaving } = useLeavingCard(preview, card);
+  const { card: left, leaving } = useLeavingCard(preview, card);
+  const shown = useComputerUsePreviewMoves(left);
   const frame = useLoadedFrame(shown?.frame);
   useUnderSessionInfoRoom(card);
   if (!shown) return null;

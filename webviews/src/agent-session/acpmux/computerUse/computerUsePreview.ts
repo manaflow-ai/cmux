@@ -151,7 +151,11 @@ const moves = new Map<string, ComputerUsePreviewMove>();
 let shown: ComputerUsePreview | null = null;
 const listeners = new Set<() => void>();
 
+/// Bumped on every change, so a card drawn from a prop (the gallery, a test) redraws on a move.
+let version = 0;
+
 function notify(): void {
+  version += 1;
   shown = withMoves(current);
   for (const listener of listeners) listener();
 }
@@ -298,6 +302,15 @@ function subscribe(listener: () => void): () => void {
 
 export function useComputerUsePreview(): ComputerUsePreview | null {
   return useSyncExternalStore(subscribe, currentComputerUsePreview, currentComputerUsePreview);
+}
+
+const currentVersion = () => version;
+
+/// `card` with the person's moves over it, redrawn on each move: the card draws a move at once
+/// whoever gave it the card (the app's store already has them; this adds nothing then).
+export function useComputerUsePreviewMoves(card: ComputerUsePreview | null): ComputerUsePreview | null {
+  useSyncExternalStore(subscribe, currentVersion, currentVersion);
+  return withMoves(card);
 }
 
 declare global {
