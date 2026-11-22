@@ -104,11 +104,23 @@ import Testing
         }
     }
 
+    @Test func theShippedLookDrawsNoHairline() throws {
+        let fixture = try Fixture()
+        try Self.withTaskProgress(nil) {
+            var planned = try #require(fixture.rows()["planned"])
+            planned.agentWorking = true
+            #expect(SidebarTaskProgressLook.shipped == .stepLine)
+            #expect(SidebarLayoutOptions().rowContent(planned, machine: nil).taskBar == nil,
+                    "the gallery's hairlines read as underlines; the shipped look is the step line alone")
+        }
+    }
+
     @Test func aWorkingRowDrawsTheHairlineOnlyForTwoStepsOrMore() throws {
         let fixture = try Fixture()
         try Self.withTaskProgress(nil) {
             var planned = try #require(fixture.rows()["planned"])
-            let options = SidebarLayoutOptions()
+            var options = SidebarLayoutOptions()
+            options.taskProgressLook = .segments
             #expect(options.rowContent(planned, machine: nil).taskBar == nil, "an idle chat's list draws no hairline")
             planned.agentWorking = true
             let content = options.rowContent(planned, machine: nil)

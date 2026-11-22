@@ -45,8 +45,10 @@ public nonisolated enum SidebarTaskProgressLook: String, CaseIterable, Hashable,
     /// ``stepLine`` on a two-line row, ``segments`` on every row while it works.
     case stepLineAndSegments
 
-    /// The look the sidebar ships.
-    public static let shipped = SidebarTaskProgressLook.stepLineAndSegments
+    /// The look the sidebar ships, judged on the gallery's stills: the step in words is the one legible indicator. Every
+    /// hairline look read as an underline of the text above it (on a one-line row, of the title) and said only what the
+    /// step line's "2 of 5" says.
+    public static let shipped = SidebarTaskProgressLook.stepLine
     /// Above this many steps the hairline draws as one continuous fill: past it a segment is a few pixels wide.
     public static let segmentLimit = 12
 

@@ -7,9 +7,8 @@ import Foundation
 import Testing
 
 /// The Chief's subagent rows under the sidebar's top Chief row (cmux#48416 follow-up, "Chief replaces Home") show a
-/// subagent's task list as a one-line chat row does (`SidebarTaskProgressTests`): the hairline at the row's foot while it
-/// works through steps left, never a count beside the title (Leo 2026-11-22), nothing once the list is done or the
-/// `sidebar.taskProgress` setting is off.
+/// subagent's task list as a one-line chat row does (`SidebarTaskProgressTests`): under the shipped look
+/// (`SidebarTaskProgressLook.stepLine`) nothing, never a count beside the title (Leo 2026-11-22); the hover card says it.
 @MainActor @Suite(.serialized) struct ChiefSubagentTaskCountTests {
     static func lane(_ name: String, _ state: AgentActivityLane.State, list: AgentTaskList?) -> AgentActivityLane {
         AgentActivityLane(id: "id-" + name, name: name, title: "Fix the build", peer: nil, parent: "optchat-chief:6b68ac4a",
@@ -44,16 +43,13 @@ import Testing
         SidebarTransientItem.chiefSubagents(lanes: lanes, showsIdle: true)
     }
 
-    @Test func aWorkingSubagentDrawsTheHairlineAndNoCount() throws {
+    @Test func aWorkingSubagentShowsNoCountAndNoHairline() throws {
         try SidebarTaskProgressTests.withTaskProgress(nil) {
             let item = try #require(Self.rows([Self.lane("optchat-sub-6b68ac4a-a2", .working, list: Self.open)]).first)
             let view = Self.drawn(item)
-            #expect(Self.shownTexts(view).allSatisfy { !$0.stringValue.contains("/") }, "\(Self.shownTexts(view).map(\.stringValue))")
-            #expect(view.taskBar?.progress.total == 3)
-            #expect(!view.taskBarLayer.isHidden && view.taskBarLayer.frame.width > 0)
-            #expect(view.taskBarLayer.frame.maxX <= view.bounds.maxX)
-            #expect((view.accessibilityValue() as? String)?.contains("1 of 3 tasks done") == true,
-                    "VoiceOver does not hear the hairline: \(String(describing: view.accessibilityValue()))")
+            #expect(Self.shownTexts(view).allSatisfy { !$0.stringValue.contains("/") && !$0.stringValue.contains(" of ") },
+                    "\(Self.shownTexts(view).map(\.stringValue))")
+            #expect(view.taskBar == nil && view.taskBarLayer.isHidden, "a one-line row draws nothing under the shipped look")
         }
     }
 

@@ -3,8 +3,8 @@ import CmuxNextDesign
 import QuartzCore
 
 /// A workspace row's agent task list (`SidebarTaskProgressLook`, Leo 2026-11-22 "DO IT PROPERLY"): the step in
-/// progress on a row's second line with a muted "2 of 5" at its end, and a hairline at the row's foot while the chat
-/// works. Neither takes room from the name's line.
+/// progress on a row's second line with a muted "2 of 5" at its end (shipped), and for the gallery's other looks a
+/// hairline at the row's foot while the chat works. Neither takes room from the name's line.
 extension WorkspaceRowView {
     func configureTaskPlan(_ shown: WorkspaceRowContent) {
         let count = shown.taskStep == nil ? nil : shown.tasks.map { Strings.taskStepOf($0.stepNumber, total: $0.total) }
