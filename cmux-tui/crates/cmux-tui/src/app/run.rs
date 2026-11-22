@@ -662,8 +662,7 @@ pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> S
         .map(|location| location.to_string())
         .unwrap_or_else(|| "<unknown>".to_string());
     let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
-    let backtrace = std::backtrace::Backtrace::capture();
-    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+    if let Some(backtrace) = cmux_panic_log::backtrace::capture() {
         diagnostic.push_str(&format!("{backtrace}\n"));
     }
     diagnostic

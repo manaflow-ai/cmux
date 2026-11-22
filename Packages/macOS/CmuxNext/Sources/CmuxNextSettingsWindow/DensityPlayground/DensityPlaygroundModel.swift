@@ -53,10 +53,14 @@ public final class DensityPlaygroundModel {
     }
 
     /// Whether a policy manages the density keys: changes still apply live, but none is saved, and the window says so.
-    public var savesBlocked: Bool { isManaged() }
+    /// So is a density the active theme file carries: the file would put it back on the next load.
+    public var savesBlocked: Bool { isManaged() || design.densityFromThemeFile }
 
     /// What the window says under its header about saving: why nothing saves, or nil.
-    public var statusNotice: String? { savesBlocked ? DensityPlaygroundStrings.managedNotice : nil }
+    public var statusNotice: String? {
+        if isManaged() { return DensityPlaygroundStrings.managedNotice }
+        return design.densityFromThemeFile ? DensityPlaygroundStrings.themeFileNotice : nil
+    }
 
     /// Picks up the app's density and list again (the window reopening after a Settings change).
     public func refresh() {
@@ -272,13 +276,28 @@ public final class DensityPlaygroundModel {
         DensityPlaygroundStrings.copyName(name(density))
     }
 
+    /// `name` when no density (nor one of `extra`) is called that, else "`name` N" with the smallest free N from 2,
+    /// compared without case. One pass reads each taken name once: `name` itself, or "`name` N" with N written
+    /// plainly (no sign or leading zero), which uses N. The smallest free N is at most the count of used ones + 2.
     private func uniqueName(_ name: String, extra: [DensityTokens] = []) -> String {
-        let taken = Set((densities + extra).map { self.name($0).lowercased() })
-        guard taken.contains(name.lowercased()) else { return name }
-        var index = 2
-        // main-actor-ok: one click's work: at most taken.count + 1 Set lookups over the user's own densities.
-        while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
-        return "\(name) \(index)"
+        let base = name.lowercased()
+        let prefix = base + " "
+        var baseTaken = false
+        var used: [Int] = []
+        for density in densities + extra {
+            let taken = self.name(density).lowercased()
+            if taken == base {
+                baseTaken = true
+            } else if taken.hasPrefix(prefix) {
+                let suffix = String(taken.dropFirst(prefix.count))
+                if let number = Int(suffix), number >= 2, String(number) == suffix { used.append(number) }
+            }
+        }
+        guard baseTaken else { return name }
+        // free[i] says whether N = i + 2 is free; `used.count + 1` slots always leave one free.
+        var free = [Bool](repeating: true, count: used.count + 1)
+        for number in used where number - 2 < free.count { free[number - 2] = false }
+        return "\(name) \((free.firstIndex(of: true) ?? free.count) + 2)"
     }
 
     /// `value` with at most `digits` decimals and no trailing zeros (the fields show 2; Copy as Swift keeps 3).

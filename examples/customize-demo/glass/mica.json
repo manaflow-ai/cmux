@@ -1,0 +1,42 @@
+{
+  "cmuxProfile": 1,
+  "name": "glass-mica",
+  "description": "A Mica window: your desktop picture frosted to a wash of color under a dense graphite tint, the content one step lighter than the frame.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "glass-mica",
+    "layout.paneCornerRadius": 8,
+    "sidebar.groupHeader.background": "glass",
+    "sidebar.groupPalette": "wallpaper",
+    "agentPane.display.font.preset": "system",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupHeader.unreadCount": true,
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "dot"
+  },
+  "files": {
+    "themes/glass-mica.json": "// Glass: mica. A Mica window: your own desktop picture behind the window, frosted once into a\n// soft wash of its colors, under a dense graphite tint, with the content one step lighter than the\n// frame. Nothing behind the window shows as shapes, only as color (the glass lab's acrylic recipe,\n// which measured 12:1 and up for text over busy backgrounds).\n// Frosted over a picture blurs the picture, not the live desktop (WindowBackdrop.artBlurRadius).\n{\n  \"name\": \"Glass: mica\",\n  \"description\": \"Mica: your desktop picture frosted to a wash of color under graphite, content a step lighter.\",\n\n  \"appearance.theme\": \"Apple System Colors\",\n  \"colors\": { \"background\": \"#1f2023\", \"foreground\": \"#ecedef\", \"selection\": \"#3a3d44\", \"accent\": \"#a5b4fc\" },\n  \"appearance.accent\": \"theme\",\n\n  // The window: the desktop picture, frosted, a dense tint that keeps only its color.\n  \"appearance.background\": \"desktop\",\n  \"appearance.backgroundBlur\": \"frosted\",\n  \"appearance.backgroundOpacity\": 0.8,\n  \"appearance.glassTransparency\": 0.2,\n  \"appearance.wallpaperTint\": true,\n\n  // The frame: sidebar and tab strip a darker graphite that lets the wash through.\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#18191b\",\n  \"appearance.surfaces.sidebar.opacity\": 0.72,\n  \"appearance.surfaces.tabBar.color\": \"#18191b\",\n  \"appearance.surfaces.tabBar.opacity\": 0.78,\n\n  // The content: one step lighter and almost solid.\n  \"appearance.surfaces.terminal.color\": \"#1f2023\",\n  \"appearance.surfaces.terminal.opacity\": 0.92,\n  \"appearance.surfaces.agentPane.color\": \"#1f2023\",\n  \"appearance.surfaces.agentPane.opacity\": 0.92,\n  \"appearance.surfaces.newTabPage.color\": \"#1f2023\",\n  \"appearance.surfaces.newTabPage.opacity\": 0.82,\n  \"appearance.surfaces.internalPage.color\": \"#1f2023\",\n  \"appearance.surfaces.internalPage.opacity\": 0.92,\n\n  \"browser.omnibar.glass\": \"regular\",\n  \"browser.omnibar.glassTint\": \"background\",\n  \"browser.omnibar.glassTintStrength\": 0.5,\n\n  // Outlined cards and trays on the Mac's own materials.\n  \"appearance.chromeStyle\": \"card-outlined\",\n  \"sidebar.border\": true,\n  \"sidebar.borderWidth\": 0.5,\n  \"sidebar.sectionLook\": \"tray\"\n}\n"
+  }
+}

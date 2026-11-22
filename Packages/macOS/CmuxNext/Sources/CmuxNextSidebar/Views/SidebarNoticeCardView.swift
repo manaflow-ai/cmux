@@ -278,7 +278,8 @@ final class SidebarNoticeCardView: NSView {
 
     // MARK: Geometry
 
-    private static var padding: CGFloat { Metrics.space3 }
+    /// The card's padding (``Metrics/cardPadding``): every row and button starts it in from the edges.
+    private static var padding: CGFloat { Metrics.cardPadding }
     /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
     static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
     private static var lineHeight: (caption: CGFloat, body: CGFloat) {
@@ -377,7 +378,7 @@ final class SidebarNoticeCardView: NSView {
         let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
         let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
         let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.cardRowGap, Metrics.space4, Typography.caption.pointSize,
                                     Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
                             faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
@@ -457,7 +458,7 @@ final class SidebarNoticeCardView: NSView {
             y += barHeight
         }
         if !notice.actions.isEmpty {
-            y += Metrics.space2
+            y += Metrics.cardRowGap
             let rowEnd = width - pad, row = max(0, rowEnd - bodyX)
             var x = bodyX
             for action in notice.actions.filter({ !$0.isSwitch }).prefix(2) {
@@ -473,7 +474,9 @@ final class SidebarNoticeCardView: NSView {
             frames.lastRow = (y, x)
             y += SidebarUpdateButton.height
         }
-        frames.height = ceil(y + pad)
+        // On the half-point grid (the 2x pixel), not a whole point: a whole-point ceil left the last row up to a point
+        // more than the padding from the bottom at a density whose spacing is a half point (Compact, Comfortable).
+        frames.height = (2 * (y + pad)).rounded(.up) / 2
         return frames
     }
 

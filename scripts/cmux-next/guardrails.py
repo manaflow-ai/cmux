@@ -2,7 +2,7 @@
 """cmux-next guardrails: refuse new architecture debt in what a push adds; warn on hot paths and owned areas.
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
-never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
+never by CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
@@ -111,7 +111,7 @@ SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Pac
 # The shell scripts plist-missing-file reads (and the workflows, above).
 SHELL_SPECS = (":(glob)scripts/**/*.sh",)
 APP = SOURCES + "CmuxNextApp/"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
@@ -2032,7 +2032,9 @@ def computing_observation_on_change(version: Version, index: int) -> tuple[bool,
 # A silenced PlistBuddy read of a plist file: `PlistBuddy -c 'Print :KEY' FILE 2>/dev/null`. On a FILE that is not
 # there, Print writes "File Doesn't Exist, Will Create: FILE" to stdout, so the `$(...)` takes the message as the value
 # (#45226: a Release build's Screen Sharing helper got that name and its mv failed).
-PLIST_PRINT = re.compile(r"PlistBuddy\b.*\bPrint\b.*2>\s*/dev/null")
+PLIST_PRINT = re.compile(r"PlistBuddy\b.*\bPrint\b")  # unguarded_plist_read then needs `2>/dev/null` in the command
+PLIST_SILENCED = re.compile(r"2>\s*/dev/null")
+PLIST_CONTINUED_LINES = 4  # a command read on through this many `\`-continued lines after its first
 PLIST_FILE = re.compile(r"""PlistBuddy\s+(?:-x\s+)?(?:-c\s+(?:'[^']*'|"[^"]*")\s+)+("[^"]*"|[^\s;|)]+)""")
 SHELL_FUNCTION = re.compile(r"^\s*(?:function\s+)?[\w-]+\s*\(\)\s*\{")
 PLIST_GUARD_LINES = 8  # a `[[ -f FILE ]]` on the line or this many lines above it guards it
@@ -2053,16 +2055,25 @@ def unguarded_plist_read(version: Version, index: int) -> tuple[bool, list[int]]
     """Whether the silenced Print on line INDEX reads a FILE that no `-f FILE`, `-e FILE` or `-s FILE` test on the
     line or the PLIST_GUARD_LINES above it checks (and those 1-based lines: a push that deletes the guard makes it
     new debt). For a function's argument (`"$1"`) the window stops at the read's own function line: a check of
-    `"$1"` in the function above guards nothing here. A commented-out check and a `! -f` test are no check. Stdin reads no file."""
-    found = PLIST_FILE.search(version.lines[index])
-    if found is None or found.group(1).strip('"') in ("/dev/stdin", "-"):
+    `"$1"` in the function above guards nothing here. A commented-out check and a `! -f` test are no check. Stdin reads no file.
+    The command is read on through lines that end in `\\`, so a `2>/dev/null` or the FILE on a continued line counts
+    (and those lines are in the window: an edit there rejudges the read)."""
+    command, last = version.lines[index], index
+    while (command.rstrip().endswith("\\") and last + 1 < len(version.lines)
+           and last - index < PLIST_CONTINUED_LINES):
+        last += 1
+        command = command.rstrip()[:-1] + " " + version.lines[last].lstrip()
+    found = PLIST_FILE.search(command)
+    if (found is None or not PLIST_SILENCED.search(command[found.start():])
+            or found.group(1).strip('"') in ("/dev/stdin", "-")):
         return False, []
     start, positional = index, re.search(r"\$\{?[1-9]", found.group(1)) is not None
     while start > max(0, index - PLIST_GUARD_LINES) and not (positional and SHELL_FUNCTION.search(version.lines[start])):
         start -= 1
     window = list(range(start, index + 1))
     guard = re.compile(r"(?:^|[\s\[(])(?<!!\s)-[fes]\s+" + re.escape(found.group(1)) + r"(?:\s|\]|$)")
-    return not any(guard.search(shell_code(version.lines[j])) for j in window), [j + 1 for j in window]
+    guarded = any(guard.search(shell_code(version.lines[j])) for j in window)
+    return not guarded, [j + 1 for j in window + list(range(index + 1, last + 1))]
 
 
 RULES = (
@@ -2184,6 +2195,24 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("module-strings", "A string read from `bundle: .module` (CMUX-570)",
+         "the app ships English only: the other languages are downloaded packs, read through `Bundle.localizedModule` "
+         "(`Bundle.module.inAppLanguage`, which also applies `app.language`); a lookup in `.module` stays English after the person's pack lands (14 came in "
+         "from feat-cmux-next in the day #45928 was open)",
+         "`bundle: .localizedModule` (the module's Bundle+AppLanguage.swift); in CmuxNextApp, `bundle: .module.inAppLanguage`",
+         "// module-strings-allow: <why this is not a localized string (an image, a resource file)>",
+         line_rule(r"\bbundle:\s*\.module\b(?!\.inAppLanguage)", "module-strings-allow:")),
+    Rule("path-name-by-stat", "A file URL made only to read a path's name "
+         "(`URL(fileURLWithPath: path).lastPathComponent` or `.pathExtension`)",
+         "that initializer runs lstat on the path to learn whether it is a folder before it answers from the "
+         "string. For another machine's folder (`/home/...` in a session row, a remote tab's cwd) macOS sends the "
+         "lstat through its automounter: 7 ms blocked plus 4 ms of automountd and opendirectoryd CPU per call, "
+         "once per session row on the feed's queue (cmux#47592)",
+         "read the name from the string: `(path as NSString).lastPathComponent` / `.pathExtension`; when a URL is "
+         "needed anyway, say what the path is (`URL(fileURLWithPath:isDirectory:)`, `URL(filePath:directoryHint:)`)",
+         "// path-stat-allow: <why this path is always on this Mac's own disk and the call is off every hot path>",
+         line_rule(r"\bURL\(fileURLWithPath:[^()]*\)\.(lastPathComponent|pathExtension)\b",
+                   "path-stat-allow:")),
     Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
          "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
          "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
