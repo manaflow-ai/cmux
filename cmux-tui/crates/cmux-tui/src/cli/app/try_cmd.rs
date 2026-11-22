@@ -15,6 +15,10 @@
 //!    `Contents/Resources/bin`, and the app's daemon is handed over (SIGTERM to
 //!    the owner `server status` names; the app's reconnect starts the next one
 //!    from the new file, terminals kept). Any failed check puts every file back.
+//!    When `daemon_from` (the daemon ABI floor; `live_from` in a file from before it) covers the app's
+//!    commit but the whole app is not proven, the daemon alone goes in the same way, after a build in
+//!    the feed: the receipt's `scope` is `daemon` and `left_out` names the Swift, resources and web the
+//!    app keeps. It never says the app is at the commit.
 //! 2. **Full app.** A build of the commit in the nightly feed
 //!    (`updates.builds`) installs through `updates.switch_build`, as
 //!    `cmux nightly install` does.
@@ -22,6 +26,8 @@
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
+//!
+//! `cmux app try <link>` opens a build someone shared with `cmux app share` (try_cmd/share.rs).
 //!
 //! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
 //! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
@@ -42,6 +48,10 @@ use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 mod copy;
 mod live;
 mod resolve;
+mod share;
+
+pub(crate) use share::Command as ShareCommand;
+pub(super) use share::{parse as parse_share, run as run_share};
 
 /// `updates.builds` reads the feed's notes, verdicts and pulled list.
 const LIST_TIMEOUT: Duration = Duration::from_secs(35);
@@ -64,6 +74,11 @@ pub(crate) enum Command {
         tree: PathBuf,
         from: Option<PathBuf>,
         action: copy::Action,
+        dry_run: bool,
+    },
+    /// A `cmux app share` link (try_cmd/share.rs): the shared build, beside this cmux.
+    Link {
+        link: share::Link,
         dry_run: bool,
     },
     Undo {
@@ -160,6 +175,12 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             Ok(Command::Undo { dry_run })
         }
         [target] => {
+            if let Some(link) = share::parse_link(target) {
+                if app.is_some() {
+                    return Err(unexpected("--app"));
+                }
+                return Ok(Command::Link { link, dry_run });
+            }
             if resolve::classify(target).is_none() {
                 return Err(UsageError::new(messages().not_found.replace("{target}", target)));
             }
@@ -186,6 +207,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Copy { tree, from, action, dry_run } = command {
         return copy::run(global, tree, from.as_deref(), *action, *dry_run);
     }
+    if let Command::Link { link, dry_run } = command {
+        return share::open_link(global, link, *dry_run);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -197,6 +221,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         | Command::Try { .. }
         | Command::Channel { .. }
         | Command::Copy { .. }
+        | Command::Link { .. }
         | Command::Status => status(global, &store),
     }
 }
@@ -215,10 +240,35 @@ enum Live {
     Found(LivePayload),
 }
 
+/// How much of the commit a live try brings: the whole app (the signed file proves every layer
+/// outside `bin/` unchanged since the app's commit), or the daemon alone (its ABI fits the app, which
+/// keeps its own Swift, resources and web: each reason in the list says what is left out and why).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Scope {
+    Whole,
+    Daemon(Vec<String>),
+}
+
+impl Scope {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Whole => "whole",
+            Self::Daemon(_) => "daemon",
+        }
+    }
+
+    fn left_out(&self) -> &[String] {
+        match self {
+            Self::Whole => &[],
+            Self::Daemon(left) => left,
+        }
+    }
+}
+
 /// The path a try takes.
 #[derive(Debug)]
 enum Plan {
-    Live { files: Vec<Wanted> },
+    Live { files: Vec<Wanted>, scope: Scope },
     Full { build: Value, from: String },
     None { why: Vec<String> },
 }
@@ -233,37 +283,44 @@ impl Plan {
     }
 }
 
-/// The cheapest path to `commit` for an app at `app_commit`: live when the
-/// signed file proves daemon compatibility and native equality; else a build in the
-/// feed listing `builds`; else none, with every reason.
+/// The cheapest path to `commit` for an app at `app_commit`, first that holds:
+/// 1. the whole app live: `live_from` takes the app's commit and the signed file proves the app's
+///    content outside `bin/` unchanged (`native_from`, or the app is at `commit`);
+/// 2. a build of `commit` in the feed listing `builds` (the whole app, by an install);
+/// 3. the daemon alone live: `daemon_from` (else `live_from`, a file from before it) takes the app's
+///    commit, so `commit`'s bin files run beside the app's own Swift, which stays and is named as left out;
+/// 4. none, with every reason.
+///
+/// The daemon path never claims the app is at `commit` (cmuxterm-hq fix list, item 1: a webviews or
+/// Swift change after the app's build must not refuse a daemon that fits it).
 fn choose(
     commit: &str,
     app_commit: Option<&str>,
     live: &Live,
     builds: Option<Result<&Value, &str>>,
     base: &str,
-    daemon_only: bool,
 ) -> Plan {
     let messages = messages();
     let mut why = Vec::new();
+    let mut daemon = None;
     match (live, app_commit) {
         (Live::Missing, _) => why.push(messages.why_no_live.replace("{commit}", short(commit))),
         (Live::Refused(error), _) => why.push(messages.why_live_refused.replace("{error}", error)),
         (Live::Found(_), None) => why.push(messages.why_no_app_commit.to_owned()),
         (Live::Found(payload), Some(app_commit)) => {
-            // The nightly-live channel (daemon_only) swaps the daemon alone: daemon_from, no native check.
-            let from = if daemon_only {
-                live::daemon_list(&payload.daemon_from, &payload.live_from)
-            } else {
-                &payload.live_from
-            };
-            if !live::takes(from, app_commit) {
+            let whole = live::native_matches(payload, app_commit);
+            let fits = live::takes(
+                live::daemon_list(&payload.daemon_from, &payload.live_from),
+                app_commit,
+            );
+            if !fits {
                 why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
-            } else if !daemon_only && !live::native_matches(payload, app_commit) {
-                why.push(messages.why_native_unproven.to_owned());
             } else {
                 match live::wanted(payload, base) {
-                    Ok(files) => return Plan::Live { files },
+                    Ok(files) if whole => return Plan::Live { files, scope: Scope::Whole },
+                    Ok(files) => {
+                        daemon = Some((files, Scope::Daemon(left_out(payload, app_commit))));
+                    }
                     Err(error) => {
                         why.push(messages.why_live_refused.replace("{error}", &error));
                     }
@@ -299,7 +356,34 @@ fn choose(
             }
         }
     }
+    if let Some((files, scope)) = daemon {
+        return Plan::Live { files, scope };
+    }
     Plan::None { why }
+}
+
+/// What a daemon-only try leaves out, from the signed lists alone (this CLI has no checkout to diff):
+/// past the whole-app floor, the Swift, resources and web merged since the app's build; inside it,
+/// app content the file does not sign as unchanged. A file from before `daemon_from` says so too.
+fn left_out(payload: &LivePayload, app_commit: &str) -> Vec<String> {
+    let messages = messages();
+    let mut out = Vec::new();
+    if live::takes(&payload.live_from, app_commit) {
+        out.push(messages.left_out_unproven.replace("{app_commit}", app_commit));
+    } else {
+        let floor = payload.live_from.last().map_or(payload.commit.as_str(), String::as_str);
+        out.push(
+            messages
+                .left_out_past_floor
+                .replace("{app_commit}", app_commit)
+                .replace("{commit}", short(&payload.commit))
+                .replace("{floor}", short(floor)),
+        );
+    }
+    if payload.daemon_from.is_empty() {
+        out.push(messages.left_out_no_daemon_from.to_owned());
+    }
+    out
 }
 
 /// Sets one field of a JSON object; `value["key"] = ..` would panic on a non-object.
@@ -321,7 +405,9 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
         "app_commit": app_commit,
     });
     match plan {
-        Plan::Live { files } => {
+        Plan::Live { files, scope } => {
+            set(&mut value, "scope", json!(scope.name()));
+            set(&mut value, "left_out", json!(scope.left_out()));
             let files = files
                 .iter()
                 .map(|wanted| match &wanted.binary {
@@ -347,12 +433,15 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
 fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -> String {
     let messages = messages();
     match plan {
-        Plan::Live { files } => messages
-            .plan_live
-            .replace("{commit}", short(commit))
-            .replace("{count}", &files.iter().filter(|w| w.binary.is_some()).count().to_string())
-            .replace("{app}", &app.to_string_lossy())
-            .replace("{app_commit}", app_commit.unwrap_or_default()),
+        Plan::Live { files, scope } => match scope {
+            Scope::Whole => messages.plan_live,
+            Scope::Daemon(_) => messages.plan_live_daemon,
+        }
+        .replace("{commit}", short(commit))
+        .replace("{count}", &files.iter().filter(|w| w.binary.is_some()).count().to_string())
+        .replace("{app}", &app.to_string_lossy())
+        .replace("{app_commit}", app_commit.unwrap_or_default())
+        .replace("{left_out}", &scope.left_out().join("; ")),
         Plan::Full { build, from } => messages
             .plan_full
             .replace("{build}", build.get_str("build").unwrap_or_default())
@@ -581,7 +670,7 @@ fn run_try(
     let t = Instant::now();
     let live = read_live(&commit, &base);
     phases.add("plan", t);
-    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base, live_only);
+    let mut plan = choose(&commit, app_commit.as_deref(), &live, None, &base);
     if live_only && !matches!(plan, Plan::Live { .. }) {
         return failure(
             "try.channel_incompatible",
@@ -589,7 +678,9 @@ fn run_try(
             global.output,
         );
     }
-    if !live_only && !matches!(plan, Plan::Live { .. }) {
+    // A whole-app live plan is the cheapest there is; a daemon-only one still yields to a build of the
+    // commit in the feed, which brings the Swift it leaves out.
+    if !live_only && !matches!(plan, Plan::Live { scope: Scope::Whole, .. }) {
         let t = Instant::now();
         let builds = read_builds(stream.as_mut());
         plan = choose(
@@ -598,7 +689,6 @@ fn run_try(
             &live,
             Some(builds.as_ref().map_err(String::as_str)),
             &base,
-            false,
         );
         phases.add("plan", t);
     }
@@ -608,6 +698,11 @@ fn run_try(
         "path": plan.path(), "app": app.to_string_lossy(), "app_commit": app_commit,
         "at": now(),
     });
+    if let Plan::Live { scope, .. } = &plan {
+        // The receipt never says the app is at `commit` when only its daemon is.
+        set(&mut receipt, "scope", json!(scope.name()));
+        set(&mut receipt, "left_out", json!(scope.left_out()));
+    }
     if dry_run || matches!(plan, Plan::None { .. }) {
         let code = i32::from(matches!(plan, Plan::None { .. }));
         if let (false, Plan::None { why }) = (dry_run, &plan) {
@@ -679,7 +774,7 @@ fn run_try(
             }
             code
         }
-        Plan::Live { files } => {
+        Plan::Live { files, .. } => {
             let daemon = app_daemon(&app);
             let result = try_live(&app, &files, store, &daemon, &mut phases);
             finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
@@ -760,8 +855,9 @@ fn finish(
             .already
             .replace("{app}", &app.to_string_lossy())
             .replace("{commit}", short(commit)),
-        (false, true) => messages
-            .applied
+        (false, true) => receipt_left_out(&receipt)
+            .map_or(messages.applied, |_| messages.applied_daemon)
+            .replace("{left_out}", &receipt_left_out(&receipt).unwrap_or_default())
             .replace("{commit}", short(commit))
             .replace("{app}", &app.to_string_lossy())
             .replace("{seconds}", &seconds),
@@ -773,6 +869,15 @@ fn finish(
     };
     println!("{line}");
     0
+}
+
+/// A daemon-only receipt's left-out reasons, joined; `None` for a whole-app one.
+fn receipt_left_out(receipt: &Value) -> Option<String> {
+    (receipt.get_str("scope") == Some("daemon")).then(|| {
+        let left: Vec<&str> =
+            receipt.get_array("left_out").iter().filter_map(Value::as_str).collect();
+        left.join("; ")
+    })
 }
 
 fn switch(global: &GlobalArgs, stream: &mut std::os::unix::net::UnixStream, build: &Value) -> i32 {
@@ -931,8 +1036,11 @@ fn status(global: &GlobalArgs, store: &Store) -> i32 {
                 .join(", ")
         })
         .unwrap_or_default();
+    let scope = receipt_left_out(&last)
+        .map(|left| messages.status_daemon_only.replace("{left_out}", &left))
+        .unwrap_or_default();
     println!(
-        "{}",
+        "{}{scope}",
         messages
             .status_line
             .replace("{action}", last.get_str("action").unwrap_or_default())
