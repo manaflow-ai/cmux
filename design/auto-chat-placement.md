@@ -49,8 +49,9 @@ only after it held for `holdSecs` (120 s). It brings a chat back to where it sta
 trigger has cleared (lid open, on AC or battery ≥ 30 %, this Mac has room for 2 lanes) and the
 chat's turn has ended. A chat the person moved or pinned is never moved by Auto.
 
-**Off by default.** Nothing moves a chat on its own unless the person sets
-`agentPane.autoPlacement.moveChats` to `true` in `cmux-next.json`. The daemon reads it at each
+**Off by default.** Nothing moves a chat on its own unless the person turns on Move Running
+Chats (Settings > General > Agent Chat; `agentPane.autoPlacement.moveChats` in `cmux-next.json`,
+a `userOnly` key an agent may not set). The daemon reads it at each
 pass; with it missing or false the rejudge task asks for no move, and `place_chat_event` answers
 with nothing moving.
 

@@ -86,6 +86,8 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.images.remote": .network,
+        // On, Auto moves the person's running chats and their folders to Cloud and back: only the person turns that on.
+        "agentPane.autoPlacement.moveChats": .userOnly,
         // The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.
         "app.quitBehavior": .destructive, "app.confirmQuit": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.

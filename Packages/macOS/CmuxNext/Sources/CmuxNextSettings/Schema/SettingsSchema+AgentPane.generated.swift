@@ -16,9 +16,15 @@ extension AgentPaneNeedsYouSetting {
     public nonisolated static let enabledDefault = false
 }
 
+extension AgentPaneSettingsSchema {
+    /// `agentPane.autoPlacement.moveChats`: Off by default: nothing moves a chat on its own unless this is on. The acpmux daemon reads it at each rejudge pass (hub/chat_place_bus.rs) and only then moves a chat Auto placed to Cloud or a joined machine when this Mac sleeps, closes its lid or is busy, and back when it is free (design/auto-chat-placement.md).
+    nonisolated static let moveChatsPath = ["agentPane", "autoPlacement", "moveChats"]
+    nonisolated static let moveChatsDefault = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AgentPaneSettingsSchema {
-    /// The agent chat's reply rows (decisions D4 and D5): what a path chip outside the session's folders does, and when a web image in a reply loads. Both decide what leaves the project or the machine, so an agent may not change them (SettingsSchema.agentRefusedKeys). Also Needs you in the chat header (AgentPaneNeedsYouSetting), an App Store item an agent may set.
+    /// The agent chat's reply rows (decisions D4 and D5): what a path chip outside the session's folders does, and when a web image in a reply loads. Both decide what leaves the project or the machine, so an agent may not change them (SettingsSchema.agentRefusedKeys). Also Needs you in the chat header (AgentPaneNeedsYouSetting), an App Store item an agent may set. Also Move Running Chats (agentPane.autoPlacement.moveChats), read by the acpmux daemon; only the person turns it on.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
@@ -61,6 +67,16 @@ nonisolated enum AgentPaneSettingsSchema {
                 kind: .toggle,
                 default: .bool(AgentPaneNeedsYouSetting.enabledDefault),
                 keywords: ["agent", "chat", "needs you", "inbox", "asks", "approvals", "badge"]
+            ),
+            SettingDescriptor(
+                AgentPaneSettingsSchema.moveChatsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.autoPlacementMoveChats", "Move Running Chats"),
+                help: SettingsText.keyed("settings.agentPane.autoPlacementMoveChats.help", "Auto may move a chat it placed to Cloud when this Mac sleeps or is busy, then bring it back."),
+                kind: .toggle,
+                default: .bool(AgentPaneSettingsSchema.moveChatsDefault),
+                keywords: ["agent", "chat", "auto", "placement", "move", "cloud", "sleep", "laptop"]
             ),
         ]
     }
