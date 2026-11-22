@@ -503,7 +503,7 @@
     "setting.browser.toolbar.menu": true,
     "setting.browser.toolbar.profile": true,
     "setting.browser.toolbar.reload": true,
-    "setting.browser.toolbarButtons": ["media", "zoom", "downloads"],
+    "setting.browser.toolbarButtons": ["media", "zoom", "downloads", "profile"],
     "setting.browser.toolbarPosition": "top",
     "setting.browser.urlsToAlwaysOpenExternally": [],
     "setting.browser.verificationAutofill.accounts": [],

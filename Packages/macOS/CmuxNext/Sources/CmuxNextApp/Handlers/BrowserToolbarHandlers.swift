@@ -14,7 +14,7 @@ import CmuxNextSettings
 /// | Favorites | `bookmark.manager` |
 /// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
-/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | profile | `browser.profile.choose`, the profile menu (`ActionRegistry.makeBrowserProfileMenu`) |
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
@@ -137,10 +137,26 @@ enum BrowserToolbarHandlers {
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
         let key = entry.key
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        let incognito = services.cache.browserTabs.isIncognitoTab(key)
+        let workspace = services.workspaceID(ofTab: key)
+        // The header: the tab's profile as the button draws it, and why the tab has it. An incognito tab has none.
+        var header: BrowserProfileMenuHeader?
+        if !incognito, let badge = profiles.toolbarBadge(forTab: key) {
+            let source = BrowserProfileCascade.source(tabProfile: current, workspace: profiles.workspaceDefault(workspace),
+                                                      room: profiles.roomDefault(workspace), known: profiles.isKnown)
+            let reason: BrowserProfileMenuHeader.Reason? = switch source {
+            case .workspace: .workspace
+            case .space: .space
+            case .tab: .tab
+            case .builtIn: nil
+            }
+            header = BrowserProfileMenuHeader(title: badge.name, reason: reason, image: badge.avatarImage(side: 20))
+        }
         return services.registry.makeBrowserProfileMenu(
-            tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
+            tabKey: key, current: current,
             profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
-            profileActions: !services.cache.browserTabs.isIncognitoTab(key))
+            profileActions: !incognito, header: header, workspace: incognito ? nil : workspace)
     }
 
     /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass: the hidden toolbar buttons (and

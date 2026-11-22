@@ -6,9 +6,4 @@ public nonisolated enum BrowserProfileStrings {
     public static var defaultName: String {
         String(localized: "browserProfile.defaultName", defaultValue: "Default", table: "BrowserProfiles", bundle: .localizedModule)
     }
-
-    /// Omnibar badge tooltip and VoiceOver label.
-    public static func badgeHelp(_ name: String) -> String {
-        String(format: String(localized: "browserProfile.badgeHelp", defaultValue: "Browser profile: %@", table: "BrowserProfiles", bundle: .localizedModule), name)
-    }
 }

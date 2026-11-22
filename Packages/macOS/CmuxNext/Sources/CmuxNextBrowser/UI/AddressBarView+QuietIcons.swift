@@ -6,8 +6,8 @@ import CmuxNextDesign
 // page not bookmarked. They keep their room, faded to clear, so their coming and going moves no text. A page that is not
 // secure keeps its "Not secure" chip, and a bookmarked page its filled star.
 //
-// The profile avatar is quiet too (Leo 2026-11-22, "why do we have the profile icon here if it's always visible ... hide
-// it along with the favouite/left side \"stuff\" about icon"): a tab's profile does not change while you read the page.
+// The profile avatar is not in the bar at all (Leo 2026-11-22, "why do we have the profile icon here if it's always
+// visible ... move it outside the omnibar"): it is the toolbar's profile button, at the toolbar's right.
 extension AddressBarView {
     /// The site-info chip says nothing a person needs at rest: a secure web page's neutral icon, with no label.
     var chipIsQuiet: Bool {
@@ -17,16 +17,13 @@ extension AddressBarView {
     /// The star says nothing a person needs at rest: the page is not bookmarked.
     var starIsQuiet: Bool { starButton.state == .off }
 
-    /// The profile avatar says nothing new at rest: it is the same on every page of the tab.
-    var profileBadgeIsQuiet: Bool { true }
-
     /// Whether the quiet icons show: the pointer is on the bar, or the bar has the keyboard.
     var showsQuietIcons: Bool { pill.debugHovering || controller.state.hasFocus }
 
     /// Fades the quiet icons in or out; `fade` nil sets them at once (a page or focus change).
     func updateQuietIcons(fade: MotionFade?) {
         let shown = showsQuietIcons
-        for (view, quiet) in [(chip as NSView, chipIsQuiet), (starButton as NSView, starIsQuiet), (profileBadgeView as NSView, profileBadgeIsQuiet)] {
+        for (view, quiet) in [(chip as NSView, chipIsQuiet), (starButton as NSView, starIsQuiet)] {
             let alpha: CGFloat = quiet && !shown ? 0 : 1
             guard view.alphaValue != alpha else { continue }
             if let fade {

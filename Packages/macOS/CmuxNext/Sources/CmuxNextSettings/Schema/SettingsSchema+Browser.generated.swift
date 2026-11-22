@@ -4,7 +4,7 @@
 extension BrowserToolbarButtonsSetting {
     /// `browser.toolbarButtons`: The buttons the browser toolbar pins next to the address bar, in toolbar order (BrowserToolbarButton raw values; More always shows and is not in the list).
     public nonisolated static let configPath = ["browser", "toolbarButtons"]
-    public nonisolated static let fallback: [String] = ["media", "zoom", "downloads"]
+    public nonisolated static let fallback: [String] = ["media", "zoom", "downloads", "profile"]
     public nonisolated static let values = ["media", "zoom", "favorites", "downloads", "designMode", "profile", "theme", "devTools"]
 }
 
