@@ -256,9 +256,11 @@ final class PaneToolbar: PaneControlsRefreshing {
         return items
     }
 
-    /// Show in Tab Bar: the selected kind's controls, plus existing pins so they can be unpinned.
+    /// Show in Tab Bar, with its pin icon: the selected kind's controls, plus existing pins so they can be unpinned.
     private func showInTabBarItem(registry: ActionRegistry) -> NSMenuItem {
         let item = NSMenuItem(title: PaneToolbarStrings.showInTabBar, action: nil, keyEquivalent: "")
+        // The catalog rows above it carry icons: an icon-less row would start its text an empty icon slot in.
+        item.image = NSImage.menuSymbol("pin")
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
         let available = Set(kind.map(Self.actions) ?? [])

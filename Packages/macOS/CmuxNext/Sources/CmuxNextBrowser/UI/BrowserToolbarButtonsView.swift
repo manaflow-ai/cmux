@@ -317,11 +317,13 @@ public final class BrowserToolbarButtonsView: NSStackView {
         return menu
     }
 
-    /// The More menu's Show in Toolbar item: one checked row per pinnable
+    /// The More menu's Show in Toolbar item, with its pin icon: one checked row per pinnable
     /// button (`pinned`); choosing one calls `toggle`. Rows are disabled
     /// when `enabled` is false (a managed list).
     public func showInToolbarItem(enabled: Bool, toggle: @escaping (BrowserToolbarButton) -> Void) -> NSMenuItem {
         let item = NSMenuItem(title: BrowserToolbarButton.showInToolbarTitle, action: nil, keyEquivalent: "")
+        // Every other More row has its icon; without one this row starts its text an empty icon slot in (Leo 2026-11-22).
+        item.image = NSImage.menuSymbol("pin")
         let submenu = NSMenu(title: BrowserToolbarButton.showInToolbarTitle)
         submenu.autoenablesItems = false
         for button in BrowserToolbarButton.pinnable {
