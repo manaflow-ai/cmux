@@ -134,7 +134,7 @@ class ControllerVectorTest(unittest.TestCase):
             key, _ = rik.input_key("react-doctor", ["site", "app"], rows=rows)
         finally:
             rik.object_id = old
-        self.assertEqual(key, "7eb85f4c009c58704d26dc87728db0639c8f0f1b71a256307d07b1a30f1c9fe5")
+        self.assertEqual(key, "7eb85f4c009c58704d26dc87728db0639c8f0f1b71a256307d07b1a30f1c9fe5")  # gitleaks:allow (sha256 input key test vector, not a secret)
         self.assertEqual(rik.CHECKS["react-doctor"]["command"], "python3 scripts/ci/react_doctor_gate.py")
 
 
