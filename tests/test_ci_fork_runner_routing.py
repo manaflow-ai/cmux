@@ -176,7 +176,25 @@ TRUSTED_RUNNER_EXPRESSION = (
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# One of our one-job GCP JIT labels may lead the trusted selector, right after the fork branch and behind its own
+# switch (Leo, 2026-11-21: "i just am like fundamentally opposed to paying for ci when i exist"). Each is served only
+# by the fleet reconciler's JIT VMs (cmuxterm-hq runner_pool.py JIT_ONLY_LABELS: no service account, deleted after the
+# one job, no persistent runner registers it), so a trusted token held there leaves with the VM as on Blacksmith.
+# The required merge gates take the reserved gate label (tests/test_ci_required_gate_label.py keeps it to them); the
+# pull-request bots started by an outsider's event take the PR control label. Either switch set to 1 skips its label
+# and leaves the selector after it unchanged, so the operand can only ever add that one literal label (main: #47967,
+# #48676).
+GATE_JIT_LABEL = "cmux-gcp-gate-jit-x64"
+GATE_FIRST_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_JIT_LABEL + "' || "
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+GATE_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
+PR_CONTROL_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
+    "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + PR_CONTROL_FIRST_OPERAND, 1)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, GATE_TRUSTED_RUNNER_EXPRESSION,
+                              PR_CONTROL_TRUSTED_RUNNER_EXPRESSION)
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
 # The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
 # own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
 LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
@@ -1690,6 +1708,23 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         legacy = f"jobs:\n  a:\n    runs-on: {LEGACY_TRUSTED_RUNNER_EXPRESSION}\n"
         self.assertNotEqual(outsider_runner_errors("x.yml", legacy), [])
         self.assertEqual(outsider_runner_errors("language-boundaries.yml", legacy), [])
+
+    def test_a_jit_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
+        # Only the gate or PR control literal, behind its own switch, ahead of the exact selector passes.
+        for admitted in (GATE_TRUSTED_RUNNER_EXPRESSION, PR_CONTROL_TRUSTED_RUNNER_EXPRESSION):
+            with self.subTest(runs_on=admitted):
+                self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {admitted}\n"), [])
+        refused = (
+            GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64"),
+            GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-linux"),
+            GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
+            GATE_TRUSTED_RUNNER_EXPRESSION.replace("CI_GATE_SKIP_FLEET", "CI_PR_CONTROL_SKIP_FLEET"),
+            PR_CONTROL_TRUSTED_RUNNER_EXPRESSION.replace("CI_PR_CONTROL_SKIP_FLEET", "CI_GATE_SKIP_FLEET"),
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-gate-jit-x64' }}",
+        )
+        for variant in refused:
+            with self.subTest(runs_on=variant):
+                self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.
