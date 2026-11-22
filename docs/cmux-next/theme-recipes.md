@@ -92,6 +92,13 @@ on, or run the `cmux theme use NAME` it prints.
    [manaflow-ai/cmux-extensions](https://github.com/manaflow-ai/cmux-extensions); a merge there is
    the review.
 
+## Theme packs
+
+A theme pack is a folder with a `cmux-pack.json` and an `assets/` folder for its own pictures and
+videos. It sets a whole look at once, undoes and redoes as one step, and can be edited live with
+`cmux pack use DIR --watch`. It compiles to a theme file, so everything on this page still applies.
+See [theme-packs.md](theme-packs.md); `examples/theme-packs/sakura` is a finished one.
+
 ## Ship fonts with a community theme
 
 A community theme repository (one with `cmux-theme.json`, installed with `cmux theme install`) can
