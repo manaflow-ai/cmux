@@ -147,7 +147,7 @@ import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { jumpSide } from "./jumpPlace";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -502,16 +502,16 @@ import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
   answerState,
+  answeredAsks,
   bottomAsks,
   claimAnswer,
   dismissAsk,
   dismissedAsks,
-  setAnswerState,
-  shownAsks,
-  answeredAsks,
   givenAnswer,
+  setAnswerState,
   subscribeAnswers,
   withAnswered,
+  shownAsks,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
@@ -883,6 +883,7 @@ import { callNative } from "./callNative";
 import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { watchLaunchSettle } from "./launchSettle";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -1687,7 +1688,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
   const t = useT();
-  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn, emptyChatComposerPosition } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
@@ -1847,9 +1848,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudIdentityBound = useRef(false);
   // Back to before this turn (TurnActions `rewind`): per chat, the checkpoint marks of its turns
   // (`user-<n>`), first as the handshake's `cloudTurnRewind` names them for its chat. Undefined where
-  // the host serves no rewind (every host today), so no prompt draws the button. Kept per chat:
+  // the host serves no rewind, so no prompt draws the button. Kept per chat:
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
-  const [cloudTurnRewind, setCloudTurnRewind] = useState<ChatMarks>();
+  const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
+  const cloudTurnRewindRef = useRef<ChatMarks | undefined>(undefined);
+  const setCloudTurnRewind = (
+    update: ChatMarks | undefined | ((marks: ChatMarks | undefined) => ChatMarks | undefined),
+  ) => {
+    const next = typeof update === "function" ? update(cloudTurnRewindRef.current) : update;
+    cloudTurnRewindRef.current = next;
+    if (document.visibilityState !== "hidden") publishCloudTurnRewind(next);
+  };
   // A handshake that named no chat: its list joins the first chat a snapshot shows.
   const cloudTurnRewindUnbound = useRef(false);
   // With `cloudTurnRewind` present, each completed turn asks the app for the checkpoint before the
@@ -1862,6 +1871,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
   );
   const observeCloudTurn = (next: AcpmuxSnapshot) => {
+    if (document.visibilityState !== "hidden") publishCloudTurnRewind(cloudTurnRewindRef.current);
     cloudCheckpoints.current?.observe(next);
     const session = next.sessionId;
     if (!cloudTurnRewindUnbound.current || !session) return;
@@ -7670,6 +7680,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
     if (first) swapChatSnapshot();
+    // A chat's first paint, unless its saved copy drew first and started it: what moves from here is the
+    // launch's settle, reported once (launchSettle.ts). Not a New Tab page's.
+    if (first && newTab === undefined) watchLaunchSettle(callNative);
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
@@ -7683,7 +7696,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail, settledSession]);
+  }, [showsWhatItIs, drewKeptTail, settledSession, newTab]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
@@ -8952,6 +8965,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           mock ? "daemon" : "native",
           undefined,
           carriedChat,
+          turnRewind !== undefined ? (state) => cloudCheckpoints.current?.observeHiddenTurn(state) : undefined,
         );
         carriedChat = undefined;
         if (cancelled) {
@@ -14057,6 +14071,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // Settings' `agentPane.emptyChatComposerPosition`: "center" sits a new chat's composer in the
+          // middle of the pane (styles.css); absent, it docks at the bottom as always.
+          data-empty-chat-composer={
+            freshView && !showNewTab && emptyChatComposerPosition === "center" ? "center" : undefined
+          }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
