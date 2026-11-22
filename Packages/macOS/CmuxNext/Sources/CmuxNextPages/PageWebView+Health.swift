@@ -46,7 +46,7 @@ extension PageWebView {
     /// the Dock) and under no hidden ancestor. A page that cannot be seen stops its heartbeat (the
     /// document is hidden), so health never times it.
     public var isShownForHealth: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare else { return false }
+        guard let window, !isHiddenOrHasHiddenAncestor, !isParkedSpare, !isDrawnAway else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
