@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR 7baf4af569dd4988c403a5cbf3ac79baa9f854acaf7a353bea4bf9079e2fcf73. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095" as const;
+export const SDK_IR_SHA256 = "7baf4af569dd4988c403a5cbf3ac79baa9f854acaf7a353bea4bf9079e2fcf73" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -7822,6 +7822,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "index": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "kind": {
@@ -22909,6 +22917,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             },
             "kind": "array"
           }
+        },
+        "since": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
         }
       },
       "kind": "object"
@@ -22924,12 +22940,39 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "full": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "me": {
           "nullable": false,
           "presence": "required",
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "removed": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "revision": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         },
         "rows": {
@@ -22941,6 +22984,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "HomeInboxRow"
             },
             "kind": "array"
+          }
+        },
+        "total": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         }
       },
