@@ -14,6 +14,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 
 | Key | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- |
+| `app.language` | string | `"system"` | `system`, `en`, `ar`, `bs`, `da`, `de`, `es`, `fr`, `it`, `nb`, `pl`, `pt-BR`, `tr`, `vi`, `ru`, `uk`, `th`, `km`, `ja`, `ko`, `zh-Hans`, `zh-Hant` | Language. The language of cmux's menus, pages and messages. |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
 | `navigation.historyScope` | string | `"workspace"` | `workspace`, `window`, `surface` | Back and Forward. What Go Back and Go Forward walk. |
 | `navigation.history.scope` | string | `"workspaces"` | `workspaces`, `everything` | Back and Forward Steps. Everything also steps through tabs and panes inside a workspace. |
@@ -158,6 +159,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. Days unused before a chat is compressed. Busy chats never are. |
+| `agents.chats.archiveInactive` | string | `"never"` | `never`, `1d`, `3d`, `7d`, `30d` | Archive Inactive Chats. Archives chats after a period of no activity. Chats that are running or have background work never are. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name. |
 | `picker.pinned` | array | `[]` |  | Pinned Folders. Listed under Locations. Use full or ~/ paths. |
 | `screenshots.findTools` | boolean | `true` |  | Find Screenshot Apps. Also shows the folders of apps like CleanShot X and Shottr. |
@@ -225,6 +227,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.chromeStyle` | string | `"flat"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating`, `blocks` | Window Style. Whether panes sit in one rounded card, and where lines are drawn. |
 | `appearance.titleAreaTone` | string | `"oneColor"` | `oneColor`, `subtleTone` | Title Area. The title bar, tab bar and sidebar in the content's color, or shaded apart. |
 | `appearance.titleAreaContrast` | real | `1` | 0 to 2 | Title Area Contrast. How much darker the title bar, tab bar and sidebar are. 1 is the default. |
+| `appearance.twoTone` | string | `"off"` | `off`, `auto`, `inkSakura`, `charcoalRose`, `inkMagenta`, `creamForest`, `navySand`, `boneOxblood`, `slateMatcha`, `plumAmber` | Two-Tone. The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme. |
 | `appearance.cornerFlush` | string | `"flush"` | `off`, `flush`, `flush-tight`, `flush-goo` | Selected Tab Shape. How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
@@ -315,7 +318,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
-| `agentPane.display.width` | real | `800` | 480 to 4000 | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. |
+| `agentPane.display.width` | string | `800` | `narrow`, `medium`, `wide` | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile. |
 | `agentPane.display.fullWidth` | boolean | `false` |  | Chat Full Width. The chat fills the whole pane instead of the text width. |
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge. Click or drag it to scroll. |
 | `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
@@ -340,8 +343,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge. |
 | `agentPane.display.transcriptView` | string | `"normal"` | `normal`, `thinking`, `verbose` | Transcript View. How much of each turn a chat shows. A chat's ··· menu sets its own. |
 | `agentPane.display.presentation` | string | `"transcript"` | `transcript`, `messages` | Chat Presentation |
-| `agentPane.display.transcriptLook` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio` | Transcript Look. How messages, cards and spacing look. |
-| `agentPane.display.transcriptTokens` | string | `{}` |  | Transcript Look Tokens. Token values that override the transcript look. |
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
@@ -682,6 +683,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.sounds.workspaces` | dictionary | `{}` |  | Workspace Sounds. Sounds per workspace id. Set one from the workspace's sidebar menu. |
 | `notifications.sounds.groups` | dictionary | `{}` |  | Group Sounds. Sounds per group id or name. Set one from the group's sidebar menu. |
 | `notifications.sounds.agents` | dictionary | `{}` |  | Agent Sounds. Sounds per agent kind, such as claude or codex. |
+| `notifications.delivery.permissionRequest` | string | `"banner"` | `off`, `badge`, `banner` | Permission Request |
+| `notifications.delivery.question` | string | `"banner"` | `off`, `badge`, `banner` | Question |
+| `notifications.delivery.taskComplete` | string | `"banner"` | `off`, `banner` | Task Complete |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view. |
 | `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |
@@ -692,6 +696,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `experiments.composerV2` | boolean | `false` |  | Composer Refresh. A glass composer with mode chips, mention chips and a round send button. Still being shaped. |
+| `experiments.agentBadges` | boolean | `false` |  | Agent Badges. Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done. |
+| `experiments.agentBadgesBeam` | boolean | `false` |  | Agent Badges: Running Beam. With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -710,6 +716,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.scrollToBottomOnSend` | boolean | `true` |  | Scroll to Bottom When I Send. When off, sending while you are reading up keeps your place and shows new messages below. |
 | `agentPane.showMachineLoadWarnings` | boolean | `true` |  | Show Machine Load Warnings. Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu. |
 | `agentPane.newChatsIn` | string | `"local"` | `local`, `cloud` | Start New Chats In. Cloud copies your project to your Cloud machine. A chat's composer can change it. |
+| `agentPane.sessionWorktrees` | string | `"off"` | `off`, `shared`, `project` | Session Worktrees. Choose where to keep worktrees for local chats and forks. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |

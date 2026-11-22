@@ -100,7 +100,7 @@ describe("with no pack keys", () => {
       // The transcript look's primitives (transcriptLook.ts), none set by the cmux look.
       "--cv-user-bubble-pad-block": null,
       "--cv-user-bubble-pad-inline": null,
-      "--cv-user-bubble-radius": null,
+      "--cv-look-bubble-radius": null,
       "--cv-user-bubble-share": null,
       "--cv-user-bubble-fill": null,
       "--cv-user-align": null,

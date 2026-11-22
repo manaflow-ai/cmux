@@ -185,7 +185,7 @@ export function transcriptLookVariables(look: ResolvedTranscriptLook): Record<st
   return {
     "--cv-user-bubble-pad-block": box.padBlock === null ? null : units(box.padBlock),
     "--cv-user-bubble-pad-inline": box.padInline === null ? null : units(box.padInline),
-    "--cv-user-bubble-radius": radius === undefined ? null : units(radius),
+    "--cv-look-bubble-radius": radius === undefined ? null : units(radius),
     "--cv-user-bubble-share": box.share === null ? null : percent(box.share),
     "--cv-user-bubble-fill": fill === undefined ? null : percent(fill),
     "--cv-user-align": align === undefined ? null : align === "left" ? "flex-start" : "flex-end",

@@ -66,6 +66,36 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railShowPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.show", "Prompt Rail Shows"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.show.help", "Right-click the rail to change it."),
+                kind: .choice([
+                    SettingChoice("prompts", SettingsText.keyed("settings.agentPane.display.rail.show.prompts", "All Messages")),
+                    SettingChoice("mine", SettingsText.keyed("settings.agentPane.display.rail.show.mine", "My Messages")),
+                    SettingChoice("received", SettingsText.keyed("settings.agentPane.display.rail.show.received", "Agent Messages")),
+                    SettingChoice("replies", SettingsText.keyed("settings.agentPane.display.rail.show.replies", "Agent Replies")),
+                    SettingChoice("everything", SettingsText.keyed("settings.agentPane.display.rail.show.everything", "Messages and Replies")),
+                    SettingChoice("errors", SettingsText.keyed("settings.agentPane.display.rail.show.errors", "Turns with Errors")),
+                    SettingChoice("edits", SettingsText.keyed("settings.agentPane.display.rail.show.edits", "Turns with Edits")),
+                    SettingChoice("tools", SettingsText.keyed("settings.agentPane.display.rail.show.tools", "Turns with Tool Calls")),
+                    SettingChoice("subagents", SettingsText.keyed("settings.agentPane.display.rail.show.subagents", "Turns with Subagents")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.railShowDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "filter", "replies", "errors", "edits", "tools", "subagents"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railControlPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.control", "Prompt Rail Button"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.control.help", "Shows what the rail lists above it while you point at it."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.railControlDefault),
+                keywords: ["agent", "chat", "acp", "display", "rail", "minimap", "filter", "button", "control", "replies"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.commandLabelsPath,
                 section: .appearance,
                 group: group,
