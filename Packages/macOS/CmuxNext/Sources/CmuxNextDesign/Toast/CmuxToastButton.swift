@@ -114,13 +114,13 @@ public final class CmuxToastButton: ClickableButton {
                 // Open, it is a quiet link (secondary text, lit to primary under the pointer).
                 let color = Palette.toastText(!isOn || hover.state.hovering || hover.state.pressed ? .primary : .secondary)
                 attributedTitle = NSAttributedString(string: plainTitle, attributes: [
-                    .font: Typography.bodyEmphasized,
+                    .font: Typography.cardTitle,
                     .foregroundColor: color,
                 ])
                 contentTintColor = color
             case .quiet:
                 let color = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
-                attributedTitle = NSAttributedString(string: plainTitle, attributes: [.font: Typography.body, .foregroundColor: color])
+                attributedTitle = NSAttributedString(string: plainTitle, attributes: [.font: Typography.cardMessage, .foregroundColor: color])
                 contentTintColor = color
             case .close:
                 contentTintColor = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
@@ -133,7 +133,7 @@ public final class CmuxToastButton: ClickableButton {
                 let lit = hover.state.pressed ? fill.blended(withFraction: 0.2, of: .black) : hover.state.hovering ? fill.blended(withFraction: 0.1, of: .black) : fill
                 layer?.backgroundColor = (lit ?? fill).cgColor
                 attributedTitle = NSAttributedString(string: plainTitle, attributes: [
-                    .font: Typography.bodyEmphasized,
+                    .font: Typography.cardTitle,
                     .foregroundColor: Palette.onAccent,
                 ])
                 contentTintColor = Palette.onAccent

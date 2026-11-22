@@ -132,7 +132,7 @@ public final class CmuxToastView: NSView {
         let look = self.look
         let label = ThemedLabel(wrappingLabelWithString: toast.message)
         let twoLines = look.showsDetailLine && toast.detail != nil && toast.action?.revealsDetails != true
-        label.font = look.compact ? Typography.caption : twoLines ? Typography.bodyEmphasized : Typography.body
+        label.font = look.compact ? Typography.cardBody : twoLines ? Typography.cardTitle : Typography.cardMessage
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = tuning.messageWidth
         // A wrapping label resists compression at only `.defaultLow`, the same as the stack's
@@ -153,7 +153,7 @@ public final class CmuxToastView: NSView {
         var text: NSView = label
         if twoLines, let detail = toast.detail {
             let line = ThemedLabel(wrappingLabelWithString: detail)
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 2
             line.preferredMaxLayoutWidth = tuning.messageWidth
             line.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
@@ -305,7 +305,7 @@ public final class CmuxToastView: NSView {
     private func addDetailLabel(_ detail: String, in content: NSView, below row: NSView) {
         let copy = CmuxToastDetailCopy.plain(detail)
         let label = ThemedLabel(wrappingLabelWithString: copy.text)
-        label.font = Typography.body
+        label.font = Typography.cardMessage
         label.maximumNumberOfLines = 0
         label.isSelectable = true
         label.focusRingType = .none
@@ -323,7 +323,7 @@ public final class CmuxToastView: NSView {
         var bottom = label.bottomAnchor.constraint(equalTo: document.bottomAnchor)
         if let code = copy.code {
             let line = ThemedLabel(wrappingLabelWithString: CmuxToastDetailCopy.codeLine(code))
-            line.font = Typography.caption
+            line.font = Typography.cardBody
             line.maximumNumberOfLines = 0
             line.isSelectable = true
             line.focusRingType = .none
