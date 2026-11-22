@@ -103,6 +103,9 @@ on:
       - "schemas/agent-pane/wake-state.json"
       - "schemas/design-scale/**"
       - "design/icons/neko-candidates/**"
+      # first-party apps' preview fixtures (dev-server/firstPartyPreviews.ts; CalendarWidget.gallery.tsx imports
+      # widget-calendar/preview/scenes.json).
+      - "first-party-apps/*/preview/**"
       - "schemas/type-scale/**"
       - "schemas/motion-scale/**"
       - "schemas/layout-grid/**"
@@ -194,6 +197,7 @@ jobs:
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/
@@ -290,6 +294,7 @@ jobs:
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/

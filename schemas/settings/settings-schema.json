@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -2420,6 +2430,323 @@
     ]
   },
   "rows" : [
+    {
+      "accepts" : [
+        "system",
+        "en",
+        "ar",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "nb",
+        "pl",
+        "pt-BR",
+        "tr",
+        "vi",
+        "ru",
+        "uk",
+        "th",
+        "km",
+        "ja",
+        "ko",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.app.language.system",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "English"
+          },
+          "value" : "en"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "العربية"
+          },
+          "value" : "ar"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bosanski"
+          },
+          "value" : "bs"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dansk"
+          },
+          "value" : "da"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deutsch"
+          },
+          "value" : "de"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Español"
+          },
+          "value" : "es"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Français"
+          },
+          "value" : "fr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Italiano"
+          },
+          "value" : "it"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Norsk bokmål"
+          },
+          "value" : "nb"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Polski"
+          },
+          "value" : "pl"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Português (Brasil)"
+          },
+          "value" : "pt-BR"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Türkçe"
+          },
+          "value" : "tr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tiếng Việt"
+          },
+          "value" : "vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Русский"
+          },
+          "value" : "ru"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Українська"
+          },
+          "value" : "uk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ไทย"
+          },
+          "value" : "th"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ខ្មែរ"
+          },
+          "value" : "km"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "日本語"
+          },
+          "value" : "ja"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "한국어"
+          },
+          "value" : "ko"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "简体中文"
+          },
+          "value" : "zh-Hans"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "繁體中文"
+          },
+          "value" : "zh-Hant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.language",
+        "text" : "Language"
+      },
+      "help" : {
+        "key" : "settings.app.language.help",
+        "text" : "The language of cmux's menus, pages and messages."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.language",
+      "keywords" : [
+        "language",
+        "locale",
+        "localization",
+        "translation",
+        "Sprache",
+        "langue",
+        "idioma",
+        "lingua",
+        "言語",
+        "언어",
+        "语言",
+        "язык"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "language"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.language"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.language",
+        "text" : "Language"
+      },
+      "validation" : "portable"
+    },
     {
       "accepts" : [
         true,
@@ -28665,7 +28992,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -28735,14 +29062,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -30133,7 +30460,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -30203,14 +30530,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -31617,7 +31944,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -31687,14 +32014,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },
@@ -32920,7 +33247,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge — Utagawa Hiroshige"
           },
           "value" : "hiroshige-sudden-shower"
         },
@@ -32990,14 +33317,14 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+            "text" : "Along the River During Qingming — Zhang Zeduan"
           },
           "value" : "zhang-zeduan-qingming"
         },
         {
           "title" : {
             "key" : null,
-            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+            "text" : "Thousand Li of Rivers and Mountains — Wang Ximeng"
           },
           "value" : "wang-ximeng-thousand-li"
         },

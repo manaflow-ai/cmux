@@ -272,6 +272,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
+    /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
+    @ObservationIgnored public private(set) var browserEndedForQuit = false
     @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -504,6 +507,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         runtime.arriving.ended(id)
         paintAsk?.cancel()
         paintAsk = nil
+        // Set before the relay ends: a cmux page reads it in its end (`CEFPageChromiumPage`).
+        if !closesTab { browserEndedForQuit = true }
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
