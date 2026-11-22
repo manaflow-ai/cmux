@@ -3016,7 +3016,6 @@ function TranscriptView({
       const entering = enteringRows.current;
       for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
     }
-    keepKnownRows(knownRows.current, rows, rowFrameKey);
   }
   knownFor.current = rows;
   // The rows a commit drew are the page's (openBreakpoint.ts `ChatDrawn`): those from the first one
@@ -3029,6 +3028,9 @@ function TranscriptView({
     while (from < rows.length && from < last.length && rows[from] === last[from]) from += 1;
     for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
+    // The seen-row keys let go of rows gone from the transcript once they pass their bound
+    // (openBreakpoint.ts `keepKnownRows`), on commit: render only adds to them, and trims no ref.
+    if (knownRows.current !== null) keepKnownRows(knownRows.current, rows, rowFrameKey);
   }, [rows, chatRowsDrawn]);
   const onEntered = useCallback((id: string) => enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
