@@ -18,12 +18,6 @@ on:
       linux_guard_source:
         required: true
         type: string
-      # A label the caller placed workflow-guard-tests on (cmux-next-guards.yml's portable-placement:
-      # fleet Linux or a free mini); empty keeps the runner below.
-      guard_tests_runner:
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -35,7 +29,11 @@ env:
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `submodule-forward-only`
+    # (pr-pipeline.yml); a push, dispatch, the post-merge batch and a pull request into any other base still run them
+    # here. Guard status counts the skip as fine only on such a pull request.
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -93,7 +91,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || inputs.guard_tests_runner != '' && inputs.guard_tests_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -111,7 +109,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # A mini or fleet Linux host (guard_tests_runner) reuses its workspace: drop the submodule checkouts a
+      # A persistent cmux-linux host reuses its workspace: drop the submodule checkouts a
       # previous job left there. Only on a self-hosted runner: never in a checkout run_ci_guards.py runs locally.
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then scripts/ci/reset-stale-submodules.sh; fi
@@ -2293,7 +2291,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2356,7 +2354,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2391,7 +2389,7 @@ jobs:
         group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2419,48 +2417,9 @@ jobs:
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
 
-  portable-placement:
-    name: portable light placement
-    needs:
-      - workflow-guard-submodule-forward-only
-      - workflow-guard-tests
-      - workflow-guard-history
-      - workflow-guard-cli-scripts
-      - workflow-guard-source-lints
-    if: ${{ always() && !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
-    permissions:
-      contents: read
-    outputs:
-      linux_runner: ${{ steps.place.outputs.linux_runner }}
-      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
-      mini_runner: ${{ steps.place.outputs.mini_runner }}
-      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
-      placed_attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Check out the trusted placement script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      - name: Place the portable report job
-        id: place
-        continue-on-error: true
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: guard-status
-          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
-          REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-        run: python3 scripts/ci/portable_job_placement.py
-
   guard-status:
     name: Guard status
     needs:
-      - portable-placement
       - workflow-guard-submodule-forward-only
       - workflow-guard-tests
       - workflow-guard-history
@@ -2469,14 +2428,15 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
-    # Refresh portable capacity after the guard jobs finish, immediately before the rollup.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' guard-status ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' guard-status ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs
         env:
           GUARD_INPUTS: ${{ toJSON(inputs) }}
           GUARD_NEEDS: ${{ toJSON(needs) }}
+          GUARD_EVENT: ${{ github.event_name }}
+          GUARD_BASE_REF: ${{ github.base_ref }}
         run: |
           python3 - <<'PY'
           import json
@@ -2514,6 +2474,9 @@ jobs:
           for route, job in sorted(route_jobs.items()):
               if route == "submodule_forward_only":
                   results[job] = needs[job]["result"]
+                  # A feat-cmux-next pull request runs it as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+                  if os.environ.get("GUARD_EVENT") == "pull_request" and os.environ.get("GUARD_BASE_REF") == "feat-cmux-next":
+                      may_skip.add(job)
                   continue
               value = inputs.get(route)
               result = needs[job]["result"]
