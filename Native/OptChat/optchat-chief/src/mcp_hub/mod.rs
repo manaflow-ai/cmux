@@ -706,6 +706,16 @@ impl McpHub {
         self.drop_live(&name);
         match self.connect(&name) {
             Ok(_) => Ok(format!("outcome: done. {}", self.summary(&name, true))),
+            // A key the caller gave that the server refuses is a bad key: say so
+            // instead of quietly asking the person for a sign-in.
+            Err(ConnectError::Auth(_)) if !secrets.headers.is_empty() => {
+                let keys: Vec<&str> = secrets.headers.keys().map(String::as_str).collect();
+                self.set_state(&name, "failed: the server refused the key");
+                Err(format!(
+                    "mcp add: {name} is saved but the server refused the key in `headers` ({}) with 401. Check the key and `add` again with `replace`: true; to use the server's own sign-in instead, `add` again with `replace`: true and no `headers`.",
+                    keys.join(", ")
+                ))
+            }
             Err(ConnectError::Auth(header)) => self.sign_in(&name, &header),
             Err(ConnectError::Other(why)) => {
                 self.set_state(&name, &format!("failed: {why}"));
@@ -1110,12 +1120,19 @@ impl McpHub {
                 ));
             }
         };
+        let started = match oauth::start(&url, header, &oauth::Known::for_url(&url)) {
+            Ok(started) => started,
+            Err(why) => {
+                // Asking for `signin` again would fail the same way: this is a failure,
+                // and the way on is a key (an access token the person makes in the
+                // service's settings).
+                self.set_state(name, &format!("failed: its sign-in cannot start: {why}"));
+                return Err(format!(
+                    "{name} needs a sign-in, and its OAuth sign-in cannot start: {why}. If the service issues access tokens (in its settings, often \"personal access token\" or \"API key\"), ask the person for one and `add` {name} again with `headers`: {{\"Authorization\": \"Bearer <token>\"}} and `replace`: true."
+                ));
+            }
+        };
         self.set_state(name, "needs sign-in");
-        let started = oauth::start(&url, header, &oauth::Known::for_url(&url)).map_err(|why| {
-            format!(
-                "mcp add: {name} needs a sign-in, and its OAuth sign-in could not start: {why}. If the server takes a key, add it again with `headers`: {{\"Authorization\": \"Bearer <key>\"}} and `replace`: true."
-            )
-        })?;
         let authorize = started.authorize_url.clone();
         // Each sign-in has its own listener; the newest one the person finishes wins.
         self.inner
@@ -1290,9 +1307,37 @@ impl McpHub {
     fn connect_error(&self, name: &str, e: ConnectError) -> String {
         match e {
             ConnectError::Auth(_) => {
+                let secrets = self.inner.dir.secrets(name);
+                if !secrets.headers.is_empty() && secrets.oauth.is_none() {
+                    self.set_state(name, "failed: the server refused the key");
+                    return format!(
+                        "{name} refused its key (401): the key in its `headers` is wrong or revoked. `add` {name} again with a new key and `replace`: true."
+                    );
+                }
+                let failed = self
+                    .state()
+                    .server(name)
+                    .map(|s| s.state.starts_with("failed: its sign-in cannot start"))
+                    .unwrap_or(false);
+                if failed {
+                    let why = self
+                        .state()
+                        .server(name)
+                        .map(|s| s.state.clone())
+                        .unwrap_or_default();
+                    return format!(
+                        "{name} needs a key: {}. `add` {name} again with `headers`: {{\"Authorization\": \"Bearer <token>\"}} and `replace`: true.",
+                        why.trim_start_matches("failed: ")
+                    );
+                }
                 self.set_state(name, "needs sign-in");
+                let again = if secrets.oauth.is_some() {
+                    " again"
+                } else {
+                    ""
+                };
                 format!(
-                    "{name} needs the person to sign in again: use mcp action signin, server {name}"
+                    "{name} needs the person to sign in{again}: use mcp action signin, server {name}"
                 )
             }
             ConnectError::Other(why) => format!("{name} did not connect: {why}"),
