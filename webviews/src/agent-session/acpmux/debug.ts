@@ -44,7 +44,8 @@ export type AcpmuxDebug = {
   /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
   /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
   /// (subagentReportFixture.ts) when it is "subagent-report", or with a reply holding the user's ```mermaid
-  /// chart (mermaidFixture.ts) when it is "mermaid".
+  /// chart (mermaidFixture.ts) when it is "mermaid", or with a running turn whose newest call is a returned
+  /// wrap-up, drawn as its Needs your input card (wrapUpFixture.ts), when it is "wrap-up".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -204,6 +205,8 @@ export function createAcpmuxDebug(
         subagentReportLog,
         CAPPED_ID,
         goalSnapshot,
+        WRAP_UP_SNAPSHOT,
+        wrapUpRows,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -235,7 +238,12 @@ export function createAcpmuxDebug(
                             ? waitingSteersRows(Date.now() - 90_000)
                             : fixture === "subagent-report"
                               ? subagentReportRows(Date.now() - 5_000_000)
-                              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                              : fixture === "wrap-up"
+                                ? wrapUpRows(Date.now() - 30_000)
+                                : syntheticRows(
+                                    Math.max(3, Math.floor(count)),
+                                    fixture === "short" ? "short" : "mixed",
+                                  );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(
@@ -244,7 +252,9 @@ export function createAcpmuxDebug(
           ? WAITING_STEERS_SNAPSHOT
           : fixture === "goal"
             ? goalSnapshot(Date.now())
-            : undefined,
+            : fixture === "wrap-up"
+              ? WRAP_UP_SNAPSHOT
+              : undefined,
       );
       if (fixture === "subagent-report") {
         // The capped card's Show more reads its subagent's own records: on the showcase's mock

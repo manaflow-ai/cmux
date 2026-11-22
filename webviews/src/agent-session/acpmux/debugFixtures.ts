@@ -12,3 +12,4 @@ export { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
 export { WAITING_STEERS_SNAPSHOT, waitingSteersRows } from "./waitingSteersFixture";
 export { CAPPED_ID, subagentReportLog, subagentReportRows } from "./subagentReportFixture";
 export { goalSnapshot } from "./goalFixture";
+export { WRAP_UP_SNAPSHOT, wrapUpRows } from "./wrapUpFixture";
