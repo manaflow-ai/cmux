@@ -168,10 +168,14 @@ handler's own time that is after the gap's end row: the rows are read in the ord
 order in which they came, so a row that the handler took more than one frame time late is after the rows that came
 after it and is not next to its true gap; its limit is the lag plus 1 ms (the 2 rows' times are whole ms), and
 `kind_not_safe_by_row_gaps` counts the gaps that are not safe by such a row (none for a reply that does not say
-which rows have that time: the `own_time_rows` of `lists` is then None, and the counts do not agree). The lag is a
-limit only when the stream gives its buffers in the display's order: the reader cannot see that order, and it is
-NOT PROVED for ScreenCaptureKit. With 0 such gaps and that order the kinds answer for each gap; with 1 or more, for the
-other gaps only. `steps` counts the rows' steps against the display's frame time from the stream's times in tenths
+which rows have that time: the `own_time_rows` of `lists` is then None, and the counts do not agree). A lag below 0
+in the reply is no lag: the lag is then not known. NOT SAFE too, and counted apart in
+`kind_not_safe_by_end_row_gaps`: a `with_a_buffer` gap with an end row that has the handler's own time (that kind is
+first in the order, so the gap is not `own_time`, and the limit of its window on that side is not the display's
+time). The lag is a limit only when the stream gives its buffers in the display's order: the reader cannot see
+that order, and it is NOT PROVED for ScreenCaptureKit. With 0 gaps in `kind_not_safe_gaps`, counts that agree
+(`counts_agree`) and that order, the kinds answer for each gap; with 1 or more such gaps, for the other gaps only.
+`steps` counts the rows' steps against the display's frame time from the stream's times in tenths
 of a ms. `lists` keeps what the kinds were read from: the reply's 4 lists after the checks (numbers and the 2 status letters only) and
 the place of each row in them, so another rule of the kinds can read the same take again. A stream that made no
 row has its counts in a window-list reply: the row then has the counts alone (its rows are not the stream's, so no
@@ -547,6 +551,12 @@ def _status_number(key):
     return isinstance(key, str) and key.isascii() and key.isdigit() and len(key) <= 20
 
 
+def _lag(value):
+    """The reply's largest lag in ms as a limit, or None for a value that is no lag (no number, not finite, or below
+    0: the app writes none of these): the lag is then not known."""
+    return value if _number(value) and math.isfinite(value) and value >= 0 else None
+
+
 def _place(row):
     """A row's place in the recording: the number of its file (the app names each file by that place)."""
     found = re.fullmatch(r"frame-(\d+)\.png", str(row.get("file") or ""))
@@ -627,7 +637,7 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
     # the rows that came after it, and is not next to its true gap. Its limit is the lag plus 1 ms (each of the 2
     # rows' times is a whole ms). The lag is that limit only when the stream gives its buffers in the display's order.
     part = out["no_row_not_listed"]
-    lag = out["lag_ms_max"] if _number(out["lag_ms_max"]) and math.isfinite(out["lag_ms_max"]) else None
+    lag = _lag(out["lag_ms_max"])
     if own is not None and out["rows"] is not None and len(own) >= out["rows"]:
         lag = None  # no row has the display's time: the reply's lag (0) is of no buffer
     late = [time for time, _, clock in listed if clock]
@@ -643,12 +653,13 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
             continue
         low = max(before[1]["ms"], 0.0) if before else 0.0
         ends = {places[at]} | ({places[at - 1]} if before else set())
+        own_end = bool(own and ends & own)
         inside = [clock for time, _, clock in listed if low - 0.5 <= time <= row["ms"] + 0.5]
         if any(clock is not True for clock in inside):
             kind = "with_a_buffer"
         elif inside or part is None or (part > 0 and (not listed or row["ms"] > listed[-1][0])):
             kind = "not_known"
-        elif own and ends & own:
+        elif own_end:
             kind = "own_time"
         else:
             kind = {"idle": "then_idle", "complete": "then_complete"}.get(status_of(places[at]), "not_known")
@@ -659,8 +670,12 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
         after_it_row = [] if later[at] is None else [round(later[at] - row["ms"] - 1, 3)]
         cause = kind not in ("with_a_buffer", "not_known")
         by_row = cause and any(lag is None or far <= lag for far in after_it_row)
-        not_safe = by_row or (cause and any(lag is None or far <= lag for far in after_it))
-        gaps.append((at - offset, frames, kind, True in inside, not_safe, by_row))
+        # Not safe too: a `with_a_buffer` gap with an end row that has the handler's own time. The kind is the first
+        # in the order, so no other count says that row: the limit of the gap's window on that side is the handler's
+        # time, not the display's, and the buffer in the window can be a frame of the gap next to it.
+        by_end = kind == "with_a_buffer" and own_end
+        not_safe = by_end or by_row or (cause and any(lag is None or far <= lag for far in after_it))
+        gaps.append((at - offset, frames, kind, True in inside, not_safe, by_row, by_end))
 
     def tally(chosen):
         return {"gaps": len(chosen), "frames": sum(gap[1] for gap in chosen),
@@ -675,12 +690,14 @@ def stream_of(reply, every=(), offset=0, first=None, shift=0.0, refresh=None):
     out["to_content_first"] = None if to_first is None else tally(to_first)
     out["before_content_first"] = None if first is None else next((gap[2] for gap in gaps if gap[0] == first), "no_gap")
     # Counted apart, for the whole take and to `content_first` (None: no content_first): the gaps with an own-time
-    # buffer in them, the gaps whose kind is not safe, and the ones of those that are so by a row with the handler's
-    # own time. With 0 gaps that are not safe the kinds answer for each gap when the stream gave its buffers in the
-    # display's order (the reader cannot see that order); with 1 or more they answer for the other gaps only.
+    # buffer in them, the gaps whose kind is not safe, the ones of those that are so by a later row with the handler's
+    # own time, and the ones that are so by an end row with it (`with_a_buffer` gaps). With 0 gaps that are not safe
+    # and counts that agree the kinds answer for each gap when the stream gave its buffers in the display's order
+    # (the reader cannot see that order); with 1 or more they answer for the other gaps only.
     out["own_time_buffer_gaps"] = {"whole_take": apart(gaps, 3), "to_content_first": None if to_first is None else apart(to_first, 3)}
     out["kind_not_safe_gaps"] = {"whole_take": apart(gaps, 4), "to_content_first": None if to_first is None else apart(to_first, 4)}
     out["kind_not_safe_by_row_gaps"] = {"whole_take": apart(gaps, 5), "to_content_first": None if to_first is None else apart(to_first, 5)}
+    out["kind_not_safe_by_end_row_gaps"] = {"whole_take": apart(gaps, 6), "to_content_first": None if to_first is None else apart(to_first, 6)}
     # The steps between the rows after the key, from the stream's times: how far each is from a whole count (1 or
     # more) of the display's frame times, and the mean of the steps of one frame.
     out["steps"] = None
@@ -717,15 +734,18 @@ def stream_sentence(rows):
     other = sum(sum(stream["other_status"].values()) for stream in seen if stream.get("other_status"))
     spans = [stream["to_content_first"] for stream in seen if stream.get("to_content_first")]
     by_kind = ", ".join(f"{kind.replace('_', ' ')} {sum(span[kind]['gaps'] for span in spans)}" for kind in STREAM_KINDS)
-    lag = max([stream["lag_ms_max"] for stream in seen if _number(stream.get("lag_ms_max"))], default=None)
-    # The buffers with no row whose time is the handler's own: their frame is at that time or before it.
+    lag = max([stream["lag_ms_max"] for stream in seen if _lag(stream.get("lag_ms_max")) is not None], default=None)
+    # The buffers with no row whose time is the handler's own: their frame is at that time or before it (a buffer
+    # with no display time), or after it (a buffer whose display time is later than the handler's clock).
     own = (f"{total('no_row_own_time')} of the listed ones have the handler's own time (not said in "
            f"{sum(1 for stream in seen if stream.get('no_row_own_time') is None)} rows)")
     unsafe = (f"{apart('kind_not_safe_gaps')} of the gaps end within the row's largest lag before a buffer with no row that has "
               f"the handler's own time, or within that lag plus 1 ms before a later buffer that made a row and has it "
-              f"({apart('kind_not_safe_by_row_gaps')} of the gaps), in "
+              f"({apart('kind_not_safe_by_row_gaps')} of the gaps), or have the kind with_a_buffer and an end row that has it "
+              f"({apart('kind_not_safe_by_end_row_gaps')} of the gaps), in "
               f"{sum(1 for stream in seen if apart_of(stream, 'kind_not_safe_gaps'))} rows: their kind is not safe, the kinds answer "
-              f"for the other gaps only ({apart('own_time_buffer_gaps')} gaps have such a buffer with no row in them)")
+              f"for the other gaps only, and the lag is a limit only when the stream gives its buffers in the display's order "
+              f"(NOT PROVED); {apart('own_time_buffer_gaps')} gaps have a buffer with no row and the handler's own time in them")
     return (f"the screen stream's counts ({len(seen)} of the {len(rows)} rows have them): {total('buffers')} buffers (complete "
             f"{total('complete')}, idle {total('idle')}, another status {other}, no status {total('no_status')}); "
             f"{other + total('no_status') + total('no_picture') + total('idle_before_a_picture')} buffers made no row (another status "
@@ -738,7 +758,7 @@ def stream_sentence(rows):
 
 def apart_of(stream, name):
     """A row's count of gaps from the key to `content_first` that `stream_of` counts apart (`own_time_buffer_gaps`,
-    `kind_not_safe_gaps`, `kind_not_safe_by_row_gaps`); 0 for a row with none."""
+    `kind_not_safe_gaps`, `kind_not_safe_by_row_gaps`, `kind_not_safe_by_end_row_gaps`); 0 for a row with none."""
     return ((stream.get(name) or {}).get("to_content_first") or {}).get("gaps") or 0
 
 
