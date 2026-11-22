@@ -19,6 +19,8 @@ export type ScenarioResult = {
   verdicts: Verdict[];
   numbers: Record<string, unknown>;
   video?: string;
+  /** Known to fail on this base, and who is fixing it (stage.ts `known`). */
+  known?: string;
 };
 
 /** Writes report.md and report.json for `component`; returns the markdown. */
