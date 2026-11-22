@@ -110,6 +110,6 @@ enum WorkspaceGroupClose {
 
     static func closedToast(_ name: String) -> String {
         String(format: String(localized: "workspaceGroup.closedToast", defaultValue: "Closed the workspaces in “%@”",
-                              table: "Handlers", bundle: .module), name)
+                              table: "Handlers", bundle: .module.inAppLanguage), name)
     }
 }

@@ -52,7 +52,7 @@ extension UpdatesSettings {
     public nonisolated static let showWhatsNewDefault = true
     /// `updates.showFeatureTips`: Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).
     public nonisolated static let showFeatureTipsPath = ["updates", "showFeatureTips"]
-    public nonisolated static let showFeatureTipsDefault = true
+    public nonisolated static let showFeatureTipsDefault = false
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
     public nonisolated static let idleInstallMaxWaitDefault: Double = 600
