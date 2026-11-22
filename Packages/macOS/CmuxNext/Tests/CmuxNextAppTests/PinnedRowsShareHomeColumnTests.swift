@@ -130,6 +130,16 @@ import Testing
             for item in Self.pins {
                 let row = try HomePinnedRowAlignmentTests.item(list, item.id)
                 let ink = list.convert(try #require(row.leadingInkFrame, "\(item.id.rawValue) draws nothing in the leading column"), from: row)
+                // A favicon fills its tab's icon box (`sidebarRows.faviconSize`, #48586), wider than the house: a wide
+                // glyph starts on the column's leading edge (#42431), so it starts where Home's house does and stays
+                // in the icon column, its center right of the house's.
+                if item.id == Self.page.id {
+                    #expect(abs(ink.minX - homeInk.minX) <= tolerance,
+                            "\(c.testDescription): the pinned favicon starts at \(ink.minX), Home's house at \(homeInk.minX)")
+                    #expect(ink.width <= SidebarStyle.iconColumnBox + tolerance,
+                            "\(c.testDescription): the pinned favicon is \(ink.width) pt, wider than the icon column \(SidebarStyle.iconColumnBox)")
+                    continue
+                }
                 #expect(abs(ink.midX - homeInk.midX) <= tolerance,
                         "\(c.testDescription): \(item.id.rawValue)'s leading glyph centers at \(ink.midX), Home's at \(homeInk.midX)")
             }
