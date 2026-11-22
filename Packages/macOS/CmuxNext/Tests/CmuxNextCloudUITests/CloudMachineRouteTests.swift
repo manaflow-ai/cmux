@@ -227,10 +227,10 @@ import Testing
     /// 2026-11-21: the route check ran its command on the machine in every start (1.9 and 2.5 s of two starts on a warm
     /// spare). A report read ahead that says the chat starts is the check: no command runs, and no update.
     @Test func aReportReadAheadThatStartsTheChatRunsNoCommand() async throws {
-        let ran = UpdateCount(), updated = UpdateCount()
+        let ran = UpdateCount(), updated = UpdateCount(), now = Self.unrouted()
         let machine = CloudMachineRoute(exec: { _, _ in
             await ran.add()
-            return CloudExecResult(exitCode: 0, stdout: Self.unrouted(), stderr: "")
+            return CloudExecResult(exitCode: 0, stdout: now, stderr: "")
         })
         // The chat carries its connection, and the report says the agent service runs.
         try await machine.prepare(carriesConnection: true, family: "claude", ahead: Self.unrouted()) { await updated.add() }
