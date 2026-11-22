@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-22",
+  "row": "app_lines",
+  "allow": 20,
+  "why": "The first default-off own-machine experiment keeps per-window composition wiring at the app seam; a follow-up can extract that wiring without changing Labs-off behavior.",
+  "author": "design-2026-11-05",
+  "owner": "design-2026-11-05",
+  "receipt": "Review (nested-subagents-sidebar): SHIP at add5edca36dd9edc9f501a6572e35da8ae4a2c44",
+  "expiry": "2026-12-22"
+}
