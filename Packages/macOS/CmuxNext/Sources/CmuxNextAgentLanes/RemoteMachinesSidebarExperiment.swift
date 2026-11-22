@@ -19,13 +19,13 @@ public final class RemoteMachinesSidebarExperiment {
     private var observation: Task<Void, Never>?
     private var observerID: String?
 
-    public init(sidebar: RemoteMachinesSidebar,
+    public init(sidebar: AnyObject,
                 feed: AgentTurnStateFeed? = AgentTurnStateFeed.shared,
                 enabled: @escaping @MainActor @Sendable () -> Bool,
                 socketPath: @escaping @MainActor @Sendable () -> String?,
                 displayName: @escaping (String) -> String?,
                 open: @escaping (AgentActivityLane) -> Void) {
-        self.sidebar = sidebar
+        self.sidebar = sidebar as! RemoteMachinesSidebar
         self.feed = feed
         self.enabled = enabled
         self.socketPath = socketPath
