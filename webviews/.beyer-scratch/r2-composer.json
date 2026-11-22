@@ -1,0 +1,111 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "tip-a",
+   "entry": "ui.feature-tip",
+   "variant": "composer-hints-glass",
+   "width": 560,
+   "height": 360,
+   "deviceScaleFactor": 2,
+   "margin": 24
+  },
+  {
+   "name": "hint-rest",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-hint",
+   "width": 760,
+   "height": 520,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-composer"
+  },
+  {
+   "name": "hint-pressed",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-hint",
+   "width": 760,
+   "height": 520,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-composer",
+   "setup": "document.querySelector('.acpmux-composer-hints-toggle')?.click()"
+  },
+  {
+   "name": "hint-slash-full",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-hint-shown",
+   "width": 760,
+   "height": 520,
+   "deviceScaleFactor": 2,
+   "margin": 24
+  },
+  {
+   "name": "option-slash-full",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-option",
+   "width": 760,
+   "height": 520,
+   "deviceScaleFactor": 2,
+   "margin": 24
+  },
+  {
+   "name": "now-slash-full",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-now-slash",
+   "width": 760,
+   "height": 520,
+   "deviceScaleFactor": 2,
+   "margin": 24
+  },
+  {
+   "name": "slash-hint",
+   "entry": "agent-pane.slash-menu",
+   "variant": "outcome-hints-hint-shown",
+   "width": 640,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-slash-menu"
+  },
+  {
+   "name": "slash-option",
+   "entry": "agent-pane.slash-menu",
+   "variant": "outcome-hints-option-held",
+   "width": 640,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-slash-menu"
+  },
+  {
+   "name": "mention-hint",
+   "entry": "agent-pane.file-picker-loading",
+   "variant": "mentions-outcome-hint-shown",
+   "width": 520,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-mention-menu"
+  },
+  {
+   "name": "mention-option",
+   "entry": "agent-pane.file-picker-loading",
+   "variant": "mentions-outcome-option-held",
+   "width": 520,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "margin": 24,
+   "clip": ".acpmux-mention-menu"
+  }
+ ]
+}

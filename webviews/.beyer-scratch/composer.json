@@ -1,0 +1,94 @@
+{
+ "envs": [
+  [
+   "light",
+   "none"
+  ],
+  [
+   "dark",
+   "none"
+  ]
+ ],
+ "shots": [
+  {
+   "name": "placeholder-now",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-now",
+   "width": 760,
+   "height": 420,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-composer-box",
+   "margin": 24
+  },
+  {
+   "name": "placeholder-agent",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-agent",
+   "width": 760,
+   "height": 420,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-composer-box",
+   "margin": 24
+  },
+  {
+   "name": "placeholder-modes",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-modes",
+   "width": 760,
+   "height": 420,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-composer-box",
+   "margin": 24
+  },
+  {
+   "name": "placeholder-outcomes",
+   "entry": "agent-pane.composer",
+   "variant": "composer-outcome-hints-outcomes",
+   "width": 760,
+   "height": 420,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-composer-box",
+   "margin": 24
+  },
+  {
+   "name": "slash-now",
+   "entry": "agent-pane.slash-menu",
+   "variant": "outcome-hints-now",
+   "width": 640,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-slash-menu",
+   "margin": 24
+  },
+  {
+   "name": "slash-rows",
+   "entry": "agent-pane.slash-menu",
+   "variant": "outcome-hints-rows",
+   "width": 640,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-slash-menu",
+   "margin": 24
+  },
+  {
+   "name": "mention-now",
+   "entry": "agent-pane.file-picker-loading",
+   "variant": "mentions-outcome-now",
+   "width": 520,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-mention-menu",
+   "margin": 24
+  },
+  {
+   "name": "mention-rows",
+   "entry": "agent-pane.file-picker-loading",
+   "variant": "mentions-outcome-rows",
+   "width": 520,
+   "height": 320,
+   "deviceScaleFactor": 2,
+   "clip": ".acpmux-mention-menu",
+   "margin": 24
+  }
+ ]
+}
