@@ -961,7 +961,7 @@ fn window(shaper: &Shaper, link: &Link) -> (TapInner, (u64, u64)) {
 /// Bytes per minute of one chat in each app, through the shaper: the long chat's open, then
 /// idle, a streaming turn and a tool-calling turn, each a fixed window. One `NETCOND` line per
 /// value, `phase` `bw_open|bw_idle|bw_stream|bw_tools`, `scale` the app. Env:
-/// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (2000 seeded turns), `NETCOND_BW_SECS` (60),
+/// `NETCOND_BW_PROFILE` (lte), `NETCOND_BW_TURNS` (10000 seeded turns), `NETCOND_BW_SECS` (60),
 /// `NETCOND_BW_APPS` (ios,macos).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "the bandwidth bench: run with --ignored --nocapture"]
@@ -975,7 +975,7 @@ async fn chat_bytes_per_minute() {
     let profile_name = std::env::var("NETCOND_BW_PROFILE").unwrap_or_else(|_| "lte".to_owned());
     let profile = file.get(&profile_name).unwrap_or_else(|| panic!("no profile {profile_name}"));
     let name = format!("{}@{}", profile.name, profile.version);
-    let turns = env_u64("NETCOND_BW_TURNS", 2000);
+    let turns = env_u64("NETCOND_BW_TURNS", 10_000);
     let secs = env_u64("NETCOND_BW_SECS", 60);
     let window_len = Duration::from_secs(secs);
 
