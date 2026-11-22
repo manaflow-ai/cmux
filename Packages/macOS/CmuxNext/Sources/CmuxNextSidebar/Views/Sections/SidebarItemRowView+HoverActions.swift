@@ -22,6 +22,8 @@ extension SidebarItemRowView {
             let button = OverflowButton(label: Strings.workspaceMenu)
             button.onPress = { [weak self] in self?.onMore?() }
             addSubview(button)
+            HoverSwap.tag([button], .action, in: self)
+            HoverSwap.tag([rowBadge, badge, activity, taskCount], .mark, in: self)
             hoverMore = button
         }
         hoverMore?.isHidden = !shown
@@ -44,6 +46,7 @@ extension SidebarItemRowView {
             button.onPress = { [weak self] in self?.onUnpin?() }
             if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).pin") }
             addSubview(button)
+            HoverSwap.tag([button], .action, in: self)
             hoverUnpin = button
         }
         hoverUnpin?.isHidden = !unpins

@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/hover-swap-one-rule): Sidebar-Look: Leo, 2026-11-22: "not sure why this issue isn't fixed yet in
+  this nightly. the dot shouldnt show up when i hover; the cross should be there instead. liekwise with the other
+  icons. ive already said this". One rule for every row with hover actions (`HoverSwap`, CmuxNextDesign): while an
+  action (✕, ⋮, +, pin) draws, no mark of its row (unread dot or count, spinner, error mark, counts, time) draws; any
+  code may hide a mark, only the row's layout shows one. The workspace row's display pass (`updateNeedsYouGlow`) set
+  the dot, the row badge and the status mark back to alpha 1 on every paint, which drew the dot under the ✕ after
+  #48411 and #49582 hid it in the layout; it now only hides them and asks for a layout. Group headers hide their unread
+  count and group count under the ⋮ and +, and the tab hover card's rows their status arc under the ✕. Regression:
+  `HoverSwapRuleTests` (hover, layout, then the display pass, then `HoverSwap.violations`), and the hover gallery
+  (`SidebarHoverReplacesMarksGalleryTests`, now with running and running + unread) checks the rule on every cell.
 - 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
   left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
   consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old
