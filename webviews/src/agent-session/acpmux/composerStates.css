@@ -64,7 +64,8 @@
   --agent-motion-send-rise: var(--cmux-motion-large, 240ms);
   --agent-ease-send-rise: var(--agent-ease-out);
 }
-[data-send-rise="none"] {
+[data-send-pop] [data-send-rise="none"],
+[data-send-pop][data-send-rise="none"] {
   --agent-motion-send-rise: 0ms;
 }
 
