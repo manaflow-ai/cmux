@@ -20,8 +20,8 @@ public final class RemoteMachinesSidebarExperiment {
     private var observerID: String?
 
     public init(sidebar: AnyObject,
-                enabled: @escaping () -> Bool,
-                socketPath: @escaping () -> String?,
+                enabled: @escaping @MainActor @Sendable () -> Bool,
+                socketPath: @escaping @MainActor @Sendable () -> String?,
                 displayName: @escaping (String) -> String?,
                 open: @escaping (Any) -> Void) {
         self.sidebar = sidebar as! RemoteMachinesSidebar
