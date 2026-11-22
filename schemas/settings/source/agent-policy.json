@@ -148,7 +148,8 @@
     {
       "agent": "settable",
       "keys": [
-        "tabs.overflow"
+        "tabs.overflow",
+        "tabs.shellIconTheme"
       ]
     },
     {
