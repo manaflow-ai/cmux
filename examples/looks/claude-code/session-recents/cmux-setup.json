@@ -1,0 +1,13 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/session-recents",
+  "name": "Session Recents",
+  "tagline": "Find, pin and archive your agent sessions in the sidebar.",
+  "description": "A Recents section with nested sessions, ordered pins, project and agent views, and reversible archive commands.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": ["screenshots/preview.png"],
+  "settings": {}
+}

@@ -1,4 +1,4 @@
-// Settings > Accounts > Cloud Environments: the page reads the host's environments when the card
+// Settings > Cloud > Cloud Environments: the page reads the host's environments when the card
 // opens, draws each with its localized status (a failed build with its log), and sends Add, Edit,
 // Build, Delete and Refresh as `cmux.settings.environments.run`. Off the cmux-next Cloud path the card
 // explains instead of listing.
@@ -14,7 +14,7 @@ const { renderPage, settle, changeValue, click } = await import("./testing");
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="cloudEnvironments"]')!;
 
 async function open(setup?: (provider: MockSettingsProvider) => void) {
-  const page = await renderPage({ path: "/settings/accounts", setup });
+  const page = await renderPage({ path: "/settings/cloud", setup });
   await settle();
   return page;
 }

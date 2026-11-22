@@ -65,12 +65,12 @@ nonisolated enum NativeCaretAccessory {
         return isThirdParty(type(of: owner)) ? nil : .invisible
     }
 
-    /// Whether `cls` comes from a framework inside the app bundle (`Contents/Frameworks`).
+    /// Whether `cls` comes from a framework inside the app bundle (`Contents/Frameworks`) but the app's own CmuxNextApp.framework.
     static func isThirdParty(_ cls: AnyClass) -> Bool {
         let id = ObjectIdentifier(cls)
         if let known = thirdPartyClasses.withLock({ $0[id] }) { return known }
         let frameworks = Bundle.main.privateFrameworksURL?.standardizedFileURL.path
-        let answer = frameworks.map { Bundle(for: cls).bundleURL.standardizedFileURL.path.hasPrefix($0 + "/") } ?? false
+        let answer = frameworks.map { let path = Bundle(for: cls).bundleURL.standardizedFileURL.path; return path.hasPrefix($0 + "/") && path != $0 + "/CmuxNextApp.framework" } ?? false
         thirdPartyClasses.withLock { $0[id] = answer }
         return answer
     }

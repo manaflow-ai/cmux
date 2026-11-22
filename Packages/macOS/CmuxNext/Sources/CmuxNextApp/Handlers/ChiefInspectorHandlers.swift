@@ -37,7 +37,8 @@ enum ChiefInspectorHandlers {
         context.services.pages.register(remotePage)
         let memory = ChiefMemoryPageService(services: context.services)
         context.services.pages.register(memory)
-        registry.bind(actionID, run: { invocation in
+        // Not offered when the web fallback has no Chief to read here or on a paired server (as `chief.openUsage`).
+        registry.bind(actionID, unavailable: { opensWebPage && !HomeBrainHost.canStart() && remoteChief(context) == nil ? ChiefInspectorStrings.noLocalChief : nil }, run: { invocation in
             if opensWebPage {
                 try openWeb(invocation, remotePage: remotePage, context: context)
                 return
@@ -279,20 +280,20 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 
 enum ChiefInspectorStrings {
     static var pageTitle: String {
-        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var serverOffline: String {
         String(localized: "handlers.chief.inspector.serverOffline",
-               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module)
+               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
-               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again.",
-               table: "MiscHandlers", bundle: .module)
+               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again.",
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var unreachable: String {
         String(localized: "handlers.chief.inspector.unreachable",
                defaultValue: "The Chief's Memory Inspector did not answer. Restart cmux to restart the Chief, then try again.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

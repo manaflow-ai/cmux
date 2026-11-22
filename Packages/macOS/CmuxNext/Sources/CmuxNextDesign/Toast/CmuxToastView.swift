@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// A toast: the message, the action button and a close button on the toast role's glass
 /// (``SurfaceRole/toast``, ``FloatingGlassStyle/toast``: Liquid Glass with the theme's tint and a
@@ -63,9 +64,15 @@ public final class CmuxToastView: NSView {
     public let style: CmuxToastStyle
     /// What ``style`` draws.
     public var look: CmuxToastLook { style.look }
-    /// The surface's corner radius now: half the height for a capsule, else the toast role's.
+    /// The toast's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
+    /// inside"): its one padding (``CmuxToastTuning/padding``, two thirds of it when compact) on the top, the
+    /// bottom and the trailing side; its buttons round by the one button corner (capsules in a capsule toast)
+    /// and the toast by that plus the padding; the message starts the corner's radius in.
+    public let geometry: ConcentricContainer
+    /// The surface's corner radius now: the geometry's outer corner, at most half the height (a capsule's is
+    /// always half).
     public var cornerRadius: CGFloat {
-        look.shape == .capsule ? bounds.height / 2 : Self.cornerRadius
+        look.shape == .capsule ? bounds.height / 2 : geometry.outerRadius(fitting: bounds.size)
     }
     private var pointerHover: PointerHover?
     /// Whether the pointer is on the toast now (as of the last refresh).
@@ -93,6 +100,7 @@ public final class CmuxToastView: NSView {
         // glass-opaque-allow: the Solid style is a look the person picks in the Toast Playground on purpose.
         self.reduceTransparency = style.look.solid ? .alwaysOpaque : reduceTransparency
         self.tuning = tuning
+        geometry = Self.geometry(look: style.look, tuning: tuning)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
@@ -111,6 +119,14 @@ public final class CmuxToastView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The concentric geometry of a toast in `look` built with `tuning`.
+    static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
+        // The tuned points follow the interface scale; a compact toast takes two thirds of the padding.
+        let padding = Metrics.scale(look.compact ? (tuning.padding * 2 / 3).rounded() : tuning.padding)
+        return look.shape == .capsule ? .capsule(controlHeight: CmuxToastButton.height, padding: padding)
+            : Metrics.buttonContainer(padding: padding)
+    }
 
     private func build() {
         let look = self.look
@@ -157,13 +173,13 @@ public final class CmuxToastView: NSView {
         // toast with Details off is exactly its row's width, so this changes nothing there.
         row.distribution = .fill
         row.spacing = Metrics.scale(tuning.buttonSpacing)
-        // Room around the message; the buttons' hover fills stop one step short of the edge,
-        // so the toast reads as one surface with text in it.
-        // The tuned points follow the interface scale, as the grid steps they replace did.
-        // A compact toast takes two thirds of the padding.
-        let pad: (CGFloat) -> CGFloat = { Metrics.scale(look.compact ? ($0 * 2 / 3).rounded() : $0) }
-        row.edgeInsets = NSEdgeInsets(top: pad(tuning.verticalPadding), left: pad(tuning.horizontalPadding) + (look.accentBar ? Self.accentBarWidth : 0),
-                                      bottom: pad(tuning.verticalPadding), right: pad(tuning.trailingPadding))
+        // Concentric with the buttons: one padding on the top, bottom and trailing side; the message starts the
+        // corner's radius in (past the accent bar), an icon as far in as it sits from the top.
+        let geometry = self.geometry
+        let bar = look.accentBar ? Self.accentBarWidth : 0
+        let iconSide: CGFloat = look.compact ? 13 : 16
+        let leading = look.showsIcon ? geometry.padding + (CmuxToastButton.height - iconSide) / 2 : geometry.textInset
+        row.edgeInsets = NSEdgeInsets(top: geometry.padding, left: leading + bar, bottom: geometry.padding, right: geometry.padding)
         if look.showsIcon {
             let icon = ThemedImageView()
             let tone = toast.tone
@@ -171,6 +187,9 @@ public final class CmuxToastView: NSView {
             icon.image = NSImage(systemSymbolName: iconSymbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: look.compact ? 13 : 16, weight: TypeScale.regular))
             icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.imageScaling = .scaleProportionallyDown
+            icon.widthAnchor.constraint(equalToConstant: iconSide).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: iconSide).isActive = true
             icon.setContentHuggingPriority(.required, for: .horizontal)
             icon.setContentCompressionResistancePriority(.required, for: .horizontal)
             icon.setAccessibilityElement(false)
@@ -200,6 +219,9 @@ public final class CmuxToastView: NSView {
         }
         closeButton.target = self
         closeButton.action = #selector(close)
+        for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) {
+            button.concentricRadius = geometry.childRadius
+        }
         row.addArrangedSubview(closeButton)
         // Hidden until the pointer is on the toast; still in the row, so VoiceOver and Full Keyboard Access reach it.
         if look.closeOnHover { closeButton.alphaValue = 0 }
@@ -208,7 +230,7 @@ public final class CmuxToastView: NSView {
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
         // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
-        let surface = OverlaySurfaceView(material: look.solid ? .opaque : nil, interactive: true, cornerRadius: Self.cornerRadius,
+        let surface = OverlaySurfaceView(material: look.solid ? .opaque : nil, interactive: true, cornerRadius: geometry.outerRadius,
                                          reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
                                          glassVariant: (look.glass ?? tuning.glass).variant)
         // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
@@ -236,9 +258,19 @@ public final class CmuxToastView: NSView {
             // The stack's vertical edge insets do not hold its height (a toast's fitting height
             // was its tallest view's, so a message of two or three lines touched the glass's
             // top and bottom). The message keeps the room the buttons give a one-line message.
-            text.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Self.messageInset),
-            row.bottomAnchor.constraint(greaterThanOrEqualTo: text.bottomAnchor, constant: Self.messageInset),
+            text.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),
+            row.bottomAnchor.constraint(greaterThanOrEqualTo: text.bottomAnchor, constant: geometry.padding),
         ])
+        // The buttons and the icon keep the same padding to the top and bottom as to the trailing edge
+        // (concentric with the toast): without these a one-line toast was its message's height, 31 pt, with its
+        // buttons 5 and 4 pt from the edges instead of the padding.
+        let edged: [NSView?] = [iconView, secondaryButton, actionButton, neverShowButton, closeButton]
+        for view in edged.compactMap({ $0 }) {
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),
+                row.bottomAnchor.constraint(greaterThanOrEqualTo: view.bottomAnchor, constant: geometry.padding),
+            ])
+        }
         collapsed = [row.bottomAnchor.constraint(equalTo: content.bottomAnchor), heightAnchor.constraint(equalTo: row.heightAnchor)]
         NSLayoutConstraint.activate(collapsed)
     }
@@ -311,7 +343,7 @@ public final class CmuxToastView: NSView {
                 line.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             ])
         }
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -332,8 +364,8 @@ public final class CmuxToastView: NSView {
             // The row's bottom inset is the gap above the detail: the title row, then the detail
             // as its own block.
             scroll.topAnchor.constraint(equalTo: row.bottomAnchor),
-            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.space5),
-            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.space5),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: geometry.textInset),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -geometry.textInset),
             document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
@@ -343,7 +375,7 @@ public final class CmuxToastView: NSView {
             bottom,
             cap, fit,
         ])
-        expanded = [content.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: Metrics.space4),
+        expanded = [content.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: geometry.padding),
                     widthAnchor.constraint(greaterThanOrEqualToConstant: Self.expandedMinWidth)]
     }
 
@@ -363,7 +395,7 @@ public final class CmuxToastView: NSView {
         messageLabel?.themedToolTip = shows ? toast.message : toast.detail
         if let detailLabel {
             // Inside the scroll view, short of its scroller's width.
-            detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * Metrics.space5 - Metrics.space4)
+            detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * geometry.textInset - Metrics.space4)
             codeLabel?.preferredMaxLayoutWidth = detailLabel.preferredMaxLayoutWidth
             codeLabel?.isHidden = !shows
             detailLabel.isHidden = !shows
@@ -397,13 +429,6 @@ public final class CmuxToastView: NSView {
         applyDetailCap()
     }
 
-    /// The least room above and below the message: about what a one-line message has beside
-    /// the 22 pt buttons, so one-line toasts keep their height.
-    static var messageInset: CGFloat { Metrics.space2 }
-
-    /// The shared toast glass radius, never a capsule.
-    static var cornerRadius: CGFloat { SurfaceRole.toast.cornerRadius }
-
     /// The popups' one subtle shadow, on this view's layer behind the surface
     /// (the surface clips to its corners, so it cannot cast its own).
     private func castShadow() {
@@ -420,7 +445,7 @@ public final class CmuxToastView: NSView {
         super.layout()
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(cornerRadius, min(bounds.width, bounds.height) / 2)
-        if surface?.cornerRadius != radius { surface?.cornerRadius = radius }
+        if surface?.cornerRadius != radius { surface?.cornerRadius = radius } // concentric-allow: `cornerRadius`, from `geometry`
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
