@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45059940935",
+  "recorded_at": "2026-11-22T19:56:33Z",
+  "reason": "image inputs changed in 09fda117a54c6716786a6e037928781e06f8084e..ec9bc728701297d49a6d03f3dcdc00c9a7c24058",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "ec9bc728701297d49a6d03f3dcdc00c9a7c24058",
+      "mergedAt": "2026-11-22T19:17:43+00:00",
+      "subject": "cmux-vm: record Freestyle's current ubuntu-sm base (2026-11-22); pins follow it (#50583)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-22T19:56:33Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
