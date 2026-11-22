@@ -31832,6 +31832,268 @@
         }
       }
     },
+    "settings.labs.sidebarRemoteHosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Hosts in the Sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضيفون البعيدون في الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udaljeni računari u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjernværter i indholdsoversigten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernte Hosts in der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts remotos en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hôtes distants dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host remoti nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのリモートホスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនពីចម្ងាយក្នុងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바의 원격 호스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksterne verter i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zdalne hosty na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts remotos na barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённые узлы в боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฮสต์ระยะไกลในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar Çubuğunda Uzak Ana Makineler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віддалені вузли на бічній панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ từ xa trong thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏中的远程主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄中的遠端主機"
+          }
+        }
+      }
+    },
+    "settings.labs.sidebarRemoteHosts.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right-click the sidebar to add a remote host or start a chat on it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر بزر الماوس الأيمن على الشريط الجانبي لإضافة مضيف بعيد أو بدء محادثة عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknite desnim dugmetom na bočnu traku da dodate udaljeni računar ili pokrenete razgovor na njemu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højreklik i indholdsoversigten for at tilføje en fjernvært eller starte en chat på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klicke mit der rechten Maustaste in die Seitenleiste, um einen entfernten Host hinzuzufügen oder einen Chat auf ihm zu starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic con el botón derecho en la barra lateral para añadir un host remoto o iniciar un chat en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites un clic droit dans la barre latérale pour ajouter un hôte distant ou y démarrer une discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic con il tasto destro nella barra laterale per aggiungere un host remoto o avviare una chat su di esso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーを右クリックして、リモートホストを追加したり、そのホストでチャットを開始したりできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចកណ្ដុរស្ដាំលើរបារចំហៀង ដើម្បីបន្ថែមម៉ាស៊ីនពីចម្ងាយ ឬចាប់ផ្ដើមការជជែកនៅលើម៉ាស៊ីននោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바를 오른쪽 클릭해 원격 호스트를 추가하거나 해당 호스트에서 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyreklikk i sidepanelet for å legge til en ekstern vert eller starte en samtale på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij pasek boczny prawym przyciskiem myszy, aby dodać zdalny host lub rozpocząć na nim czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique com o botão direito na barra lateral para adicionar um host remoto ou iniciar uma conversa nele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щёлкните правой кнопкой мыши в боковой панели, чтобы добавить удалённый узел или начать на нём чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิกขวาที่แถบด้านข้างเพื่อเพิ่มโฮสต์ระยะไกลหรือเริ่มแชตบนโฮสต์นั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak ana makine eklemek veya bu makinede sohbet başlatmak için kenar çubuğuna sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клацніть правою кнопкою миші на бічній панелі, щоб додати віддалений вузол або почати на ньому чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấp chuột phải vào thanh bên để thêm máy chủ từ xa hoặc bắt đầu trò chuyện trên máy chủ đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键点按侧边栏，即可添加远程主机或在该主机上开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄按一下右鍵，即可加入遠端主機或在該主機上開始聊天。"
+          }
+        }
+      }
+    },
     "settings.labs.pauseAgentMachines": {
       "extractionState": "manual",
       "localizations": {

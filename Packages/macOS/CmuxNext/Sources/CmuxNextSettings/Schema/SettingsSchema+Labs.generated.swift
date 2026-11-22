@@ -8,6 +8,9 @@ extension CmuxConfigSnapshot {
     /// `labs.liveTree`: Read-only live-tree compiler snapshot in the agent pane. Off by default; only opening or refreshing the popover reads status. Turning it off unmounts the experiment.
     public nonisolated static let liveTreePath = ["labs", "liveTree"]
     public nonisolated static let liveTreeDefault = false
+    /// `labs.sidebarRemoteHosts`.
+    public nonisolated static let sidebarRemoteHostsPath = ["labs", "sidebarRemoteHosts"]
+    public nonisolated static let sidebarRemoteHostsDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -56,6 +59,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveTreeDefault),
                 keywords: ["labs", "live", "tree", "shared", "compile", "lanes", "experiment"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.sidebarRemoteHostsPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.sidebarRemoteHosts", "Remote Hosts in the Sidebar"),
+                help: SettingsText.keyed("settings.labs.sidebarRemoteHosts.help", "Right-click the sidebar to add a remote host or start a chat on it."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.sidebarRemoteHostsDefault),
+                keywords: ["remote", "host", "sidebar", "machine", "chat", "experiment"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,
