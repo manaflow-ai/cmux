@@ -5768,7 +5768,7 @@ function TranscriptView({
         // At the latest row the end is written as a following view's is (rounded up): floored, it
         // rested a pixel short of a fractional end until the next following pass put it there, and
         // a switch that mounts its rows at the end in its first commit has no next pass.
-        if (at < 0) settleFollowBottomAt(node, top);
+        if (at < 0) node.scrollTop = Math.ceil(top - 0.01);
         else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
