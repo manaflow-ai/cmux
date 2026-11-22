@@ -112,6 +112,53 @@ extension NewTabCommandListKeptTests {
         }
     }
 
+    /// The same two keys, and then a change of a key binding before the person selects the older page: no list is kept
+    /// at the select. The view of the older page is made on the app's own path (the pane's select, then the tab store),
+    /// and that make asks for the fill. One listing reads the actions under the keys of now, and the view shows that
+    /// list. The row's asks give a list to no view: a view that has the list of now got it from the app's fill.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func anOlderWebPageSelectedAfterAChangeOfAKeyBindingShowsTheListOfNow() async throws {
+        try await Self.web("cn-list-kept-web-rebind") { web in
+            let services = web.services, tabs = services.agentTabs, lister = services.newTabActions
+            // No frame and no turn of the main thread comes between the two keys.
+            NewTabPage.open(in: web.pane, seed: nil)
+            NewTabPage.open(in: web.pane, seed: nil)
+            _ = await Self.listed(services)
+            _ = await Self.listed(services)
+            // The keys from here on are the store's ids: the row knows the older page by its tab after the select.
+            try await Self.settle(services)
+            let pair = web.others()
+            let unseen = pair.filter { tabs.views[$0] == nil }
+            try #require(pair.count == 2 && unseen.count == 1,
+                         "the fixture did not make the case: \(pair.count) pages, \(unseen.count) with no view: \(web.named(pair))")
+            let old = Self.keys(web.list.actions)
+            Self.rebind(services)
+            try #require(lister.kept == nil, "the row did not make its case: a list is kept after the change of the key binding")
+            try #require(!services.mainWork.frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task before the select")
+            let before = lister.counts
+
+            // The person selects the older page. The row's first ask joins the listing that the view's make asks for, or
+            // that make's ask joins the row's: one listing in each order.
+            web.pane.select(CmuxNextTabs.TabID(unseen[0].key))
+            let made = await Self.listed(services)
+            let last = await Self.listed(services)
+            let end = lister.counts
+            // By its tab: the older page can show in the view that the newer page had (the pane leaves the newer page's tab).
+            let older = tabs.views[unseen[0]]
+            let now = try #require(last.list, "the ask after the select never got a list")
+            let keys = Self.keys(now.actions), has = older?.model.newTab?.omnibar.actions
+            print("new-tab-list: an older web page selected after a change of a key binding: \(end.started - before.started) listings started, "
+                + "\(end.actionsRead - before.actionsRead) catalog actions read, \(made.frames) + \(last.frames) frames with a lister task; its New "
+                + "Tab row shows the keys \(Self.keys(has)) and it has \(has?.count ?? 0) rows; the list of now has the keys \(keys) and "
+                + "\(now.actions.count) rows; the list of before the change had the keys \(old)")
+            try #require(!old.isEmpty && keys != old, "the row did not make its case: the New Tab row shows the keys \(keys) after the change and \(old) before it")
+            let view = try #require(older, "the older page has no view after it was selected")
+            #expect(view.model.newTab?.omnibar.actions == now.actions,
+                    "the older page shows the keys \(Self.keys(has)) in its New Tab row (\(has?.count ?? 0) rows); the list of now has the keys \(keys) (\(now.actions.count) rows)")
+            #expect(end.started == before.started + 1, "the select of the older page and the row's 2 asks started \(end.started - before.started) listings where 1 is wanted")
+        }
+    }
+
     /// A web page's run of a command row gives the title that the app's copy of the page's list has. A row with the title
     /// of now runs. That run changes the state and no member of the registry, so the copy's title is old then: a second
     /// run of the row runs nothing, the actions are read again, and the copy's row has the title of now.

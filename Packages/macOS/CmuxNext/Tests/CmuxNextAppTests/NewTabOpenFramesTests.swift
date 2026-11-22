@@ -105,6 +105,10 @@ struct NewTabOpenFramesTests {
 
     /// The bar's palette actions are read in slices on the main thread's budgeted work, never every action in one task:
     /// the bench spans (`newTab.paletteActions`, one per main-thread task that reads actions) show several short tasks.
+    ///
+    /// The row waits by frames, with no clock: it is the display to the hand-over of its own ask
+    /// (`NewTabCommandListKeptTests.listed`), which joins the listing that the key's page asked for. The spans are
+    /// those from the key to that hand-over: the rest of one listing, or one whole listing.
     @Test func cmdTListsTheBarsPaletteActionsInSlices() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-actions")
@@ -115,17 +119,31 @@ struct NewTabOpenFramesTests {
             pool.makeSpare = { _ in nil }
             defer { pool.makeSpare = nil }
             let pages = Set(services.agentTabs.newTabPages.keys)
+            let lister = services.newTabActions, before = lister.counts
+            let inAir = services.mainWork.frames.activeClients.contains(NewTabCommandListKeptTests.lister)
             BenchSpans.begin()
             NewTabPage.open(in: pane, seed: nil)
-            // The page's key is the tab's: a provisional one until the store answers, then the store's.
+            // The page's key is the tab's: a provisional one until the store answers, then the store's. The list is the
+            // view's: the page that the app stores for a tab never has one.
             @MainActor func actions() -> [AgentPaneOmnibar.Action] {
                 let tabs = services.agentTabs
-                guard let key = tabs.newTabPages.keys.first(where: { !pages.contains($0) }) else { return [] }
-                return tabs.views[key]?.model.newTab?.omnibar.actions ?? tabs.newTabPages[key]?.page.omnibar.actions ?? []
+                let lists = tabs.newTabPages.keys.filter { !pages.contains($0) }.compactMap { tabs.views[$0]?.model.newTab?.omnibar.actions }
+                return lists.first { !$0.isEmpty } ?? []
             }
-            try #require(services.agentTabs.newTabPages.keys.contains { !pages.contains($0) }, "Cmd-T opened no New Tab page")
-            try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: { "the bar never got the palette's actions" })
+            let opened = services.agentTabs.newTabPages.keys.contains { !pages.contains($0) }
+            let first = await NewTabCommandListKeptTests.listed(services)
             let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
+            let handed = lister.counts
+            // A page whose view is made after the first hand-over has the list at the second ask's.
+            let second = await NewTabCommandListKeptTests.listed(services)
+            let has = actions().count
+            print("new-tab-open-frames: Cmd-T's list: \(first.frames) frames with a lister task from the key to the first hand-over, \(reads.count) "
+                + "tasks that read actions in them, \(handed.started - before.started) listings started and \(handed.actionsRead - before.actionsRead) "
+                + "catalog actions read to their end; the lister \(inAir ? "had" : "had no") task at the key; \(second.frames) frames with a "
+                + "lister task for a second ask; the page's view has \(has) actions")
+            try #require(opened, "Cmd-T opened no New Tab page")
+            #expect(first.list != nil && second.list != nil && has > 0,
+                    "the bar did not get the palette's actions: \(has) actions after \(first.frames) + \(second.frames) frames with a lister task")
             // A listing takes one task to start and one to arrange; the reads between them are the slices.
             #expect(reads.count >= 4, "every palette action was read in one main-thread task (\(reads.map(\.milliseconds)) ms)")
         }
@@ -136,14 +154,17 @@ struct NewTabOpenFramesTests {
     /// list, and the row does the same: the view takes the list. A page with no view takes none (the page that the app
     /// stores for it never has a list), so the row waits for the view's list, not for the stored page's.
     ///
-    /// The row's time is the test process's frame clock, not a path of the app: with no display the listing gets
-    /// about 10 frames in a second, one slice of the catalog in each.
+    /// The row waits by frames, with no clock: it is the display to the hand-over of its own ask
+    /// (`NewTabCommandListKeptTests.listed`). `firstPage(cwd:token:)` asked for the fill before the page had its
+    /// view; the row's ask joins that fill's first task or its listing, and each waiter gets the list in the turn of
+    /// one hand-over. So the view has its list when the row's ask has its own.
     @Test func cmdNsFirstPageGetsThePalettesActions() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-cmdn")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             _ = try await Self.focusedPane(services)
-            let tabs = services.agentTabs
+            let tabs = services.agentTabs, lister = services.newTabActions
+            let before = lister.counts
             let made = try #require(tabs.firstPage(cwd: nil, token: nil), "no first page")
             let key = AgentTabKey(machine: "", key: "open-frames-cmdn-\(UUID().uuidString.prefix(8))")
             tabs.newTabPages[key] = made
@@ -154,8 +175,14 @@ struct NewTabOpenFramesTests {
                 tabs.views[key] = nil
                 tabs.newTabPages[key] = nil
             }
-            try await PasswordManagerRouteTests.until({ view.model.newTab?.omnibar.actions.isEmpty == false },
-                                                      report: { "the view of Cmd-N's first page never got the palette's actions" })
+            let atItsMake = view.model.newTab?.omnibar.actions.count ?? 0
+            let asked = await NewTabCommandListKeptTests.listed(services)
+            let end = lister.counts, has = view.model.newTab?.omnibar.actions.count ?? 0
+            print("new-tab-open-frames: Cmd-N's first page: its view has \(atItsMake) actions at its make and \(has) after \(asked.frames) frames "
+                + "with a lister task of the row's ask; \(end.started - before.started) listings started and "
+                + "\(end.actionsRead - before.actionsRead) catalog actions read to their end since before the page's make")
+            #expect(asked.list != nil && has > 0,
+                    "the view of Cmd-N's first page has \(has) actions at the hand-over of the row's ask, after \(asked.frames) frames with a lister task")
             #expect(tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true, "the stored page of Cmd-N's first page took a list")
         }
     }
