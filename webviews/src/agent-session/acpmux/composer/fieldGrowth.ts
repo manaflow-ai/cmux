@@ -23,21 +23,29 @@ import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment
 // glides, uncovering the top line as it rises or covering it as it falls (Leo 2026-11-22: "the caret
 // gets fucking shot down past the composer as it goes" and "deleting attachments make the composer
 // AND the fucking text jump in a layout shift instead of a smooth motion"). A growth holds the text's
-// end on the bottom edge by its scroll (`holdBottom`); a shrink pads the text's top by what the field
-// still has over its end height, on the same keyframes, so the text's box keeps its height and its
-// bottom. The text's top used to ride the moving top edge instead: the new line, and the caret on it,
-// came in below the field's bottom for the spring's length (11 px out for two frames in Chromium,
-// composer-caret-frames.browser.test.ts), and a shrink drew the lines a step up and slid them down.
+// end on the bottom edge by its scroll (`holdBottom`). Its top used to ride the moving top edge
+// instead: the new line, and the caret on it, came in below the field's bottom for the spring's
+// length (11 px out for two frames in Chromium, composer-caret-frames.browser.test.ts). A shrink
+// rides the top edge: what is left of the text sits above what went (a deleted line, a removed
+// attachment), so it moves with the top edge on the spring, and the field never shows less than
+// its text meanwhile. Padding the shrink's top to hold the bottom edge instead drew all of the
+// text that is left one removed height down in the first frame (25 px for an attachment,
+// composer-geometry-stable.test.ts).
 // A growth that reaches the field's cap keeps the caret in view on every frame (caretInView.ts).
+//
+// A field whose top edge stays put instead (New Tab's, which grows downward from a fixed top:
+// `--acpmux-field-grows: down` in newtab/screen.css) holds its text on that top edge (`holdTop`), so
+// its text never moves on the screen either.
 //
 // A move to a height the text fits draws no scrollbar thumb (scrollers.ts SETTLING_SCROLLER_ATTRIBUTE):
 // mid-move the text is taller than the field, which would show the always-on composer thumb for the
 // motion's length although nothing is left to scroll once it lands (Leo 2026-11-08: "stop showing a
 // flash of the thumb scrollbar"). A move to the field's cap keeps its thumb: the text overflows.
 //
-// An edit that places or removes an attachment moves on the same spring: its tile is at its final
-// place from its first frame because the text rides the bottom edge (composer-attach-no-jump.test.ts,
-// Leo's #38155), so it needs no change in one frame (a layout shift) any more.
+// An edit that places or removes an attachment moves on the same spring (composer-attach-no-jump.test.ts,
+// Leo's #38155). Open: a tile whose image decodes after the paste still grows the field in one frame
+// (composer-geometry-stable.test.ts, attachment add); following the text's resize at rest regressed
+// composer-attach-no-jump and composer-shell-alignment, so the fix is the tile's final size at insert.
 //
 // An edit that lands while the field moves retargets from the height drawn, keeping the motion's
 // end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
@@ -62,13 +70,13 @@ type Motion = {
   end: number;
   /** The caret stays in view on each frame (caretInView); else the text keeps its end on the bottom edge. */
   reveal: boolean;
-  /** A shrink's top padding at rest (CSS px), which its keyframes pad from; undefined for a growth. */
-  shrink: number | undefined;
+  /** The text holds the field's top edge (a shrink, New Tab's growth), else its bottom. */
+  holdsTop: boolean;
   /** The text's own size changes while it moves (a rewrap): retarget. */
   observer: ResizeObserver | undefined;
   /** Stops watching the motion gate (`watchMotionGate`). */
   unwatch: () => void;
-  /** Stops holding the text's end (`holdBottom`); nothing for a reveal or a shrink. */
+  /** Stops holding the text on its edge (`holdBottom`, `holdTop`); nothing for a reveal. */
   release: () => void;
 };
 
@@ -83,6 +91,17 @@ function holdBottom(field: HTMLElement): () => void {
   const hold = () => {
     const end = field.scrollHeight - field.clientHeight;
     if (Math.abs(field.scrollTop - end) > 0.5) field.scrollTop = end;
+  };
+  hold();
+  field.addEventListener("scroll", hold, { passive: true });
+  return () => field.removeEventListener("scroll", hold);
+}
+
+/** While a growth on a field that grows downward holds its text on the fixed top edge, keeps the
+ *  field scrolled to its top (the engine's caret reveal in the shorter box would scroll it). */
+function holdTop(field: HTMLElement): () => void {
+  const hold = () => {
+    if (field.scrollTop !== 0) field.scrollTop = 0;
   };
   hold();
   field.addEventListener("scroll", hold, { passive: true });
@@ -121,13 +140,8 @@ export function growthHoldsText(scroller: HTMLElement): boolean {
 }
 
 /** Keyframes and timing of a move from `from` to `to` px on `arm`, over at most `remaining` ms. */
-function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?: number, padTop?: number) {
-  // A shrink pads the text's top by the height the field still has over its end, so the text's box
-  // keeps its end height and sits on the bottom edge.
-  const frame = (height: number): Keyframe =>
-    padTop === undefined
-      ? { height: `${height}px` }
-      : { height: `${height}px`, paddingTop: `${padTop + height - to}px` };
+function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?: number) {
+  const frame = (height: number): Keyframe => ({ height: `${height}px` });
   const spring = SPRINGS[arm];
   if (spring) {
     // The spring sampled as height keyframes (linearly interpolated), so every engine runs it the
@@ -158,9 +172,13 @@ export function fieldGrowth(external: () => boolean): Plugin {
       // window's cap) by the field's own observer, which delivers after the edit that changes it.
       let shown = -1;
       let restObserver: ResizeObserver | undefined;
+      // The field's fixed edge, read once: the bottom (the dock grows upward) unless its CSS says
+      // it grows downward from a fixed top (New Tab).
+      let growsDown = false;
       const attach = () => {
         scroller = view.dom.closest<HTMLElement>(".acpmux-md-field");
         if (!scroller || typeof ResizeObserver !== "function") return;
+        growsDown = getComputedStyle(scroller).getPropertyValue("--acpmux-field-grows").trim() === "down";
         shown = scroller.getBoundingClientRect().height;
         const field = scroller;
         restObserver = new ResizeObserver(() => {
@@ -209,15 +227,15 @@ export function fieldGrowth(external: () => boolean): Plugin {
         // Read before the same-end path: an edit after motion went off (or a value set from outside)
         // lands a running growth instead of playing it on.
         const moves = arm !== "instant" && !external() && motionMode(field.ownerDocument) === "full";
-        if (running && moves && Math.abs(to - running.to) < 0.5 && running.shrink === undefined) {
+        if (running && moves && Math.abs(to - running.to) < 0.5) {
           // The same end (a second edit on the same line, the text's observer's first call): the
           // motion goes on where it was, on the same curve and clock. A started animation given its
           // start time runs from the next frame; left pending it would hold a frame still.
           const again = field.animate(running.keyframes, running.timing);
           if (started !== null) again.startTime = started;
           // A reveal keeps the scroll it drew with; a growth that holds the text's end keeps it at the
-          // end (`holdBottom` runs on the scroll this sets).
-          field.scrollTop = running.reveal ? scrolled : field.scrollHeight;
+          // end (`holdBottom` runs on the scroll this sets); a shrink or a downward growth, its top.
+          field.scrollTop = running.reveal ? scrolled : running.holdsTop ? 0 : field.scrollHeight - field.clientHeight;
           run(field, running, again);
           return;
         }
@@ -230,15 +248,13 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const cssHeight = Number.parseFloat(getComputedStyle(field).height);
         const scale = cssHeight > 0 ? to / cssHeight : 1;
         const reveal = capped || (running?.reveal ?? false);
-        // A shrink to a height the text fits: its top padding, in CSS pixels, the keyframes pad from.
-        const shrink = !reveal && to < from ? Number.parseFloat(getComputedStyle(field).paddingTop) || 0 : undefined;
+        const holdsTop = growsDown || to < from;
         const now = performance.now();
         const { keyframes, duration, easing, progress } = growthFrames(
           arm,
           from / scale,
           to / scale,
           running ? running.end - now : undefined,
-          shrink,
         );
         const timing = { duration, easing };
         const animation = field.animate(keyframes, timing);
@@ -268,12 +284,12 @@ export function fieldGrowth(external: () => boolean): Plugin {
           to,
           end: now + duration,
           reveal,
-          shrink,
+          holdsTop,
           observer,
           unwatch: watchMotionGate(field, () => land(field)),
           // The text fits the height it lands on: a growth holds its end on the bottom edge by the scroll,
-          // which reaches 0 as the field lands; a shrink's padding keeps it there.
-          release: reveal || shrink !== undefined ? () => {} : holdBottom(field),
+          // which reaches 0 as the field lands; a shrink (and New Tab's growth) holds it on the top.
+          release: reveal ? () => {} : holdsTop ? holdTop(field) : holdBottom(field),
         };
         moving.set(field, motion);
         // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
