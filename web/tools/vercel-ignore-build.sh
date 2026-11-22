@@ -15,9 +15,18 @@ current_sha="${VERCEL_GIT_COMMIT_SHA:-HEAD}"
 
 # Build for unknown web paths so a new production directory or configuration
 # file cannot silently skip deployment. Exclude only known non-build inputs.
-# non_inputs are relative to web/; shared_inputs to the repository root. Both
-# the git comparison and the GitHub API comparison below read these two lists.
-non_inputs=(tests/ e2e/ scripts/ README.md AGENTS.md CLAUDE.md)
+# web_exclusions are git pathspecs relative to web/, one literal per line
+# (tests/test_ci_classic_deploy_guard.py reads them against the classic deploy
+# guard's list); shared_inputs are relative to the repository root. Both the
+# git comparison and the GitHub API comparison below read these two lists.
+web_exclusions=(
+  ":(exclude)tests/"
+  ":(exclude)e2e/"
+  ":(exclude)scripts/"
+  ":(exclude)README.md"
+  ":(exclude)AGENTS.md"
+  ":(exclude)CLAUDE.md"
+)
 shared_inputs=(
   .vercelignore
   CHANGELOG.md
@@ -96,7 +105,7 @@ compare_with_github() {
     return 2
   fi
   verdict="$(WEB_PREFIX="$(git rev-parse --show-prefix)" \
-    NON_INPUTS="$(printf '%s\n' "${non_inputs[@]}")" \
+    NON_INPUTS="$(printf '%s\n' "${web_exclusions[@]#:(exclude)}")" \
     SHARED_INPUTS="$(printf '%s\n' "${shared_inputs[@]}")" \
     node -e '
       let input = "";
@@ -135,8 +144,7 @@ compare_with_github() {
 }
 
 compare_with_git() {
-  local pathspecs=(".") path
-  for path in "${non_inputs[@]}"; do pathspecs+=(":(exclude)${path}"); done
+  local pathspecs=("." "${web_exclusions[@]}") path
   for path in "${shared_inputs[@]}"; do pathspecs+=("../${path}"); done
   git diff --quiet "$previous_sha" "$current_sha" -- "${pathspecs[@]}"
   case $? in
