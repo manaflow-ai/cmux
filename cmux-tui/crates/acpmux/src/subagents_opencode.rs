@@ -28,9 +28,6 @@ impl SubagentTree {
         }
         let call = update.get("toolCallId").and_then(Value::as_str)?;
         let input = update.get("rawInput");
-        let text = |v: Option<&Value>, key: &str| {
-            v.and_then(|v| v.get(key)).and_then(Value::as_str).filter(|s| !s.is_empty())
-        };
         let kind = text(input, "subagent_type");
         let out = update.pointer("/rawOutput/metadata");
         let child = text(out, "sessionId").filter(|_| text(out, "parentSessionId").is_some());
@@ -94,6 +91,11 @@ impl SubagentTree {
         self.label(call, &mut event);
         Some(vec![Value::Object(event)])
     }
+}
+
+/// `key`'s nonempty string in `v`.
+fn text<'a>(v: Option<&'a Value>, key: &str) -> Option<&'a str> {
+    v.and_then(|v| v.get(key)).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
 /// The reply inside OpenCode's `<task …><task_result>…</task_result></task>`, else the output.
