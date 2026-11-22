@@ -315,9 +315,10 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const view = { width: 800, height: 600 };
   const size = { width: 140, height: 22 };
   const time = { left: 100, top: 300, width: 80, height: 24 };
-  // Centered on the time, on the compact 4px grid gap above it (as Claude's), and above by default.
+  // Centered on the time, on the compact 4px grid gap above it (as Claude's). Every other tooltip
+  // sits below its control, as the native one does (Lawrence 2026-11-20: one tooltip everywhere).
   expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 274 });
-  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 274 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 328 });
   // At the pane's top edge: below.
   expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 38 });
   const scaled = tooltipPosition(time, size, view, "top", 1.5);
@@ -326,7 +327,7 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   expect(UI_TOOLTIP_EDGE).toBe(UI_TOOLTIP_GAP);
   expect(UI_TOOLTIP_MAX_WIDTH).toBe(320);
   const positioned = tooltipPosition(time, size, view);
-  expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
+  expect(positioned.top - (time.top + time.height)).toBe(UI_TOOLTIP_GAP);
 });
 
 test("a tooltip stays inside its region: above when it fits there, else below, else the window's edges", () => {
@@ -460,4 +461,60 @@ test("a tooltip already open when the Find bar opens goes away", async () => {
   } finally {
     setPopupInsetTop(0, "findBar");
   }
+});
+
+// Lucas 2026-11-11: a model menu row's cut name shows in full at once, not after the hover delay.
+test("a data-tooltip-instant element shows its tooltip with no hover delay", async () => {
+  const clock = new FakeClock();
+  const doc = page(
+    `<button id="cold" title="Back"></button><span id="name" title="DeepSeek V4.1 Flash" data-tooltip-instant=""></span>`,
+    {
+      clock,
+    },
+  );
+  for (const id of ["cold", "name"]) {
+    doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
+  }
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  const text = () => (tip().hidden ? null : (tip().querySelector(".ui-tooltip-text")?.textContent ?? null));
+  // A cold group: a plain title waits; the instant one shows on the next frame, with no time passing.
+  await hover(doc.getElementById("cold")!);
+  expect(text()).toBeNull();
+  await leave(doc.getElementById("cold")!);
+  await hover(doc.getElementById("name")!);
+  expect(text()).toBe("DeepSeek V4.1 Flash");
+});
+
+// Lucas 2026-11-11: a model name the row's star draws over shows in full at once, though the row does not cut it.
+test("a data-tooltip-force element shows its tooltip even when its text is in full view", async () => {
+  const doc = page(
+    `<span id="name" title="Sonnet" data-tooltip-instant="" data-tooltip-force="">Sonnet</span><span id="plain" title="Opus" data-tooltip-instant="">Opus</span>`,
+  );
+  for (const id of ["name", "plain"]) {
+    doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 40, height: 20 }) as DOMRect;
+  }
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  const text = () => (tip().hidden ? null : (tip().querySelector(".ui-tooltip-text")?.textContent ?? null));
+  // Its own text in full view and no force: no tooltip.
+  await hover(doc.getElementById("plain")!);
+  expect(text()).toBeNull();
+  await leave(doc.getElementById("plain")!);
+  await hover(doc.getElementById("name")!);
+  expect(text()).toBe("Sonnet");
+});
+
+test("a control whose own text says the tooltip still shows it when it names a key", async () => {
+  // Fleet check 2026-11-20: a chat with one agent option reads "Verbosity: Terse" on its Options
+  // chip and in its tooltip, so the label rule hid the tooltip and its ⌃⌥⌘G never showed. The key
+  // is what the tooltip adds (test/tooltip-rules.ts lets a labeled control carry one).
+  const doc = page(
+    `<button id="options" title="Verbosity: Terse" data-tooltip-shortcut="⌃⌥⌘G" data-tooltip-instant="">Verbosity: Terse</button>`,
+  );
+  doc.getElementById("options")!.getBoundingClientRect = () =>
+    ({ left: 10, top: 10, width: 120, height: 24 }) as DOMRect;
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(doc.getElementById("options")!);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(tip().hidden).toBe(false);
+  expect(tip().querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘G");
 });

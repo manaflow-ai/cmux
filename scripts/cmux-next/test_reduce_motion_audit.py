@@ -35,15 +35,18 @@ class Audit(unittest.TestCase):
 
     def test_ios_counts_animation_calls_in_files_that_never_read_reduce_motion(self):
         root = self.tree({
+            "cmux-next-ios/Kit/Sources/Home.swift": "UIView.animate(withDuration: 0.2) { v.alpha = 0 }\n",
+            # The classic app is frozen and not counted.
             "ios/App/Sources/Home.swift": "UIView.animate(withDuration: 0.2) { v.alpha = 0 }\n",
             "Packages/iOS/Kit/Sources/Row.swift": "guard !UIAccessibility.isReduceMotionEnabled else { return }\n"
                                                   "UIView.animate(withDuration: 0.2) {}\n",
             "Packages/iOS/Kit/Tests/RowTests.swift": "UIView.animate(withDuration: 0.2) {}\n",
             "Packages/iOS/Kit/Sources/Shape.swift": "let a = layer.animation(forKey: \"path\")\n",
-            "ios/App/Sources/List.swift": "HomeMotion.animate { v.alpha = 0 }\n",
+            "cmux-next-ios/Kit/Sources/List.swift": "HomeMotion.animate { v.alpha = 0 }\n",
+            "Packages/iOS/Tabs/Sources/Bar.swift": "withAnimation(theme.motion.resolve(theme.motion.collapse)) {}\n",
         })
         got = audit.ungated(root, audit.IOS_DIRS, (".swift",), audit.IOS_SITE, audit.IOS_GATE)
-        self.assertEqual([w["file"] for w in got["where"]], ["ios/App/Sources/Home.swift"])
+        self.assertEqual([w["file"] for w in got["where"]], ["cmux-next-ios/Kit/Sources/Home.swift"])
 
     def test_a_tree_without_the_macos_check_has_no_total(self):
         report = audit.audit(self.tree({"webviews/src/a.ts": ""}))

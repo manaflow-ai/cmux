@@ -14,9 +14,11 @@ pub(crate) mod audit;
 mod client;
 pub(crate) mod config;
 mod grant;
+mod platform_shares;
 mod preface;
 mod serve;
 mod service;
+pub(crate) mod share_approval;
 mod shares;
 #[cfg(test)]
 mod teammate_tests;
@@ -40,6 +42,13 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host share SURFACE LOGIN [--role member|guest] [--json]
        cmux host unshare SURFACE LOGIN [--json]
        cmux host shares [--json]
+       on a cmux Cloud machine (this one, or --machine vm_ID), shares live on the cmux platform:
+       cmux host share CHAT... PERSON [--machine vm_ID]
+       cmux host unshare [CHAT...] PERSON | csh_ID [--machine vm_ID]
+       cmux host shares [--machine vm_ID]
+         CHAT: a surface number or session name (this machine) or a session id; PERSON: user_ID or name;
+         sign in with --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN
+         (with --team TEAM or CMUX_CLOUD_TEAM, and --platform URL)
        cmux host list [--json] [--all] [--port N]
        cmux host dial HOST [--port N]
        cmux host serve [--dir DIR]
@@ -409,6 +418,9 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
     let mut notes = Vec::new();
     let with_service = !flags.has("no-service");
     if with_service {
+        if cfg!(target_os = "linux") {
+            notes.push(service::enable_linger());
+        }
         match service::install(&exe) {
             Ok(what) => notes.push(format!("service: {what}")),
             Err(e) => notes.push(format!(
@@ -422,12 +434,6 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
     // A running `serve` keeps its old port and session; replace it.
     notes.push(service::restart(&exe, with_service)?);
     uninstalled?;
-    if cfg!(target_os = "linux") && !flags.has("no-service") {
-        notes.push(
-            "headless machine: run `loginctl enable-linger $USER` once so hosting survives logout"
-                .to_owned(),
-        );
-    }
     Ok(status_value(&config, Some(&status), &notes))
 }
 

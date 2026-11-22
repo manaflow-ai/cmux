@@ -124,12 +124,3 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
         var candidates: [HostCandidate]
     }
 }
-
-/// The candidate list under the Add Machine field.
-public nonisolated enum HostCandidates: Equatable, Sendable {
-    /// The plain `candidates` run runs (the spinner).
-    case loading
-    case loaded([HostCandidate])
-    /// No Tailscale here, or the list failed: the list hides and the field stays.
-    case unavailable
-}

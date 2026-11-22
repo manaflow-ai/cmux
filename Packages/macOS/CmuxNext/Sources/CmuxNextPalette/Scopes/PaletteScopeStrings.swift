@@ -9,12 +9,6 @@ nonisolated extension PaletteStrings {
     static var sectionScopes: String { String(localized: "palette.section.scopes", defaultValue: "Search In", bundle: .module) }
     static var allScopes: String { String(localized: "palette.scope.all", defaultValue: "All Scopes", bundle: .module) }
 
-    static func scopeHintPrefixKeyword(_ prefix: String, _ keyword: String) -> String {
-        String(localized: "palette.scope.hint.prefixKeyword", defaultValue: "Type \(prefix), or \(keyword) and Tab", bundle: .module)
-    }
-    static func scopeHintPrefix(_ prefix: String) -> String {
-        String(localized: "palette.scope.hint.prefix", defaultValue: "Type \(prefix)", bundle: .module)
-    }
     static func scopeHintKeyword(_ keyword: String) -> String {
         String(localized: "palette.scope.hint.keyword", defaultValue: "Type \(keyword) and Tab", bundle: .module)
     }

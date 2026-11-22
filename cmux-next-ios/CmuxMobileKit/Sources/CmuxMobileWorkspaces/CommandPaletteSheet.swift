@@ -103,7 +103,7 @@ private struct PaletteRow: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!command.isEnabled)
         .accessibilityIdentifier("palette.row.\(command.id)")
     }

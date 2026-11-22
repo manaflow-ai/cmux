@@ -28,12 +28,16 @@ public struct ImportCardsHost {
     /// Performs the daemon's read-only source probe for the live Import Suggestions scan.
     /// Errors are handled by the scan caller and never hide the other source findings.
     public var detectConductor: (() async -> ConductorImportDetection?)?
+    /// How many of classic cmux's saved workspaces Import Workspaces from Classic cmux would open now
+    /// (the daemon's `classic_import.plan`); nil when classic saved none or the daemon could not say.
+    public var classicWorkspaces: () async -> Int?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
                 importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
+                classicWorkspaces: @escaping () async -> Int?,
                 detectConductor: (() async -> ConductorImportDetection?)? = nil) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
@@ -41,5 +45,6 @@ public struct ImportCardsHost {
         self.importClassic = importClassic
         self.importConductor = importConductor
         self.detectConductor = detectConductor
+        self.classicWorkspaces = classicWorkspaces
     }
 }

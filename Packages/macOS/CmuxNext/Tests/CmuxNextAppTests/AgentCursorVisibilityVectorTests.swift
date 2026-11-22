@@ -181,15 +181,29 @@ struct AgentCursorVisibilityVectorTests {
         #expect(result.placement(forWindow: "w2") == .elsewhere)
     }
 
-    /// Window content-view space: the sidebar row anchor stays where the row
-    /// is (the window-level host draws over the sidebar too).
-    @Test func aSidebarRowAnchorStaysAtTheRow() {
+    /// A target in another workspace of the window resolves to that workspace's sidebar row, but
+    /// the window draws no dot for it: the dot sat at the row's center, over its title, and the
+    /// row's trailing column already holds its status (the spinner of the agent's work). The
+    /// resolver keeps the anchor (`debug.agent_cursor`, the live check); the titlebar lease
+    /// indicator still counts the agent.
+    @Test func aSidebarRowAnchorDrawsNoDotOverTheRow() {
         let row = CGRect(x: 8, y: 80, width: 224, height: 28)
         let result = AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: row)
-        #expect(result.placement(forWindow: "w1") == .hidden(anchor: row))
+        #expect(result.placement(forWindow: "w1") == .elsewhere)
         let left = CGRect(x: -240, y: 80, width: 220, height: 28)
         #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .workspaceRow, rect: left)
-            .placement(forWindow: "w1") == .hidden(anchor: left))
+            .placement(forWindow: "w1") == .elsewhere)
+    }
+
+    /// The anchors inside the target's own pane (its tab chip, its strip, the edge its column
+    /// scrolled out through) still draw the dot there.
+    @Test func aPaneAnchorStillDrawsItsDot() {
+        let chip = CGRect(x: 700, y: 40, width: 120, height: 28)
+        #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .tabChip, rect: chip)
+            .placement(forWindow: "w1") == .hidden(anchor: chip))
+        let edge = CGRect(x: 300, y: 72, width: 4, height: 600)
+        #expect(AgentCursorVisibility.hidden(window: "w1", anchor: .columnEdge(.leading), rect: edge)
+            .placement(forWindow: "w1") == .hidden(anchor: edge))
     }
 
     /// The window-edge fallback (no sidebar row, pane on another screen) has nothing in view to

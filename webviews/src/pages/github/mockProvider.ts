@@ -106,6 +106,7 @@ export const mockDetails: PullRequestDetails = {
     },
   ],
   conversationTotal: 3,
+  conversationRead: 3,
   reviewers: [
     { name: "monalisa", state: "changes_requested" },
     { name: "app-team", state: "requested" },

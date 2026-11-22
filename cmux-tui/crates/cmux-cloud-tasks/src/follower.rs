@@ -53,7 +53,7 @@ impl Kind {
     /// The path errors name.
     pub fn path(self) -> &'static str {
         match self {
-            Kind::Runs => "/api/runs",
+            Kind::Runs => "cloud.runs",
             Kind::Handoffs => "/v1/handoffs",
         }
     }

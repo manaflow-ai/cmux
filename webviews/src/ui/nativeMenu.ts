@@ -5,6 +5,8 @@
 // (pageClient.ts, the agent pane's legacy bridge); the dev loop and the gallery have none and keep
 // the page-drawn menu.
 
+import { pointOnVisualViewport } from "./visualViewportBox";
+
 export interface NativeMenuRow {
   id: string;
   label: string;
@@ -35,9 +37,13 @@ export function installNativeMenu(menu: NativeMenu | null): void {
   installed = menu;
 }
 
-/** The page's native menu, or null where the page draws its own. */
+/** The page's native menu, or null where the page draws its own. Its point goes where the pointer
+ * shows under a trackpad pinch (ui/visualViewportBox.ts), so the menu opens at the pointer. */
 export function nativeMenu(): NativeMenu | null {
-  return installed;
+  const menu = installed;
+  if (!menu) return null;
+  const view = typeof window === "undefined" ? undefined : window;
+  return (request) => menu({ ...request, point: pointOnVisualViewport(request.point, view) });
 }
 
 /**

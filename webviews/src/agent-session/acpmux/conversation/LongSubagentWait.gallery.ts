@@ -51,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps: the finished step stays in its run and the line reads Thinking at once, the turn's clock named after a dot (Leo, 2026-11-07).",
+      note: "Between steps: the finished step stays in its run. The line read Thinking the moment it ended (Leo, 2026-11-07); a minute and a half on with nothing heard it reads Waiting 1m 33s, the turn's clock named after a dot (Leo, 2026-11-12).",
       snapshot: chat(
         [
           prompt(),
@@ -90,11 +90,11 @@ export default agentPaneEntry({
             [
               tool("cat /tmp/copy/message.md | head -30", "execute", "completed", {
                 command: "cat /tmp/copy/message.md | head -30",
-                startedAt: minutesAgo(0.2),
-                endedAt: minutesAgo(0.2) + 300,
+                startedAt: minutesAgo(0.05),
+                endedAt: minutesAgo(0.05) + 300,
               }),
             ],
-            0.2,
+            0.05,
           ),
         ],
         { isWorking: true },

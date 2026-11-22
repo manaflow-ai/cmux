@@ -1,6 +1,6 @@
 //! `cloud.machine.*` over `cmux.wire/1` (contract 1.3): list (paged),
 //! watch, get, create, rename, start, pause, resize, delete,
-//! idle_policy.set, connect_info. Each op sends the checked params to the
+//! idle_policy.set, keep, archive_delete, connect_info. Each op sends the checked params to the
 //! backend op of the same name.
 
 use crate::api::args;
@@ -100,6 +100,21 @@ pub(super) fn run<C: ControlPlane>(
             args::int(map, "idle_seconds", 0, 604_800, 1)?
                 .ok_or_else(|| CloudError::invalid("idle_seconds is required"))?;
             machine_mutation(ctx, name, args::params(map, &["machine", "idle_seconds"]))
+        }
+        "cloud.machine.keep" => {
+            let map = args::object(raw, &["machine", "keep"])?;
+            args::id(map, "machine")?;
+            if !map.get("keep").is_some_and(Value::is_boolean) {
+                return Err(CloudError::invalid("keep is required: true or false"));
+            }
+            machine_mutation(ctx, name, args::params(map, &["machine", "keep"]))
+        }
+        "cloud.machine.archive_delete" => {
+            // The machine stays (paused, `delete_reason: requested`) until its
+            // archive is ready; the platform's `cloud.machine.removed` follows.
+            let map = args::object(raw, &["machine"])?;
+            args::id(map, "machine")?;
+            machine_mutation(ctx, name, args::params(map, &["machine"]))
         }
         "cloud.machine.delete" => {
             let map = args::object(raw, &["machine"])?;

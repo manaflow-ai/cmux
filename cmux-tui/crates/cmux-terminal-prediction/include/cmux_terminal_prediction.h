@@ -131,6 +131,15 @@ bool cmux_terminal_prediction_output(const CmuxTerminalPrediction *prediction,
 bool cmux_terminal_prediction_missed_output(const CmuxTerminalPrediction *prediction, uint64_t now_us);
 
 /*
+ The grid or the font changed under the glyphs with no output lost (a
+ resize): what is drawn goes, and what the engine knows of the screen stays.
+
+ # Safety
+ `prediction` is null or a live handle.
+ */
+bool cmux_terminal_prediction_layout_changed(const CmuxTerminalPrediction *prediction, uint64_t now_us);
+
+/*
  A rendered frame reached the screen: held confirmations retire.
 
  # Safety

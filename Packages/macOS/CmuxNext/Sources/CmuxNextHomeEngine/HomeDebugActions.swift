@@ -12,13 +12,16 @@ public import Foundation
 public struct HomeDebugActions {
     private let flightRecorderOff: String
     private let themeFolders: [URL]
+    private let homes: HomeChiefHomes?
 
     /// - Parameters:
     ///   - flightRecorderOff: The refusal when the flight recorder is off or no Home conversation is open.
     ///   - themeFolders: The bundled theme folders the All Themes playground reads.
-    public init(flightRecorderOff: String, themeFolders: [URL] = []) {
+    ///   - homes: The app's Chief Homes: the Agent Messages Playground's queued pill menu runs its Start now action.
+    public init(flightRecorderOff: String, themeFolders: [URL] = [], homes: HomeChiefHomes? = nil) {
         self.flightRecorderOff = flightRecorderOff
         self.themeFolders = themeFolders
+        self.homes = homes
     }
 
     /// Binds `home.saveFlightRecording`, `debug.allThemesPlayground` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
@@ -35,10 +38,11 @@ public struct HomeDebugActions {
             return .done
         })
         #if DEBUG
-        registry.bindEffect("home.agentMessagePlayground", effect: { invocation in
+        registry.bindEffect("home.agentMessagePlayground", effect: { [weak homes] invocation in
             HomeAgentMessagePlayground.show(style: invocation["style"]?.intValue, expanded: invocation["expanded"]?.boolValue,
                                             team: invocation["team"]?.boolValue, peer: invocation["peer"]?.stringValue,
-                                            dark: invocation["dark"]?.boolValue)
+                                            dark: invocation["dark"]?.boolValue,
+                                            startsOwnAgents: { homes?.startsOwnAgents($0) })
             return .done
         })
         registry.bindEffect("home.mcpConnectPlayground", effect: { invocation in

@@ -86,6 +86,13 @@ impl Peer {
         self.session_messages.store(false, Ordering::SeqCst);
     }
 
+    /// Integration-test stand-in for a peer from before `feature` (an older build): until the
+    /// next handshake, as though it had not listed it (`lists`).
+    #[doc(hidden)]
+    pub fn forget_feature_for_tests(&self, feature: &str) {
+        self.features.lock_or_recover().retain(|f| f != feature);
+    }
+
     /// The link is up and its handshake finished: a caller's request may go out on it, as
     /// `request_on` checks.
     pub fn ready(&self) -> bool {

@@ -42,7 +42,7 @@
 .bg-gallery__done--compact{align-items: center;}
 .bg-gallery__done strong, .bg-gallery__done small{display: block;}
 .bg-gallery__done strong{color: var(--success); font-size: var(--bg-text-caption);}
-.bg-gallery__done small{margin-top: 2px; color: var(--ink-muted); font-size: var(--bg-text-caption);}
+.bg-gallery__done small{margin-top: var(--grid-half-step); color: var(--ink-muted); font-size: var(--bg-text-caption);}
 .bg-gallery__done-mark, .bg-gallery__done-agent-mark{color: var(--success); font-weight: 750;}
 .bg-gallery__message{width: fit-content; max-width: min(80%, var(--bg-space-540)); margin: 16px 0 0; padding: var(--bg-space-10) var(--bg-space-12); border-radius: 10px; color: var(--ink); font-size: var(--bg-text-detail);}
 .bg-gallery__message--user{margin-left: auto; background: var(--accent-soft);}

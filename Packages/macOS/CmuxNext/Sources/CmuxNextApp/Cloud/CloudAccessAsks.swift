@@ -229,7 +229,7 @@ final class CloudAccessAsks {
         let tabs = services.agentTabs
         return machine.daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { tab in
             guard let record = tab.agentSession, record.host == chat.host else { return false }
-            return (record.session ?? tabs.sessions[tabs.resolve(tab.id)]) == chat.session
+            return (record.session ?? tabs.sessions[tabs.tabKey(tab.id, machine: machine.daemon.machineID)]) == chat.session
         }?.id
     }
 }

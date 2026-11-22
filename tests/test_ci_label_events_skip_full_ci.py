@@ -38,6 +38,11 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Its capture step reads the media-tour labels and its perf section step the perf labels
     # (tests/test_pr_body_checks.py pins which step runs on which label).
     "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
+    # Calls ci.yml for a docs-only pull request that gets one of ci.yml's labels (its `paths:` filters label events
+    # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
+    "docs-only-fallback.yml": ("full-ci", "dev-build"),
+    # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
+    "cmux-next.yml": ("full-ci",),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
@@ -55,6 +60,8 @@ REACTS: dict[str, str] = {
     "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
     "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
     "passing, and only the classic-migration label it judges may let a frozen change through",
+    "language-boundaries.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
+    "passing, and only the leo-approved-port label it judges may let a port through",
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",

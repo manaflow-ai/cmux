@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 
 /// Everything the session referenced (SPEC 11.2-11.4): files, folders and
@@ -97,17 +98,17 @@ struct ArtifactsSheet: View {
                 ForEach(chipFilters) { item in
                     let selected = filter == item
                     Button {
-                        withAnimation(.snappy) { filter = item }
+                        withAnimation(.snappy.unlessReduceMotion) { filter = item }
                     } label: {
                         Text("\(item.rawValue) \(counts[item] ?? 0)")
                             .font(.subheadline.weight(.medium))
                             .monospacedDigit()
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
+                            .cmuxMobilePressBackground(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
                             .contentShape(.capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("artifacts.filter.\(item.rawValue.lowercased())")
                 }

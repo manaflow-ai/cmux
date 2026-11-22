@@ -1,7 +1,8 @@
 // The changelog page's state owner: the build list, the selected build and its notes. Notes are a
 // projection of the provider; the page keeps no copy beyond a per-build cache. React reads it
 // through `useSyncExternalStore` (no effects).
-import { isPageError, type PageClient } from "../shared/pageClient";
+import type { PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import {
   ACTION_RUN,
   ChangelogOps,
@@ -144,6 +145,11 @@ function within(version: string, span: UpdateSpan): boolean {
   return (!span.from || compareVersions(version, span.from) > 0) && compareVersions(version, span.to) <= 0;
 }
 
+/** The changelog page draws the host's list from disk first and refreshes it from the network
+    behind it (no "Loading…" on an open when a list was kept). False: the page waits for the network
+    as before. The Updated card keeps its own `cachedFirst` path either way. */
+export const CHANGELOG_PAGE_CACHED_LIST_FIRST = true;
+
 export class ChangelogStore {
   private snapshot: ChangelogSnapshot;
   private readonly listeners = new Set<() => void>();
@@ -184,9 +190,55 @@ export class ChangelogStore {
       `cachedFirst` (the Updated card after a relaunch) takes the list the host kept on disk when it
       lists the span's newest build, and asks the network only when it does not. */
   start(span?: UpdateSpan, options: { cachedFirst?: boolean } = {}): Promise<void> {
-    this.started = this.load(span, options.cachedFirst === true);
+    this.started =
+      CHANGELOG_PAGE_CACHED_LIST_FIRST && options.cachedFirst !== true
+        ? this.loadCachedThenFresh(span)
+        : this.load(span, options.cachedFirst === true);
     return this.started;
   }
+
+  /** The page's open: the host's list from disk draws at once (no "Loading…" while the network
+      answers), then the network's list replaces it quietly. Without a list on disk it loads as before.
+      Settles once the first screen is drawn; ``refreshed`` settles once the network answered. */
+  private async loadCachedThenFresh(span?: UpdateSpan): Promise<void> {
+    if (!this.client) return;
+    this.latestSpan = span;
+    let cached: ListResult | undefined;
+    try {
+      cached = await this.client.call<ListResult>(ChangelogOps.list, { cached: true });
+    } catch {
+      cached = undefined;
+    }
+    if (!cached?.builds?.length) return this.load(span);
+    await this.showList(cached);
+    this.refreshed = this.revalidate();
+  }
+
+  /** The network's list after a cached one is on screen: the builds and the running build are
+      replaced, the selection stays unless it is no longer listed. A failure keeps the cached list. */
+  private async revalidate(): Promise<void> {
+    if (!this.client) return;
+    let fresh: ListResult;
+    try {
+      fresh = await this.client.call<ListResult>(ChangelogOps.list, {});
+    } catch {
+      return;
+    }
+    if (!fresh.builds.length) return;
+    const same =
+      fresh.current === this.snapshot.current &&
+      fresh.builds.length === this.snapshot.builds.length &&
+      fresh.builds.every((b, i) => b.build === this.snapshot.builds[i]?.build);
+    if (same) return;
+    this.set({ builds: fresh.builds, current: fresh.current });
+    if (this.latestSpan) return this.setSpan(this.latestSpan);
+    const selected = this.snapshot.selected;
+    if (!selected || !fresh.builds.some((b) => b.build === selected))
+      await this.select(fresh.current || fresh.builds[0]?.build);
+  }
+
+  /** Settles once the network's list replaced a cached one (tests); at once when none was shown. */
+  refreshed: Promise<void> = Promise.resolve();
 
   /** The host's list from disk (`cached: true`, no network) when it lists `span`'s newest build. */
   private async cachedList(span: UpdateSpan): Promise<ListResult | undefined> {
@@ -218,16 +270,20 @@ export class ChangelogStore {
       const list =
         (cachedFirst && span ? await this.cachedList(span) : undefined) ??
         (await this.client.call<ListResult>(ChangelogOps.list, {}));
-      const builds = list.builds.length ? list.builds : [];
-      this.listed = true;
-      this.set({ builds, current: list.current, loading: false });
-      void this.readInstallable();
-      // A route change while the list loaded wins over the first route.
-      if (this.latestSpan) return this.setSpan(this.latestSpan);
-      await this.select(list.current || builds[0]?.build);
+      await this.showList(list);
     } catch (error) {
-      this.set({ loading: false, failed: isPageError(error) ? error.message : String(error) });
+      this.set({ loading: false, failed: userMessage(error) });
     }
+  }
+
+  private async showList(list: ListResult): Promise<void> {
+    const builds = list.builds.length ? list.builds : [];
+    this.listed = true;
+    this.set({ builds, current: list.current, loading: false });
+    void this.readInstallable();
+    // A route change while the list loaded wins over the first route.
+    if (this.latestSpan) return this.setSpan(this.latestSpan);
+    await this.select(list.current || builds[0]?.build);
   }
 
   /** Shows an update's span: its builds marked, the newest one selected. */
@@ -295,7 +351,8 @@ export class ChangelogStore {
     try {
       await this.client.call(ChangelogOps.install, { build });
     } catch (error) {
-      this.set({ installFailed: { build, message: isPageError(error) ? error.message : String(error) } });
+      // The updater words its refusals (pulled, unsigned, gone) for the person.
+      this.set({ installFailed: { build, message: userMessage(error, { "cmux.page.refused": OWNER_SENTENCE }) } });
     } finally {
       this.set({ installing: undefined });
     }
@@ -306,7 +363,7 @@ export class ChangelogStore {
     try {
       await this.client?.call(ACTION_RUN, { action });
     } catch (error) {
-      this.set({ failed: isPageError(error) ? error.message : String(error) });
+      this.set({ failed: userMessage(error) });
     }
   }
 }

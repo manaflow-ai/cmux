@@ -42,7 +42,9 @@ struct PasswordManagerRouteTests {
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `home` is the daemon's HOME (where it reads its Ghostty config). `heldKeyReplay`: where a creation hold's keys
     /// run again (the app's `NSApp.sendEvent` by default; a test whose window is never key passes its window's).
-    static func withApp(home: String = NSHomeDirectory(), agentPaneEnvironment: [String: String]? = nil,
+    /// `environment` is the app's launch environment (empty by default; a test of a first-run page turns onboarding on).
+    static func withApp(home: String = NSHomeDirectory(), environment: [String: String] = [:],
+                        agentPaneEnvironment: [String: String]? = nil,
                         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp?.sendEvent(event) },
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
@@ -55,7 +57,7 @@ struct PasswordManagerRouteTests {
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment, heldKeyReplay: heldKeyReplay)
+        let services = AppServices(environment: AppEnvironment.current(environment), agentPaneEnvironment: agentPaneEnvironment, heldKeyReplay: heldKeyReplay)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
@@ -79,6 +81,11 @@ struct PasswordManagerRouteTests {
             // the launch's first workspace (`FirstWorkspaceLaunch.land`), which takes the window
             // off any top page a test showed before then. Wait until restore has run to the end.
             try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
+            // And one of the panes is focused: about 15 bodies start with `#require(services.windows.active?.focusedPane)`,
+            // and on a busy runner the panes attach before the focus lands (MarkdownPageFindTests read nil at
+            // line 30 on cmux#39135's daemon tests, 2026-11-09). `PinnedPageTests.withApp` waits the same way.
+            try await until({ services.windows.active?.focusedPane != nil }, within: .seconds(30),
+                            report: { "the active window's panes attached but none is focused" })
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         reaped = await owner.stop(services)

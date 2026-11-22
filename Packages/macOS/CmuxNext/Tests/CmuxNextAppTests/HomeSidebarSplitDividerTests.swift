@@ -32,6 +32,7 @@ struct HomeSidebarSplitDividerTests {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
         home.update(HomeLoneChiefRailTests.model(chiefs: conversations))
         let split = HomeSidebarSplitView(sidebar: home, content: NSView(), widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "divider" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -54,7 +55,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aClampedDividerLeavesNoLineAtItsOldPlace(dark: Bool) throws {
         let suite = "cmux.tests.splitDivider.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults)
         defer { window.close() }
@@ -74,7 +75,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aFoldedLoneConversationLeavesNoLineAtItsOldPlace(dark: Bool) throws {
         let suite = "cmux.tests.splitDividerFold.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults, conversations: 1)
         defer { window.close() }
@@ -93,7 +94,7 @@ struct HomeSidebarSplitDividerTests {
     @Test(arguments: [false, true])
     func aWidthSetOutsideLayoutMovesTheDividerLayer(dark: Bool) throws {
         let suite = "cmux.tests.splitDividerReset.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let (split, window) = Self.split(dark: dark, defaults: defaults)
         defer { window.close() }

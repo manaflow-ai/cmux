@@ -11,7 +11,8 @@
   package_notices.py check-darwin-binary BINARY [BINARY ...]
 
 `generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
-and bin/cmux-tui-hook, and on macOS and Linux bin/cmux-agent-screen-detection:
+and bin/cmux-tui-hook, on macOS and Linux bin/cmux-agent-screen-detection, and
+on Linux bin/cmux-tui-host, a binary of the same cmux-tui crate:
 npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
 (bin/chatmux-relay and bin/cmux-tui: npm cmux-relay-<os>-<cpu>). package_npm.py
 and package_pypi.py copy them into the packages; validate_package_contract.py
@@ -107,10 +108,21 @@ def ships_screen_detection(kind: str, rust_target: str) -> bool:
     return kind == "cmux-tui" and not rust_target.endswith("-windows-gnu")
 
 
+def ships_terminal_host(kind: str, rust_target: str) -> bool:
+    """Whether the packages of `kind` for `rust_target` name bin/cmux-tui-host in their notice.
+
+    The Linux packages ship the slim terminal host (CMUX-571), a binary of the
+    cmux-tui crate, so its crates are already the notice's crates.
+    """
+    return kind == "cmux-tui" and rust_target.endswith("-unknown-linux-musl")
+
+
 def kind_binaries(kind: str, rust_target: str) -> tuple[str, ...]:
     binaries = KINDS[kind]["binaries"]
     if ships_screen_detection(kind, rust_target):
         binaries = (*binaries, f"bin/{SCREEN_DETECTION}")
+    if ships_terminal_host(kind, rust_target):
+        binaries = (*binaries, "bin/cmux-tui-host")
     return binaries
 
 
@@ -501,6 +513,8 @@ def _cmux_tui_crates_markdown(kind: str, rust_target: str, cache: Path, source_t
             "--lock", str(ROOT / "cmux-tui/Cargo.lock"), "--lock-label", "cmux-tui/Cargo.lock",
             "--workspace", str(ROOT / "cmux-tui"), "--repo-root", str(ROOT),
             "--first-party", "cmux-tui/crates/*", "--first-party", "cmux-tui/bindings/*",
+            # cmux vm's own workspace (GPL-3.0-or-later): cmux-tui links cmux-vm in process.
+            "--first-party", "workers/cmux-vm/cli/crates/*",
             "--first-party-license", str(ROOT / "cmux-tui/dist/npm/cmux/LICENSE"),
             "--reviewed", str(BUILD_SUPPORT / "reviewed.json"),
             "--source-tag", source_tag, "--target", rust_target,

@@ -150,7 +150,7 @@ fn resolved(profile: &HarnessProfile) -> Result<HarnessProfile> {
 async fn start(id: &str, profile: &HarnessProfile, timeout: Duration) -> Result<Started> {
     let folder = TempFolder::new(id)?;
     let spawn = resolved(profile)?;
-    let mut cmd = crate::agent::harness_command(id, &spawn, &folder.path, None, None)?;
+    let mut cmd = crate::agent::harness_command_ready(id, &spawn, &folder.path, None, None).await?;
     // The sign-in may print to stderr (a URL); show it.
     cmd.stderr(std::process::Stdio::inherit());
     let mut child = cmd.spawn().map_err(|e| anyhow!("start {}: {e}", spawn.argv[0]))?;
@@ -339,9 +339,6 @@ pub fn run_in_this_terminal(argv: &[String], env: &BTreeMap<String, String>) -> 
         if k.to_string_lossy().starts_with("ACPMUX_") {
             cmd.env_remove(&k);
         }
-    }
-    for key in crate::cua_socket::AGENT_SCRUBBED_ENV {
-        cmd.env_remove(key);
     }
     cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
     let status = cmd

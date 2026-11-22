@@ -331,12 +331,12 @@ are a disruptive defect.
 
 | ID | Criterion | Threshold | Measure | Scenario | Artifact |
 | --- | --- | --- | --- | --- | --- |
-| T-SIZE-01 | Only allowed triggers send `resize-surface`: (a) the first attach, (b) a rotation, (c) a keyboard show or hide **only in TUI mode** (`TerminalTUISizing`), (d) a width change (split view or Stage Manager, iPad only), (e) a text-size change | **0 spurious resizes** over the whole round: none from scrolling, composer growth, a transient composer height, the key bar, tab switch, grid zoom, background/foreground with the same geometry, reconnect with the same geometry | M-SIZELOG (each line's cause) | all scenarios | log summary json |
+| T-SIZE-01 | Only allowed triggers send `resize-surface`: (a) the first attach, (b) a rotation, (c) a width change (split view or Stage Manager, iPad only), (d) a text-size change | **0 spurious resizes** over the whole round: none from the soft keyboard (shell or TUI), scrolling, composer growth, a transient composer height, the key bar, tab switch, grid zoom, background/foreground with the same geometry, reconnect with the same geometry | M-SIZELOG (each line's cause) | all scenarios | log summary json |
 | T-SIZE-02 | At most one replay per attach, and one per allowed resize (D4: the Mac answering the attach with 39 rows, then a `resized` event, gives two today) | replays per attach = 1 (100 % of 30 attaches); replays per allowed resize ≤ 1 | M-SIZELOG | `reattach_no_jumps`, S-LIFE-* | log |
 | T-SIZE-03 | The attach carries the final size, and the Mac's first screen is already at that size | cols × rows of the Mac's first `attached` = the phone's request in 30 of 30 | M-SIZELOG + M-MAC | S-LIFE-COLD† | log |
 | T-SIZE-04 | Rotation portrait → landscape → portrait: one resize each, no black frame, reading position kept (the anchored row stays the top row ± 1) or following kept | 1 resize per rotation; 0 black frames; anchor ± 1 row | M-SIZELOG, M-BLACK, M-ROWS | S-ROTATE† | mp4, log |
 | T-SIZE-05 | Keyboard show/hide in the shell: no resize; the last row stays on the composer; content moves monotonically with the keyboard, with no final snap (D1: 276 px down, then 31 px up) | 0 resizes; 0 reversals; final settle ≤ 1 px from target; 10 hides and 10 shows per run | M-SIZELOG, M-MOTION | S-KB† (extends `r1-s3`) | mp4, json |
-| T-SIZE-06 | Keyboard show/hide in a TUI: one resize per change, a held frame while the TUI redraws, 0 black frames (R3-2), 0 old frames left after 1.2 s | 1 resize; 0 black; TUI repainted at the new size ≤ 1.2 s (macOS top repaints every 1 s) | M-SIZELOG, M-BLACK, M-MAC | S-KB-TUI† | mp4 |
+| T-SIZE-06 | Keyboard show/hide in a TUI: no resize (`TerminalGridSizing`); the grid keeps its rows, the app's first rows stay pinned at the top of the area and the cursor's row stays above the keyboard (`keyboardPlacement`) | 0 resizes; header and cursor row on screen with the keyboard up; 10 hides and 10 shows per run | M-SIZELOG, M-AX | S-KB-TUI† (`TerminalKeyboardNoResizeTests`, `TerminalKeyboardNoResizeUITests`) | png |
 | T-SIZE-07 | Composer growth (1 → 6 lines and back) moves the terminal bottom with the composer and sends no resize | 0 resizes; last row ≥ 0 pt above the composer each frame | M-SIZELOG, M-AX | `composer_bottom_pin` | mp4 |
 | T-SIZE-08 | Columns fit the width with the M5 inset; no column cut at either edge | first and last columns fully visible; leading inset ≥ 4 pt | pixel | S-REND† | png |
 | T-SIZE-09 | Largest text size and pinch zoom (if offered): one resize, correct reflow | 1 resize; T-REND-01 holds after | M-SIZELOG, M-MAC | S-REND† AX5 | png |
@@ -531,7 +531,7 @@ Until a gap is closed, its rows are `blocked (needs tool)`, never `pass`.
 ## 12. Device-only criteria (T-DEV): never claimed from a simulator
 
 A real iPhone is needed. Per the user's global rules, an agent may use the
-user's phone (TapKit) only when the user explicitly asks for real-phone
+user's real phone only when the user explicitly asks for real-phone
 verification for this task and the phone is connected. Until then these rows are
 `blocked (needs device)` and the terminal is reported as **simulator-green,
 device-pending**, never "done".

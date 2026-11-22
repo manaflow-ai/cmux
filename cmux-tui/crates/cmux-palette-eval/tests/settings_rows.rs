@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 const MINIMAP_KEY: &str = "agentPane.display.minimap";
 const RAIL_SIDE_KEY: &str = "agentPane.display.rail.side";
+const KEEP_AWAKE_KEY: &str = "sessions.keepAwake";
 
 struct Rows {
     keys: Vec<String>,
@@ -114,5 +115,17 @@ fn minimap_lists_chat_minimap_in_the_top_three() -> Result<(), String> {
     let rows = rows()?;
     let top: Vec<String> = palette(&rows, "minimap")?.into_iter().take(3).collect();
     assert!(top.iter().any(|key| key == MINIMAP_KEY), "{top:?}");
+    Ok(())
+}
+
+/// Leo, 2026-11-09, on the keep-awake defaults: "nor sure". The defaults stay; the setting is
+/// found instead, under every word for it, from the palette as from Settings search.
+#[test]
+fn sleep_words_list_keep_mac_awake_in_the_top_three() -> Result<(), String> {
+    let rows = rows()?;
+    for query in ["keep awake", "sleep", "prevent sleep", "caffeinate", "stay awake"] {
+        let top: Vec<String> = palette(&rows, query)?.into_iter().take(3).collect();
+        assert!(top.iter().any(|key| key == KEEP_AWAKE_KEY), "{query}: {top:?}");
+    }
     Ok(())
 }

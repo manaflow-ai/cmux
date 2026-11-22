@@ -95,7 +95,7 @@ pub fn set_icon(
     if let Some(old) = previous.filter(|old| Some(old) != icon.as_ref())
         && is_own_copy(id, &old)
     {
-        let _ = std::fs::remove_file(dir.join(old));
+        let _ = crate::home_fs::remove_file(dir.join(old));
     }
     Ok(IconSet { id: id.to_owned(), path, icon })
 }

@@ -15,8 +15,8 @@
 //! order they came, by one worker with a queue of [`WINDOW`]: a sender may keep that many in
 //! flight, and a sender past it is slowed by the socket, so memory stays at a few frames whatever
 //! the file's size. Each answer is small (a header is at most 16 KiB, and only a short id is
-//! echoed), and the worker waits for room in the connection's bounded answer queue, so a client
-//! that stops reading stops its own frames. A frame whose offset is not the upload's end is `upload.offset {offset}`.
+//! echoed), and it goes into the connection's byte-bounded outbound queue (`outbound.rs`), in
+//! order with every other line: a client that stops reading is disconnected past the bound. A frame whose offset is not the upload's end is `upload.offset {offset}`.
 //!
 //! A text message after a frame on the same connection is read only once every frame before it is
 //! written and answered ([`InFlight`]): a finish, a status or a prompt sent right after the last
@@ -27,13 +27,14 @@
 //! `filePut.remote` as its answer, never silence. A chat on a peer gets the bytes there, as
 //! base64 `file_put_chunk` requests of at most `CHUNK_BYTES` over the peer link.
 
+use super::outbound::Outbound;
 use super::{ConnAuth, Hub, Origin};
 use crate::hub::file_uploads::{self, CHUNK_BYTES};
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::{Notify, mpsc};
+use std::sync::{Arc, Weak};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio_tungstenite::tungstenite::Bytes;
 
 /// The `initialize` feature of a daemon that takes binary upload frames and
@@ -94,13 +95,18 @@ impl Frames {
     }
 }
 
-/// Starts `origin`'s frame worker; frames sent to it are written in order and answered on `out`.
-/// It ends when the sender is dropped (the connection's reader ended) or `out` closes.
+/// Where the frame worker's answers go: the connection's outbound queue, named once the
+/// connection made it (`serve_connection_from`). Weak: the worker never keeps the queue open.
+pub(super) type Replies = watch::Sender<Option<Weak<Outbound>>>;
+
+/// Starts `origin`'s frame worker; frames sent to it are written in order and answered into the
+/// connection's outbound queue ([`Replies`]). It ends when the sender is dropped (the connection's
+/// reader ended), or the queue is gone or will send nothing more.
 pub(super) fn spawn(
     hub: Arc<Hub>,
     origin: Origin,
     auth: ConnAuth,
-    out: mpsc::Sender<String>,
+    mut replies: watch::Receiver<Option<Weak<Outbound>>>,
 ) -> Frames {
     let (tx, mut rx) = mpsc::channel::<Bytes>(WINDOW);
     let in_flight = Arc::new(InFlight::default());
@@ -108,7 +114,11 @@ pub(super) fn spawn(
     tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
             let reply = handle(&hub, origin, auth, frame).await;
-            let answered = out.send(reply.to_value().to_string()).await.is_ok();
+            let out = match replies.wait_for(Option::is_some).await {
+                Ok(out) => out.as_ref().and_then(Weak::upgrade),
+                Err(_) => None,
+            };
+            let answered = out.is_some_and(|out| out.push(reply.to_value().to_string()));
             counted.done();
             if !answered {
                 break;

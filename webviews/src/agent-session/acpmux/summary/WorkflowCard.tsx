@@ -17,6 +17,8 @@ import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./
 import "./WorkflowCard.css";
 import "./workflowDots.css";
 import { opener, sideTabOpener, listeners } from "./workflowCardModel";
+import { Clock } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -49,7 +51,7 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
 };
 const ROW_ICON = rowIconSize(12);
 const compactTokens = (value: number) =>
-  new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 export function WorkflowCard({
   node,
   presentation = "selected",
@@ -112,7 +114,7 @@ export function WorkflowCard({
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
           )}
           {countText && <span>{countText}</span>}
-          <span>{formatDuration(elapsed)}</span>
+          <Clock text={formatDuration(elapsed)} />
           {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
         </span>
         {presentation === "compact" ? (

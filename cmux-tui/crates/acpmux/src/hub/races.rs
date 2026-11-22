@@ -2,76 +2,9 @@
 //! durable before starts; only this race's children are closed. Loser worktrees remain
 //! recoverable through the existing retention system. No repository path is force-deleted.
 use super::*;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Target {
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Candidate {
-    pub id: String,
-    pub target: Target,
-    pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<PathBuf>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reply: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Race {
-    pub id: String,
-    pub parent: String,
-    pub prompt: String,
-    pub state: String,
-    pub candidates: Vec<Candidate>,
-    pub reviewer: Target,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviewer_session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviewer_turn_id: Option<String>,
-    pub winner_id: Option<String>,
-    pub reason: Option<String>,
-    pub created_at: u64,
-    pub updated_at: u64,
-    /// A persisted origin restriction: resumption must not turn a Web request into a local one.
-    #[serde(default)]
-    pub local: bool,
-    /// Worktree authorization from the owning person, persisted for race recovery.
-    /// This is derived by the server from connection proof, never a request body field.
-    #[serde(default)]
-    pub owner_authorized: bool,
-    /// Cleanup remains retryable after a crash until every owned child is stopped.
-    #[serde(default)]
-    pub cleanup_pending: bool,
-    /// The reviewer session remains in the record for attribution after it is stopped.
-    #[serde(default)]
-    pub reviewer_cleanup_done: bool,
-}
-
-impl Race {
-    fn active(&self) -> bool {
-        matches!(self.state.as_str(), "running" | "reviewing")
-    }
-}
+pub use crate::race_records::{Candidate, Race, Target};
 
 impl Hub {
     pub fn race_get(&self, parent: &Session, id: &str) -> Result<Race, RpcError> {
@@ -246,7 +179,22 @@ impl Hub {
                 hub.wait_logs().await;
                 let _ = hub.adoption_ready.subscribe().wait_for(|ready| *ready).await;
             }
-            if let Err(error) = hub.run_race(&parent, &id, recover).await {
+            let mut result = hub.run_race(&parent, &id, recover).await;
+            // A failed race settles at once. One whose cleanup failed after its verdict or
+            // cancel was saved stays `reviewing` or `cancelled` with cleanup pending, which
+            // `fail_race` never moves: retry that cleanup a few times instead of leaving it to
+            // the next restart.
+            for delay in CLEANUP_RETRY_DELAYS {
+                // Checked after a success too: a cancel that came while the verdict's cleanup
+                // ran, and failed, leaves its own cleanup pending under an `Ok`.
+                let pending = hub.race_get(&parent, &id).is_ok_and(|r| cleanup_unfinished(&r));
+                if !pending {
+                    break;
+                }
+                tokio::time::sleep(*delay).await;
+                result = hub.run_race(&parent, &id, true).await;
+            }
+            if let Err(error) = result {
                 let _ = hub.race_update(&parent, &id, |r| {
                     fail_race(r, &error.message);
                 });
@@ -628,7 +576,7 @@ impl Hub {
             return Err(RpcError::internal("race cleanup has no persisted winner"));
         };
         if race.state == "cancelled" {
-            return Ok(());
+            return self.finish_cancel(parent, id).await;
         }
         if race.state != "reviewing" || !race.cleanup_pending {
             return Ok(());
@@ -660,6 +608,21 @@ impl Hub {
         }
         let reason = race.reason.clone().unwrap_or_default();
         self.race_progress(parent, id, |r| complete_race(r, &winner, &reason))?;
+        // A cancel that came meanwhile wins (`complete_race` leaves it), and its cleanup is
+        // this one's to finish when its own call failed.
+        self.finish_cancel(parent, id).await
+    }
+
+    /// Finishes a cancelled race's pending cleanup (`race_cancel` again); nothing otherwise.
+    async fn finish_cancel(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        id: &str,
+    ) -> Result<(), RpcError> {
+        let race = self.race_get(parent, id)?;
+        if race.state == "cancelled" && race.cleanup_pending {
+            self.race_cancel(parent, id).await?;
+        }
         Ok(())
     }
 
@@ -716,6 +679,20 @@ fn fail_race(race: &mut Race, error: &str) {
     }
     race.state = "failed".into();
     race.reason = Some(crate::secret_scan::mask(error));
+}
+
+/// The waits before each retry of a race's failed cleanup (`spawn_race`); past the last, the
+/// next restart retries it (`race_needs_resume`).
+const CLEANUP_RETRY_DELAYS: &[std::time::Duration] = &[
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+    std::time::Duration::from_secs(120),
+];
+
+/// A saved verdict or cancel whose children are not all stopped yet: `run_race` finishes it.
+fn cleanup_unfinished(race: &Race) -> bool {
+    race.cleanup_pending
+        && ((race.state == "reviewing" && race.winner_id.is_some()) || race.state == "cancelled")
 }
 
 fn race_needs_resume(race: &Race) -> bool {

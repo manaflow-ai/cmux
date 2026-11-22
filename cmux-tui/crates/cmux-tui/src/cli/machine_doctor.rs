@@ -213,7 +213,7 @@ pub(super) fn remote_steps(
                 }
                 Err(error) => {
                     let why = match error {
-                        CallError::Status { status, code } => {
+                        CallError::Status { status, code, .. } => {
                             format!("{status} {code}").trim_end().to_owned()
                         }
                         CallError::Unreachable(_) => "no answer".to_owned(),

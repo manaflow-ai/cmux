@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -30,9 +31,9 @@ import Testing
         // The stable channel never recorded one; the person used nightly.
         let names = ["stable", "nightly", "next"].map { "cn-classic-shortcuts-\($0)-\(UUID().uuidString)" }
         defer { names.forEach(UserDefaults().removePersistentDomain(forName:)) }
-        let stable = try #require(UserDefaults(suiteName: names[0]))
-        let nightly = try #require(UserDefaults(suiteName: names[1]))
-        let next = try #require(UserDefaults(suiteName: names[2]))
+        let stable = try #require(UserDefaults(testSuiteName: names[0]))
+        let nightly = try #require(UserDefaults(testSuiteName: names[1]))
+        let next = try #require(UserDefaults(testSuiteName: names[2]))
         nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
         // Ctrl-Opt-Cmd-H is Previous Space in next, so a free hyper key stands in for a recorded one.
         nightly.set(try Self.stored("y", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
@@ -47,7 +48,7 @@ import Testing
         nightly.set(try Self.stored(",", command: true), forKey: "shortcut.toggleFullScreen")
 
         let defaults = ActionRegistry.standard()
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
         await settings.reload()

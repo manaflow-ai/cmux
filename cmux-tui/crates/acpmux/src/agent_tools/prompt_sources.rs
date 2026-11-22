@@ -1,7 +1,7 @@
 //! Canonical cmux MCP instruction bytes and compact launch-source inventory.
 //! Full tool schemas and skill bodies stay out of persisted session metadata.
 
-use super::{ASKING_RULE, AgentTools, CUA_RULES, MCP_TOOLS_ENV, PLUGIN_NAME, SKILL_FILES};
+use super::{ASKING_RULE, AgentTools, MCP_TOOLS_ENV, PLUGIN_NAME, SKILL_FILES};
 use crate::context_inventory::{ContextPart, estimated_tokens};
 
 pub const BASE_INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
@@ -19,14 +19,14 @@ pub const BASE_INSTRUCTIONS: &str = "These tools drive the cmux terminal app and
     In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
     path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
-pub const CODE_MODE_INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
+/// It does not open with "This chat runs in cmux": `cmux_exec`'s description, always loaded,
+/// says that once.
+pub const CODE_MODE_INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+    description lists the common ones and what \"a terminal\" or \"this workspace\" means here. Selectors take a public id (ws_…, pane_…, tab_…, \
     term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
     also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
+    other cmux servers (cu_*: cmux Computer Use, built in, nothing to \
+    install, prefer it over other computer-use drivers; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
     rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
     in_progress, retry with the key from the error; another server's call that fails \
     in_progress has no key and may have run, so check its effect first. Tools never move the \
@@ -52,7 +52,7 @@ fn source(id: String, kind: &str, label: String, channel: &str) -> ContextPart {
 fn with_text(mut part: ContextPart, text: &str, included: bool) -> ContextPart {
     part.tokens = estimated_tokens(text);
     part.source_bytes = Some(text.len() as u64);
-    part.text = Some(text.to_owned());
+    part.text = Some(text.into());
     part.measurement = "estimated".into();
     part.included = included;
     part
@@ -103,23 +103,24 @@ impl AgentTools {
                 "mcp-tools",
             ));
         }
-        // Only the legacy CUA server folded behind cmux gets this prefix.
-        // Code mode reveals it via docs; tool listing may defer it via tool search.
-        // Its multiplicity/load status is not known, so it is excluded from totals.
+        // The Computer Use server's instructions go with its tools folded behind
+        // cmux. Code mode reveals them via docs; tool listing may defer them via
+        // tool search. Their load status is not known, so they are excluded from totals.
         if cmux.is_some()
-            && self.servers.iter().any(|server| {
-                server.name == "cmux-cua"
-                    && !server.env.iter().any(|(key, _)| key == crate::cua_v2::ENDPOINT_DIR_ENV)
-            })
+            && self
+                .servers
+                .iter()
+                .any(|server| server.name == crate::computer_use::mcp::SERVER_NAME)
         {
             parts.push(with_text(
                 source(
-                    "cua-rule".into(),
+                    "computer-use-rule".into(),
                     "mcp-instructions",
-                    "Computer use rule fragment (agent_tools::CUA_RULES; loaded on demand)".into(),
+                    "Computer Use instructions (cmux_computer_use::tools::INSTRUCTIONS; loaded on demand)"
+                        .into(),
                     "mcp-tool-description",
                 ),
-                CUA_RULES,
+                crate::computer_use::tools::INSTRUCTIONS,
                 false,
             ));
         }
@@ -146,6 +147,9 @@ impl AgentTools {
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
+                if !self.lists_skill(name) {
+                    continue;
+                }
                 // Store only the exact name/description frontmatter. The harness
                 // supplies its own catalog wrapper, hence this is an estimate.
                 let Some(frontmatter) =
@@ -184,7 +188,7 @@ mod tests {
 
     fn tools() -> AgentTools {
         AgentTools {
-            servers: ["cmux", "cmux-cua"]
+            servers: ["cmux", crate::computer_use::mcp::SERVER_NAME]
                 .into_iter()
                 .map(|name| McpServer {
                     name: name.into(),
@@ -194,8 +198,11 @@ mod tests {
                 })
                 .collect(),
             plugin_dir: Some("/private/plugin".into()),
+            cmux_for_agents: true,
             user_plugin_dir: None,
             displays: None,
+            project_servers: Default::default(),
+            http: Default::default(),
         }
     }
 
@@ -223,23 +230,22 @@ mod tests {
         let mut allowed = tools();
         allowed.servers[0].env.push((MCP_TOOLS_ENV.into(), "agents_snapshot".into()));
         let base = allowed.context_parts(false).remove(0);
-        assert_eq!(base.text, Some(format!("{BASE_INSTRUCTIONS} {ASKING_RULE}")));
+        let expected = format!("{BASE_INSTRUCTIONS} {ASKING_RULE}");
+        assert_eq!(base.text.as_deref(), Some(expected.as_str()));
         assert!(base.label.contains("filtered tool listing"));
     }
 
     #[test]
-    fn context_sources_respect_scope_disabled_servers_and_cua_version() {
+    fn context_sources_respect_scope_and_disabled_servers() {
+        let rule = "cmux-source-computer-use-rule";
         let scoped = tools().scoped(&BTreeMap::from([(SERVERS_ENV.into(), "cmux".into())]));
-        assert!(!scoped.context_parts(false).iter().any(|p| p.id == "cmux-source-cua-rule"));
+        assert!(!scoped.context_parts(false).iter().any(|p| p.id == rule));
         let off = tools().without_off(&BTreeMap::from([(OFF_ENV.into(), "cmux".into())]));
         assert!(!off.context_parts(false).iter().any(|p| p.id == "cmux-source-mcp-base"));
-        assert!(!off.context_parts(false).iter().any(|p| p.id == "cmux-source-cua-rule"));
-        let mut bridge = tools();
-        bridge.servers[1].env.push((crate::cua_v2::ENDPOINT_DIR_ENV.into(), "/endpoint".into()));
-        assert!(!bridge.context_parts(false).iter().any(|p| p.id == "cmux-source-cua-rule"));
+        assert!(!off.context_parts(false).iter().any(|p| p.id == rule));
         let cue = tools().context_parts(false);
-        let cue = cue.iter().find(|p| p.id == "cmux-source-cua-rule").unwrap();
-        assert_eq!(cue.text.as_deref(), Some(CUA_RULES));
+        let cue = cue.iter().find(|p| p.id == rule).unwrap();
+        assert_eq!(cue.text.as_deref(), Some(crate::computer_use::tools::INSTRUCTIONS));
         assert!(!cue.included); // The runtime decides whether this fragment is loaded.
     }
 
@@ -248,7 +254,13 @@ mod tests {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
         let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
-        assert_eq!(skills.len(), compiled);
+        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`).
+        assert_eq!(skills.len(), compiled - 1);
+        assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-sudo")), "{skills:?}");
+        assert!(
+            skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-computer-use")),
+            "{skills:?}"
+        );
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");
         for skill in &skills {
             let text = skill.text.as_deref().unwrap();
@@ -285,7 +297,7 @@ mod tests {
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
         let after = inspectable(&meta);
         // The skill descriptions plus the two rule fragments (asking, computer use).
-        assert_eq!((before, after), (0, compiled + 2));
+        assert_eq!((before, after), (0, skills.len() + 2));
         println!(
             "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),

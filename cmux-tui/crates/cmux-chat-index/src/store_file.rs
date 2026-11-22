@@ -21,11 +21,17 @@ pub(crate) fn read_json_bounded<T: DeserializeOwned>(path: &Path, max: u64) -> O
     read_json(path)
 }
 
-pub(crate) fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+pub fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+    let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
+    write_private(path, &bytes)
+}
+
+/// [`write_json_private`] for bytes already encoded: the shape of every write the index makes,
+/// which a caller with its own way to write ([`crate::ChatIndex::save_with`]) takes as its writer.
+pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         owner_only_dir(dir)?;
     }
-    let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     // A file a crashed process left under a reused pid keeps its mode: start anew.
     let _ = fs::remove_file(&tmp);
@@ -37,7 +43,7 @@ pub(crate) fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Re
         options.mode(0o600);
     }
     let mut file = options.open(&tmp)?;
-    file.write_all(&bytes)?;
+    file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
     fs::rename(&tmp, path)

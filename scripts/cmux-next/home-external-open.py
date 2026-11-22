@@ -21,6 +21,8 @@ NX_ARTIFACTS. `--socket PATH` checks an app already running (started with Launch
 `capture-host launch` or `open -g -n` does) instead, and leaves it running.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 ATTACH = sys.argv[2] if len(sys.argv) == 3 and sys.argv[1] == "--socket" else None
 APP, TAG = (None, None) if ATTACH else (os.environ["NX_APP"], os.environ["NX_APP_TAG"])
@@ -137,7 +139,7 @@ def stop(app):
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print("app pid %d did not quit within 60 s" % app.pid, flush=True)
+        safe_print("app pid %d did not quit within 60 s" % app.pid, flush=True)
     rpc("action.run", {"id": "endAgents"}, timeout=10)
     acpmux = os.path.join(APP, "Contents/Resources/bin/acpmux")
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):

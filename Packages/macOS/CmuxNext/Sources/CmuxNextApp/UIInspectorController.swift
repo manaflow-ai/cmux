@@ -148,7 +148,7 @@ final class UIInspectorController {
 
     private func pageReport(_ value: JSONValue, from page: AgentPaneView?) {
         guard isPicking, let page, page === activePage else { return }
-        guard let object = value.foundationObject as? [String: Any] else { return }
+        guard let object = value.foundationObject as? [String: Any], object["cancelled"] as? Bool != true else { stop(); return }
         let action = pendingAction
         pendingAction = .send
         selectionGeneration &+= 1

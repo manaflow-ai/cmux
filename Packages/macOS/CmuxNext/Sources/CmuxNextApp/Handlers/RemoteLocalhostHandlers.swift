@@ -1,7 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextRemoteView
 import CmuxNextRemoteLocalhostService
-
 /// Set Workspace Localhost (`ActionRegistry.setWorkspaceLocalhost`): the App resolves the
 /// workspace and shows the approval sheet.
 enum RemoteLocalhostHandlers {
@@ -21,21 +21,22 @@ enum RemoteLocalhostHandlers {
         })
     }
 }
-
 extension MachineRegistry: RemoteLocalhostMachines {
     /// The remote localhost service of these machines (`AppServices.remoteLocalhost`).
     func makeRemoteLocalhost() -> RemoteLocalhostService {
         RemoteLocalhostService(machines: self)
     }
-
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
     }
 
-    func cloudMachineBadge(machine machineID: String) -> String? {
-        cloudSession(machineID)?.machine.title
+    func cloudMachineBadge(machine machineID: String) -> String? { cloudSession(machineID)?.machine.title }
+    func cloudMachineConnectionTarget(machine machineID: String, requiresConfirmation: Bool = true) -> RemoteConnectionTarget? {
+        guard let machine = cloudSession(machineID)?.machine else { return nil }
+        // No human name (a start-chat `chat-<hex>`, or only the id): empty, and the card says "Cloud machine".
+        return .desktop(name: machine.facts.humanName ?? "", status: machine.shownStatus.rawValue.capitalized, region: machine.region,
+                        requiresConfirmation: requiresConfirmation, isLive: machine.shownStatus.isLive)
     }
-
     /// Open Desktop's URL carries the id lowercased (a DNS label).
     private func cloudSession(_ machineID: String) -> CloudMachineSession? {
         session(machineID) ?? cloud.first { $0.machineID.lowercased() == machineID.lowercased() }

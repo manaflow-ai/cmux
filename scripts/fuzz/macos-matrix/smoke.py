@@ -6,7 +6,7 @@ fuzz.py, and it reuses fuzz.py's guest connection: every app call goes through t
 bundled `cmux app call` over SSH, every screenshot is a VNC frame of the guest display. The
 guest needs no python3 and no Accessibility grant.
 
-The first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
+Onboarding is off by default (2026-11-09); with CMUX_NEXT_ONBOARDING=1 the first run shows its steps one at a time (#37241): the "Sign In to Your Agents" tool window when
 the acpmux harness read lists an agent, then, once that window closed, the Bring your history page
 over the main window. The smoke goes through them first, right after the window step, as a person
 does before using the app: it closes the Agents window through its close button (debug.onboarding
@@ -20,7 +20,9 @@ closes a tool window that holds the key window, and waits for the main window to
 Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   launch     the app starts and answers a ping
   window     a main window exists (debug.windows)
-  terminal   a New Tab opens a live terminal (debug.surfaces)
+  terminal   a New Tab opens a live terminal (debug.surfaces). A script's New Tab stays a sidebar row while
+             Home's message box has the keyboard (#31865): the smoke then shows it (workspace.selectLast)
+             and says so in result.json, home_text_input_had_keys
   echo       keys typed into it (debug.key) run `echo cmux-matrix-$((6*7))` in the shell and
              the terminal shows the output line cmux-matrix-42 (debug.surfaces text)
   split      Split Right makes a second pane (debug.focus topology)
@@ -184,6 +186,29 @@ class Smoke:
         window = next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
         return len(window.get("topology") or [])
 
+    def key_focus(self) -> dict:
+        """The key window's entry of debug.focus (else the first window's): shown workspace, first responder."""
+        windows = self.call("debug.focus").get("windows") or []
+        return next((w for w in windows if w.get("is_key")), windows[0] if windows else {})
+
+    def show_made_workspace(self, opened: dict) -> None:
+        """A script's newTab with focus is listed, not shown, while a text input has the person's keyboard
+        (AppActions+Workspaces.swift newWorkspace, #31865; HomePendingTerminalFocusTests). A fresh Home's
+        message box has the keyboard from launch, so in the VM the new workspace stays a sidebar row.
+        Then the smoke shows it as a script may, and records why in result.json; a workspace shown at
+        once runs no extra step. No app action shows a workspace by its id from a script (the daemon's
+        workspace.focus does not move a window's selection), so it is workspace.selectLast: on a fresh
+        run the made workspace is the only workspace row (Home is the sidebar's Home item, not a row)."""
+        made = next((c for c in opened.get("created") or [] if str(c).startswith("ws_")), None)
+        if made is None or self.wait(lambda: self.key_focus().get("workspace") == made, 5):
+            return
+        focus = self.key_focus()
+        record = {"workspace": made, "shown_instead": focus.get("workspace"),
+                  "first_responder": (focus.get("appkit") or {}).get("first_responder"), "is_key": focus.get("is_key")}
+        record["select"] = self.call("action.run", {"action": "workspace.selectLast", "focus": True})
+        record["shown_after_select"] = bool(self.wait(lambda: self.key_focus().get("workspace") == made, 30))
+        self.result["home_text_input_had_keys"] = record
+
     def engines(self) -> list[str]:
         """Engines of the pages shown in the app's panes (debug.layers): "cef" or "webkit"."""
         return [b.get("engine") for w in self.call("debug.layers").get("windows") or []
@@ -206,13 +231,23 @@ class Smoke:
         if "error" in self.call("system.identify"):
             self.step("debug_build", False, "the app refused `cmux app call`: the smoke needs a DEV build")
             return
+        # A plain Release build (reload.sh --release of a tag that is not in release_bench_tags of
+        # scripts/cmux-next/cmux-next.dogfood.conf) answers system.identify but has no debug.* methods,
+        # so every read below is empty: say that, instead of "window FAIL {windows: 0}".
+        probe = str(self.call("debug.windows").get("error", ""))
+        if "method_not_found" in probe or "Unknown method debug.windows" in probe:
+            self.step("debug_build", False, "the app has no debug.* methods (a plain Release build): the smoke needs "
+                      "a Debug build or a bench Release (a release_bench_tags tag, e.g. chrome-parity-*)")
+            return
         windows = self.wait(self.windows, 30)
         if not self.step("window", bool(windows), {"windows": len(windows or [])}):
             return
-        self.result["first_run"] = self.first_run()
+        # Onboarding is off unless the app runs with CMUX_NEXT_ONBOARDING=1 (2026-11-09): no step to wait for.
+        self.result["first_run"] = self.first_run() if os.environ.get("CMUX_NEXT_ONBOARDING") == "1" else {"skipped": "onboarding off"}
 
         before = self.terminals()
         opened = self.call("action.run", {"action": "newTab", "focus": True, "wait": True})
+        self.show_made_workspace(opened)
         grown = self.wait(lambda: self.terminals() > before, STEP_DEADLINE)
         self.step("terminal", bool(grown) and "error" not in opened, {"run": opened, "before": before})
 

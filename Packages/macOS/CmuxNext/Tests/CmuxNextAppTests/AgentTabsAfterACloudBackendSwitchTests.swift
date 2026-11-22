@@ -27,7 +27,7 @@ import Testing
         return CloudConfiguration.from(selection: selection, bundleID: bundle, bundled: [:], process: [:], isDebugBuild: true)
     }
 
-    /// The build's Cloud folder (`~/Library/Application Support/cmux/<bundle>/cloud-next`) holding
+    /// The build's Cloud folder (`~/Library/Application Support/cmux-next/<bundle>/cloud-next`) holding
     /// the `device-id` its launches before #35284 wrote, under a bundle id of this test's own.
     private static func buildFolder() throws -> (bundle: String, folder: URL) {
         let bundle = "com.cmuxterm.app.debug.next.chatmachine\(UUID().uuidString.prefix(8).lowercased())"
