@@ -620,7 +620,9 @@ struct ChatComposer: View {
     /// The cmux commands first, then the agent's, an agent command named as a cmux one left
     /// out (the Mac's `mergedCommands`: cmux's runs).
     private var commands: [ACPAvailableCommand] {
-        CmuxSlashCommand.merged(cmuxCommands, agent: store.availableCommands)
+        let own = cmuxCommands.map { ACPAvailableCommand(name: $0.name, description: $0.summary, hint: $0.hint) }
+        let names = Set(cmuxCommands.map(\.name))
+        return own + store.availableCommands.filter { !names.contains($0.name.lowercased()) }
     }
 
     private var slashMatches: [ACPAvailableCommand] {

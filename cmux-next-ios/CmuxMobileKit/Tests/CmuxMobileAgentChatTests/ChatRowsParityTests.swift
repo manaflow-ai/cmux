@@ -35,21 +35,6 @@ import Testing
         #expect(CmuxSlashCommand.parse("/compact") == nil, "the agent's own commands go to it as typed")
     }
 
-    @Test func helpListsTheSlashListsCommandsAndSearches() {
-        #expect(CmuxSlashCommand.parse("/help")?.command == .help)
-        #expect(CmuxSlashCommand.help.refusal(args: "", canFork: false, isRunning: true, targets: nil) == nil)
-        let agent = [
-            ACPAvailableCommand(name: "review", description: "Review a pull request"),
-            ACPAvailableCommand(name: "status", description: "The agent's own status"),
-        ]
-        let merged = CmuxSlashCommand.merged([.status, .help], agent: agent)
-        #expect(merged.map(\.name) == ["status", "help", "review"], "cmux's first; an agent command named as one of them left out")
-        #expect(CmuxSlashCommand.helpRows(merged, query: "").map(\.name) == ["status", "review"], "/help leaves itself out")
-        #expect(CmuxSlashCommand.helpRows(merged, query: "PULL").map(\.name) == ["review"])
-        #expect(CmuxSlashCommand.helpRows(merged, query: "/rev request").map(\.name) == ["review"])
-        #expect(CmuxSlashCommand.helpRows(merged, query: "pull status").isEmpty, "every word must match")
-    }
-
     @Test func slashCommandRefusalsUseTheMacWording() {
         #expect(CmuxSlashCommand.fork.refusal(args: "x", canFork: true, isRunning: false, targets: nil) == "/fork does not take arguments")
         #expect(CmuxSlashCommand.fork.refusal(args: "", canFork: false, isRunning: false, targets: nil) == "Fork is unavailable for this chat right now")

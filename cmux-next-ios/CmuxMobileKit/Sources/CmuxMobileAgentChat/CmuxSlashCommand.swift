@@ -3,15 +3,13 @@ import Foundation
 /// The cmux commands the Mac's composer offers in every harness chat (webviews
 /// acpmux/cmuxCommands.ts) that the phone runs with lines it already has:
 /// `/status` (the session's status), `/fork` (Fork Conversation to New Tab) and
-/// `/continue [harness]` (Continue in another agent), and `/help` (every command in one
-/// searchable sheet). `/btw` is left out: acpmux opens a
+/// `/continue [harness]` (Continue in another agent). `/btw` is left out: acpmux opens a
 /// side chat only for the Mac's own app (`btw.remote`). `/import`, `/cd`, `/resume`,
 /// `/login`, `/side` and the pass-through ones need the Mac's app.
 public enum CmuxSlashCommand: String, CaseIterable, Hashable, Sendable, Identifiable {
     case status
     case fork
     case `continue`
-    case help
 
     public var id: String { rawValue }
     public var name: String { rawValue }
@@ -22,7 +20,6 @@ public enum CmuxSlashCommand: String, CaseIterable, Hashable, Sendable, Identifi
         case .status: String(localized: "Show the effective harness session status.")
         case .fork: String(localized: "Fork this chat into a new chat tab")
         case .continue: String(localized: "Continue in another harness")
-        case .help: String(localized: "Show every command and skill")
         }
     }
 
@@ -47,7 +44,7 @@ public enum CmuxSlashCommand: String, CaseIterable, Hashable, Sendable, Identifi
     /// the harnesses it can continue in, when known.
     public func refusal(args: String, canFork: Bool, isRunning: Bool, targets: [AgentHandoffTarget]?) -> String? {
         switch self {
-        case .status, .help:
+        case .status:
             return nil
         case .fork:
             if !args.isEmpty { return String(localized: "/fork does not take arguments") }
@@ -58,28 +55,6 @@ public enum CmuxSlashCommand: String, CaseIterable, Hashable, Sendable, Identifi
                 return String(localized: "No matching harness for /continue")
             }
             return nil
-        }
-    }
-
-    /// The `/` list's commands: these first, then the agent's, an agent command named as one of
-    /// these left out (the Mac's `mergedCommands`: cmux's runs). The composer's list and
-    /// `/help`'s sheet both read it, so they never disagree.
-    public static func merged(_ own: [CmuxSlashCommand], agent: [ACPAvailableCommand]) -> [ACPAvailableCommand] {
-        let names = Set(own.map(\.name))
-        return own.map { ACPAvailableCommand(name: $0.name, description: $0.summary, hint: $0.hint) }
-            + agent.filter { !names.contains($0.name.lowercased()) }
-    }
-
-    /// `/help`'s rows: the merged commands but `/help`, those with every word of `query` in the
-    /// name, argument or description (case-insensitive; a leading `/` is ignored), as the Mac's
-    /// `searchHelp`.
-    public static func helpRows(_ commands: [ACPAvailableCommand], query: String) -> [ACPAvailableCommand] {
-        let words = query.lowercased().split(whereSeparator: \.isWhitespace)
-            .map { String($0.drop { $0 == "/" }) }.filter { !$0.isEmpty }
-        return commands.filter { command in
-            guard command.name != help.name else { return false }
-            let text = "\(command.name) \(command.hint ?? "") \(command.description)".lowercased()
-            return words.allSatisfy { text.contains($0) }
         }
     }
 
