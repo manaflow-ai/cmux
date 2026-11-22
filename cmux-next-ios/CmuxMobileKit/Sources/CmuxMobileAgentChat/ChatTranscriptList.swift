@@ -3,6 +3,7 @@ import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxMobileTransport
 import Observation
 import OSLog
 import SwiftUI
@@ -555,6 +556,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     }
     /// Rows that arrived live (after the replayed history): they fade in when first shown.
     private var fadeIn: Set<String> = []
+    /// The kill switch's answer changed (`MobilePieces.didChangeNotification`).
+    private var piecesObserver: (any NSObjectProtocol)?
     /// Older turns that came in above the rows shown and were weighed for holding (`reload`):
     /// each is held out at most once, until its native rows are laid out.
     private var heldOnce: Set<String> = []
@@ -611,11 +614,23 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             self?.environmentChanged()
         }
         MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
+        // The `markdown-web` piece decides which rows go to the web renderer (math), so every
+        // layout made under the old answer is made again under the new one.
+        piecesObserver = NotificationCenter.default.addObserver(forName: MobilePieces.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.layout.forgetHeights()
+                self?.environmentChanged(relayOut: true)
+            }
+        }
         // This list keeps the store's window while it shows it (`spillIfResting`); the store
         // keeps it on its own once the list goes (`AgentChatStore.boundsMemoryOffScreen`).
         store.shown(by: self)
         observe()
         reload()
+    }
+
+    isolated deinit {
+        if let piecesObserver { NotificationCenter.default.removeObserver(piecesObserver) }
     }
 
     /// The tab's session was replaced: show the new store's turns.
@@ -752,17 +767,24 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         environmentChanged()
     }
 
-    private func environmentChanged() {
+    /// `relayOut`: lay the rows out again even in the same environment (the kill switch's
+    /// `markdown-web` answer changed, which the layouts read but the environment does not hold).
+    private func environmentChanged(relayOut: Bool = false) {
         let width = layout.columnWidth - 40
         guard width > 0 else { return }
         let environment = ChatNativeEnvironment(width: width, category: collectionView.traitCollection.preferredContentSizeCategory,
                                                 wrapCode: CmuxMobilePreferences.wrapCode())
-        guard environment != lookup.layouts.environment else { return }
+        guard relayOut || environment != lookup.layouts.environment else { return }
         // Native rows are laid out again for the new environment. Chosen before it is installed
         // (at an accessibility size no row is native any more), and with the rows whose cell type
         // the new environment changes (native to SwiftUI and back), which `reload` reloads.
         let wereNative = shownIDs.filter { lookup.isNativeCandidate($0) }
-        lookup.layouts.environment = environment
+        if environment == lookup.layouts.environment {
+            // Every layout and every batch still out is dropped, as for a new environment.
+            lookup.layouts.reset()
+        } else {
+            lookup.layouts.environment = environment
+        }
         shownTurns = [:]
         forced.formUnion(wereNative)
         forced.formUnion(lookup.shownNative.compactMap { id, native in native != lookup.isNativeCandidate(id) ? id : nil })

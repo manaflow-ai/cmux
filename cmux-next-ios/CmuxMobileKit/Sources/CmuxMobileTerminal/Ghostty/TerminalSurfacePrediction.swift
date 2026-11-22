@@ -105,7 +105,8 @@ final class TerminalSurfacePrediction {
         overlay.hide()
     }
 
-    /// Settings → Terminal → Predictive echo.
+    /// Settings → Terminal → Predictive echo, or the `terminal-predictive-echo` piece
+    /// (`MobilePieces.didChangeNotification`).
     func applySetting() {
         let on = Self.wanted
         guard on != enabled else { return }

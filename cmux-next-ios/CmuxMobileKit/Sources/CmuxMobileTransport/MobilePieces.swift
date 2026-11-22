@@ -16,7 +16,8 @@ import CmuxMobileLinkFFI
 /// The first question a launch asks (`isOff`) reads the last file taken from the disk, so a
 /// piece switched off stays off before it first shows. A check after launch (`check`) holds
 /// its answer until `applyChecked`, which the shell calls as the app leaves or enters the
-/// foreground, never in the middle of drawing a screen.
+/// foreground, never in the middle of drawing a screen; a change is posted
+/// (`didChangeNotification`) so open screens follow it.
 public final class MobilePieces: Sendable {
     /// A piece the file can switch off. The names are Rust's (`cmux_web_pieces::phone::PIECES`).
     public enum Piece: String, Sendable, CaseIterable {
@@ -81,10 +82,15 @@ public final class MobilePieces: Sendable {
     }
 
     /// What the app holds now.
+    ///
+    /// The first read loads the disk through Rust outside the lock, so no other thread waits
+    /// on file I/O. Two first reads may both load; the first answer stored stays, and an
+    /// answer applied while a load was out (`applyChecked`) is never replaced by the load.
     public var applied: Reading {
-        state.withLock { state in
+        if let applied = state.withLock({ $0.applied }) { return applied }
+        let loaded = core.load()
+        return state.withLock { state in
             if let applied = state.applied { return applied }
-            let loaded = core.load()
             state.applied = loaded
             return loaded
         }
@@ -99,16 +105,24 @@ public final class MobilePieces: Sendable {
         state.withLock { $0.checked = checked }
     }
 
-    /// Makes the last check's answer the one `isOff` gives. Returns whether anything changed.
+    /// Posted (object: the `MobilePieces`) when `applyChecked` changes which pieces are off.
+    /// Open screens that read a piece once follow it here: a terminal's predictive echo and
+    /// its Agent CLI Screen Changes, and the chat's native row layouts.
+    public static let didChangeNotification = Notification.Name("cmux.mobilePieces.didChange")
+
+    /// Makes the last check's answer the one `isOff` gives. Returns whether anything changed,
+    /// and when it did posts `didChangeNotification` (after the lock is let go).
     @discardableResult
     public func applyChecked() -> Bool {
-        state.withLock { state in
+        let changed = state.withLock { state in
             guard let checked = state.checked else { return false }
             state.checked = nil
             let changed = state.applied?.off != checked.off
             state.applied = checked
             return changed
         }
+        if changed { NotificationCenter.default.post(name: Self.didChangeNotification, object: self) }
+        return changed
     }
 }
 
