@@ -288,6 +288,7 @@ export const TOKEN_ONLY_FILES: readonly string[] = [
   "agent-session/acpmux/conversation/unread.css",
   "agent-session/acpmux/conversation/SinceDivider.tsx",
   "agent-session/acpmux/jumpPair.css",
+  "agent-session/acpmux/jumpPlace.css",
   // The public kit (kit/index.ts): what customization pages, plugins and web pages compose.
   "kit/kit.css",
   "kit/Row.tsx",
