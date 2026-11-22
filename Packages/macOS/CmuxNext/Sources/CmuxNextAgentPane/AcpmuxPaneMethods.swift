@@ -46,10 +46,6 @@ nonisolated enum AcpmuxPaneMethods {
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
-        // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`; acpmux catalog/mod.rs):
-        // the public model list acpmux bundles and fetches, read and refreshed with no params. Refused, the
-        // picker never learns a model the feed lists (ef3e54313f7).
-        "catalog.get", "catalog.refresh",
         // The model picker's catalog (direct.ts modelCatalog, App.tsx `models.catalog`): acpmux's
         // public model list, and its Refresh, which fetches the same feeds acpmux reads on its own.
         // Neither grants anything. Left off this list, every pane's picker was refused at each open.

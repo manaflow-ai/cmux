@@ -120,9 +120,6 @@ nonisolated extension AcpmuxPaneMethods {
         // Only the live-tree read: `waitLogs: false` answers from the session list at once.
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
-        // The model picker's catalog read and refresh (direct.ts modelCatalog): no params.
-        "catalog.get": ([], []),
-        "catalog.refresh": ([], []),
         "_acpmux/peers": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
