@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// The split layout of a workspace's shown screen, for the hover card's miniature (``WorkspacePaneShapeView``):
 /// each pane at its real share of the screen, its front tab's kind, and which pane has focus.
