@@ -2654,6 +2654,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
 
+- 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
+  draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
+  answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
+  answers with the pinned pill (`hoverCardAnchor`), scrolling only a list row into view. Regression:
+  `PinnedRowHoverCardTests.aPinnedRowIsFoundOnScreen`.
+  Sidebar-Look: the entire pin lifecycle is weird as shit.
+
 - 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
   super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
   list into Pinned pins (the drop is the document move the palette and the API make; the reducer remembers where
