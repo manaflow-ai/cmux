@@ -80,7 +80,7 @@ function Row({
             {row.name}
           </div>
           <div className="row-help selectable">{details.join(" · ")}</div>
-          <div className="row-help selectable font-mono" title={row.file}>
+          <div className="row-help selectable font-mono" aria-description={row.file}>
             {runs(row)}
           </div>
           {row.approval === "pending" && (
@@ -127,6 +127,7 @@ function Row({
         <div
           className="accounts-form"
           data-agent-mcp-confirm=""
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a fieldset would draw its own border and inset in the settings form
           role="group"
           aria-label={t("settingsWindow.mcpServers.removeTitle", row.name)}
         >
@@ -191,6 +192,7 @@ function AddForm({
     <div
       className="accounts-form"
       data-agent-mcp-add={agent}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a fieldset would draw its own border and inset in the settings form
       role="group"
       aria-label={t("settingsWindow.agentMcp.add")}
     >
@@ -233,6 +235,7 @@ function AddForm({
       </label>
       <textarea
         id={envId}
+        aria-label={t(url ? "settingsWindow.agentMcp.headersLabel" : "settingsWindow.agentMcp.envLabel")}
         className="field font-mono"
         rows={2}
         spellCheck={false}
