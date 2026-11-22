@@ -7,7 +7,8 @@
 ///
 /// Leo, 2026-11-22: "the speed i see on restarts is terminal << chromium browser <<<<<<<< our [...] agent
 /// pane."
-public enum CEFLaunchMarks {
+public struct CEFLaunchMarks {
+    public init() {}
     public static let firstPaint = "browser_pane.first_paint"
     public static let inputReady = "browser_pane.input_ready"
 
