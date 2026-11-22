@@ -67,25 +67,65 @@ has `journal`: `readiness`, the counts of the notes of the pages' input readines
 page's script; `editing_on`, `editing_off`: the script's word that an editable element has the focus or lost it;
 `key`: a key that came to a page's document; `wait`, `wait_end`: a wait for a command's field); `first_new_tab`,
 how many times the app gave and took the page focus of the first new tab, and its engine words in their order (a
-word that the tool does not know is `other`); `page_entries`, how many entries name a page's focus for each tab
-that has one, and for the first new tab; `whole` (False: the read was cut) and `entries`. The record's `engine` is
-the last engine word (None: no entry names the tab). The app writes no such entry for a New Tab page in a WebKit
-view (only for a browser tab in a view and for a page in a Chromium child window): there `engine` None and the 2
-counts of 0 are not facts of the app. The journal changes no verdict: with no read, and with an entry of a form
-that the tool does not know, the record has `journal.not_read` with the why.
+word that the tool does not know is `other`) and `chromium_given` (the gives with the word `chromium`);
+`page_entries`, how many entries name a page's focus for each id that has one, and for the first new tab (see
+THE PAGE'S ID for the id of that tab's page); `whole` (False: the read was cut) and `entries`.
+The record's `engine` is the last engine word (None: the tool had the page's id, and no entry names it). The
+journal changes no verdict: with no read, and with an entry of a form that the tool does not know, the record has
+`journal.not_read` with the why. The journal's last number at a read is the larger of the reply's `lastSeq` and
+the largest number of its entries: the app reads the 2 one after the other, and an entry that came between them
+would be counted on both sides of a cut by `lastSeq` alone.
 
-AFTER THE SELECT. `engine` None before the select does not say which engine has the first new tab's page: a page
-in Chromium whose focus the app did not change has no entry, and a New Tab page in a WebKit view has none at all.
-So a case reads the journal ONE more time, as its LAST call: after the select, after the verdict's read of the
-field and after each read of the places (no read that a verdict or `letter_is` uses comes after it). The record's
-`journal_after_select` has the same counts as `journal`, of the entries after the journal's last number at the
-last read before the select, to the case's end (the tool's selects of the case's other tabs are in them), and
-`engine_after_select` is the last engine word of the first new tab in those entries (None: no such entry names
-the tab, or no read). The app writes an entry only at a change: a page in Chromium that had the app's page focus
-before the select can get no new entry at it (`engine` has its word then), so None in the 2 keys is not `the page
-is in a WebKit view`. A read only: it changes no verdict and no other key of the record. With no read the record
-has `journal_after_select.not_read` with the why (`no read before the select`: that read gave no last number, and
-the tool then reads no entries), and the case goes on. A case that is `not_run` before its select has no such key.
+THE PAGE'S ID. The app writes a page entry with the id of the page's own Chromium tab (FocusEffectApplier.swift
+`setPageFocus`). For a cmux page in Chromium (a New Tab page, a chat) that id is a random one, NOT the id of the
+pane's tab that the tool has; only a browser tab has the tab's id there. So by the tab's id alone the journal
+says nothing of a first new tab in Chromium: the counts would be 0. The tool gets the page's id from
+`debug.focus`: each window's `appkit.child_window_page` is the id of the Chromium page that the window gave the
+page focus to (the same id as the journal's), or null. After the tool's select the pane shows the first new tab,
+and the select gives it the keyboard: the case then reads `debug.focus` ONE time (after the verdict's read of the
+field, before the reads of the places, which select other tabs), and takes the id of the window that has the
+pane. With that id the counts of `first_new_tab` are of the entries with the page's id or the tab's id, and the
+record's `journal` and `engine` (the entries before the select, which the tool keeps in memory to this read) are
+counted again in the same way. The tool takes the id only when the window's focus model names the first new tab
+(`model.resolved_tab`): the id is then of that tab's page. The record's `shown_page_has_chromium_focus` is True
+with such an id, False when the window names no Chromium page (a page in a WebKit view, or a Chromium page that
+the app gave no page focus) or when its focus model names another tab or none, and None with no read (also a
+window with no word of its focus model's tab). With NO id
+(False or None) and no entry with the tab's id, `first_new_tab`,
+`page_entries.first_new_tab` and the engine word are the word `not readable for a cmux page in Chromium`, and
+not 0 and None. (For a cmux page in a WebKit view the app writes no page entry at all: the word is said for it
+too, and `keyboard.after_select.view` then has the class of the WebKit view.) The record keeps no id. NOT PROVED
+BY A RUN: that the window's id is the journal's id (it is so by a read of the app's code).
+`page_entries.each_tab` has the counts of each id, the raw count of the page entries: with page entries there
+and 0 for the first new tab, the match can be wrong.
+
+THE KEYBOARD'S VIEW. The record's `keyboard` says, from the `debug.focus` replies that the case reads before the
+keys (`before`), after them (`after`, the read of the hold's log) and after its select (`after_select`, the read
+of THE PAGE'S ID), for the window that has the pane of the new tabs: `view`, the class name of the window's
+first responder (None: the window has none; `other`: a text that is no class name), and `chromium_page_focus`
+(True: the window gave the page focus to a Chromium page; False: to none). A part with no window that names the
+pane, with a window that has not these 2 keys, or with a failed read, is `not_read` with the why. With a
+Chromium page's focus the view is the window itself, and the page's own window has the keys. The read `before`
+comes before the key call makes the page window the key window. These words change no verdict.
+
+AFTER THE SELECT. The entries before the select do not say what the app did at the select. So a case reads the
+journal ONE more time, as its LAST call: after the select, after the verdict's read of the field and after each
+read of the places. The record's `journal_after_select` has the same counts as `journal`, of the entries after
+the journal's last number at the last read before the select, to the case's end: the last read of the park, the
+focus of the pane, the select, and the tool's selects of the case's other tabs are in that time, so `after the
+select` names the read and not each entry. `engine_after_select` is the last engine word of the first new tab in
+those entries (None: the tool had the page's id and no such entry names it, or no read; the word `not readable
+for a cmux page in Chromium`: see THE PAGE'S ID). TO READ IT: `first_new_tab.chromium_given` of 1 or more says
+that the app gave the page focus to the first new tab's Chromium page in that time. The last engine word alone
+does not say it: an entry that takes the focus has the word `chromium` too, and the app writes an entry with a
+`-key` word by the place of a window that became key, which can be the window of another tab's page. The app
+writes an entry only at a change: a page that had the page focus before the read before the select gets no new
+give, and `journal` has its give then. A read only: it changes no verdict. With no read the record has
+`journal_after_select.not_read` with the why (`no read before the select`: the last read of the journal before
+the select gave no last number, also when an older read of the case gave one, and the tool then reads no
+entries), and the case goes on. A case that is `not_run` before the read after its select (before the select, at
+the select, or at the verdict's read of the field) has none of the keys `journal_after_select`,
+`engine_after_select` and `shown_page_has_chromium_focus`, and no `keyboard.after_select`.
 
 THE 3 KEYS: a New Tab key, the letter x 30 ms later, a second New Tab key 30 ms after the letter. The second New Tab
 key is a key with Command while the hold has the letter: the hold ends with no field ready (`release: chord`).
@@ -143,8 +183,10 @@ The journal's readiness notes name no page: their counts are of each page of the
 first new tab's page only. The journal has no note for a page's plain ready message: `editing_on` is the note
 that the page's script sends in the same call as a document's first ready message, and at each later focus of an
 editable element. The engine word is the app's word at a change of that page's focus (`webkit`, `chromium`, or a
-word for a Chromium page's window that became the key window); the tool does not read that the journal names a
-page by the tab's id. close-move does not
+word for a Chromium page's window that became the key window); the journal names a cmux page in Chromium by the
+page's own id, and the tool has that id only from its read of `debug.focus` after the select (THE PAGE'S ID): a
+page that is not attached to Chromium then, or that the app gave no page focus then, has no id in the record's
+counts. A page that the app made again in the case has a new id, and its older entries are not counted. close-move does not
 prove that the 3 keys came in the time of the move: the record has the move's note with its time, and the tool
 compares no times. The record's `openings` are the last ones of the app's list: when a key of the case made no
 opening, an older opening is in the record (`tabs_made` says how many tabs the keys made).
@@ -188,6 +230,12 @@ WAIT_S = 4.0
 WAIT_STEP_S = 0.1  # between 2 reads of the park while a text waits there
 JOURNAL_LAST = 600  # the entries of a read of the journal (before the select, after it): a case's keys and pages write far fewer
 UNMARKED = "no read before the select"  # why the read after the select has no entries: no last number to count from
+# THE PAGE'S ID: the word for the first new tab's counts and engine word when the tool has no id of its page and no
+# entry has the tab's id.
+UNREADABLE = "not readable for a cmux page in Chromium"
+NO_WINDOW, NO_APPKIT = "no window names the pane", "the window has no word on its first responder"  # why a part of `keyboard` has no answer
+UNSAID = object()  # of `keyboard`: the window has no word of its focus model's tab (in memory only)
+CLASS = re.compile(r"[A-Za-z_][A-Za-z0-9_.<>]{0,79}")  # a class name of the app, whole: no other text goes into a record
 ENGINES = ("webkit", "chromium", "chromium-key", "chromium-unchosen-key")  # the app's words (FocusEffectApplier.swift)
 # The notes of a page's input readiness in the journal (PageInputReadiness.swift `trace`), by the record's name.
 NOTES = (("focus", re.compile(r"^page (?:.* )?epoch=\d+(?: |$)")), ("editing_on", re.compile(r"^page (?:.* )?editing=(?:1|true)(?: |$)")),
@@ -280,32 +328,81 @@ def waiting(counts):
     return None if counts is None else counts["parked"] - counts["typed"] - sum(counts[count] for count, _ in LEFT)
 
 
-def noted(entries, mark, tab):
-    """What the app's input journal has of a case before the select of its first new tab `tab`: the entries after
-    the journal's number `mark` (the last one before the keys). Counts and the app's engine words only: no other
-    text of an entry goes into a record. `readiness`: the notes of the pages' input readiness by NOTES (`focus`: a
-    focus message of a page's script; `editing_on`: the script says that an editable element has the focus, which
-    it sends with a document's first ready message; `key`: a key that came to a page's document). These notes name
-    no page: the counts are of each page of the app. `first_new_tab`: how many times the app gave and took the
-    page focus of `tab`, and the engine word of each such entry, in their order, with no word 2 times in a row (a
-    word that is not of ENGINES is `other`). `page_entries`: how many entries name a page's focus, for each tab
-    that has one (`each_tab`, the largest count first, with no id) and for `tab`: with entries of other tabs and
-    none of `tab`, no entry has the id of `tab`, and that is not `the app changed no focus of its page`. `whole`
-    False: the read was cut, and its first entries are lost."""
+def noted(entries, mark, tab, page=None):
+    """What the app's input journal has of a case for its first new tab `tab`: the entries after the journal's
+    number `mark`. Counts and the app's engine words only: no other text of an entry and no id goes into a record.
+    `page`: the id of the Chromium page of `tab` (THE PAGE'S ID; None: the tool has none). The entries of the first
+    new tab are those with the id `page` or the id `tab`. `readiness`: the
+    notes of the pages' input readiness by NOTES (`focus`: a focus message of a page's script; `editing_on`: the
+    script says that an editable element has the focus, which it sends with a document's first ready message;
+    `key`: a key that came to a page's document). These notes name no page: the counts are of each page of the app.
+    `first_new_tab`: how many times the app gave and took the page focus of the tab's page, how many of the gives
+    have the word `chromium` (`chromium_given`: the app's own give to that page; an entry with a `-key` word is
+    written by the place of a window that became key), and the engine word of each such entry, in their order,
+    with no word 2 times in a row (a word that is not of ENGINES is `other`). `page_entries`: how many entries name
+    a page's focus, for each id that has one (`each_tab`, the largest count first, with no id) and for the first
+    new tab. With no `page` and no entry of the id `tab`, the entries of the tab cannot be read (the app names a
+    cmux page in Chromium by its page's id only): `first_new_tab` and `page_entries.first_new_tab` are then the
+    word UNREADABLE, not counts of 0. `whole` False: the read was cut, and its first entries are lost."""
     every = [entry for entry in entries if isinstance(entry, dict)]
     new = [entry for entry in every if (entry.get("seq") or 0) > mark]
     kinds = [entry.get("kind") for entry in new if isinstance(entry.get("kind"), dict)]
     events = [str(part.get("event")) for part in (kind.get("content") for kind in kinds) if isinstance(part, dict) and part.get("tab") == "readiness"]
     named = [part for part in (kind.get("page") for kind in kinds) if isinstance(part, dict)]
-    pages = [part for part in named if part.get("tab") == tab]
+    pages = [part for part in named if part.get("tab") == tab or (page is not None and part.get("tab") == page)]
     engines = [part.get("engine") if part.get("engine") in ENGINES else "other" for part in pages]
     tabs = [repr(part.get("tab")) for part in named]
+    first = {"focus_given": sum(1 for part in pages if part.get("focused") is True),
+             "focus_taken": sum(1 for part in pages if part.get("focused") is False),
+             "chromium_given": sum(1 for part in pages if part.get("focused") is True and part.get("engine") == "chromium"),
+             "engines": [word for index, word in enumerate(engines) if not index or engines[index - 1] != word]}
+    readable = page is not None or bool(pages)
     return {"whole": not new or (every[0].get("seq") or 0) <= mark + 1, "entries": len(new),
-            "page_entries": {"each_tab": sorted((tabs.count(name) for name in set(tabs)), reverse=True), "first_new_tab": len(pages)},
+            "page_entries": {"each_tab": sorted((tabs.count(name) for name in set(tabs)), reverse=True),
+                             "first_new_tab": len(pages) if readable else UNREADABLE},
             "readiness": {name: sum(1 for event in events if pattern.search(event)) for name, pattern in NOTES},
-            "first_new_tab": {"focus_given": sum(1 for part in pages if part.get("focused") is True),
-                              "focus_taken": sum(1 for part in pages if part.get("focused") is False),
-                              "engines": [word for index, word in enumerate(engines) if not index or engines[index - 1] != word]}}
+            "first_new_tab": first if readable else UNREADABLE}
+
+
+def engine_of(found):
+    """The record's engine word from `noted`: the last engine word of the first new tab, None with no entry of it,
+    the word UNREADABLE when the tool cannot read its entries."""
+    first = found["first_new_tab"]
+    return first if first == UNREADABLE else (first["engines"] or [None])[-1]
+
+
+def last_number(reply):
+    """The journal's last number at a reply of `debug.journal`: the larger of its `lastSeq` and the largest number
+    of its entries. The app reads the 2 one after the other (AppControl+Input.swift), and an entry that came
+    between them is in the entries with a number above `lastSeq`: a cut by `lastSeq` alone has that entry on both
+    of its sides."""
+    entries = reply.get("entries")
+    numbers = [entry.get("seq") for entry in (entries if isinstance(entries, list) else []) if isinstance(entry, dict)]
+    return max([int(reply["stats"]["lastSeq"])] + [int(number) for number in numbers
+                                                   if type(number) in (int, float) and number == number and abs(number) != float("inf")])
+
+
+def keyboard(focus, pane):
+    """(a part of the record's `keyboard`, the id of the Chromium page with the page focus or None, the tab that
+    the window's focus model names: None for none, UNSAID for a window with no such word), from a reply of
+    `debug.focus`, for the window whose topology names `pane` (THE KEYBOARD'S VIEW). The id and the tab go into
+    no record. No exception leaves it: a reply of a form that the tool does not know is `not_read` with the
+    exception's class name."""
+    try:
+        windows = focus.get("windows") if isinstance(focus, dict) else None
+        window = next((window for window in (windows if isinstance(windows, list) else []) if isinstance(window, dict)
+                       and any(isinstance(part, dict) and part.get("pane") == pane for part in window.get("topology") or [])), None)
+        if window is None:
+            return {"not_read": NO_WINDOW}, None, None
+        appkit, model = window.get("appkit"), window.get("model")
+        if not isinstance(appkit, dict) or "first_responder" not in appkit or "child_window_page" not in appkit:
+            return {"not_read": NO_APPKIT}, None, None  # the app writes the 2 keys in each reply (null for none): no key is no read
+        view, page = appkit["first_responder"], appkit["child_window_page"]
+        page = page if isinstance(page, str) and page else None
+        return ({"view": None if view is None else view if isinstance(view, str) and CLASS.fullmatch(view) else "other",
+                 "chromium_page_focus": page is not None}, page, model["resolved_tab"] if isinstance(model, dict) and "resolved_tab" in model else UNSAID)
+    except Exception as error:  # noqa: BLE001  these words take no verdict: a reply of an odd form must not stop the case
+        return {"not_read": type(error).__name__}, None, None
 
 
 def unfound(dropped, unread):
@@ -396,9 +493,13 @@ class Letters:
         # Of the last sequence: the clock's time at the app's reply to its call, and the seconds that its steps take.
         self.clock, self.keyed, self.played_s = clock, 0.0, 0.0
         self.noted_to = None  # of a case: the journal's last number at its last read before the select (None: no such read)
+        # Of a case, in memory only (THE PAGE'S ID): the entries and the mark of its last read of the journal before
+        # the select (None: no such read), and the id of the first new tab's Chromium page (None: the tool has none).
+        self.kept, self.page = None, None
 
     def focus(self):
-        """ONE read of `debug.focus`: the hold's log, the park's counts, the app's active state, the key window."""
+        """ONE read of `debug.focus`: the hold's log, the park's counts, the app's active state, the key window, and
+        each window's first responder and Chromium page with the page focus (`keyboard`)."""
         reply = self.rpc("debug.focus")
         return reply if isinstance(reply, dict) else {}
 
@@ -421,35 +522,59 @@ class Letters:
             return None, "no stats"
         return (None, "off") if stats.get("enabled") is False else (reply, None)
 
-    def entries_after(self, mark, why, tab):
-        """ONE read of the journal for the first new tab `tab`: (`noted` of the entries after the number `mark`, the
-        engine word, the journal's last number at this read). `mark` None: no call, and `why` says why. With no read:
-        ({"not_read": why}, None, None)."""
+    def entries_after(self, mark, why, tab, page=None):
+        """ONE read of the journal for the first new tab `tab` (`page`: the id of its Chromium page, or None):
+        (`noted` of the entries after the number `mark`, the engine word, the journal's last number at this read,
+        the reply's entries). `mark` None: no call, and `why` says why. With no read: ({"not_read": why}, None,
+        None, None)."""
         reply, why = self.journal(JOURNAL_LAST) if mark is not None else (None, why)
         if reply and not isinstance(reply.get("entries"), list):
             why = "no entries"
         if why:
-            return {"not_read": why}, None, None
+            return {"not_read": why}, None, None, None
         try:
-            found = noted(reply["entries"], mark, tab)
+            found = noted(reply["entries"], mark, tab, page)
+            return found, engine_of(found), last_number(reply), reply["entries"]
         except Exception as error:  # noqa: BLE001  the journal takes no verdict: an entry of a form that the tool does not know must not stop the case
-            return {"not_read": type(error).__name__}, None, None
-        return found, (found["first_new_tab"]["engines"] or [None])[-1], int(reply["stats"]["lastSeq"])
+            return {"not_read": type(error).__name__}, None, None, None
 
     def before_select(self, mark, why, tab):
         """The record's `journal` and `engine` for the first new tab `tab`: `noted` of the entries after `mark`, the
         journal's last number before the keys (None: that read gave none, and `why`). With no read: `not_read`.
-        `self.noted_to` gets the journal's last number at this read (None with no read): `after_select` counts from it."""
-        found, engine, self.noted_to = self.entries_after(mark, why, tab)
+        `self.noted_to` gets the journal's last number at this read (None with no read): `after_select` counts from
+        it. The tool has no id of the tab's page yet: `self.kept` keeps the read's entries for `shown_page`."""
+        found, engine, self.noted_to, entries = self.entries_after(mark, why, tab)
+        self.kept = None if entries is None else (entries, mark)
         return {"journal": found, "engine": engine}
+
+    def shown_page(self, record, pane, tab):
+        """ONE read of `debug.focus` after the select of the first new tab `tab` and the verdict's read of its
+        field (THE PAGE'S ID): the record's `keyboard.after_select` and `shown_page_has_chromium_focus`, and, with
+        the id of the tab's Chromium page, `journal` and `engine` counted again with that id from the kept entries
+        of the last read before the select. The window's id is the tab's only when the window's focus model names
+        `tab`: with another tab there the tool takes no id. `self.page` gets the id (None: none), for
+        `after_select`. No exception leaves it: the case has its verdict, and a failed read is `not_read` with the
+        exception's class name."""
+        try:
+            said, page, aimed = keyboard(self.focus(), pane)
+            has = None if "not_read" in said or aimed is UNSAID else page is not None and aimed == tab
+            page = page if has else None
+            again = noted(*self.kept, tab, page) if self.kept is not None else None  # with no id: the counts as they were
+            engine = again and engine_of(again)
+        except Exception as error:  # noqa: BLE001  a read only: it must not make a case that ran `not_run`
+            said, has, page, again = {"not_read": type(error).__name__}, None, None, None
+        self.page = page
+        return {"keyboard": {**record.get("keyboard", {}), "after_select": said}, "shown_page_has_chromium_focus": has,
+                **({"journal": again, "engine": engine} if again else {})}
 
     def after_select(self, tab):
         """The record's `journal_after_select` and `engine_after_select` for the first new tab `tab` (AFTER THE
         SELECT): ONE read of the journal, the case's last call. `noted` of the entries after the journal's last
-        number at the last read before the select; with no such number no call, and `not_read` says so. No
-        exception leaves it: the case has its verdict and its places, and this read changes none of them."""
+        number at the last read before the select, with the id of the tab's page when `shown_page` got one; with
+        no such number no call, and `not_read` says so. No exception leaves it: the case has its verdict and its
+        places, and this read changes none of them."""
         try:
-            found, engine, _ = self.entries_after(self.noted_to, UNMARKED, tab)
+            found, engine, _, _ = self.entries_after(self.noted_to, UNMARKED, tab, self.page)
         except Exception as error:  # noqa: BLE001  a read only: it must not make a case that ran `not_run`
             found, engine = {"not_read": type(error).__name__}, None
         return {"journal_after_select": found, "engine_after_select": engine}
@@ -674,7 +799,7 @@ class Letters:
             pane = self.builder.panes(self.builder.workspace(workspace))[0]["id"]
             source, target, steps = self.setup(form, workspace, pane)
             had, (mark, unmarked), start = set(self.ids(workspace, target)), self.journal(1), self.focus()
-            mark = None if mark is None else int(mark["stats"]["lastSeq"])
+            mark = None if mark is None else last_number(mark)
             # A text in the park before the keys is not of this case, and the counts do not say which text waits later.
             record["park"] = {"before": park_of(start)}
             record["waits_before_keys"] = waiting(record["park"]["before"])
@@ -687,6 +812,8 @@ class Letters:
             notes = new_notes(list(start.get("new_tab_key_log") or []), list(after.get("new_tab_key_log") or []))
             record["app"] = {"active_before": start.get("app_active"), "active_after": after.get("app_active"),
                              "key_window_before": start.get("key_window"), "key_window_after": after.get("key_window")}
+            # THE KEYBOARD'S VIEW, from the 2 replies that the case has: no call more.
+            record["keyboard"] = {"before": keyboard(start, target)[0], "after": keyboard(after, target)[0]}  # the words only: no id
             record["park"]["after"] = park_of(after)
             if form in MOVE_FORMS:
                 motion = self.rpc("debug.motion", {"action": "stop"}) or {}
@@ -714,6 +841,11 @@ class Letters:
             self.select(made[0], workspace, target)
             text = self.wait(lambda: self.field().get("text"), 5, 0.1) or self.field().get("text")
             record.update({"field": seen(text), **judge(notes, text, waits)})
+            # The pane shows the first new tab now: ONE read of the window's view and Chromium page (THE PAGE'S ID),
+            # after the verdict's read. `debug.focus` drops a parked text that waited its 2 s, as each read of it
+            # does and as the app does before it types one (TypingPark.swift `prune`, `take`): the counts at the
+            # case's end are the same with this read and with no such read.
+            record.update(self.shown_page(record, target, made[0]))
             self.located(record, workspace, target, made, text)
             # The case's last call: a read only, after each read of the verdict and of the places (AFTER THE SELECT).
             record.update(self.after_select(made[0]))
