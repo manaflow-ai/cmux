@@ -57,6 +57,35 @@ import UIKit
         #expect(controller.sparesMade == 1, "a spare was built during the scroll")
     }
 
+    /// The warm-up draws the Feed's row shapes when it comes to rest, a frame's share at a time:
+    /// it ran its whole queue back to back (74 ms of one frame, profile db0af69e).
+    @Test func theWarmUpSpreadsOverFrames() throws {
+        let store = FeedStore.shared
+        let saved = store.items
+        store.replaceAll(FeedStore.stressItems(count: 120, now: Date()))
+        defer { store.replaceAll(saved) }
+        let screen = FeedScreen(path: .constant([])) { ToolbarItem { EmptyView() } }
+            .environment(AppStore.mock())
+        let host = UIHostingController(rootView: screen)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        var list: UITableView?
+        for _ in 0..<100 where list == nil {
+            settle()
+            list = table(in: window)
+        }
+        let feed = try #require(list, "the Feed's table")
+        let controller = try #require(feed.delegate as? FeedListController, "the Feed's controller")
+        let shapes = controller.warmQueueCount
+        for _ in 0..<200 where controller.warmQueueCount > 0 { settle(0.02) }
+        #expect(controller.warmQueueCount == 0, "the warm-up did not finish")
+        if shapes > 2 {
+            #expect(controller.warmBatches > 1, "\(shapes) warm-up draws ran in one pass")
+        }
+    }
+
     /// The spare is filled with the heaviest row (a permission card) but the first row that needs
     /// a cell is an answer: the spare shows that answer, with no command block left from the card,
     /// and while it was parked it was nowhere in the Feed's accessibility.

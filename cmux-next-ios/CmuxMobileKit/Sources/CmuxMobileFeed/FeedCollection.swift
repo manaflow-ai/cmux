@@ -654,13 +654,18 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func buildSpare(in view: UITableView) {
         // The heaviest row the list holds: a permission card with its command, else the tallest.
         var best: FeedRowLayout?
+        var question: FeedRowLayout?
+        var permission = false
         for id in shownOrder.prefix(200) {
             guard let key = shownKeys[id], let layout = layouts.cached(key) else { continue }
-            if case .permission = key.item.kind {
+            if case .question = key.item.kind, question == nil { question = layout }
+            if case .permission = key.item.kind, !permission {
                 best = layout
-                break
+                permission = true
+            } else if !permission, layout.height > (best?.height ?? 0) {
+                best = layout
             }
-            if layout.height > (best?.height ?? 0) { best = layout }
+            if permission, question != nil { break }
         }
         guard let layout = best else { return }
         #if DEBUG
@@ -668,6 +673,14 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         #endif
         let cell = FeedRowCell(style: .default, reuseIdentifier: FeedRowCell.reuseID)
         cell.delegate = self
+        // A question card's parts too (its option rows, field and buttons are built on first use:
+        // profile db0af69e, the first question row cost 12-14 ms of one frame), then the
+        // permission card it is shown with.
+        if let question {
+            cell.frame = CGRect(x: 0, y: 0, width: CGFloat(question.key.width), height: question.height)
+            cell.apply(question, item: items[question.key.item.id], settled: false)
+            cell.layoutIfNeeded()
+        }
         cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
         cell.apply(layout, item: items[layout.key.item.id], settled: false)
         // Parked beside the table, not in it (a table lays its own subviews out as rows, and they
@@ -776,21 +789,46 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                     }
                     return
                 }
-                #if DEBUG
-                let t0 = CACurrentMediaTime()
-                defer { FeedCellTiming.log("warm", t0) }
-                #endif
-                let layout = self.warmQueue.removeFirst()
-                let cell = self.warmCell
-                cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
-                cell.overrideUserInterfaceStyle = self.collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
-                cell.apply(layout, item: self.items[layout.key.item.id], settled: false)
-                cell.layoutIfNeeded()
-                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
-                _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
-                self.pumpWarmUp()
+                // A frame's share at most (profile db0af69e: the queue drained back to back, 74 ms of
+                // one frame and 17 of the next, right after the Feed came to rest): items until the
+                // budget is spent, the rest at the next frame.
+                let start = CACurrentMediaTime()
+                while !self.warmQueue.isEmpty, CACurrentMediaTime() - start < Self.warmBudget {
+                    self.warmOne()
+                }
+                self.warmBatches += 1
+                guard !self.warmQueue.isEmpty else { return }
+                self.warmScheduled = true
+                var token: FrameClock.Token?
+                token = FrameClock.shared.subscribe { [weak self] _ in
+                    if let token { FrameClock.shared.unsubscribe(token) }
+                    token = nil
+                    self?.warmScheduled = false
+                    self?.pumpWarmUp()
+                }
             }
         }
+    }
+
+    /// Main-thread time the warm-up takes per frame (seconds).
+    static let warmBudget: CFTimeInterval = 0.004
+    /// Warm-up passes run, one per frame at most (tests).
+    private(set) var warmBatches = 0
+    var warmQueueCount: Int { warmQueue.count }
+
+    private func warmOne() {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        defer { FeedCellTiming.log("warm", t0) }
+        #endif
+        let layout = warmQueue.removeFirst()
+        let cell = warmCell
+        cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
+        cell.overrideUserInterfaceStyle = collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
+        cell.apply(layout, item: items[layout.key.item.id], settled: false)
+        cell.layoutIfNeeded()
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+        _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
     }
 
     private static let emptyKey = FeedRowKey(
