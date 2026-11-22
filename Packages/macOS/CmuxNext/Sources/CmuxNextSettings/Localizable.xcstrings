@@ -54613,6 +54613,268 @@
         }
       }
     },
+    "settings.labs.launchShellFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Window Shell at Launch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار إطار النافذة عند التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži okvir prozora pri pokretanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis vinduesramme ved start"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fensterrahmen beim Start anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar el marco de la ventana al iniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le cadre de la fenêtre au lancement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la cornice della finestra all'avvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "起動時にウインドウの枠を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញស៊ុមបង្អួចពេលបើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 시 윈도우 틀 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis vindusramme ved oppstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż ramkę okna przy uruchomieniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar moldura da janela ao abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать рамку окна при запуске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงกรอบหน้าต่างเมื่อเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Açılışta pencere çerçevesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати рамку вікна під час запуску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện khung cửa sổ khi khởi chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "启动时显示窗口外框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "啟動時顯示視窗外框"
+          }
+        }
+      }
+    },
+    "settings.labs.launchShellFirst.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the saved window frame while cmux restores its content on the next launch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار إطار النافذة المحفوظ بينما يستعيد cmux محتواه عند التشغيل التالي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži sačuvani okvir prozora dok cmux vraća njegov sadržaj pri sljedećem pokretanju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis den gemte vinduesramme, mens cmux gendanner indholdet ved næste start."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt den gespeicherten Fensterrahmen, während cmux beim nächsten Start den Inhalt wiederherstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra el marco de ventana guardado mientras cmux restaura su contenido en el próximo inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche le cadre de fenêtre enregistré pendant que cmux restaure son contenu au prochain lancement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra la cornice della finestra salvata mentre cmux ripristina il contenuto al prossimo avvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "次回の起動時、cmux が内容を復元する間、保存されたウインドウの枠を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញស៊ុមបង្អួចដែលបានរក្សាទុក ខណៈ cmux ស្ដារមាតិការបស់វានៅពេលបើកលើកក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다음 실행 시 cmux가 내용을 복원하는 동안 저장된 윈도우 틀을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis den lagrede vindusrammen mens cmux gjenoppretter innholdet ved neste oppstart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje zapisaną ramkę okna, gdy cmux przywraca jego zawartość przy następnym uruchomieniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra a moldura da janela salva enquanto o cmux restaura o conteúdo na próxima abertura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать сохранённую рамку окна, пока cmux восстанавливает содержимое при следующем запуске."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงกรอบหน้าต่างที่บันทึกไว้ระหว่างที่ cmux กู้คืนเนื้อหาในการเปิดครั้งถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sonraki açılışta cmux içeriği geri yüklerken kaydedilen pencere çerçevesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати збережену рамку вікна, поки cmux відновлює вміст під час наступного запуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện khung cửa sổ đã lưu trong khi cmux khôi phục nội dung ở lần khởi chạy tiếp theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下次启动时，在 cmux 恢复内容期间显示已保存的窗口外框。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下次啟動時，在 cmux 還原內容期間顯示已儲存的視窗外框。"
+          }
+        }
+      }
+    },
     "settings.labs.previewFeatures": {
       "extractionState": "manual",
       "localizations": {
