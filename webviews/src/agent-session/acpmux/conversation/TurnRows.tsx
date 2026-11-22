@@ -33,15 +33,16 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
+  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
-  turnTimeKey,
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
+import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry, Close } from "./icons";
+import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
@@ -60,6 +61,7 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds, runLinks } from "./turnRowsModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -171,6 +173,7 @@ function groupNode(
         <AcpmuxSendLine
           key={sendKey(group.item.tool!.id, group.send.index) || index}
           tool={group.item.tool!}
+          messageAt={rowAt}
           send={group.send}
         />
       );
@@ -183,6 +186,7 @@ function groupNode(
               <AcpmuxSendLine
                 key={sendKey(entry.item.tool!.id, entry.send.index) || at}
                 tool={entry.item.tool!}
+                messageAt={rowAt}
                 send={entry.send}
                 grouped
               />
@@ -194,7 +198,14 @@ function groupNode(
       );
     }
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+      return (
+        <SubsessionCallCard
+          key={group.item.tool!.id || index}
+          call={group.call}
+          tool={group.item.tool!}
+          messageAt={rowAt}
+        />
+      );
     case "subsessionGroup":
       return (
         <SubsessionCallCard
@@ -332,7 +343,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // The turn's Timeline (TurnWaterfall.tsx): a clock button, closed until the reader opens it.
   const timeline = useTurnWaterfall(row);
   // Copy copies the whole turn, its replies and tool lines (turnCopy.ts), as Claude Code desktop's;
-  // a turn of tool calls alone draws no Copy and no Read aloud.
+  // a turn of tool calls alone copies their lines and the last call's output, and draws no Read aloud.
   const turnCopy = row.turnCopy;
   const copy = useMemo(() => (turnCopy ? turnCopyText(t, turnCopy) : text), [t, turnCopy, text]);
   const prompt = row.prompt;
@@ -348,8 +359,33 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
-    <span className="cv-turn-stopped" aria-description={forced ?? workedLabel(t, row)}>
-      {t("turn.stoppedMark")}
+    <WithFacts facts={[{ value: forced ?? workedLabel(t, row) }]}>
+      {(facts) => (
+        <span {...facts} className="cv-turn-stopped">
+          {t("turn.stoppedMark")}
+        </span>
+      )}
+    </WithFacts>
+  );
+  // A failed turn's row says the turn failed (G04): the failed mark after its buttons
+  // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
+  // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
+  // Worked for (Lawrence and Lucas, 2026-11-11 standup).
+  const failedLook = failed ? experimentArm(failedTurnMark) : undefined;
+  const endMark = failedLook && (
+    <span
+      className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
+      role="img"
+      aria-label={t("turn.failedMark")}
+    >
+      {failedLook === "word" ? (
+        t("turn.failedMark")
+      ) : failedLook === "cross" ? (
+        <Close size={ROW_ICON} />
+      ) : (
+        <AlertCircle size={ROW_ICON} />
+      )}
     </span>
   );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
@@ -516,6 +552,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {!messages && endMark}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
