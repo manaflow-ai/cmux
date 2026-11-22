@@ -824,6 +824,7 @@ def check_devtools():
     hid_click(point)
     key = wait(devtools_key, 2)
     focus_after = rpc("debug.focus") or {}
+    focus_log_first = [json.dumps(c)[:260] for c in ((rpc("debug.focus_log", {"limit": 12}) or {}).get("changes") or [])]
     second = None
     if not key:
         hid_click(point)
@@ -832,7 +833,7 @@ def check_devtools():
     row("devtools.click", bool(key) and not key_before,
         {"at": [round(v) for v in point], "key_before_click": key_before, "second_click_gave_keys": second,
          "child_windows": (final.get("child_windows") or [])[:4],
-         "gate_before": gate_before, "gate_after_first": focus_after.get("in_tree"),
+         "gate_before": gate_before, "gate_after_first": focus_after.get("in_tree"), "focus_log_after_first": focus_log_first,
          "appkit_after_first": [(w.get("appkit") or {}) for w in (focus_after.get("windows") or []) if isinstance(w, dict)][:2],
          "note": "DevTools was key before the click (the page click did not take the key)" if key_before else None})
     action("devtools.close")
@@ -854,6 +855,7 @@ def check_prompt_keys():
         hid_key(key)
     time.sleep(0.4)  # test harness: the keys land
     dialog_typed = rpc("debug.dialog") or {}
+    focus_log = [json.dumps(c)[:260] for c in ((rpc("debug.focus_log", {"limit": 10}) or {}).get("changes") or [])]
     hid_key("return")
     answered = wait(lambda: (lambda v: v if v is not None else None)(page("window.__p === undefined ? null : String(window.__p)")), 4)
     field = page("document.getElementById('t').value")
@@ -863,7 +865,7 @@ def check_prompt_keys():
          "first_responder_before": [(w.get("appkit") or {}).get("first_responder") for w in focus_before.get("windows") or []
                                     if isinstance(w, dict)][:2],
          "dialogs_before": [d.get("title") for d in dialog_before.get("dialogs") or [] if d.get("visible")],
-         "visible_windows": windows_before[:6]})
+         "visible_windows": windows_before[:6], "focus_log": focus_log})
     if answered is None:
         hid_key("escape")
         time.sleep(0.5)  # test harness: the prompt closes

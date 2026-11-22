@@ -596,6 +596,7 @@ try:
         value = (dialogs[0].get("values") or {}).get("text") if dialogs else None
         page_keys = page_eval("JSON.stringify(window.__keys)", page_tab).get("value")
         detail = {"dialog_shown": bool(shown), "first_responder_at_show": responders, "dialog_text": value,
+                  "focus_log": [json.dumps(c)[:260] for c in ((rpc("debug.focus_log", {"limit": 10}) or {}).get("changes") or [])],
                   "page_keys": page_keys, "new_windows": new_windows,
                   "key_replies": [{k: (r or {}).get(k) for k in ("handled_by", "window_kind")} for r in typed]}
         if dialogs:
