@@ -31,9 +31,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use base64::Engine;
-use cmux_wg::{
-    InterfaceAddress, IpNetwork, PeerCandidate, UltraChoice, WgConfig, WgMesh, WgMeshConfig, WgNet, WgPeer,
-};
+use cmux_wg::{InterfaceAddress, IpNetwork, UltraChoice, WgConfig, WgMesh, WgMeshConfig, WgNet, WgPeer};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{oneshot, watch};
 use zeroize::Zeroizing;
