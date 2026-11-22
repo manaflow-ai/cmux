@@ -551,6 +551,39 @@ const hairlineEdge: Play = async (ctx) => {
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
 
+// A faint hairline between each two sections, in the gap's middle, in the theme's separator color
+// (sessionInfo.css --acpmux-session-info-divider): none beside the Show more line, none doubled.
+const sectionDividers: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-session-info-slot").length > 2);
+  const slots = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > .acpmux-session-info-slot"),
+  ];
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--acpmux-session-info-divider, var(--agent-border))"; // the line's own fallback
+  slots[0]!.append(probe);
+  const color = style(ctx, probe).color;
+  probe.remove();
+  let drawn = 0;
+  slots.forEach((slot, at) => {
+    const line = ctx.document.defaultView!.getComputedStyle(slot, "::before");
+    const between =
+      at > 0 &&
+      slot.dataset.slot !== "more" &&
+      slots[at - 1]!.dataset.slot !== "more" &&
+      slots[at - 1]!.childElementCount > 0;
+    const draws = line.content !== "none" && Number.parseFloat(line.borderTopWidth) > 0;
+    if (between && slot.childElementCount > 0 && !draws) throw new Error(`No divider above ${slot.dataset.slot}`);
+    if (!between && draws) throw new Error(`A divider above ${slot.dataset.slot ?? "the first section"}`);
+    if (draws) {
+      drawn += 1;
+      if (line.borderTopColor !== color) throw new Error(`${slot.dataset.slot}'s divider is ${line.borderTopColor}`);
+      if (Number.parseFloat(line.borderTopWidth) > 1)
+        throw new Error(`${slot.dataset.slot}'s divider is not a hairline`);
+    }
+  });
+  if (drawn === 0) throw new Error("No divider between the sections");
+};
+
 // Every section title sits on the Environment rows' icon column: heads have no icon of their own
 // (Lucas, 2026-11-05, Session Info lab).
 const checkTopBlockAlignment: Play = async (ctx) => {
@@ -1993,6 +2026,20 @@ export default componentEntry<Props>({
       note: "Chosen, over the chat's column: the same hairline over the glass. Without the glass the transcript's text would read through the panel's own, so it keeps the blur and tint there.",
       props: { ...full, transcript: true },
       play: hairlineEdge,
+    },
+    "section-dividers": {
+      note: "Chosen. A faint hairline between sections in the theme's separator color, as the reference app's session info draws them (Leo, 2026-11-19: \"there should be a faint divider between the sections there on session info idk why it doesnt show up there\").",
+      props: { ...full },
+      play: sectionDividers,
+    },
+    "section-dividers-edge": {
+      note: "Alternative: the dividers at the panel edge's 22% of the pane's text, which reads as a ruled list rather than a faint pause.",
+      props: { ...full, edge: "--acpmux-session-info-divider:color-mix(in srgb, var(--agent-text) 22%, transparent)" },
+      play: sectionDividers,
+    },
+    "section-dividers-none": {
+      note: "Before, for comparison: the sections one gap apart with no divider (the glance layout's rule matched no element).",
+      props: { ...full, edge: "--acpmux-session-info-divider:transparent" },
     },
     "edge-none": {
       note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",

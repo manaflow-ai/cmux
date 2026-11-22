@@ -17,7 +17,7 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LANE_NOTICE_BATCH } from "../src/agent-session/acpmux/model";
-import { hiddenRowFolds, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { hiddenRowFolds, toggleTurnFold, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { projectInboxRows } from "../src/agent-session/acpmux/conversation/laneNoticeBatches";
 import { findMatches, isFindRow } from "../src/agent-session/acpmux/conversation/chatFind";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
@@ -208,7 +208,27 @@ for (const family of ["codex", "claude"]) {
     const replyOnly = [...chat().slice(0, 5), row("assistant", { id: "ack", text: "Noted." }), summary("summary-1", 0)];
     const rows = secondTurn(drawn(replyOnly, family));
     expect(rows.flatMap(holds)).toContain("notice");
-    expect(rows.some((r) => r.kind === WORKED)).toBe(false);
+    expect(rows.flatMap(holds)).toContain("ack");
+  });
+
+  // The running turn's header stands from its first frame (shapeLiveTurn `foldsPrompt`), so a turn
+  // that only replied keeps it at its end: Worked for, open, with the message under it, never the
+  // header gone and the message jumping up into its place (turn-header-steady-browser.test.ts).
+  test(`a turn an agent's message started that only replied keeps its header, open, at its end (${family})`, () => {
+    const replyOnly = [...chat().slice(0, 5), row("assistant", { id: "ack", text: "Noted." }), summary("summary-1", 0)];
+    const live = secondTurn(drawn(replyOnly.slice(0, -1), family, new Set(), true));
+    const ended = secondTurn(drawn(replyOnly, family));
+    expect(live[0]!.id).toBe(`working-notice`);
+    expect(ended[0]!.kind).toBe(WORKED);
+    expect(ended[0]!.foldOpen).toBe(true);
+    expect(ended.slice(1).flatMap(holds).slice(0, 1)).toEqual(["notice"]);
+    expect(ended.flatMap(holds)).toContain("ack");
+    // A click closes it over the message; the reply stays in sight.
+    const closed = secondTurn(drawn(replyOnly, family, toggleTurnFold(replyOnly, new Set(), ended[0]!.id)));
+    expect(closed[0]!.kind).toBe(WORKED);
+    expect(closed[0]!.foldOpen).toBe(false);
+    expect(closed.flatMap(holds)).not.toContain("notice");
+    expect(closed.flatMap(holds)).toContain("ack");
   });
 
   test(`the person's own prompt stays above its closed Worked for (${family})`, () => {

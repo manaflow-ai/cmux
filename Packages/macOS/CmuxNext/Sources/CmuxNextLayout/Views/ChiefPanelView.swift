@@ -117,7 +117,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .module))
+        setAccessibilityLabel(String(localized: "layout.chiefPanel", defaultValue: "Chief panel", bundle: .localizedModule))
         setAccessibilityIdentifier("window.chiefPanel")
         backdrop.translatesAutoresizingMaskIntoConstraints = true
         backdrop.autoresizingMask = [.width, .height]
@@ -133,16 +133,16 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         }
         dockButton.action = #selector(toggleDockPressed)
         hideButton.action = #selector(hidePressed)
-        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .module)
+        let hide = String(localized: "layout.chiefPanel.hide", defaultValue: "Hide the Chief", bundle: .localizedModule)
         hideButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: hide)
         hideButton.themedToolTip = hide
-        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .module)
+        let grip = String(localized: "layout.chiefPanel.grip", defaultValue: "Move the Chief", bundle: .localizedModule)
         gripMark.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: grip)
         gripMark.contentTintColor = .tertiaryLabelColor
         gripMark.frameCenterRotation = 90
         bar.themedToolTip = grip
         chiefMark.image = NSImage(systemSymbolName: "bubble.left.fill",
-                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .module))
+                                  accessibilityDescription: String(localized: "layout.chiefPanel.open", defaultValue: "Open the Chief", bundle: .localizedModule))
         chiefMark.contentTintColor = .controlAccentColor
         chiefMark.symbolConfiguration = .init(scale: .large)
         for view in [self.title, dockButton, hideButton, gripMark, chiefMark] { bar.addSubview(view) }
@@ -238,8 +238,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         self.floating = floating
         applyDockedWorkspaceChrome(floating: floating)
         layer?.masksToBounds = false
-        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .module)
-            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .module)
+        let label = floating ? String(localized: "layout.chiefPanel.dock", defaultValue: "Dock the Chief to the Side", bundle: .localizedModule)
+            : String(localized: "layout.chiefPanel.float", defaultValue: "Float the Chief", bundle: .localizedModule)
         dockButton.image = NSImage(systemSymbolName: floating ? "sidebar.left" : "macwindow.on.rectangle", accessibilityDescription: label)
         dockButton.themedToolTip = label
         applyShape()
