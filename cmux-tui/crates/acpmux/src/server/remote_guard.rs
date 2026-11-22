@@ -281,6 +281,7 @@ fn log_own_phone_control(hub: &crate::hub::Hub, sender: Option<&str>, m: &str, p
             | method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_PAUSE
             | method::MUX_HANDOFF_PREPARE
     );
     if !controls {
@@ -1086,6 +1087,7 @@ pub(super) async fn web_starts_asking(
         method::MUX_SET_RULES
             | method::MUX_SET_POLICY
             | method::MUX_KILL
+            | method::MUX_PAUSE
             | method::SESSION_DELETE
             | method::SESSION_CLOSE
             | method::SESSION_SET_MODEL
