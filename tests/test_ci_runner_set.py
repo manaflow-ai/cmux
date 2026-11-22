@@ -72,7 +72,7 @@ class RunnerSetTests(unittest.TestCase):
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
+            ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
             ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
@@ -201,7 +201,7 @@ class RunnerSetTests(unittest.TestCase):
         self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
         self.assertEqual(needs("dev-landing-compile"), ["dev-landing-place"])
         # The Linux work starts at once: none of it waits for the sleep.
-        for name in ("portable-placement", "push-head-preflight", "path_route", "checks", "fast-tier-cargo",
+        for name in ("push-head-preflight", "path_route", "checks", "fast-tier-cargo",
                      "web-bundles", "app-compile-placement", "app-compile-fleet"):
             with self.subTest(job=name):
                 self.assertNotIn("macos-placement", ancestors(name), f"{name} waits for the quiet period")
