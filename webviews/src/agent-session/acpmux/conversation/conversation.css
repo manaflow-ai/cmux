@@ -8711,3 +8711,17 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   line-height: 18px;
   white-space: nowrap;
 }
+/* `morph`'s card (turnEndFold.ts TURN_END_CARD): a tinted surface where a finished turn's folded rows were,
+   shrinking into the Worked for line as the rows close over it. Under every row; never hit. */
+.acpmux-fold-card {
+  position: absolute;
+  left: var(--cv-inset);
+  right: var(--cv-inset-end, var(--cv-inset));
+  pointer-events: none;
+}
+.acpmux-fold-card > div {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}

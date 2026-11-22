@@ -13,6 +13,11 @@
 // exit before the move (exitLead.ts, design/chat-fold-motion.md; Leo, 2026-11-21: "we must hide text
 // faster and sooner"): `lead-none`, before, the copies fading on the move's own clock; `fade` is the
 // shipped 40 ms lead; `lead-quick`, a whole quick step of lead.
+// The variants for Leo's "gash" (2026-11-22: "the big fold we do for claude is not good looking enough. it
+// looks like a gash collapsing. you need to figure out more and more variations to deal with things."):
+// `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
+// each short and `-long`. The dev setting `turn-end-fold-look` picks one in the running pane;
+// scripts/fold-variants-record.ts records and measures each in the big Claude turn.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -272,5 +277,19 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "lead-none": { props: { variant: "fade", lead: "none" }, play: runToFold },
     "lead-quick": { props: { variant: "fade", lead: "quick" }, play: runToFold },
     "lead-none-long": { props: { variant: "fade", long: true, lead: "none" }, play: runToFold },
+    crossfade: { props: { variant: "crossfade" }, play: runToFold },
+    "crossfade-long": { props: { variant: "crossfade", long: true }, play: runToFold },
+    morph: { props: { variant: "morph" }, play: runToFold },
+    "morph-long": { props: { variant: "morph", long: true }, play: runToFold },
+    cascade: { props: { variant: "cascade" }, play: runToFold },
+    "cascade-long": { props: { variant: "cascade", long: true }, play: runToFold },
+    glide: { props: { variant: "glide" }, play: runToFold },
+    "glide-long": { props: { variant: "glide", long: true }, play: runToFold },
+    spring: { props: { variant: "spring" }, play: runToFold },
+    "spring-long": { props: { variant: "spring", long: true }, play: runToFold },
+    wait: { props: { variant: "wait" }, play: runToFold },
+    "wait-long": { props: { variant: "wait", long: true }, play: runToFold },
+    dissolve: { props: { variant: "dissolve" }, play: runToFold },
+    "dissolve-long": { props: { variant: "dissolve", long: true }, play: runToFold },
   },
 });

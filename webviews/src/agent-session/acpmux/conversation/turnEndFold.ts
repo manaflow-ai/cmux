@@ -27,14 +27,53 @@ import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
+import { experimentArm } from "../../../experiments/experiment";
+import { turnEndFoldLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
 /// if the line drew them in. `stagger`: the copies fade from the last up, one after another.
-export type TurnEndLook = "fade" | "tuck" | "stagger";
-export const TURN_END_LOOKS: readonly TurnEndLook[] = ["fade", "tuck", "stagger"];
+///
+/// The rest are the variants for Leo's "gash" (2026-11-22: "the big fold we do for claude is not good
+/// looking enough. it looks like a gash collapsing"): with `fade` the copies are gone in 40 ms and the
+/// rows around them then close a blank band (144 px in the big Claude turn) on the settle's fast start.
+/// Each fills or softens that band another way; all play only `translate`, `opacity` and `clip-path`:
+/// - `crossfade`: no lead; each copy fades over the whole move, cropped by the rows closing over it,
+///   so the band holds fading work until it is closed;
+/// - `morph`: a tinted card fades in where the work was as the copies go, and shrinks with the rows
+///   closing over it into the folded line;
+/// - `cascade`: the copies fold up into the folded line one after another, top first, fading as they go;
+/// - `glide`: the settle's move on a soft-start ease-in-out (240 ms), no fast first frame;
+/// - `spring`: a critically damped spring (no overshoot, 360 ms), its first frame still;
+/// - `wait`: the work stays in sight 320 ms after the answer lands, then folds as `fade` does;
+/// - `dissolve`: nothing slides; each row that moves fades out where it was and back in where it lands.
+export type TurnEndLook =
+  | "fade"
+  | "tuck"
+  | "stagger"
+  | "crossfade"
+  | "morph"
+  | "cascade"
+  | "glide"
+  | "spring"
+  | "wait"
+  | "dissolve";
+export const TURN_END_LOOKS: readonly TurnEndLook[] = [
+  "fade",
+  "tuck",
+  "stagger",
+  "crossfade",
+  "morph",
+  "cascade",
+  "glide",
+  "spring",
+  "wait",
+  "dissolve",
+];
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TURN_END_LOOK_ATTR = "data-turn-end-fold";
+/// `morph`'s card: the tinted surface that stands in for the folded rows while the fold closes.
+export const TURN_END_CARD = "acpmux-fold-card";
 /// Set on the thread while the fold plays (tests and the gallery's shift gate read it).
 export const TURN_END_ATTR = "data-turn-end-folding";
 
@@ -171,10 +210,52 @@ export function captureTurnEnd(
   return { rows, scrollTop: scroller.scrollTop, sessionId };
 }
 
-/// The look set over `node`, or the shipped one.
+/// The look set over `node`, else the dev setting's (turnEndFoldLook.experiment.ts), else the shipped one.
 export function turnEndLook(node: Element): TurnEndLook {
   const set = node.closest(`[${TURN_END_LOOK_ATTR}]`)?.getAttribute(TURN_END_LOOK_ATTR);
-  return TURN_END_LOOKS.includes(set as TurnEndLook) ? (set as TurnEndLook) : "fade";
+  if (TURN_END_LOOKS.includes(set as TurnEndLook)) return set as TurnEndLook;
+  const arm = experimentArm(turnEndFoldLook);
+  return TURN_END_LOOKS.includes(arm) ? arm : "fade";
+}
+
+/// `glide`'s curve: a soft start and a soft landing, so no one frame takes the move's biggest step first.
+const GLIDE = { ms: 240, easing: "cubic-bezier(0.4, 0, 0.2, 1)" };
+/// `spring`'s length: a critically damped spring sampled as a CSS linear() curve (it starts still and
+/// never overshoots: Leo's "decelerate, no overshoot").
+const SPRING_MS = 360;
+const SPRING_EASING = (() => {
+  const omega = 8.5;
+  const points = Array.from({ length: 25 }, (_, index) => {
+    const t = index / 24;
+    const x = index === 24 ? 1 : 1 - (1 + omega * t) * Math.exp(-omega * t);
+    return x.toFixed(4);
+  });
+  return `linear(${points.join(", ")})`;
+})();
+/// `wait`'s hold: how long the ended turn's work stays in sight before the fold.
+const WAIT_HOLD_MS = 320;
+
+/// The look's clock: `glide` and `spring` play their own; the rest the house settle.
+function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }): { ms: number; easing: string } {
+  if (look === "glide") return GLIDE;
+  if (look === "spring") return { ms: SPRING_MS, easing: SPRING_EASING };
+  return settled;
+}
+
+/// A curve's progress at a time fraction: a cubic-bezier() or a linear() of evenly spaced points.
+function curveProgress(easing: string): ((x: number) => number) | undefined {
+  const curve = parseBezier(easing);
+  if (curve) return (x) => bezierAt(curve, x);
+  const linear = /^linear\((.*)\)$/.exec(easing.trim());
+  if (!linear) return undefined;
+  const points = linear[1]!.split(",").map((point) => Number.parseFloat(point));
+  if (points.length < 2 || points.some((point) => !Number.isFinite(point))) return undefined;
+  return (x) => {
+    const at = Math.min(1, Math.max(0, x)) * (points.length - 1);
+    const low = Math.floor(at);
+    const high = Math.min(points.length - 1, low + 1);
+    return points[low]! + (points[high]! - points[low]!) * (at - low);
+  };
 }
 
 function settle(thread: HTMLElement): { ms: number; easing: string } {
@@ -368,7 +449,8 @@ export function playTurnEnd(
   scroller?: HTMLElement | null,
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  const { ms: settleMs, easing: settleEasing } = settle(thread);
+  const look = turnEndLook(thread);
+  const { ms: settleMs, easing: settleEasing } = lookTiming(look, settle(thread));
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
   // again, so the first pass's moves are not the longest (turn-transition-jumps `tool-group`: 2 px at
@@ -378,7 +460,6 @@ export function playTurnEnd(
   const ms = settleMs;
   let easing = settleEasing;
   let grew = false;
-  const look = turnEndLook(thread);
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
   // rows measured and placed again in the long frame the swap renders) plays from the start, so the
@@ -391,7 +472,14 @@ export function playTurnEnd(
   // rows that come in) starts when it ends, held at its start until then. A fold that takes nothing
   // away has no lead. Leo, 2026-11-21: "that text hiding as it travels so it doesnt show weird overlays
   // is the big one ... we must hide text faster and sooner".
-  const lead = capture.rows.some((row) => row.copy) ? exitLeadMs(ms, 1, thread) : 0;
+  // `wait` holds the work in sight first; `crossfade` and `cascade` fade the copies on the move's clock.
+  const lead = !capture.rows.some((row) => row.copy)
+    ? 0
+    : look === "wait"
+      ? WAIT_HOLD_MS
+      : look === "crossfade" || look === "cascade"
+        ? 0
+        : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
   let movesAt: number | undefined;
@@ -433,7 +521,11 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs = look === "crossfade" || look === "cascade" ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
+  const exitFrom = look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : 0;
+  /// `morph`'s card, behind the rows, and the geometry it plays (to play it again only when that changes).
+  let card: { element: HTMLElement; key: string; animations: Animation[] } | undefined;
   const exit = (copy: HTMLElement, offset: number) => {
     const drawn = starts.get(copy)?.opacity;
     const since = startedAt === undefined ? 0 : now() - startedAt;
@@ -525,7 +617,7 @@ export function playTurnEnd(
         const before = was.get(node.dataset.rowId!);
         if (before) longest = Math.max(longest, Math.abs(startTop(node, before.top) - tops[index]!));
       });
-      if (look === "tuck" && line !== undefined)
+      if ((look === "tuck" || look === "cascade") && line !== undefined)
         copies.forEach((copy) => {
           const row = goneByCopy.get(copy)!;
           longest = Math.max(longest, Math.abs(line - startTop(copy, row.top)));
@@ -537,8 +629,13 @@ export function playTurnEnd(
     // as flat as it goes, and the clock never starts again for it.
     const early = movesAt === undefined || now() - movesAt <= GROW_WINDOW_MS;
     const longest = early ? longestMove() : 0;
+    // `glide` and `spring` keep their own curve whole: leaned to the frame bound, a long move ran on the
+    // straight line, which is the look they are there to compare against.
+    const ownCurve = look === "glide" || look === "spring";
     const timing =
-      early && !foldFits(longest, ms, easing) ? turnEndFoldTiming(longest, settleMs, settleEasing) : undefined;
+      early && !ownCurve && !foldFits(longest, ms, easing)
+        ? turnEndFoldTiming(longest, settleMs, settleEasing)
+        : undefined;
     grew = timing !== undefined && timing.easing !== easing;
     if (grew) {
       if (startedAt !== undefined) {
@@ -597,14 +694,14 @@ export function playTurnEnd(
       const before = was.get(node.dataset.rowId!);
       return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
     });
-    const curve = parseBezier(easing);
+    const progressAt = curveProgress(easing);
     const clearFraction = (index: number) => {
-      if (!curve) return 1;
+      if (!progressAt) return 1;
       const top = tops[index]!;
       const bottom = top + nodes[index]!.offsetHeight;
       let last = -1;
       for (let step = 0; step <= 200; step++) {
-        const progress = bezierAt(curve, step / 200);
+        const progress = progressAt(step / 200);
         const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
@@ -684,6 +781,25 @@ export function playTurnEnd(
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
         covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
+      // `dissolve`: the row holds where it was while its ink goes, and comes back in at its place. Its two
+      // halves are timed in the keyframes, so the animation runs on the straight line.
+      if (look === "dissolve" && Math.abs(delta) >= 0.5 && clip < 0.5) {
+        restart(
+          node,
+          moving,
+          { delta, fades: false, animations: [], clip },
+          () => [
+            [
+              { translate: `0 ${delta}px`, opacity: 1, easing: EXIT_EASING },
+              { offset: 0.35, translate: `0 ${delta}px`, opacity: 0 },
+              { offset: 0.35, translate: "0 0", opacity: 0, easing },
+              { translate: "0 0", opacity: 1 },
+            ],
+          ],
+          { easing: "linear" },
+        );
+        return;
+      }
       restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
         ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
@@ -714,7 +830,7 @@ export function playTurnEnd(
     copies.forEach((copy, order) => {
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
-      let end = look === "tuck" && line !== undefined ? line - copyTops[order]! : at;
+      let end = (look === "tuck" || look === "cascade") && line !== undefined ? line - copyTops[order]! : at;
       // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
       // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
@@ -757,13 +873,15 @@ export function playTurnEnd(
         fold.animations.delete(animation);
       }
       // Held at its start until the move, so a copy that has faded never shows full again.
-      const timing: KeyframeAnimationOptions = { fill: "both" };
+      // `cascade`: the first row first, each a step after the one over it, inside the first half of the move.
+      const foldDelay = look === "cascade" ? (ms * 0.5 * order) / Math.max(1, copies.length) : 0;
+      const timing: KeyframeAnimationOptions = { fill: "both", ...(foldDelay > 0 && { delay: foldDelay }) };
       // The last row first, each a step after the one under it, inside the exit lead.
       const step = look === "stagger" ? exitMs / Math.max(2, copies.length * 2) : 0;
       // The copy's text is gone when the exit lead ends, before it or anything over it moves: faded on
       // the move's clock (by 60% of it, #41078), its text still travelled, faint, while the rows
       // slid over its place (agent-pane-stream-row-overlap: 5.5 px under the reply at 94%).
-      const faded = exit(copy, (copies.length - 1 - order) * step);
+      const faded = exit(copy, exitFrom + foldDelay + (copies.length - 1 - order) * step);
       const motion = play(
         copy,
         [
@@ -783,6 +901,73 @@ export function playTurnEnd(
         crop,
       });
     });
+    /// `morph`: one card from the line over the folded rows to the row under them. It fades in as the copies
+    /// go and shrinks, on the rows' clock, to the gap they close to, fading as it lands: the band the
+    /// copies leave is never blank. It draws under every row (first in the thread).
+    const playCard = () => {
+      const first = gone[0]?.copy;
+      const above = first ? boundaries.get(first)?.above : undefined;
+      // The lowest row that stays with folded rows over it: the live line, the turn's last row, has none.
+      const below = gone
+        .map((row) => boundaries.get(row.copy!)?.below)
+        .filter((boundary) => boundary !== undefined)
+        .at(-1);
+      if (!first || !below || nodes.length === 0) return;
+      const parentTop = tops[0]! - nodes[0]!.offsetTop;
+      // The line over the work was out of the window when the turn ended (a long turn, read at its
+      // bottom): the card starts at the first folded row's top and lands under the folded line.
+      const header = nodes.findIndex((node) => node.classList.contains(`acpmux-${WORKED}`));
+      const fromTop = above
+        ? startTop(above.node, above.row.top) + (above.row.height ?? above.node.offsetHeight)
+        : startTop(first, gone[0]!.top);
+      const toTop = above
+        ? tops[above.index]! + above.node.offsetHeight
+        : header >= 0
+          ? tops[header]! + nodes[header]!.offsetHeight
+          : tops[below.index]!;
+      const fromBottom = startTop(below.node, below.row.top);
+      const toBottom = tops[below.index]!;
+      const top = Math.min(fromTop, toTop);
+      const bottom = Math.max(fromBottom, toBottom);
+      if (!(bottom - top > 1)) return;
+      const key = [fromTop, toTop, fromBottom, toBottom].map((value) => Math.round(value)).join(" ");
+      if (card && card.key === key && !grew) return;
+      if (!card) {
+        const element = thread.ownerDocument.createElement("div");
+        element.className = TURN_END_CARD;
+        element.setAttribute("aria-hidden", "true");
+        const fill = thread.ownerDocument.createElement("div");
+        element.append(fill);
+        thread.insertBefore(element, thread.firstElementChild);
+        fold.copies.add(element);
+        card = { element, key, animations: [] };
+        const comesIn = fill.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: Math.max(1, lead || exitMs),
+          easing: EXIT_EASING,
+          fill: "both",
+        });
+        fold.animations.add(comesIn);
+      }
+      for (const animation of card.animations) {
+        animation.cancel();
+        fold.animations.delete(animation);
+      }
+      card.key = key;
+      Object.assign(card.element.style, { top: `${top - parentTop}px`, height: `${bottom - top}px` });
+      const inset = (from: number, to: number) => `inset(${from - top}px 0 ${bottom - to}px 0 round 10px)`;
+      card.animations = [
+        play(
+          card.element,
+          [
+            { clipPath: inset(fromTop, fromBottom), opacity: 1 },
+            { offset: 0.6, opacity: 1 },
+            { clipPath: inset(toTop, toBottom), opacity: 0 },
+          ],
+          { fill: "both" },
+        ),
+      ];
+    };
+    if (look === "morph") playCard();
     nodes.forEach((node, index) => laid.set(node, tops[index]!));
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));
   };
