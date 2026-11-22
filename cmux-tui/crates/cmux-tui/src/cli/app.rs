@@ -875,7 +875,11 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     match &command {
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
         _ => {}
@@ -1019,7 +1023,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Live(command) => {
+            let command =
+                live::routed(&command, global.socket.as_deref(), global.session.as_deref());
+            return Ran::Done(live::run(&command));
+        }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
