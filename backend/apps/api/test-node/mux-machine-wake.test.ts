@@ -9,7 +9,7 @@ const sqlOf = (): SqlStorage => {
   return {
     exec: (query: string, ...args: Array<unknown>) => {
       const st = db.prepare(query)
-      const rows = /^\s*(SELECT|INSERT|UPDATE|DELETE)/i.test(query) && /^\s*SELECT/i.test(query) ? st.all(...(args as Array<never>)) : (st.run(...(args as Array<never>)), [])
+      const rows = /^\s*SELECT/i.test(query) ? st.all(...(args as Array<never>)) : (st.run(...(args as Array<never>)), [])
       return { toArray: () => rows, one: () => rows[0] }
     }
   } as unknown as SqlStorage
