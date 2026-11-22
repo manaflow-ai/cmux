@@ -1,5 +1,5 @@
-// Shared measurement for the composer's alignment tests (composer-alignment-centers.test.ts and
-// composer-alignment-measure.test.ts). Runs in the page: every control's drawn box and the
+// Shared measurement for the composer's alignment test (composer-alignment-centers.test.ts).
+// Runs in the page: every control's drawn box and the
 // centers of what it draws, in CSS pixels of the viewport.
 import { COMPOSER_MD_FIELD, PLUS_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 

@@ -4,7 +4,7 @@
 // scrolls inside the card instead of running past its right edge, and the unlabeled card has no
 // "Plain text" header row; its copy floats in the corner and shows on hover.
 import { readFileSync } from "node:fs";
-import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser, type Page } from "playwright";
@@ -236,7 +236,7 @@ await requireBrowserLane("code-block-diagram-browser.test.tsx", async () => {
       }
     });
 
-    test("closes the browser", async () => {
+    afterAll(async () => {
       await browser.close();
     });
   });

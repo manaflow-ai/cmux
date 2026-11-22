@@ -244,16 +244,5 @@ await requireBrowserLane("composer-hat-done-check.test.ts", async () => {
             await page.close();
           }
         });
-
-        test(`MEASURE the check-place arms on the folded header (${name})`, async () => {
-          for (const arm of ["grid", "column", "leading"]) {
-            const page = await open("lone", width, density, theme, arm);
-            try {
-              console.log(`MEASURE arm-${arm} ${name} ${JSON.stringify(await page.evaluate(measure))}`);
-            } finally {
-              await page.close();
-            }
-          }
-        });
       }
 });
