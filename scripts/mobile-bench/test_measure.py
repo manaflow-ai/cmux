@@ -90,5 +90,134 @@ class MeasureTests(unittest.TestCase):
         self.assertGreater(res["worst_gap_ms"], 100)
 
 
+def write_frames(d: Path, frames: list[bytes], flow: str, stim_s: float) -> None:
+    ff = measure.ffmpeg_bin()
+    subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
+                    "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-qp", "0",
+                    "-pix_fmt", "yuv420p", str(d / "clip.mp4")], input=b"".join(frames), check=True)
+    (d / "meta.json").write_text(json.dumps({"app": "synthetic", "flow": flow, "source": "test",
+                                             "stimulus_t": stim_s, "fps_nominal": FPS}))
+
+
+def blank() -> bytearray:
+    return bytearray(bytes([40]) * (W * H))
+
+
+def glyph(f: bytearray, x: int, y: int, w: int = 2, h: int = 3) -> bytearray:
+    """A new glyph: a few bright pixels (one character at analysis scale)."""
+    g = bytearray(f)
+    for r in range(y, y + h):
+        for c in range(x, x + w):
+            g[r * W + c] = 230
+    return g
+
+
+class SmallChangeTests(unittest.TestCase):
+    def test_one_glyph_is_a_response(self):
+        # one 2x3 glyph 200 ms after the stimulus, in a 120x260 frame: far under the region-wide mean
+        stim, n = 0.5, int(1.5 * FPS)
+        base, g = blank(), None
+        frames = []
+        for i in range(n):
+            t = i / FPS
+            if t >= stim + 0.2 and g is None:
+                g = glyph(base, 60, 120)
+            frames.append(bytes(g or base))
+        with tempfile.TemporaryDirectory() as tmp:
+            write_frames(Path(tmp), frames, "new-chat", stim)
+            res = measure.measure(Path(tmp), HERE / "flows.json")
+        self.assertIsNotNone(res["response_ms"])
+        self.assertAlmostEqual(res["response_ms"], 200, delta=1000 / FPS + 0.5)
+
+    def test_send_feedback_is_not_the_first_token(self):
+        # send feedback (a big bubble) at +30 ms for 100 ms, still for 600 ms, then one glyph at +900 ms
+        stim, n = 0.5, int(2.0 * FPS)
+        base = blank()
+        frames, cur = [], bytes(base)
+        for i in range(n):
+            t = i / FPS - stim
+            if 0.03 <= t < 0.13:
+                rows = int(40 * (t - 0.03) / 0.1) + 1
+                f = bytearray(base)
+                for r in range(150, 150 + rows):
+                    f[r * W + 20:r * W + 110] = bytes([200]) * 90
+                cur = bytes(f)
+            elif i == round((stim + 0.9) * FPS):
+                cur = bytes(glyph(bytearray(cur), 30, 60))
+            frames.append(cur)
+        with tempfile.TemporaryDirectory() as tmp:
+            write_frames(Path(tmp), frames, "send-to-first-token", stim)
+            res = measure.measure(Path(tmp), HERE / "flows.json")
+        self.assertAlmostEqual(res["feedback_ms"], 30, delta=1000 / FPS + 0.5)
+        self.assertAlmostEqual(res["response_ms"], 900, delta=1000 / FPS + 0.5)
+
+    def test_feedback_only_has_no_response(self):
+        stim, n = 0.5, int(1.5 * FPS)
+        base = blank()
+        frames = []
+        for i in range(n):
+            t = i / FPS - stim
+            frames.append(bytes(glyph(base, 20, 150, 90, 40)) if t >= 0.05 else bytes(base))
+        with tempfile.TemporaryDirectory() as tmp:
+            write_frames(Path(tmp), frames, "send-to-first-token", stim)
+            res = measure.measure(Path(tmp), HERE / "flows.json")
+        self.assertIsNone(res["response_ms"])
+        self.assertIn("send feedback", res["note"])
+
+
+class CutTests(unittest.TestCase):
+    def test_marker_flow_cannot_name_a_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            frames = [bytes(blank())] * 30
+            write_frames(root, frames, "new-chat", 0.1)
+            markers = root / "markers.txt"
+            markers.write_text("MOBILEBENCH flow=../escaped unsupported reason=x\n"
+                               f"MOBILEBENCH flow={root}/abs unsupported reason=x\n"
+                               "MOBILEBENCH flow=voice-start unsupported reason=no voice\n")
+            out = root / "out"
+            r = subprocess.run([sys.executable, str(HERE / "cut.py"), str(root / "clip.mp4"), str(markers),
+                                str(out), "--app", "t"], capture_output=True, text=True)
+            self.assertIn("skipped marker flow", r.stderr)
+            self.assertFalse((root / "escaped").exists())
+            self.assertFalse((root / "abs").exists())
+            self.assertTrue((out / "voice-start" / "meta.json").exists())
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["voice-start"])
+
+
+class CompareTests(unittest.TestCase):
+    def run_compare(self, *args):
+        return subprocess.run([sys.executable, str(HERE / "compare-mobile"), *args], capture_output=True, text=True)
+
+    def test_missing_ours_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            r = self.run_compare("keyboard-show", "--ours", str(root / "nope"), "--refs", str(root), "--out", str(root / "o"))
+            self.assertNotEqual(r.returncode, 0)
+            (root / "ours").mkdir()
+            r = self.run_compare("keyboard-show", "--ours", str(root / "ours"), "--refs", str(root), "--out", str(root / "o"))
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("no measurement for: keyboard-show", r.stderr)
+            self.assertNotIn("We are slower in", r.stdout)
+
+    def test_changed_meta_is_measured_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            d = root / "ours" / "keyboard-show"
+            d.mkdir(parents=True)
+            write_clip(d, delay_s=0.05, response=0.35, damping=0.86, drop=set(), stim_s=0.5)
+            args = ("keyboard-show", "--ours", str(root / "ours"), "--refs", str(root), "--out", str(root / "o"))
+            r = self.run_compare(*args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            first = json.loads((d / "result.json").read_text())["response_ms"]
+            meta = json.loads((d / "meta.json").read_text())
+            meta["stimulus_t"] = 0.45  # corrected: the stimulus was 50 ms earlier
+            (d / "meta.json").write_text(json.dumps(meta))
+            r = self.run_compare(*args)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            again = json.loads((d / "result.json").read_text())["response_ms"]
+            self.assertAlmostEqual(again - first, 50, delta=1)
+
+
 if __name__ == "__main__":
     unittest.main()

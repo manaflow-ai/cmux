@@ -1143,6 +1143,23 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
+    # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
+    # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
+    # marked source=launch so a reader knows it is early by the recorder's start-up.
+    # Read every 10 ms, so the stamp is within about 10 ms of the line.
+    python3 -c '
+import sys, time
+log, t0 = sys.argv[1], time.time()
+while time.time() - t0 < 10:
+    try:
+        if "Recording started" in open(log, errors="replace").read():
+            print(f"MOBILEBENCH video-start t={time.time():.3f} source=recorder")
+            sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(0.01)
+print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
+' "$work/ui-video.log" >"$out/ui-video-start.txt" || true
   fi
   set +e
   ui_t0=$SECONDS

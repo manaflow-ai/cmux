@@ -6,7 +6,14 @@
 CLIP_DIR holds clip.mp4 and meta.json (README.md, "Clip contract"). Prints the
 flow's numbers and writes CLIP_DIR/result.json:
 
-  response_ms   stimulus to the first frame that changes in the flow's region
+  response_ms   stimulus to the first frame that changes in the flow's region; a
+                change counts when the region's mean changes by CHANGE or any
+                TILE x TILE block of it by TILE_CHANGE (one new glyph is a few
+                pixels: a region-wide mean alone never sees it). For flows with
+                `response_after_stimulus_change` (send to first token, offline
+                error) the first burst after the stimulus is the app's own send
+                feedback (the user's bubble, a button state); it is reported as
+                feedback_ms and the response is the first change after it
   settle_ms     stimulus to the last change before 300 ms of stillness
   motion_ms     settle_ms - response_ms (the animation's length)
   frames        frames the screen drew between response and settle
@@ -46,7 +53,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WIDTH = 120  # analysis width in pixels; height keeps the aspect ratio
 CHANGE = 1.2  # mean absolute luma change (0-255) per pixel that counts as a change
+TILE = 6  # block size (analysis pixels) of the local change check
+TILE_CHANGE = 4.0  # mean absolute luma change in one block that counts as a change (a glyph)
 STILL_MS = 300.0  # stillness that ends a flow
+FEEDBACK_STILL_MS = 150.0  # stillness that ends the send feedback burst
 
 
 def ffmpeg_bin() -> str:
@@ -97,6 +107,29 @@ def frame_diff(a: bytes, b: bytes, w: int, top: int, bottom: int) -> float:
     lo, hi = top * w, bottom * w
     total = sum(abs(x - y) for x, y in zip(a[lo:hi], b[lo:hi]))
     return total / max(1, hi - lo)
+
+
+def tile_diff(a: bytes, b: bytes, w: int, top: int, bottom: int) -> float:
+    """The largest mean absolute change of any TILE x TILE block in rows top..bottom."""
+    cols = (w + TILE - 1) // TILE
+    worst = 0.0
+    for r0 in range(top, bottom, TILE):
+        r1 = min(bottom, r0 + TILE)
+        sums = [0] * cols
+        for r in range(r0, r1):
+            lo = r * w
+            ra, rb = a[lo:lo + w], b[lo:lo + w]
+            if ra == rb:
+                continue
+            for c in range(w):
+                d = ra[c] - rb[c]
+                if d:
+                    sums[c // TILE] += d if d > 0 else -d
+        for k, tot in enumerate(sums):
+            if tot:
+                area = (r1 - r0) * (min(w, (k + 1) * TILE) - k * TILE)
+                worst = max(worst, tot / area)
+    return worst
 
 
 def row_profile(f: bytes, w: int, top: int, bottom: int) -> list[float]:
@@ -234,7 +267,10 @@ def measure(clip_dir: Path, flows_path: Path) -> dict:
     gaps = sorted(b - a for a, b in zip(pts, pts[1:]) if b > a)
     period = float(meta.get("frame_period_s") or 0) or (1.0 / float(meta["fps_nominal"]) if meta.get("fps_nominal") else (gaps[len(gaps) // 10] if gaps else 1 / 60))
     diffs = [0.0] + [frame_diff(frames[i - 1], frames[i], w, top, bottom) for i in range(1, len(frames))]
-    changed = [i for i in range(1, len(frames)) if diffs[i] >= CHANGE and pts[i] >= stim]
+    def is_change(i: int) -> bool:
+        return diffs[i] >= CHANGE or tile_diff(frames[i - 1], frames[i], w, top, bottom) >= TILE_CHANGE
+
+    changed = [i for i in range(1, len(frames)) if pts[i] >= stim and is_change(i)]
     result: dict = {
         "app": meta.get("app"), "flow": flow["id"], "title": flow["title"], "source": meta.get("source"),
         "device": meta.get("device"), "build": meta.get("build") or meta.get("app_version"),
@@ -244,6 +280,17 @@ def measure(clip_dir: Path, flows_path: Path) -> dict:
     if not changed:
         result.update({"response_ms": None, "note": "no change after the stimulus"})
         return result
+    if flow.get("response_after_stimulus_change"):
+        # the first burst is the send feedback, not the answer: skip it
+        k = 1
+        while k < len(changed) and (pts[changed[k]] - pts[changed[k - 1]]) * 1000 <= FEEDBACK_STILL_MS:
+            k += 1
+        result["feedback_ms"] = round((pts[changed[0]] - stim) * 1000, 1)
+        changed = changed[k:]
+        if not changed:
+            result.update({"response_ms": None,
+                           "note": "only the send feedback changed; no answer in the clip (end the clip later)"})
+            return result
     first = changed[0]
     # settle: the last change before STILL_MS of stillness (or the clip's end)
     last = first

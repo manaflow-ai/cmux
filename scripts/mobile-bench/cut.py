@@ -18,6 +18,9 @@ Each flow gets OUT_DIR/<flow>/clip.mp4 (from 0.5 s before the stimulus to its
 end, stream-copied when the cut lands on a keyframe, else re-encoded
 losslessly with the original timestamps kept) and meta.json (README.md,
 "Clip contract"). Unsupported flows get meta.json with "unsupported".
+Only flow ids listed in flows.json are cut; any other id in the markers (they
+come from fleet logs) is reported and skipped, so no marker can name a path
+outside OUT_DIR.
 """
 from __future__ import annotations
 
@@ -70,12 +73,19 @@ def main() -> int:
     ap.add_argument("--video-start", type=float, default=None)
     args = ap.parse_args()
     start, flows = parse(args.markers.read_text(errors="replace"))
+    known = {f["id"] for f in json.loads((HERE / "flows.json").read_text())["flows"]}
+    for bad in sorted(set(flows) - known):
+        print(f"cut.py: skipped marker flow {bad!r}: not a flow in flows.json", file=sys.stderr)
+        del flows[bad]
+    out_root = args.out.resolve()
     start = args.video_start if args.video_start is not None else start
     ff = ffmpeg_bin()
     recorded = dt.datetime.fromtimestamp(args.recording.stat().st_mtime, dt.timezone.utc).isoformat(timespec="seconds")
     made = 0
     for flow, rec in flows.items():
-        d = args.out / flow
+        d = (out_root / flow).resolve()
+        if d.parent != out_root:
+            sys.exit(f"cut.py: flow {flow!r} resolves outside {out_root}")
         d.mkdir(parents=True, exist_ok=True)
         meta = {"app": args.app, "flow": flow, "source": args.source, "device": args.device, "os": args.os,
                 "build": args.build, "recorded_at": recorded}

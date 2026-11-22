@@ -18,6 +18,7 @@ FLOW is an id from flows.json (`compare-mobile --list`), or `all`. Nothing build
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -96,17 +97,67 @@ def capture_ours(sha: str, out: Path) -> Path:
     return clips
 
 
-def measure_all(root: Path, flow: str | None) -> None:
+def inputs_key(d: Path, flow_id: str) -> str:
+    """Everything a result depends on: the clip, its meta.json, the flow's definition and the measuring code.
+    A result.json carrying another key is stale and measured again."""
+    h = hashlib.sha256()
+    clip = d / "clip.mp4"
+    st = clip.stat()
+    h.update(f"{st.st_size}:{st.st_mtime_ns}\n".encode())
+    h.update((d / "meta.json").read_bytes())
+    h.update(json.dumps(next((f for f in FLOWS if f["id"] == flow_id), None), sort_keys=True).encode())
+    for code in ("measure.py", "flows.json"):
+        h.update((HERE / code).read_bytes())
+    return h.hexdigest()[:16]
+
+
+def measure_all(root: Path, flow: str | None, refresh: bool = False) -> list[str]:
+    """Measures every clip under root whose result is missing or stale; returns the failures."""
+    failed = []
     for meta in sorted(root.rglob("meta.json")):
         d = meta.parent
         m = json.loads(meta.read_text())
-        if m.get("unsupported") or (flow and m.get("flow") != flow) or not (d / "clip.mp4").exists():
+        if m.get("unsupported") or (flow and m.get("flow") != flow):
             continue
-        if (d / "result.json").exists() and (d / "result.json").stat().st_mtime >= (d / "clip.mp4").stat().st_mtime:
+        if not (d / "clip.mp4").exists():
+            failed.append(f"{d}: no clip.mp4")
             continue
+        key = inputs_key(d, m.get("flow", ""))
+        res = d / "result.json"
+        if not refresh and res.exists():
+            try:
+                if json.loads(res.read_text()).get("inputs_key") == key:
+                    continue
+            except ValueError:
+                pass
+        res.unlink(missing_ok=True)
         r = sh([sys.executable, str(HERE / "measure.py"), str(d)])
-        if r.returncode != 0:
-            print(f"compare-mobile: measure failed for {d}: {r.stderr.strip()[-300:]}", file=sys.stderr)
+        if r.returncode != 0 or not res.exists():
+            failed.append(f"{d}: {r.stderr.strip()[-300:]}")
+            continue
+        data = json.loads(res.read_text())
+        data["inputs_key"] = key
+        res.write_text(json.dumps(data, indent=2) + "\n")
+    for f in failed:
+        print(f"compare-mobile: measure failed for {f}", file=sys.stderr)
+    return failed
+
+
+def check_ours(ours: Path, flow: str | None) -> list[str]:
+    """Every requested flow of our app has a result or is marked unsupported; returns what is missing."""
+    want = [flow] if flow else [f["id"] for f in FLOWS]
+    missing = []
+    for fid in want:
+        d = ours / fid
+        meta = d / "meta.json"
+        if meta.exists() and json.loads(meta.read_text()).get("unsupported"):
+            continue
+        res = d / "result.json"
+        if not res.exists():
+            missing.append(f"{fid} (no measured clip in {d})")
+        elif json.loads(res.read_text()).get("response_ms") is None:
+            missing.append(f"{fid} ({json.loads(res.read_text()).get('note', 'no response found')})")
+    return missing
 
 
 def main() -> int:
@@ -117,6 +168,7 @@ def main() -> int:
     ap.add_argument("--ours", type=Path, help="clips of our app already cut (skip the fleet step)")
     ap.add_argument("--refs", type=Path, default=None, help="a cmux-design-references checkout")
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--refresh", action="store_true", help="measure every clip again, ignoring saved results")
     args = ap.parse_args()
     if args.list or not args.flow:
         for f in FLOWS:
@@ -133,10 +185,13 @@ def main() -> int:
               "(clone manaflow-ai/cmux-design-references there, or pass --refs DIR)", file=sys.stderr)
     out = args.out or Path(os.environ.get("TMPDIR", "/tmp")) / f"compare-mobile-{int(time.time())}"
     out.mkdir(parents=True, exist_ok=True)
+    if args.ours is not None and not args.ours.is_dir():
+        sys.exit(f"compare-mobile: --ours {args.ours} is not a folder of clips")
     ours = args.ours or capture_ours(args.ref or head_sha(), out)
-    measure_all(ours, flow)
+    failed = measure_all(ours, flow, args.refresh)
     for d in bench_dirs:
-        measure_all(d, flow)
+        failed += measure_all(d, flow, args.refresh)
+    missing = check_ours(ours, flow)
     sys.path.insert(0, str(HERE))
     import table  # noqa: E402
 
@@ -150,8 +205,13 @@ def main() -> int:
         if not flow or r["flow"] == flow:
             print(f"  {r.get('app'):10} {r['flow']:24} {r['_clip']}")
     ours_slow = {f: apps for f, apps in verdict.items() if "cmux" in apps}
+    if missing:
+        # no verdict without our own numbers: an unmeasured flow is not "not slower"
+        print(f"\ncompare-mobile: our app has no measurement for: {'; '.join(missing)}", file=sys.stderr)
+        print(f"No verdict (table: {out / 'table.md'})")
+        return 1
     print(f"\nWe are slower in: {', '.join(ours_slow) or 'none'}  (table: {out / 'table.md'})")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
