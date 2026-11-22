@@ -45,8 +45,8 @@ public final class AgentTurnStateFeed {
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
-    /// The clear a closed watch runs once it stayed closed past ``gapHold`` (nil: none pending).
-    private var gapClear: Task<Void, Never>?
+    /// The clear a closed watch runs once it stayed closed past ``gapHold``.
+    private let gapClear = DemandTimer(owner: "agent-turn-states.gap-hold")
     /// How long a closed watch's states stay on screen for the reconnect to replace them: a daemon
     /// handover's new acpmux answers well within it, and the pane's own quiet window is as long
     /// (hostRetry.ts `RECONNECT_LINE_AFTER_MS`).
@@ -120,7 +120,7 @@ public final class AgentTurnStateFeed {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             reconnect?.cancel()
-            gapClear?.cancel()
+            gapClear.cancel()
             pageRetry?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
@@ -312,8 +312,7 @@ public final class AgentTurnStateFeed {
     /// `keeping` ones, which a push changed while its later pages were read.
     private func applyPage(_ page: AgentWatchPage, keeping: Set<String>, keepingPeers: [String: Set<String>]) {
         backoff.reset()
-        gapClear?.cancel()
-        gapClear = nil
+        gapClear.cancel()
         if !isMirror, !turns.watching { turns.watching = true }
         turns.replace(states: page.states, lastMessages: page.lastMessages, muted: page.muted, titles: page.titles,
                       generatedTitles: page.generatedTitles, sessionNames: page.sessionNames, details: page.details, source: source,
@@ -461,14 +460,7 @@ public final class AgentTurnStateFeed {
         // (`applyPage`). Only a watch still closed past ``gapHold`` knows nothing: then its working
         // dots and lanes go. The cursor and the list held stay (`listFollow`, `held`) either way.
         logger.info("agent turn states: watch closed")
-        gapClear?.cancel()
-        // task-owner: AgentTurnStateFeed.gapClear: one wait per closed watch; cancelled by the next page.
-        gapClear = Task { [weak self] in
-            // concurrency-allow: a deadline for holding the last states through a watch gap, not a blocking wait.
-            guard let hold = self?.gapHold else { return }
-            do { try await Task.sleep(for: hold) } catch { return }
-            self?.clearAfterGap()
-        }
+        gapClear.schedule(after: gapHold) { @MainActor [weak self] in self?.clearAfterGap() }
         reconnect?.cancel()
         reconnect = Task { [weak self] in
             guard var backoff = self?.backoff else { return }
@@ -482,7 +474,6 @@ public final class AgentTurnStateFeed {
     /// The watch stayed closed past ``gapHold``: it knows nothing, so no stale working dots until
     /// it reconnects. Titles stay: a tab keeps reading as its chat while the watch reconnects.
     private func clearAfterGap() {
-        gapClear = nil
         if !isMirror { turns.watching = false }
         turns.clearLive(source: source)
         lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
