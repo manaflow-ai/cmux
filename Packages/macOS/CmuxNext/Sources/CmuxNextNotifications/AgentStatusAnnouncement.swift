@@ -57,3 +57,27 @@ package enum AgentStatusAnnouncement {
         ])
     }
 }
+
+extension DesktopNotifier {
+    /// Says an agent arrival when ``AgentStatusAnnouncement/speaks(_:bannersDenied:appActive:paneIsViewed:)``
+    /// does, with this notifier's banner permission; the kind it said, nil when it said nothing.
+    /// `name`: the chat's name, nil to leave it out (an incognito window's chat).
+    @discardableResult
+    package func announce(_ notification: DaemonNotification, decision: NotificationPolicy.Decision, appActive: Bool,
+                          paneIsViewed: Bool, name: @autoclosure () -> String?) -> AgentStatusAnnouncement.Kind? {
+        guard let kind = AgentStatusAnnouncement.kind(level: notification.level, source: notification.source),
+              AgentStatusAnnouncement.speaks(decision, bannersDenied: authorization == "denied", appActive: appActive,
+                                             paneIsViewed: paneIsViewed) else { return nil }
+        AgentStatusAnnouncement.announce(kind, name: name())
+        return kind
+    }
+}
+
+extension DaemonStore {
+    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when it is
+    /// in this store.
+    package func workspace(namedBy notification: DaemonNotification) -> WorkspaceModel? {
+        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
+        return workspace(resourceID: id)
+    }
+}
