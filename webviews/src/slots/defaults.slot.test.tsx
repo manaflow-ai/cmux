@@ -183,7 +183,9 @@ test("an unknown variant id draws the default; a registered one draws in its pla
   }
 });
 
-test("tab.close stays next: pane tabs are drawn natively, not by a web view", () => {
-  expect(slotsSchema.slots.some((entry) => entry.id === "tab.close")).toBe(false);
-  expect(slotsSchema.next.map((entry) => entry.id)).toContain("tab.close");
+test("tab.close is drawn natively: no web variant; next until its native host ships (TabCloseSlot.swift)", () => {
+  const shipped = slotsSchema.slots.find((entry) => entry.id === "tab.close");
+  const next = slotsSchema.next.some((entry) => entry.id === "tab.close");
+  expect(Boolean(shipped) !== next).toBe(true);
+  for (const variant of shipped?.variants ?? []) expect(variant.source).toEndWith(".swift");
 });
