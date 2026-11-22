@@ -27,6 +27,7 @@ import {
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   TRANSCRIPT_LINE_ROW,
+  transcriptLineRow,
   liveStepHeight,
   transcriptGap,
 } from "./transcriptGrid";
@@ -1804,13 +1805,14 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
             ? MARK_STATUS
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
-/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`.
-const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
+/// One-line activity rows are one row apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS).
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// Read once per layout pass, with the scale (layoutConversation).
+let lineRowPt = TRANSCRIPT_LINE_ROW;
+const toolRowHeight = () => lineRowPt * chromeScale;
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -3660,6 +3662,7 @@ export function layoutConversation(
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
+  lineRowPt = transcriptLineRow();
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale) {
