@@ -403,18 +403,17 @@ export function slashMatches(commands: readonly SlashCommand[], trigger: SlashTr
 }
 
 /// Whether Return picks `match`, the menu's highlighted row, for `query` (the typed word without its
-/// `/`): when the row was chosen with the arrows (`arrowed`), or when the typed word begins the row's
-/// name, unless it is that name in full and the command takes no arguments (Return then sends it).
-/// Otherwise Return does what it does with no menu: a path or a word that only resembles a command
-/// (`look in /dev`) is never rewritten. The chat and New Tab both decide by this.
-export function returnPicks(match: SlashMatch | undefined, query: string, arrowed: boolean): boolean {
+/// `/`). A listed row is always highlighted, and Return takes it as Tab does (Leo, 2026-11-20: "i
+/// click enter and it should do it"); Esc closes the list and leaves the word as typed. Only the
+/// row's name in full, for a command that takes no arguments, is sent as typed: Return runs it. The
+/// chat and New Tab both decide by this.
+export function returnPicks(match: SlashMatch | undefined, query: string): boolean {
   if (!match) return false;
   const name = shownName(match.command);
   const typed = query.replace(/^\$/, "");
   // An extension's command is only its text: Return on its whole name writes the text, never sends it.
   if (insertsText(match.command) && name === typed) return true;
-  if (name === typed && (!match.command.hint || match.command.source === "cmux")) return false;
-  return arrowed || name.toLowerCase().startsWith(typed.toLowerCase());
+  return !(name === typed && (!match.command.hint || match.command.source === "cmux"));
 }
 
 /// The names a `/name` word is a command by: `anywhere` mid-prompt, `leading` at the prompt's start.
