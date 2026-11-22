@@ -94,6 +94,7 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {

@@ -185,6 +185,45 @@
           "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
         }
       ]
+    },
+    {
+      "id": "tab.close",
+      "title": "Tab close",
+      "docs": "A pane tab's close button: the x on the selected or hovered tab (and on a tab whose status the hovered x stands in for). Drawn natively, not by a web view: Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell.swift lays out its square and asks TabCloseSlot.swift for the glyph, from the theme file's `slots` as the daemon resolved them (`theme.slots.resolve`, DesignSettings.themeSlots). The square's place, size, hover fill, colors, fade, hit area, accessibility and click are not the slot's.",
+      "props": {
+        "glyphRect": {
+          "type": "rect",
+          "docs": "The glyph's own box inside the close square (the square inset to the ink, TabStripMetrics.closeGlyphInk and closeGlyphPathInset), in the glyph layer's coordinates. A variant draws its path inside it."
+        },
+        "lineWidth": {
+          "type": "number",
+          "docs": "The stroke the square's glyph layer draws with (TabStripMetrics.closeGlyphLineWidth), round caps, no fill."
+        }
+      },
+      "box": {
+        "block": "The glyph box inside the close square (TabStripMetrics.closeButtonSize): a variant never resizes the square or the tab.",
+        "inline": "The same glyph box; the title still ends at the square's leading edge less titleCloseSpacing."
+      },
+      "motion": {
+        "durations": {
+          "appear": "--cmux-motion-quick"
+        },
+        "easings": {
+          "appear": "--cmux-ease-out"
+        },
+        "reducedMotion": "The square and glyph appear and go at once, as the default does under Reduce Motion and with tab motion off (Motion.tabs).",
+        "stop": "A variant draws one still path; it never animates on its own. The square's fade on hover is the host's and stops when the fade ends."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Cross",
+          "docs": "What the tab drew before slots, unchanged: two round-capped strokes corner to corner across the glyph box (TabCell.closeGlyphPath).",
+          "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCloseSlot.swift",
+          "styles": []
+        }
+      ]
     }
   ],
   "next": [

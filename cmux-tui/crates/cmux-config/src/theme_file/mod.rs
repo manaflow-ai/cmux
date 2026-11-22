@@ -19,9 +19,10 @@
 
 mod colors;
 pub mod render;
+pub mod slots;
 pub mod two_tone;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -46,8 +47,8 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 6] =
-    ["name", "description", "$schema", "colors", "ghostty", "density"];
+pub const RESERVED_KEYS: [&str; 7] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
 /// (where this Mac is), what each background mode last showed, the saved
@@ -305,6 +306,9 @@ pub struct ThemeFile {
     pub diagnostics: Vec<ThemeDiagnostic>,
     /// The color tokens the contrast guard raised (`foreground`).
     pub corrected: Vec<String>,
+    /// The variant each theme slot draws (`slots`), checked against
+    /// schemas/theme/slots.json: unknown slots and variants are left out.
+    pub slots: BTreeMap<String, String>,
 }
 
 impl ThemeFile {
@@ -329,6 +333,7 @@ impl ThemeFile {
             diagnostics: Vec::new(),
             corrected: Vec::new(),
             is_unparsable: false,
+            slots: BTreeMap::new(),
         };
         let is_loaded = reader.read(source, base);
         let mut values = reader.values;
@@ -340,6 +345,7 @@ impl ThemeFile {
             values,
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
+            slots: reader.slots,
         }
     }
 
@@ -419,6 +425,7 @@ struct Reader<'a> {
     diagnostics: Vec<ThemeDiagnostic>,
     corrected: Vec<String>,
     is_unparsable: bool,
+    slots: BTreeMap<String, String>,
 }
 
 impl<'a> Reader<'a> {
@@ -459,6 +466,7 @@ impl<'a> Reader<'a> {
             self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
+        self.slots = slots::read(self, &members);
         true
     }
 
@@ -629,6 +637,10 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     let mut candidates = vec![dotted.to_string()];
     if let Some((_, last)) = dotted.rsplit_once('.') {
         candidates.push(last.to_string());
+    }
+    // A key that holds dots itself (`slots.chat.jumpToBottom`'s `chat.jumpToBottom`).
+    if let Some((_, rest)) = dotted.split_once('.') {
+        candidates.push(rest.to_string());
     }
     candidates.iter().find_map(|key| {
         let needle = format!("\"{key}\"");

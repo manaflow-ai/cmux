@@ -579,7 +579,8 @@ final class TabCell {
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
             closeGlyphLayer.frame = glyph
-            closeGlyphLayer.path = Self.closeGlyphPath(in: CGRect(origin: .zero, size: glyph.size))
+            // The glyph is the `tab.close` theme slot's (TabCloseSlot); its default is the x drawn before slots.
+            closeGlyphLayer.path = TabCloseSlot.current.glyphPath(in: CGRect(origin: .zero, size: glyph.size))
             if onPath {
                 closeBackgroundLayer.opacity = 1
                 closeGlyphLayer.opacity = 1
