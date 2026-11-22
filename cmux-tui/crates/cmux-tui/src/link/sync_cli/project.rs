@@ -643,6 +643,22 @@ fn dial(
     ask(stream, name, at, encoded)
 }
 
+/// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
+const UNANSWERED: &str = "the machine closed the link without answering (asleep or unreachable)";
+
+/// A dial's I/O error: a close by the other side before any answer (a reset or a broken pipe,
+/// which is how Linux reports a close with the ask still unread) is [`UNANSWERED`]; anything else
+/// keeps its own words.
+fn unanswered(error: std::io::Error) -> anyhow::Error {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset};
+    match error.kind() {
+        ConnectionReset | ConnectionAborted | BrokenPipe => {
+            anyhow::anyhow!("{UNANSWERED}: {error}")
+        }
+        _ => error.into(),
+    }
+}
+
 /// Asks the machine on `stream` to serve projection `name` at `at`, as [`dial`] does.
 fn ask(
     mut stream: UnixStream,
@@ -662,15 +678,20 @@ fn ask(
     });
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
-    stream.write_all(&bytes)?;
-    cmux_tui_core::projection::LineWriter::new(&stream).write_all(encoded)?;
-    stream.flush()?;
+    let sent = stream
+        .write_all(&bytes)
+        .and_then(|()| cmux_tui_core::projection::LineWriter::new(&stream).write_all(encoded))
+        .and_then(|()| stream.flush());
+    if let Err(error) = sent {
+        return Err(unanswered(error));
+    }
     stream.set_read_timeout(Some(START_WAIT))?;
     let mut reader = BufReader::with_capacity(256 * 1024, stream);
     let mut answer = String::new();
-    if reader.read_line(&mut answer)? == 0 {
-        // A quiet socket closes the dial unanswered while the machine sleeps.
-        bail!("the machine closed the link without answering (asleep or unreachable)");
+    // A quiet socket closes the dial unanswered while the machine sleeps: an end of file, or on
+    // Linux a reset, since the ask it never read was still queued when it closed.
+    if reader.read_line(&mut answer).map_err(unanswered)? == 0 {
+        bail!(UNANSWERED);
     }
     reader.get_ref().set_read_timeout(None)?;
     let answer: Value = serde_json::from_str(answer.trim())
