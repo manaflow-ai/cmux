@@ -145,6 +145,7 @@ public final class AgentPaneView: NSView {
         state["calls"] = transportPacer?.calls ?? -1
         state["usesPageHost"] = pageEvents != nil
         if let pageEvents { state["provider"] = pageEvents.debugState }
+        state["blank_recovery"] = reloadCover.report // ``AgentPaneReloadCover``'s detector
         return state
     }
     struct QuestionKeyBinding: Equatable {

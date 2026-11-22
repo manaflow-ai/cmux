@@ -63,6 +63,12 @@ public final class AgentPaneReloadCover {
     var heldPageAway = false
     /// The last recoveries, newest last (tests, `debug.agent_pane`).
     public private(set) var recoveries: [Recovery] = []
+    /// The NIGHTLY detector (`debug.agent_pane pacer`, its `blank_recovery`): covers put up by cause, renderer ends, and
+    /// the times the pane showed a document that drew nothing (`blankReveals`: the give-up's old path; 0 is the bar).
+    public private(set) var covers: [Cause: Int] = [:]
+    public private(set) var rendererEnds = 0
+    var giveUpsKept = 0
+    public private(set) var blankReveals = 0
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// Takes the page's picture; nil uses ``AgentPaneView/pageImage()`` (tests set it).
     var takePicture: (@MainActor (AgentPaneView) async -> NSImage?)?
@@ -78,7 +84,10 @@ public final class AgentPaneReloadCover {
 
     public var isShown: Bool { cause != nil }
 
-    init() {}
+    init() {
+        // Clicks go through to the page under the picture: the composer takes them before the new document painted.
+        view.passesInput = true
+    }
 
     /// The picture for a cover of `size` in `appearance`, if the last frame was drawn that way.
     func picture(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {
@@ -111,6 +120,7 @@ public final class AgentPaneReloadCover {
     var frameAgeMilliseconds: Int? { frame.map { Int(((now() - $0.uptime) * 1000).rounded()) } }
 
     func began(_ cause: Cause, picture: Bool, afterCommit: Bool) {
+        covers[cause, default: 0] += 1
         self.cause = cause
         since = now()
         showsPicture = picture
@@ -125,6 +135,25 @@ public final class AgentPaneReloadCover {
 
     /// The page's picture stands in now (a fresh one landed over the loading state).
     func pictureShown() { if isShown { showsPicture = true } }
+
+    func pageEndedNow() {
+        pageEnded = true
+        rendererEnds += 1
+    }
+
+    func gaveUp(kept: Bool) {
+        if kept { giveUpsKept += 1 } else { blankReveals += 1 }
+    }
+
+    /// The detector's counts, for `debug.agent_pane pacer`'s `blank_recovery`.
+    public var report: [String: Any] {
+        [
+            "covers": Dictionary(uniqueKeysWithValues: covers.map { ($0.key.rawValue, $0.value) }),
+            "renderer_ends": rendererEnds, "give_ups_kept": giveUpsKept, "blank_reveals": blankReveals,
+            "shown": cause.map { $0.rawValue as Any } ?? NSNull(), "picture_age_ms": frameAgeMilliseconds.map { $0 as Any } ?? NSNull(),
+            "recoveries": recoveries.map { ["cause": $0.cause.rawValue, "ms": $0.milliseconds, "picture": $0.picture] as [String: Any] },
+        ]
+    }
 
     /// The picture no longer fits (the pane resized): the loading state stands in.
     func droppedPicture() { showsPicture = false }

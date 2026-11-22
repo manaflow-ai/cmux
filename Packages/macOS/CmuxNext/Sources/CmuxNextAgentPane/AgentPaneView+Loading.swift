@@ -88,7 +88,10 @@ public final class AgentPaneLoadingView: NSView {
 
     override public var isFlipped: Bool { true }
 
-    override public func hitTest(_ point: NSPoint) -> NSView? { leaving ? nil : super.hitTest(point) }
+    override public func hitTest(_ point: NSPoint) -> NSView? { leaving || passesInput ? nil : super.hitTest(point) }
+
+    /// Clicks and scrolls go to the page under it (a cover over a chat that drew, ``AgentPaneReloadCover``).
+    var passesInput = false
 
     override public func layout() {
         super.layout()
@@ -267,7 +270,9 @@ extension AgentPaneView {
     func armPaintGiveUp() {
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
             guard let self, !model.hasPainted else { return }
-            if Self.giveUpKeepsCover(documentDrew: page.map(\.hasPainted)) {
+            let kept = Self.giveUpKeepsCover(documentDrew: page.map(\.hasPainted))
+            if page != nil { reloadCover.gaveUp(kept: kept) }
+            if kept {
                 loadingLogger.error("agent pane page did not report its first paint in sight and its document drew nothing; keeps its loading state session=\(self.model.sessionId ?? "none", privacy: .public)")
                 armPaintGiveUp()
                 return

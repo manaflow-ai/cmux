@@ -70,13 +70,17 @@ struct AgentPaneReloadCoverTests {
 
     /// What the pane shows now: its cover's picture, its cover's loading state, the page (shown and drawn), or
     /// nothing (an unpainted or hidden page with no cover over it).
-    static func shown(_ view: AgentPaneView) -> Shown {
+    /// `withoutCover`: what the pane would show with no reload cover (the build before it), the before of the
+    /// same frames.
+    static func shown(_ view: AgentPaneView, withoutCover: Bool = false) -> Shown {
         let cover = view.reloadCover
-        if cover.isShown, cover.view.superview === view, !cover.view.isHidden {
+        if !withoutCover, cover.isShown, cover.view.superview === view, !cover.view.isHidden {
             return cover.showsPicture && cover.view.layer?.contents != nil ? .picture : .loading
         }
         if view.loadingView.superview === view, !view.loadingView.isHidden { return .loading }
-        let pageVisible = view.pageContent.alphaValue > 0 && !view.holdsPageAway
+        // The cover's own hiding of the page does not count in the before.
+        let hiddenByCover = withoutCover && cover.isShown
+        let pageVisible = hiddenByCover || (view.pageContent.alphaValue > 0 && !view.holdsPageAway)
         guard pageVisible, view.model.hasPainted, let page = view.page else { return .blank }
         // A page whose document went (its renderer ended, a new one committed and has not painted) draws nothing.
         return page.loaded || page.hasPainted ? .page : .blank
@@ -85,12 +89,15 @@ struct AgentPaneReloadCoverTests {
     /// Samples what the pane shows on every main-actor turn (about every 4 ms) until stopped.
     @MainActor final class Sampler {
         private(set) var frames: [Shown] = []
+        /// The same frames as the pane before the cover would have shown them.
+        private(set) var before: [Shown] = []
         private var task: Task<Void, Never>?
 
         func start(_ view: AgentPaneView) {
             task = Task { @MainActor [weak self, weak view] in
                 while !Task.isCancelled, let view {
                     self?.frames.append(AgentPaneReloadCoverTests.shown(view))
+                    self?.before.append(AgentPaneReloadCoverTests.shown(view, withoutCover: true))
                     try? await Task.sleep(for: .milliseconds(4))
                 }
             }
@@ -150,6 +157,8 @@ struct AgentPaneReloadCoverTests {
         #expect(view.pageContent.alphaValue == 1)
         let recovery = try #require(view.reloadCover.recoveries.last)
         #expect(recovery.cause == .contentEnded && recovery.picture)
+        #expect(view.reloadCover.rendererEnds == 1 && view.reloadCover.blankReveals == 0)
+        #expect(view.reloadCover.covers[.contentEnded] == 1)
     }
 
     /// App health's reload, a web override's reload and the host's own: the old document draws until the commit,
@@ -186,6 +195,20 @@ struct AgentPaneReloadCoverTests {
         #expect(recovery.cause == .newDocument && !recovery.picture)
     }
 
+    /// Clicks over the picture go to the page under it: the composer takes them before the new document painted.
+    @Test(.timeLimit(.minutes(1)))
+    func theCoverPassesClicksToThePage() async throws {
+        let (view, window) = try await Self.paintedWithPicture()
+        let page = try #require(view.page)
+        defer { page.close(); window.close() }
+        page.reload()
+        #expect(view.reloadCover.isShown)
+        let center = NSPoint(x: view.bounds.midX, y: view.bounds.midY)
+        #expect(view.reloadCover.view.hitTest(view.reloadCover.view.convert(center, from: view)) == nil, "the cover took a click meant for the page")
+        // Keys: the cover never takes the keyboard; the page's view keeps first responder.
+        #expect(!(window.firstResponder is AgentPaneLoadingView))
+    }
+
     /// A page that keeps ending shows the crash notice over the page, not over a picture of a chat that works.
     @Test(.timeLimit(.minutes(1)))
     func theCrashNoticeTakesThePictureAway() async throws {
@@ -218,6 +241,7 @@ struct AgentPaneReloadCoverTests {
         #expect(view.loadingView.superview === view, "the give-up showed a document that drew nothing")
         #expect(!view.model.hasPainted)
         #expect(view.loadingView.awaitsGiveUp, "the give-up stopped checking")
+        #expect(view.reloadCover.blankReveals == 0)
     }
 
     /// The real thing on real WebKit: the page's web content process is killed (`_killWebContentProcess`, what app
@@ -254,8 +278,9 @@ struct AgentPaneReloadCoverTests {
             let loaded = ContinuousClock.now - start
             await Self.paintReport(view)
             let frames = sampler.stop()
+            let before = sampler.before.filter { $0 == .blank }.count
             let recovery = try #require(view.reloadCover.recoveries.last, "round \(round): the cover never ended")
-            print("reload-cover: round=\(round) cause=\(cause) engine=webkit cover_ms=\(covered.milliseconds) new_document_loaded_ms=\(loaded.milliseconds) first_paint_report_ms=\(recovery.milliseconds) picture=\(recovery.picture) real_picture=\(realPicture) frames=\(frames.count) blank=\(frames.filter { $0 == .blank }.count) picture_frames=\(frames.filter { $0 == .picture }.count) loading_frames=\(frames.filter { $0 == .loading }.count)")
+            print("reload-cover: round=\(round) cause=\(cause) engine=webkit cover_ms=\(covered.milliseconds) new_document_loaded_ms=\(loaded.milliseconds) first_paint_report_ms=\(recovery.milliseconds) picture=\(recovery.picture) real_picture=\(realPicture) frames=\(frames.count) blank_before=\(before) blank=\(frames.filter { $0 == .blank }.count) picture_frames=\(frames.filter { $0 == .picture }.count) loading_frames=\(frames.filter { $0 == .loading }.count)")
             #expect(!frames.contains(.blank), "round \(round) (\(cause)): \(frames.filter { $0 == .blank }.count) of \(frames.count) sampled frames showed nothing")
             #expect(recovery.milliseconds < 10_000, "round \(round) (\(cause)): the new document took \(recovery.milliseconds) ms to paint")
             #expect(Self.shown(view) == .page)

@@ -17,10 +17,10 @@ extension AgentPaneView {
             rememberLastFrame(fresh: true) { [weak self] in self?.coverNewDocument(.reload, onlyWithPicture: true) }
             coverNewDocument(.reload, onlyWithPicture: true)
         case .contentEnded:
-            reloadCover.pageEnded = true
+            reloadCover.pageEndedNow()
             coverNewDocument(.contentEnded)
         case .rendererRestart:
-            reloadCover.pageEnded = true
+            reloadCover.pageEndedNow()
             coverNewDocument(.rendererRestart)
         case .committed:
             reloadCover.documentCommitted()
