@@ -75,6 +75,7 @@ on:
       # cmux-customize-recipes embeds the recipes guide (in the tree key).
       - docs/cmux-next/customize-recipes.md
       - examples/looks/claude-code/notification-levels/cmux-setup.json
+      - examples/looks/hairline/**
       - webviews/test/fixtures/**
       # Why: docs/ci/cmux-next-workflow-notes.md#note-489
       - webviews/src/**
@@ -359,6 +360,7 @@ on:
       - docs/remote-agents-and-cloud.md
       - docs/cmux-next/customize-recipes.md
       - examples/looks/claude-code/notification-levels/cmux-setup.json
+      - examples/looks/hairline/**
       - scripts/cmux-next/check-generator-inputs.sh
       # Why: docs/ci/cmux-next-workflow-notes.md#note-526
       - scripts/cmux-next/generated-autofixable.sh
@@ -3619,10 +3621,13 @@ jobs:
       actions: read
       contents: read
     timeout-minutes: 20
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-210b
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-207
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3755,6 +3760,7 @@ jobs:
       - name: Restore the cargo build from R2
         id: r2-cargo-target
         if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -3768,6 +3774,7 @@ jobs:
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
         if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -3810,11 +3817,11 @@ jobs:
 
       - name: Save the cargo build to R2
         if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-          CI_CACHE_R2_BUCKET: cmux-ci-cache-next
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
@@ -3825,11 +3832,11 @@ jobs:
 
       - name: Save the cargo registry to R2
         if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-          CI_CACHE_R2_BUCKET: cmux-ci-cache-next
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
