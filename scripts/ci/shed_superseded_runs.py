@@ -33,6 +33,12 @@ A run at its branch's tip is kept whatever its pull request's state: a host swee
 pull_request run at a tip without an open pull request, so that check would only cost reads.
 Every cancel is one row in the step summary.
 
+The token's primary rate limit ("API rate limit exceeded for installation", shared with every workflow in the
+repository) is not an error of the sweep: a listing read that meets it stops the listing, the sweep sheds what it
+already listed, and it exits 0 with a warning naming the reset (2026-11-21: 34 of 100 sweeps died on that 403
+mid-listing and shed nothing). Job reads stop while fewer than SHED_KEEP_CALLS_PCT (default 25) percent of the
+limit remain, so the sweep spends its quota on cancels, not on reads, and leaves the rest to the repository.
+
 usage: shed_superseded_runs.py [--dry-run] [--max N] [--hours H] [--spacing S]
 """
 from __future__ import annotations
@@ -178,11 +184,29 @@ def parse_ls_remote(text: str) -> dict[str, str]:
     return tips
 
 
+class RateLimited(RuntimeError):
+    """The token's primary rate limit: every further call fails until reset (unix seconds, 0 when unknown)."""
+
+    def __init__(self, message: str, reset: int) -> None:
+        super().__init__(message)
+        self.reset = reset
+
+
+def is_primary_limit(code: int, body: str, remaining: str | None) -> bool:
+    text = body.lower()
+    if code not in (403, 429) or "secondary" in text:
+        return False
+    return "rate limit" in text or remaining == "0"
+
+
 class GitHub:
     def __init__(self, repo: str, token: str) -> None:
         self.repo = repo
         self.token = token
         self.calls = 0
+        self.limit: int | None = None
+        self.remaining: int | None = None
+        self.limited: RateLimited | None = None
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -197,10 +221,16 @@ class GitHub:
             req = urllib.request.Request(API + path, headers=self.headers, method=method)
             try:
                 with urllib.request.urlopen(req, timeout=30) as response:
+                    self._note_quota(response.headers)
                     raw = response.read()
                     return json.loads(raw) if raw else {}
             except urllib.error.HTTPError as error:
                 body = error.read().decode(errors="replace")[:300]
+                self._note_quota(error.headers)
+                if is_primary_limit(error.code, body, error.headers.get("x-ratelimit-remaining")):
+                    self.limited = RateLimited(f"{method} {path.split('?')[0]} rate limited ({error.code}): {body}",
+                                               int(error.headers.get("x-ratelimit-reset") or 0))
+                    raise self.limited from error
                 secondary = error.code in (403, 429) and "secondary" in body.lower()
                 if secondary or error.code in (502, 503, 504):
                     time.sleep(min(60, int(error.headers.get("Retry-After") or 0) or 10 * (attempt + 1)))
@@ -212,6 +242,25 @@ class GitHub:
                     continue
                 raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
         raise RuntimeError(f"{method} {path.split('?')[0]} kept failing")
+
+    def _note_quota(self, headers: Any) -> None:
+        if headers is None:
+            return
+        try:
+            if headers.get("x-ratelimit-limit"):
+                self.limit = int(headers["x-ratelimit-limit"])
+            if headers.get("x-ratelimit-remaining"):
+                self.remaining = int(headers["x-ratelimit-remaining"])
+        except ValueError:
+            pass
+
+    def can_spend_on_reads(self, keep_pct: float) -> bool:
+        """False once the limit was met or fewer than keep_pct percent of it remain (unknown counts as enough)."""
+        if self.limited is not None:
+            return False
+        if self.limit is None or self.remaining is None:
+            return True
+        return self.remaining > self.limit * keep_pct / 100
 
     def _page(self, lo: dt.datetime, hi: dt.datetime, page: int, status: str = "queued") -> dict[str, Any]:
         rng = f"{lo:%Y-%m-%dT%H:%M:%SZ}..{hi:%Y-%m-%dT%H:%M:%SZ}"
@@ -227,8 +276,26 @@ class GitHub:
                     status: str = "queued") -> tuple[list[dict[str, Any]], int]:
         runs: list[dict[str, Any]] = []
         failed = 0
-        for lo, hi in windows(since, until, lambda a, b: self.queued_total(a, b, status)):
-            first = self._totals.pop(f"{status}|{lo}|{hi}", None) or self._page(lo, hi, 1, status)
+        if self.limited is not None:
+            return runs, 1
+        try:
+            spans = windows(since, until, lambda a, b: self.queued_total(a, b, status))
+        except RateLimited as error:
+            # Bisection met the limit: keep the windows it already read whole, drop the rest.
+            print(f"::warning::{error}", file=sys.stderr)
+            spans = [tuple(map(dt.datetime.fromisoformat, key.split("|")[1:]))  # type: ignore[misc]
+                     for key, page in self._totals.items()
+                     if key.startswith(f"{status}|") and int(page.get("total_count") or 0) <= LIST_CAP]
+            failed += 1
+        for lo, hi in spans:
+            try:
+                first = self._totals.pop(f"{status}|{lo}|{hi}", None) or self._page(lo, hi, 1, status)
+            except RuntimeError as error:
+                print(f"::warning::{error}", file=sys.stderr)
+                failed += 1
+                if isinstance(error, RateLimited):
+                    break
+                continue
             batch = first.get("workflow_runs") or []
             runs += batch
             pages = min(LIST_CAP // 100, (int(first.get("total_count") or 0) + 99) // 100)
@@ -242,6 +309,8 @@ class GitHub:
                 runs += batch
                 if len(batch) < 100:
                     break
+            if self.limited is not None:
+                break
         return runs, failed
 
     def cancel(self, run_id: int) -> None:
@@ -288,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--hours", type=float, default=float(os.environ.get("SHED_LOOKBACK_HOURS") or 72))
     ap.add_argument("--spacing", type=float, default=float(os.environ.get("SHED_CANCEL_SPACING_SECONDS") or 0.2))
     ap.add_argument("--max-job-reads", type=int, default=int(os.environ.get("SHED_MAX_JOB_READS") or 300))
+    ap.add_argument("--keep-calls-pct", type=float, default=float(os.environ.get("SHED_KEEP_CALLS_PCT") or 25))
     args = ap.parse_args(argv)
     repo = os.environ["GH_REPO"]
     gh = GitHub(repo, os.environ["GH_TOKEN"])
@@ -303,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
     active, failed_active = gh.queued_runs(since, now, "in_progress")
     jobs: dict[int, list[dict[str, Any]]] = {}
     for run in needs_jobs(active, repo, tips, args.max_job_reads):
+        if not gh.can_spend_on_reads(args.keep_calls_pct):
+            break
         listed = gh.run_jobs(run["id"])
         if listed is not None:
             jobs[run["id"]] = listed
@@ -321,6 +393,8 @@ def main(argv: list[str] | None = None) -> int:
     done = errors = 0
     for run, why in picks:
         result = "dry run"
+        if gh.limited is not None and not args.dry_run:
+            break
         if not args.dry_run and run.get("status") == "in_progress":
             # Read again right before the cancel: a runner may have taken a job since the first read.
             fresh = gh.run_jobs(run["id"])
@@ -342,7 +416,13 @@ def main(argv: list[str] | None = None) -> int:
         summary_line(f"| [{run['id']}]({run.get('html_url', '')}) | {(run.get('name') or '').replace('|', '/')} "
                      f"| {run.get('event')} | {run.get('head_branch')} | {(run.get('head_sha') or '')[:10]} "
                      f"| {run.get('created_at')} | {why} | {result} |")
-    summary_line(f"\ncancelled {done}, errors {errors}, candidates {eligible}, API calls {gh.calls}")
+    summary_line(f"\ncancelled {done}, errors {errors}, candidates {eligible}, API calls {gh.calls}, "
+                 f"quota left {gh.remaining}/{gh.limit}")
+    if gh.limited is not None:
+        reset = (dt.datetime.fromtimestamp(gh.limited.reset, dt.timezone.utc).strftime("%H:%M:%SZ")
+                 if gh.limited.reset else "unknown")
+        summary_line(f"\nThe token's rate limit was met (resets {reset}); the next sweep goes on from there.")
+        print(f"::warning::rate limited; resets {reset}", file=sys.stderr)
     return 0
 
 
