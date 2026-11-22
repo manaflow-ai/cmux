@@ -22,7 +22,6 @@ import Testing
         #expect(geometry.height == SidebarLayoutMetrics.standard.emptySectionHeight)
         let view = EmptySectionRowView(key: geometry.key)
         view.frame = NSRect(x: 0, y: 0, width: 240, height: geometry.height)
-        view.configure(pinned: false)
         view.layoutSubtreeIfNeeded()
         #expect(view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.isEmpty)
     }
@@ -46,15 +45,12 @@ import Testing
     @Test func pinnedsDropZoneDrawsNoText() {
         _ = NSApplication.shared
         let view = EmptySectionRowView(key: .emptySection(.machine(.local)))
-        view.configure(pinned: false)
         view.prepareForReuse(key: .emptySection(.pinned))
-        view.configure(pinned: true)
         view.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarLayoutMetrics.standard.emptySectionHeight)
         view.layoutSubtreeIfNeeded()
         let visible = { view.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.map(\.stringValue) }
         #expect(visible().isEmpty, "Pinned's drop zone draws \(visible())")
         view.prepareForReuse(key: .emptySection(.machine(.local)))
-        view.configure(pinned: false)
         #expect(visible().isEmpty)
     }
 }
