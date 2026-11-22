@@ -176,7 +176,7 @@ test("a workflow agent opened from the panel draws its transcript, loading first
       <BackgroundTasksPanel
         groups={groups}
         look="flat"
-        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read }}
+        workflow={{ sessionId: "chat", chat: "This chat", emitReason: "connected", read }}
         onClearFinished={() => {}}
         onExpand={() => {}}
         onClose={() => {}}
@@ -276,7 +276,7 @@ test("a workflow agent's transcript loads its older history when the reader scro
       <BackgroundTasksPanel
         groups={groups}
         initialDrill={{ agentId: pane, workflow: true }}
-        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read: read as never }}
+        workflow={{ sessionId: "chat", chat: "This chat", emitReason: "connected", read: read as never }}
         onClearFinished={() => {}}
         onExpand={() => {}}
         onClose={() => {}}
@@ -376,7 +376,7 @@ test("turning workflows off while a workflow agent's transcript shows steps back
   const reads = {
     sessionId: "chat",
     chat: "This chat",
-    connection: "connected",
+    emitReason: "connected",
     read: () => new Promise<never>(() => {}),
   };
   root = createRoot(container);
@@ -440,7 +440,7 @@ test("a workflow agent's long first page mounts one window, not every row", asyn
       <BackgroundTasksPanel
         groups={[]}
         initialDrill={{ agentId: pane, workflow: true }}
-        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read }}
+        workflow={{ sessionId: "chat", chat: "This chat", emitReason: "connected", read }}
         onClearFinished={() => {}}
         onExpand={() => {}}
         onClose={() => {}}

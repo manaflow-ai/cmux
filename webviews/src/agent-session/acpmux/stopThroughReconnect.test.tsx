@@ -98,7 +98,7 @@ test("the composer's Stop during a reconnect says it is stopping and stops the t
   const root = createRoot(dom.window.document.body.appendChild(dom.window.document.createElement("div")));
   const render = (view: StopView) => act(async () => root.render(<Probe view={view} />));
   // acpmux restarted on a new version mid-turn: the pane shows the turn still working.
-  const reconnecting = { ...working, link: "disconnected" };
+  const reconnecting: StopView = { ...working, link: "disconnected" };
   await render(reconnecting);
   expect(shown!.stopping).toBe(false);
   await act(async () => shown!.stop());

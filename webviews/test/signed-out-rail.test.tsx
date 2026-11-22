@@ -120,6 +120,8 @@ async function mount(start: {
       protocolVersion: 1,
       rows: [],
       sessions: start.sessions ?? [],
+      link: "connected" as const,
+      emitReason: "test",
       connection: "test",
       isWorking: false,
       queue: [],

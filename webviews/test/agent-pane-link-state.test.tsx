@@ -98,10 +98,11 @@ async function pane() {
   await act(async () => root.render(<AcpmuxApp />));
   for (let tries = 0; tries < 500 && availability.at(-1) !== true; tries += 1)
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  /// The client's next emit for the same chat, for `reason` (snapshot `connection`).
+  /// The client's next emit for the same chat, for `reason` (snapshot `emitReason`, and the `link` it implies).
+  const { emitted } = await import("../src/agent-session/acpmux/model");
   const emit = async (reason: string) => {
     await act(async () =>
-      window_.cmuxAcpmuxBridge?.receive({ ...structuredClone(snapshot), connection: reason } as Snapshot),
+      window_.cmuxAcpmuxBridge?.receive({ ...structuredClone(snapshot), ...emitted(reason) } as Snapshot),
     );
     await settle();
   };
@@ -136,10 +137,11 @@ test("checkpoints go offline when the link does", async () => {
 
 // Cloud chat recovery (App.tsx `cloudChatRecoveryActive`) and checkpoints read the same `linkUp`.
 test("the link is up for every emit reason but a lost or opening connection", async () => {
-  const { linkUp } = await import("../src/agent-session/acpmux/model");
+  const { emitted, linkUp } = await import("../src/agent-session/acpmux/model");
   for (const reason of ["connected", "session changed", "agent_message_chunk", "history", "failed"])
-    expect(linkUp(reason)).toBe(true);
-  for (const reason of ["disconnected", "connecting", "connecting: socket closed"]) expect(linkUp(reason)).toBe(false);
+    expect(linkUp(emitted(reason))).toBe(true);
+  for (const reason of ["disconnected", "connecting", "connecting: socket closed"])
+    expect(linkUp(emitted(reason))).toBe(false);
 });
 
 // A Cloud chat whose open failed on a socket that stayed open (direct.ts emits "failed", with no
@@ -151,6 +153,8 @@ test("a Cloud chat whose open failed on an open socket shows its paused machine'
   const base = chat([]);
   const snapshot: Snapshot = {
     ...base,
+    link: "connected",
+    emitReason: "failed",
     connection: "failed",
     summary: { ...base.summary!, hostKind: "cloud", turnCount: 3 },
   };
