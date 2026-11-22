@@ -21,6 +21,8 @@
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 // - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
+// - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
+//   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
@@ -44,6 +46,8 @@
 import { watchFirstLoad } from "./firstLoadWatch";
 import { watchFocusLoss } from "./focusLossWatch";
 import { postNative } from "./native";
+import { acpmuxPerf } from "./perf";
+import { perfReporter } from "./perfReporter";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
 /// Hands one batch to the app; it may return the host's (ignored) answer.
@@ -275,11 +279,14 @@ export function setFrameWatch(on: boolean, win: Window = window): void {
 /// The transcript's root mounted (App.tsx VirtualTranscript); nothing before startFlickerLog.
 export function noteTranscriptMount(): void {
   log?.transcriptMounted();
+  // The perf watch's page-load span (perfReporter.ts): the first mount, once per page.
+  acpmuxPerf.markLaunch("transcriptMount");
 }
 
 /// The chat on screen was replaced whole (direct.ts `noteReplace`); nothing before startFlickerLog.
 export function noteTranscriptReplace(cause: string, blank: boolean, n: number): void {
   log?.record("transcript-replace", { cause, blank, n });
+  perfReporter.transcriptReplaced();
 }
 
 /// The ended turn's final reply is not painted where the reader follows (conversation/replyPainted.ts):
@@ -385,7 +392,10 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   flicker.record("page-load", { type: navigation?.type ?? "unknown" });
   watchFirstLoad(win, (fields) => flicker.record("first-load", fields));
 
-  const longFrame = (ms: number) => flicker.record("long-frame", { ms });
+  const longFrame = (ms: number) => {
+    flicker.record("long-frame", { ms });
+    perfReporter.longFrame(ms);
+  };
   const types = (globalThis as { PerformanceObserver?: typeof PerformanceObserver }).PerformanceObserver
     ?.supportedEntryTypes;
   // With the engine's long frames, the watch's own would be the same frames twice.
@@ -420,6 +430,8 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
 
   doc.addEventListener("visibilitychange", () => {
     flicker.record("visibility", { state: doc.visibilityState });
+    // The perf watch times a switch back to this page to its settled transcript (perfReporter.ts).
+    perfReporter.visibilityChanged(doc.visibilityState === "visible");
     watch.reset();
     if (doc.visibilityState !== "visible") return;
     // A flag set in this page's own console fires no `storage` event here: it is read again on show.
@@ -429,4 +441,10 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   win.addEventListener("pagehide", () => flicker.flush());
   // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
   watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
+}
+
+/// A layout move the layout-motion contract does not declare (layout/motionAudit.ts, dev builds): the surface,
+/// how far the box went (`px`, its largest change) and the events open then. No chat text, no row id.
+export function noteUndeclaredMove(surface: string, px: number, during: string): void {
+  log?.record("layout-undeclared", { surface, px, during });
 }

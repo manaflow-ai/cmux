@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/sidebar-text-tokens): Sidebar-Look: Leo, 2026-10-27: "5 different font colors in sidebar (opacity?)". Text on the sidebar's own background takes three inks, `SidebarStyle.TextInk`: `title` (a workspace's, an item's and a folder group's name: `titleInk`, so a folder's name no longer reads in the brighter `textPrimary`), `secondary` (a section header's or a quiet group's name) and `tertiary` (every detail, count and machine word). No label carries an opacity of its own: an archived name drops to `tertiary` instead of its ink at 45%, and a group's member count drops to `tertiary` instead of the name's ink at 70% (`groupHeaderCountInkAlpha` is gone). On a group's colored fill (band, glass, tinted) the count and machine words take the name's readable ink at full strength. Icons, bars and pills still dim by `archivedAlpha`. Regression: `SidebarTextInkCountTests` (counts the distinct resolved text colors of a section, folder group, member, loose and archived row; prints `INKS|`).
+- 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
+  left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
+  consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old
+  `leadsWithCloud`); its title starts where a local row's does, and a small muted cloud (`cloudMark`, textTertiary,
+  indicator size) sits in the trailing status cluster beside the bell and badges. Local rows draw nothing there. A Cloud
+  desktop's page face is `.remoteDisplay`, not `.cloud`, so its row leads with the display like any desktop. A Cloud
+  chat's or desktop's tab says "Cloud" in the trailing muted word slot, never a glyph. A new Cloud desktop workspace is
+  named after the machine's human name or its chat's title, else "Desktop", never a raw `chat-<hex>` id
+  (`CloudStrings.desktopWorkspaceName(_:chats:)`). Regression: `SidebarCloudMachineHeaderTests`,
+  `CloudChatTabBadgeTests`, `CloudDesktopPageIconTests`.
 - 2026-11-21 (a-tooltip-cuts): Sidebar-Look: Lawrence: "drastically simplify all parts of the UI" (a1315's tooltip
   cuts, picked by Chief: a tooltip is a name and a shortcut on one line; none on a control that shows its text; none on
   rows, which have hover cards). A workspace row carries no tooltip: its muted bell, usage warning triangle, badges,
@@ -9,6 +20,8 @@
   on one line. Calm mode, which opens no hover card, keeps a clipped name's tooltip. Nothing moves or redraws.
   Regression: `SidebarUsageWarningTests`, `SidebarIconMeaningTests`, `SidebarRowBadgeStackCapTests`,
   `SidebarStatusSimpleTests`, `CloudMachineCostTests`.
+- 2026-11-22 (lane/sidebar-hover-hides-usage-triangle): Sidebar-Look: Leo, 2026-11-22: "in all cases, the hovered buttons should just replace the other ones." The usage warning triangle was the one status mark left beside the hover controls (moved left of them). It now hides in place under them like the dot, spinner and counts, with no move, and returns when the hover ends; the row's hover card still names each warning. Regression: `SidebarHoverReplacesMarksTests` (warned rows), `SidebarUsageWarningTests.theBadgeGivesWayToTheHoverControls`; gallery `SidebarHoverReplacesMarksGalleryTests` (warned rows).
+- 2026-11-22 (lane/sidebar-row-hover-pin): Sidebar-Look: Leo, 2026-11-22: "in all cases, the hovered buttons should just replace the other ones." While a row's hover controls show (the ✕, the ⋮, the pin), every status mark in its trailing cluster hides in place: the unread dot or count, the status stack (the blue dot, the error mark), the spinner, the keycap, the tab count, the time, the muted mark, the presence dots; a pinned tile also hides its task count ("2/9"). Nothing moves. The usage warning (its tooltip), the audio button, the drive indicator, the tree fold, the pull request and roll-up chips beside the controls, and the Cloud mark after the name keep their place. Leo, same day: "the pin button also doesn't work still it doesnt do anything": the row's pin ran Pin Workspace on the window's selection; it runs on its own row (`closesRowOnly`), the same pin a drag into Pinned makes. Regression: `SidebarHoverReplacesMarksTests`.
 - 2026-11-21 (hide-app-store-2): Sidebar-Look: David Beyer, Nov 20 call: "don't show the app store until it's ready, it takes too much space"; the person: hide it by default, keep a setting that turns it back on. With `labs.previewFeatures` off (the default) the App Store item is hidden in every look: the `cmux/app-store` app item (0aa5aa4a64043, `SidebarAppItemInfo`) and now the `app_store` built-in of a layout stored before it became an app (`SidebarBuiltIn.defaultInfo(showsStore:)`). The stored layout keeps both; Labs on draws them again. `AppStoreHiddenUntilReadyTests`.
 - 2026-11-21 (lane/sidebar-pin-archive): Sidebar-Look: Leo, 2026-11-21: "the pin button does not make sense. you
   expect this to be the pinned thing. but it isn't. when you pin it, the pin goes to teh left of the bar as an empty
@@ -23,6 +36,7 @@
   item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
   Activity (`sidebar.builtin.chief`), so Add to Sidebar never lists two items named Chief. Icons, rows and spacing
   are unchanged.
+- 2026-11-21 (lane/ux-sidebar-hide-auto-sessions): Sidebar-Look: Leo: "ALSO NEED YALL TO HELP ORGANIZE THIS MF SIDEBAR ... A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE SIDE BY DEFAULT". A workspace no person started and that is no chat's subagent (the daemon recorded `created_by` kind `script` at the create: a script, an automation, a launcher) folds into an "Automatic (N)" row at the end of its list (a group, a section's loose rows, or a Group by Folder project), before the Settled, Done and Archived rows. A person's rows (kind `person`, or no record) and subagents (kind `agent`) always show; so does an automatic row that is pinned, needs the person, or is active. `sidebar.showAutomaticSessions` (off by default) draws them in place. The rule is Rust's (`cmux-layout-reducer` `automatic`, `sidebar_automatic_plan`), cached per content revision (`SidebarModel.automaticSessions`); the row is the existing fold row (`SidebarDoneFoldRowView`, kind `.automatic`). `SidebarAutomaticFoldTests`.
 - 2026-11-21 (nx-48495-titlebar-icons-jitter): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48495): "the titlebar icons by the traffic lights (sidebar toggle, back, forward, +) shift slightly while the left sidebar width is dragged. They must stay pixel-fixed". The toolbar band's presence reads the sidebar's share from its width constraint (`SidebarContainerView.onScreenShare`), not its laid-out frame: a drag sets fractional widths, Auto Layout rounds the frame to whole pixels, and the share read just under 1, so the toggle, Back and Forward (and the +, floored at the band's edge) moved by a pixel. The panel's origin that floors the + reads the same constraint (`panelOriginInWindow`), not the rounded bounds, so the + takes no pixel shift on a rounding tie. The slide still opens and closes the band (the constraint is its per-frame width). Regression: `SidebarResizeTitlebarBandSteadyTests`.
 - 2026-11-19 (lane/studio-settled-chats): Sidebar-Look: Leo, 2026-11-19: "how about the customizations for claude/codex/[...] aka \"studio\" and the actual functionality and features of them?". With `sidebar.settleFinished` on (off by default; the Studio look sets it), a seen, finished agent chat folds into a "Settled (N)" row at the end of its list (a group, a section's loose rows, or a Group by Folder project), after the working rows and before the Done and Archived rows; it rises back on its next turn, question, unread answer, failure or lost agent. The rule is Rust's (`cmux-layout-reducer` `settle`, `sidebar_settle_plan`), cached per content revision (`SidebarModel.settledChats`); the row is the existing fold row (`SidebarDoneFoldRowView`, kind `.settled`). Archive Settled Chats (`workspace.archiveSettled`) archives them in one undo step and never archives an unread, failed, lost or busy chat. Off draws every row as before. `SidebarSettledFoldTests`, gallery `AAStudioSettledGalleryTests` (off, folded and open in dark and light, risen; artifact `studio-settled-gallery.tar`).
 - 2026-11-20 (feat-cmux-next-48355-spaces-off): Sidebar-Look: user, 2026-11-20
@@ -309,8 +323,8 @@
   hover card tab drew `WorkspaceIcon.pagePlaceholder`. A cmux page's face now carries the tab strip's icon
   (`BrowserTabIconState.pageIcon`) as `WorkspaceIcon.page` and `SidebarTab.pageIcon`, ahead of the globe; the saved
   sidebar keeps it (`page:<icon>`). A cmux page with no icon of its own keeps the globe slot.
-  A Cloud desktop wears `.cloud`, the icon its machine has on every other surface; another computer's desktop keeps
-  `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
+  A Cloud desktop wore `.cloud` until 2026-11-22 (now `.remoteDisplay`, see lane/cloud-icon-trailing); another
+  computer's desktop keeps `.machineRemote`. Regression: `CloudDesktopPageIconTests`.
 - 2026-11-12: no "Needs a newer cmux" card under the pins. Lawrence, verbatim: "get rid of “Needs a newer cmux”".
   A build whose daemon has no `cmux-app-host` beside it advertises no `apps-v1`, so an app section in the layout
   showed the apps-unavailable reason as a card; updating cmux would not change it. An app section now draws nothing
@@ -1358,8 +1372,7 @@ A row whose agent uses the computer (Computer Use) or a browser draws `AgentDriv
 trailing cluster, left of the badge column, with `sidebar.presenceDots` off: a capsule tinted in the
 agent's presence color with the drive's glyph (`display` or `globe`) and the agent's short name
 (`Claude 2`). The glyph breathes on agent work's `MotionLoop.breath`; Reduce Motion shows it still and
-fades nothing in. It never gives way to the hover controls (it sits left of them, as the usage warning
-does). A click opens Go to (the agent's tab, Show Tab `tab.focus`) and Stop (Stop Computer Use `computerUseStop` on
+fades nothing in. It never gives way to the hover controls (it sits left of them). A click opens Go to (the agent's tab, Show Tab `tab.focus`) and Stop (Stop Computer Use `computerUseStop` on
 its terminals, or Stop Agent Turn `agentPane.stopTurn` on its chat; a terminal agent's browser use has no Stop),
 each row a registered action (`SidebarDriveMenuItems`). Debug Settings
 `sidebar.driveIndicator` switches to the glyph alone, a solid badge, or the old dot. The tab chip and pane
@@ -2194,7 +2207,7 @@ group's machine mark, the left-rail slot, the 8 pt unread dot, and no hover clos
 
 ## Runaway session warning badge (2026-10-30)
 
-- PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+- PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. Since 2026-11-22 (lane/sidebar-hover-hides-usage-triangle) it gives way to the hover controls in place, like every other status mark; the hover card names each warning. Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
 
 ## Agent rows carry their harness mark, not a shared glyph (2026-10-29)
 
@@ -2653,6 +2666,13 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   densities. The shared trailing column still reserves the local Share Screen action. Regression coverage:
   `SidebarSearchButtonTests`, `SidebarEvenRowInsetsTests`, `NowPlayingCardTests`.
   Sidebar-Look: every density is Default scaled by one factor.
+
+- 2026-11-21 (pin lifecycle tour, Leo: "actually, the entire pin lifecycle is weird as shit"): a pinned workspace
+  draws as a block item, not a list row, so `rowFrameOnScreen` (the icon picker's anchor and `debug.mouse`'s `row`)
+  answered nil for every pinned workspace and the pin lifecycle tour could not hover, drag or click one. It now
+  answers with the pinned pill (`hoverCardAnchor`), scrolling only a list row into view. Regression:
+  `PinnedRowHoverCardTests.aPinnedRowIsFoundOnScreen`.
+  Sidebar-Look: the entire pin lifecycle is weird as shit.
 
 - 2026-11-21 (Leo: "i dont think it works very well, especially with clicking and dragging"; 2026-11-07: "it's
   super weird how when you drag ANY workspace, it shifts imediately due to that"): a workspace dragged from the
