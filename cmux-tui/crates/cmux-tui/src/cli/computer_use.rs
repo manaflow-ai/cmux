@@ -158,6 +158,21 @@ impl Daemon for CliDaemon {
     }
 }
 
+/// The daemon `cmux computer-use mcp` serves from: the socket every other CLI
+/// command reaches (`--socket`, `--session`, `CMUX_TUI_SOCKET`, else the app
+/// this `cmux` is bundled in). acpmux's own default is `main`, which no app
+/// runs, so the bundled CLI's server answered every call as unavailable. A
+/// route that resolves to nothing keeps that default.
+fn mcp_daemon(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> acpmux::computer_use::client::SocketDaemon {
+    match super::wire::resolve_socket_with_env(global, env) {
+        Ok((path, _)) => acpmux::computer_use::client::SocketDaemon { path },
+        Err(_) => acpmux::computer_use::client::SocketDaemon::from_env(),
+    }
+}
+
 fn caller(global: &GlobalArgs) -> Caller<CliDaemon> {
     Caller::new(CliDaemon { global: global.clone() }, "cli".into(), "cmux CLI".into())
 }
@@ -233,7 +248,8 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                     return 1;
                 }
             };
-            match runtime.block_on(acpmux::computer_use::mcp::run(primary)) {
+            let daemon = mcp_daemon(global, |name| std::env::var_os(name));
+            match runtime.block_on(acpmux::computer_use::mcp::run_on(daemon, primary)) {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("cmux computer-use mcp: {e:#}");

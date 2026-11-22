@@ -63,3 +63,16 @@ fn bad_commands_are_usage_errors() {
         vec!["call".to_owned(), "click".into(), "--args".into(), r#"{"machine":"x"}"#.into()];
     assert!(parse(&machine_in_args).is_err());
 }
+
+/// `cmux computer-use mcp` serves from the socket every CLI command reaches, not
+/// acpmux's `main` default: `--socket` first, then `CMUX_TUI_SOCKET`.
+#[test]
+fn the_mcp_server_uses_the_clis_socket() {
+    let named = GlobalArgs { socket: Some("/tmp/named.sock".into()), ..GlobalArgs::default() };
+    let env = |name: &str| (name == "CMUX_TUI_SOCKET").then(|| "/tmp/app-nightly.sock".into());
+    assert_eq!(mcp_daemon(&named, env).path, std::path::PathBuf::from("/tmp/named.sock"));
+    assert_eq!(
+        mcp_daemon(&GlobalArgs::default(), env).path,
+        std::path::PathBuf::from("/tmp/app-nightly.sock")
+    );
+}
