@@ -24,7 +24,7 @@ public struct MacScreenHomeActions {
 /// up. Drawn in the tab's theme (`MacScreenColors`, `MacScreenType`).
 ///
 /// It reads what it shows into a value (`MacScreenHomeSnapshot`) under
-/// Observation and builds its rows again only when that value changes; every
+/// Observation and builds again only the sections and device rows whose values changed; every
 /// control calls the models (`MacScreenHomeActions`, the hub host, the
 /// system shortcut tap) directly, as a person's press.
 @MainActor
@@ -33,7 +33,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
     let devices: MacScreenHomeDevices?
-    private let scroll = OverlayScrollView()
+    private let scroll = MacScreenPageScrollView()
     private let document = MacScreenFlippedView()
     private let column = MacScreenStack.make(.vertical, spacing: 28, alignment: .leading)
     /// What the rows show now (nil before the first build).
@@ -46,6 +46,12 @@ final class MacScreenHomeView: MacScreenThemedView {
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
+    /// The sections shown, by name, with the values they show (a section is made again only when its value changes).
+    private var sections: [String: (value: any Equatable, view: NSView)] = [:]
+    /// Your Devices' windowed rows, while the devices are a list.
+    var deviceRows: MacScreenDeviceRows?
+    /// Sections made (count tests: a device change makes none).
+    private(set) var sectionsMade = 0
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -66,6 +72,8 @@ final class MacScreenHomeView: MacScreenThemedView {
         // The document is framed by `layout()` (the scroll view's width, the column's height); the
         // column inside it is Auto Layout at a width set from that frame.
         scroll.documentView = document
+        // Your Devices makes the rows a scroll brings near the viewport.
+        scroll.onScroll = { [weak self] in self?.deviceRows?.realize() }
         document.addSubview(column)
         NSLayoutConstraint.activate([
             column.topAnchor.constraint(equalTo: document.topAnchor, constant: 36),
@@ -168,21 +176,50 @@ final class MacScreenHomeView: MacScreenThemedView {
         root.subviews.flatMap { [$0] + views(under: $0) }
     }
 
-    /// Builds the rows of `snapshot` (the page's own draw; tests and galleries pass a made-up one).
+    /// Builds the rows of `snapshot` (the page's own draw; tests and galleries pass a made-up one): only the
+    /// sections whose values changed are made again, and Your Devices makes only the rows that changed.
     func build(_ snapshot: MacScreenHomeSnapshot) {
+        let previous = built
         built = snapshot
-        column.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // Hairlines, the type scale and the looks reach every section: those make the page again.
+        if previous?.typeSizes != snapshot.typeSizes || previous?.sharingLook != snapshot.sharingLook
+            || previous?.devicesLook != snapshot.devicesLook || builtWithBorders != colors.borders {
+            sections = [:]
+            deviceRows = nil
+        }
         builtWithBorders = colors.borders
+        var wanted = [section("header", 0) { header() }]
+        if snapshot.sharing?.showFirstUse == true { wanted.append(section("firstUse", 0) { firstUseGuide() }) }
+        switch snapshot.devices {
+        case let .list(list)?:
+            wanted.append(section("devicesList", 0) { yourDevicesList() })
+            deviceRows?.update(deviceRowValues(list, look: snapshot.devicesLook), separators: colors.borders)
+        case let devices?:
+            wanted.append(section("devices", devices) { yourDevices(devices, look: snapshot.devicesLook) })
+        case nil:
+            break
+        }
+        if let sharing = snapshot.sharing { wanted.append(section("sharing", sharing) { sharingSection(sharing, look: snapshot.sharingLook) }) }
+        if let keyboard = snapshot.keyboard { wanted.append(section("keyboard", keyboard) { keyboardSection(keyboard) }) }
+        guard !column.arrangedSubviews.elementsEqual(wanted, by: ===) else { return }
+        for view in column.arrangedSubviews where !wanted.contains(where: { $0 === view }) { view.removeFromSuperview() }
+        for (at, view) in wanted.enumerated() where column.arrangedSubviews.firstIndex(where: { $0 === view }) != at {
+            if view.superview === column { view.removeFromSuperview() }
+            column.insertArrangedSubview(view, at: at)
+            view.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -(column.edgeInsets.left + column.edgeInsets.right)).isActive = true
+        }
         needsLayout = true
         layoutPage()
-        MacScreenStack.addFullWidth(header(), to: column)
-        if snapshot.sharing?.showFirstUse == true {
-            MacScreenStack.addFullWidth(firstUseGuide(), to: column)
-        }
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook), to: column) }
-        if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
-        if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
-        paint(column)
+    }
+
+    /// The section `name` for `value`: the one shown while its value is the same, else a new one (painted).
+    private func section<Value: Equatable>(_ name: String, _ value: Value, make: () -> NSView) -> NSView {
+        if let shown = sections[name], let was = shown.value as? Value, was == value { return shown.view }
+        let view = make()
+        sectionsMade += 1
+        paint(view)
+        sections[name] = (value, view)
+        return view
     }
 
     private func header() -> NSView {
