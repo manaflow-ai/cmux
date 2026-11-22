@@ -123,7 +123,7 @@ if (import.meta.main) {
     results[c.id] = {};
     const clips: string[] = [];
     for (const look of looks) {
-      const { numbers, clip } = await recordLook(recorder.browser, recorder.port, {
+      const options = {
         look,
         scenario: `matrix:${encodeURIComponent(JSON.stringify(c.cell))}`,
         width: c.width,
@@ -131,6 +131,14 @@ if (import.meta.main) {
         out,
         name: `${c.id}-${look}`,
         ffmpeg,
+      };
+      // One more try on a page that never loaded (the dev server busy), so one miss does not end the run.
+      const { numbers, clip } = await recordLook(recorder.browser, recorder.port, options).catch((error) => {
+        console.error(`${c.id}-${look}: ${error instanceof Error ? error.message.split("\n")[0] : error}; again`);
+        return recordLook(recorder.browser, recorder.port, options).catch(() => ({
+          numbers: undefined,
+          clip: undefined,
+        }));
       });
       results[c.id]![look] = numbers ?? { error: "no fold played" };
       if (clip) clips.push(clip);

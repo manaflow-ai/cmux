@@ -629,10 +629,12 @@ export function playTurnEnd(
       ? (() => {
           const view = scroller.getBoundingClientRect();
           const center = view.top + scroller.clientHeight / 2;
-          const away = (row: Drawn) =>
-            row.top <= center && center <= row.top + row.height
+          const away = (row: Drawn) => {
+            const bottom = row.top + (row.height ?? 0);
+            return row.top <= center && center <= bottom
               ? 0
-              : Math.min(Math.abs(row.top - center), Math.abs(row.top + row.height - center));
+              : Math.min(Math.abs(row.top - center), Math.abs(bottom - center));
+          };
           return [...was.values()].sort((a, b) => away(a) - away(b))[0];
         })()
       : undefined;

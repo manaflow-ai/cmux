@@ -270,8 +270,14 @@ async function run(look: string, name = "big-claude-turn", tailMs = 1_400, end?:
       flushSync(() => show({ rows, working: state.working, sends, look }));
       if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        if (scroller && "scrollBy" in step.reader) scroller.scrollTop += step.reader.scrollBy;
-        else if (scroller) scroller.scrollTop = step.reader.scroll === "top" ? 0 : scroller.scrollHeight;
+        const reader = step.reader;
+        if (scroller)
+          scroller.scrollTop =
+            "scrollBy" in reader
+              ? scroller.scrollTop + reader.scrollBy
+              : reader.scroll === "top"
+                ? 0
+                : scroller.scrollHeight;
       }
       if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
       if (index < fastUntil) {
