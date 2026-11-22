@@ -26,6 +26,8 @@ use std::collections::VecDeque;
 pub struct SessionCfg {
     pub display: String,
     pub max_fps: u32,
+    /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
+    pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
@@ -273,7 +275,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
-        let engine = MediaEngine::new(
+        let mut engine = MediaEngine::new(
             EngineConfig {
                 width: w,
                 height: h,
@@ -288,6 +290,7 @@ impl MediaSession {
             },
             now_us(),
         );
+        engine.set_profile(cfg.encode_profile);
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -870,6 +873,8 @@ mod tests {
             force_idr: reason.is_some(),
             idr_reason: reason,
             target_kbps: 8_000,
+            profile: Default::default(),
+            refine: false,
         };
         assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
         assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
@@ -1027,6 +1032,7 @@ mod encode_off_loop_tests {
         SessionCfg {
             display: String::new(),
             max_fps: 60,
+            encode_profile: Default::default(),
             start_kbps: 1000,
             max_kbps: 2000,
             preset: String::new(),
