@@ -56,6 +56,7 @@ on:
       - "Resources/theme-files/claude-desktop.json"
       - "Resources/theme-files/harbor.json"
       - "Resources/theme-files/phosphor.json"
+      - "Resources/theme-files/teal.json"
       - "Resources/sidebar-looks/claude.json"
       - "Resources/sidebar-looks/codex.json"
       - "Resources/sidebar-looks/studio.json"
