@@ -1,4 +1,4 @@
-# Halo
+# Halo v1
 
 A minimal look for agent chats in cmux, after a minimal chat assistant desktop app: near-monochrome
 (white or near-black), airy spacing in a centered column, prompts in soft gray bubbles, a pill
@@ -6,6 +6,10 @@ message box, a header that shows its tools only on hover, and a sidebar of plain
 
 ![Halo's chat](screenshots/halo-chat.png)
 ![Halo Dark's chat](screenshots/halo-dark-chat.png)
+
+## Design intent
+
+Halo v1 optimizes for calm and focus: nothing on screen but the conversation, no color but the content's, generous space around every line. Density is spacious (36 pt sidebar rows, spacious chrome). Type is the system face at 15 px with a 1.65 line height in a centered 720 px column. It sets all three chat layout keys: `agentPane.display.layout.messages` `bubbles`, `.composer` `pill`, `.header` `quiet`.
 
 ## What it reshapes
 

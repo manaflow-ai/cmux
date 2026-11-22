@@ -1,4 +1,4 @@
-# Hearth
+# Hearth v1
 
 A warm reading look for agent chats in cmux, after a warm chat assistant desktop app: serif prose
 on cream paper (or a warm brown dark), your prompts as soft outlined cards on the leading edge with
@@ -6,6 +6,10 @@ the reply flowing under them, a rounded message box and a header that shows its 
 
 ![Hearth's chat](screenshots/hearth-chat.png)
 ![Hearth Dark's chat](screenshots/hearth-dark-chat.png)
+
+## Design intent
+
+Hearth v1 optimizes for reading and conversation: long replies set like a page, few controls in view, a calm warm palette in light and dark. Density is comfortable (32 pt sidebar rows, comfortable chrome). Type is serif prose at 16 px with a 1.7 line height in a roomy 760 px column, a humanist UI face around it. It sets all three chat layout keys: `agentPane.display.layout.messages` `card`, `.composer` `rounded`, `.header` `quiet`.
 
 ## What it reshapes
 

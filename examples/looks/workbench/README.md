@@ -1,4 +1,4 @@
-# Workbench
+# Workbench v1
 
 A dense, code-first look for agent threads in cmux, after a code-first agent app with a thread
 sidebar: a cool neutral dark, compact rows grouped by project with each chat's sub-sessions as a
@@ -6,6 +6,10 @@ tree, a monospace-leaning chat in a wide column, prompts as flat rows marked by 
 square docked message box.
 
 ![Workbench's chat](screenshots/workbench-chat.png)
+
+## Design intent
+
+Workbench v1 optimizes for scanning a lot of agent work at once: many threads across projects in view, long code-heavy replies read without scrolling sideways. Density is compact everywhere (24 pt sidebar rows, compact chrome, 13 px chat). Type leans monospace: replies in the mono preset on a tight UI face, code at nearly full size. It sets all three chat layout keys: `agentPane.display.layout.messages` `flat`, `.composer` `square`, `.header` `full`.
 
 ## What it reshapes
 
