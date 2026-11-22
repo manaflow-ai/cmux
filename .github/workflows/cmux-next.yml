@@ -927,11 +927,40 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-12
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
+      # Blobless and narrow: the router reads the CI scripts, the test registry, the Swift sources of the
+      # CmuxNext targets, the Package.swift files, cmux-tui's crates and the two other Cargo workspaces its
+      # crate graph follows, and the Xcode project; it reads names and trees from git for the rest. A full
+      # depth-2 checkout of the whole tree took 50-57 s of this job's p50 102 s (2026-11-21). A blob outside
+      # these paths reads as NeedsFullTree and routes every tier (fail-open), never fewer.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # Why: docs/ci/cmux-next-workflow-notes.md#note-94
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /scripts/
+            /tests/
+            /cmux-tui/
+            /Packages/macOS/CmuxNext/
+            /Packages/*/*/Package.swift
+            /vendor/stack-auth-swift-sdk-prerelease/Package.swift
+            /cmux.xcodeproj/project.pbxproj
+            /AGENTS.md
+            /.gitmodules
+            /first-party-apps/cloud/
+            /workers/cmux-vm/cli/
+            !/Packages/macOS/CmuxNext/**/*.xcstrings
+            !/Packages/macOS/CmuxNext/**/*.avif
+            !/Packages/macOS/CmuxNext/**/*.png
+      # The crate graph also reads the base's copy of each changed file, which a blobless checkout lacks.
+      # One batched fetch of just those blobs (git diff prefetches both sides) replaces one round trip each.
+      - name: Fetch the base copies of the changed files
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: git diff --no-renames --numstat HEAD^1 HEAD -- .github scripts tests cmux-tui first-party-apps/cloud workers/cmux-vm/cli Packages/macOS/CmuxNext ':(glob)Packages/*/*/Package.swift' vendor/stack-auth-swift-sdk-prerelease/Package.swift cmux.xcodeproj/project.pbxproj AGENTS.md > /dev/null
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
