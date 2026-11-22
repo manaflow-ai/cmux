@@ -51,7 +51,7 @@ impl Rng {
     }
 }
 
-/// The terminal under test: it produces `SEQ n\n` lines.
+/// The terminal under test: it produces `SEQ nnnnnnnn\n` lines, fixed width so a run of lines costs the same at any scale.
 struct Producer {
     surface: Arc<Surface>,
     next: u64,
@@ -62,7 +62,7 @@ struct Producer {
 impl Producer {
     fn lines(&mut self, count: u64) {
         for _ in 0..count {
-            let line = format!("SEQ {}\n", self.next);
+            let line = format!("SEQ {:08}\n", self.next);
             self.next += 1;
             self.surface.inject_output_for_test(line.as_bytes());
             self.produced.extend_from_slice(line.as_bytes());
