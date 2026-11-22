@@ -17,6 +17,7 @@ import { ImportSources, ImportStep } from "./ImportStep";
 import { DEFAULT_MAKE_IT_YOURS_LOOK, MakeItYoursStep, type MakeItYoursLook } from "./MakeItYoursStep";
 import { OPS, type OnboardingFooter, type OnboardingState, type OnboardingStep } from "./ops";
 import { OnboardingContext, useOnboarding } from "./parts";
+import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
@@ -120,16 +121,15 @@ export function OnboardingPage({
   strings,
   agentsLook = DEFAULT_AGENTS_LOOK,
   makeItYoursLook = DEFAULT_MAKE_IT_YOURS_LOOK,
-  readiness,
 }: {
   store: OnboardingStore;
   strings: Strings;
   agentsLook?: AgentsLook;
   makeItYoursLook?: MakeItYoursLook;
-  /** The providers' readiness rows on the agents step (gallery only until the host sends them). */
-  readiness?: ProviderReadinessProps;
 }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  // The agents step's in-place sign-in, from the host's `signInReadiness` (none: as before).
+  const readiness = useOnboardingReadiness(store, state);
   useEffect(() => {
     document.title = windowTitle(strings, state);
   }, [strings, state]);

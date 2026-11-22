@@ -493,6 +493,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_SWITCH, Request),
         keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_REMOVE, Request),
         keyed::<params::AccountIdParams>(method::MUX_ACCOUNT_SIGN_OUT, Request),
+        untyped(method::MUX_ACCOUNT_READINESS, Request),
         untyped(method::MUX_CONNECTIONS, Request),
         untyped(method::MUX_CONNECTIONS_ORDER_SET, Request),
         untyped(method::MUX_CONNECTIONS_SPREAD_SET, Request),

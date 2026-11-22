@@ -11,12 +11,8 @@ import { mockModels, runMockModels } from "./mockModels";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
-import {
-  ACCOUNT_ACTIONS,
-  type AccountFamily,
-  type AccountRowWire,
-  type SignInStartWire,
-} from "../shared/signIn/accountSignIn";
+import { ACCOUNT_ACTIONS } from "../shared/signIn/accountSignIn";
+import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 import { mockContextMenus, setMockMenuLayout } from "./mockMenus";
 import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
@@ -2114,7 +2110,7 @@ export class MockSettingsProvider {
   /** What the app's AccountsModel does to the state (enough for the page's tests). */
   private runAccounts(run: AccountsRun): AccountsRunReply | Promise<AccountsRunReply> {
     this.accountRuns.push(run);
-    if ((Object.values(ACCOUNT_ACTIONS) as string[]).includes(run.action)) return this.runSignIn(run);
+    if ((Object.values(ACCOUNT_ACTIONS) as string[]).includes(run.action)) return this.signIn.run(run);
     const rows = (edit: (row: AccountsRow) => AccountsRow) => ({
       ...this.accounts,
       groups: this.accounts.groups.map((group) => ({ ...group, rows: group.rows.map(edit) })),
@@ -2172,120 +2168,35 @@ export class MockSettingsProvider {
     return error ? { error } : {};
   }
 
-  /** A sign-in's finish waits for this when set (tests and the gallery hold the code on screen). */
-  signInHold: Promise<void> | null = null;
-  /** The next sign-in start is refused with this reason (`not_installed`, `shared_machine`, ...). */
-  signInRefusal: string | null = null;
-  /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
-  signInExpiresInMs = 15 * 60_000;
-  private signIns = new Map<string, { account: string; family: AccountFamily; added: boolean }>();
-
-  /** The in-place sign-in (shared/signIn/accountSignIn.ts) as the daemon answers it. */
-  private async runSignIn(run: AccountsRun): Promise<AccountsRunReply> {
-    const rows = this.accounts.signInAccounts ?? [];
-    const set = (next: AccountRowWire[]) => {
+  /** The in-place sign-in (shared/signIn/mockSignIn.ts) as the daemon answers it, on
+   * `accounts.signInAccounts`; onboarding's mock runs the same one. */
+  readonly signIn = new MockAccountSignIn({
+    rows: () => this.accounts.signInAccounts ?? [],
+    set: (next) => {
       this.accounts = { ...this.accounts, signInAccounts: next };
       for (const ctx of this.accountsChanged) ctx.emit(this.accountsState());
-    };
-    switch (run.action) {
-      case ACCOUNT_ACTIONS.start: {
-        if (this.signInRefusal) {
-          const reason = this.signInRefusal;
-          this.signInRefusal = null;
-          return { error: "The sign-in did not start.", reason };
-        }
-        const existing = rows.find((row) => row.id === run.account);
-        const family = existing?.family ?? run.family ?? "codex";
-        const added = !existing;
-        const account = existing?.id ?? `${family}-${rows.filter((row) => row.family === family).length + 1}`;
-        if (added) {
-          const row: AccountRowWire = {
-            id: account,
-            family,
-            name: run.name ?? account,
-            signedIn: false,
-            default: false,
-            builtin: false,
-          };
-          set([...rows, row]);
-        }
-        const loginId = `login-${this.signIns.size + 1}`;
-        this.signIns.set(loginId, { account, family, added });
-        const expiresAtMs = Date.now() + this.signInExpiresInMs;
-        const signIn: SignInStartWire =
-          family === "claude"
-            ? {
-                account,
-                loginId,
-                url: "https://claude.ai/oauth/authorize?code=true",
-                needsCode: true,
-                expiresAtMs,
-                added,
-              }
-            : family === "github"
-              ? {
-                  account,
-                  loginId,
-                  url: "https://github.com/login/device",
-                  userCode: "WDJB-MJHT",
-                  needsCode: false,
-                  expiresAtMs,
-                  added,
-                }
-              : {
-                  account,
-                  loginId,
-                  url: "https://auth.openai.com/codex/device",
-                  userCode: "K7QX-29PF",
-                  needsCode: false,
-                  expiresAtMs,
-                  added,
-                };
-        return { signIn };
-      }
-      case ACCOUNT_ACTIONS.finish: {
-        const login = run.loginId ? this.signIns.get(run.loginId) : undefined;
-        if (!login) return { error: "That sign-in has ended.", reason: "expired" };
-        if (this.signInHold) await this.signInHold;
-        if (!this.signIns.has(run.loginId!)) return { error: "The sign-in was cancelled.", reason: "cancelled" };
-        this.signIns.delete(run.loginId!);
-        const current = this.accounts.signInAccounts ?? [];
-        const first = !current.some((row) => row.family === login.family && row.signedIn && row.id !== login.account);
-        const name = login.family === "github" ? "octocat" : `${login.account}@example.com`;
-        set(
-          current.map((row) =>
-            row.id === login.account
-              ? {
-                  ...row,
-                  signedIn: true,
-                  name: row.builtin ? row.name : name,
-                  email: row.email ?? name,
-                  default: row.default || first,
-                }
-              : row,
-          ),
-        );
-        return { finished: { signedIn: true, account: name } };
-      }
-      case ACCOUNT_ACTIONS.cancel: {
-        const login = run.loginId ? this.signIns.get(run.loginId) : undefined;
-        if (run.loginId) this.signIns.delete(run.loginId);
-        if (login?.added) set(rows.filter((row) => row.id !== login.account));
-        return {};
-      }
-      case ACCOUNT_ACTIONS.switch: {
-        const family = rows.find((row) => row.id === run.account)?.family;
-        set(rows.map((row) => (row.family === family ? { ...row, default: row.id === run.account } : row)));
-        return {};
-      }
-      case ACCOUNT_ACTIONS.signOut:
-        set(rows.map((row) => (row.id === run.account ? { ...row, signedIn: false } : row)));
-        return {};
-      case ACCOUNT_ACTIONS.remove:
-        set(rows.filter((row) => row.id !== run.account));
-        return {};
-    }
-    return {};
+    },
+  });
+  /** A sign-in's finish waits for this when set (tests and the gallery hold the code on screen). */
+  get signInHold(): Promise<void> | null {
+    return this.signIn.hold;
+  }
+  set signInHold(hold: Promise<void> | null) {
+    this.signIn.hold = hold;
+  }
+  /** The next sign-in start is refused with this reason (`not_installed`, `shared_machine`, ...). */
+  get signInRefusal(): string | null {
+    return this.signIn.refusal;
+  }
+  set signInRefusal(reason: string | null) {
+    this.signIn.refusal = reason;
+  }
+  /** How long a started sign-in's code lasts (tests shorten it to see the expiry). */
+  get signInExpiresInMs(): number {
+    return this.signIn.expiresInMs;
+  }
+  set signInExpiresInMs(ms: number) {
+    this.signIn.expiresInMs = ms;
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */

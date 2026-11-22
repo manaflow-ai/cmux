@@ -213,6 +213,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("account remove", &[("Remove an account's route", "acpmux account remove claude-2")]),
     ("account list", &[("Every account as JSON", "acpmux --json account list")]),
     (
+        "account readiness",
+        &[
+            ("Which of GitHub, Codex and Claude still need a sign-in", "acpmux account readiness"),
+            ("The same as JSON, for a script", "acpmux --json account readiness"),
+        ],
+    ),
+    (
         "group tidy",
         &[
             ("See which groups a tidy would merge", "acpmux group tidy"),

@@ -119,7 +119,9 @@ function ReadinessListRow({
   agentId: string;
 }) {
   const strings = useSignInStrings();
-  const action = readinessAction(ready.state);
+  const offered = readinessAction(ready.state);
+  // GitHub's CLI has no Install here: a provider no agent row installs shows its state only.
+  const action = offered === "install" && readiness.canInstall?.(ready.family) === false ? null : offered;
   const labels = (["signIn", "install", "tryAgain", "addAccount"] as const).map((key) =>
     strings.t(READINESS_ACTION_KEY[key]),
   );
@@ -256,8 +258,8 @@ export function AgentsStep({
 }: {
   agents: AgentsState | null;
   look: AgentsLook;
-  /** The providers' readiness (logins done right): signs Claude Code, Codex and GitHub in in place
-   * in this list when given. Gallery only until the host sends it. */
+  /** The providers' readiness (logins done right, onboarding/signInReadiness.ts): signs Claude
+   * Code, Codex and GitHub in in place in this list when the host sends `signInReadiness`. */
   readiness?: ProviderReadinessProps;
 }) {
   const { strings } = useOnboarding();

@@ -161,3 +161,69 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     assert!(!cancel(&started.login_id));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn signed(id: &str, family: &str, email: Option<&str>, default: bool) -> Value {
+    json!({"id": id, "family": family, "name": format!("{id} name"), "email": email,
+        "signedIn": true, "default": default, "enabled": true, "builtin": false})
+}
+
+#[test]
+fn readiness_names_every_family_in_order() {
+    let families: Vec<&str> = READINESS_FAMILIES.iter().map(|(f, _)| *f).collect();
+    assert_eq!(families, ["github", "codex", "claude"]);
+    assert!(METHODS.contains(&method::MUX_ACCOUNT_READINESS));
+}
+
+#[test]
+fn a_family_without_its_cli_is_not_installed_whatever_it_lists() {
+    let rows = [signed("codex-2", "codex", Some("a@example.com"), true)];
+    assert_eq!(
+        provider("codex", false, &rows),
+        json!({"family": "codex", "state": "notInstalled"})
+    );
+}
+
+#[test]
+fn a_family_with_no_signed_in_account_needs_a_sign_in() {
+    let mut out = signed("claude-2", "claude", None, true);
+    out["signedIn"] = json!(false);
+    let mut off = signed("claude-3", "claude", None, false);
+    off["enabled"] = json!(false);
+    let other = signed("codex-2", "codex", None, true);
+    let want = json!({"family": "claude", "state": "signInRequired"});
+    assert_eq!(provider("claude", true, &[out, off, other]), want);
+    assert_eq!(provider("claude", true, &[]), want);
+}
+
+#[test]
+fn ready_names_the_default_signed_in_account_else_the_first() {
+    let rows = [
+        signed("codex", "codex", Some("own@example.com"), false),
+        signed("codex-2", "codex", Some("work@example.com"), true),
+    ];
+    assert_eq!(
+        provider("codex", true, &rows),
+        json!({"family": "codex", "state": "ready", "account": "codex-2",
+            "label": "work@example.com"})
+    );
+    let first = [signed("codex", "codex", None, false), signed("codex-2", "codex", None, false)];
+    assert_eq!(
+        provider("codex", true, &first),
+        json!({"family": "codex", "state": "ready", "account": "codex", "label": "codex name"})
+    );
+}
+
+#[test]
+fn a_github_row_is_ready_by_its_login_and_says_nothing_else() {
+    let gh = rows(&[
+        GhAccount { login: "alice".into(), active: false, signed_in: true },
+        GhAccount { login: "bob".into(), active: true, signed_in: true },
+    ]);
+    let got = provider("github", true, &gh);
+    assert_eq!(
+        got,
+        json!({"family": "github", "state": "ready", "account": "github:bob", "label": "bob"})
+    );
+    let text = got.to_string().to_ascii_lowercase();
+    assert!(!text.contains("token") && !text.contains("code"));
+}

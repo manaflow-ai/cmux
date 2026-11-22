@@ -826,6 +826,8 @@ pub mod method {
     pub const MUX_ACCOUNT_REMOVE: &str = "_acpmux/account/remove";
     /// Signs an account out with its CLI's own logout (GitHub: `gh auth logout`); its row stays.
     pub const MUX_ACCOUNT_SIGN_OUT: &str = "_acpmux/account/sign_out";
+    /// Whether GitHub, Codex and Claude are each installed and signed in, for onboarding.
+    pub const MUX_ACCOUNT_READINESS: &str = "_acpmux/account/readiness";
     // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
     // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
     // also the local app; every change and every ChatGPT call: the unix socket only.

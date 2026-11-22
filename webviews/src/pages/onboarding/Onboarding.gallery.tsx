@@ -17,7 +17,10 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
+    "pages/onboarding/signInReadiness.ts",
     "pages/shared/signIn/ProviderReadiness.tsx",
+    "pages/shared/signIn/useAccountSignIn.ts",
+    "pages/shared/signIn/mockSignIn.ts",
     "pages/shared/signIn/galleryFixtures.ts#READINESS",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
@@ -53,18 +56,20 @@ export default componentEntry<OnboardingGalleryProps>({
       props: { step: "agents", agents: "mixed", look: "compact" },
     },
     // Provider readiness (logins done right) in the one agents list: Claude Code and Codex take their
-    // provider's state and one action in place, GitHub is one more row. Every state: not installed,
-    // installing, sign-in required, signing in with the code, ready, failed.
+    // provider's state and one action in place, GitHub is one more row. Each variant is what a host
+    // sends (`signInReadiness`, `signInAccounts`) and what its sign-in answers through the mock's
+    // `cmux.onboarding.accounts.run`: not installed, installing, sign-in required, signing in with
+    // the code, ready, failed.
     "agents-readiness-fresh": {
       note: "First run: GitHub and Claude Code need a sign-in (Sign In), Codex is not installed (Install).",
       props: { step: "agents", agents: "mixed", readiness: "fresh" },
     },
     "agents-readiness-signing-in": {
-      note: "Codex signing in: the code is in its own row, already copied; the page is open beside the window.",
+      note: "Codex signing in (started through the op, its finish held): the code is in its own row; the page is open beside the window.",
       props: { step: "agents", agents: "mixed", readiness: "signingIn" },
     },
     "agents-readiness-mixed": {
-      note: "GitHub ready, Codex installing (no button: it only waits), Claude Code failed with Try Again.",
+      note: "GitHub ready, Codex installing (no button: it only waits), Claude Code's sign-in refused (cancelled on the provider's page) with Try Again.",
       props: { step: "agents", agents: "mixed", readiness: "mixed" },
     },
     "agents-readiness-ready": {

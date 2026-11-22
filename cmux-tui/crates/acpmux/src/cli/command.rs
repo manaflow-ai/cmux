@@ -629,7 +629,7 @@ pub enum Command {
     #[command(subcommand)]
     Group(crate::cli::group::GroupCmd),
     /// Accounts the agents here run on: sign in (again or a new one, GitHub too), sign out,
-    /// switch the default, remove, list.
+    /// switch the default, remove, list, and which providers are ready.
     #[command(subcommand)]
     Account(crate::cli::account::AccountCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.

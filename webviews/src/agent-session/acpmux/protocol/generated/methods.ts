@@ -297,6 +297,7 @@ export interface AcpmuxRequests {
   "_acpmux/account/switch": { params: AccountIdParams; result: unknown };
   "_acpmux/account/remove": { params: AccountIdParams; result: unknown };
   "_acpmux/account/sign_out": { params: AccountIdParams; result: unknown };
+  "_acpmux/account/readiness": { params: unknown; result: unknown };
   "_acpmux/connections": { params: unknown; result: unknown };
   "_acpmux/connections/order.set": { params: unknown; result: unknown };
   "_acpmux/connections/spread.set": { params: unknown; result: unknown };
@@ -709,6 +710,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/account/switch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/account/remove", kind: "request", acp: false, typed: true },
   { name: "_acpmux/account/sign_out", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/account/readiness", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/order.set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/spread.set", kind: "request", acp: false, typed: false },

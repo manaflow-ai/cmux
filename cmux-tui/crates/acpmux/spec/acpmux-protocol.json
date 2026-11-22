@@ -2071,6 +2071,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/account/readiness",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections",
       "params": true,
       "result": true

@@ -1,4 +1,5 @@
-//! `_acpmux/account/sign_in|sign_in.finish|sign_in.cancel|switch|remove|sign_out`: one provider-neutral
+//! `_acpmux/account/sign_in|sign_in.finish|sign_in.cancel|switch|remove|sign_out|readiness`: one
+//! provider-neutral
 //! sign-in for every account a person has here (Leo, 2026-11-22: "we likewise want gh auth or
 //! device stuff to be much more convienient ui/ux wise. it's similar to the chatgpt device with
 //! the code login thing. we want that for anywhere and everywhere we have codex stuff, and
@@ -20,6 +21,10 @@
 //! - `sign_out {account}`: the CLI's own logout in the account's home (`codex logout`,
 //!   `claude auth logout`, as the Mac's Settings `accountSignOut`; built-in logins too), and
 //!   the row stays, signed out; GitHub runs `gh auth logout` (as `remove`).
+//! - `readiness {}`: `{providers: [{family, state, account?, label?}]}`, always `github`, `codex`,
+//!   `claude` in that order, for onboarding. `state` is `notInstalled` (its CLI is not found, the
+//!   check `sign_in` refuses with), `signInRequired`, or `ready` (a signed-in, enabled account:
+//!   `account` is the default one's id, else the first's, and `label` its email or login).
 //!
 //! Who may ask: this machine's unix socket and its app (`Origin::Local`, `Origin::LocalApp`),
 //! never a Web client or a peer (`allowed`). The caller names an account or a family only:
@@ -50,7 +55,12 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_ACCOUNT_SWITCH,
     method::MUX_ACCOUNT_REMOVE,
     method::MUX_ACCOUNT_SIGN_OUT,
+    method::MUX_ACCOUNT_READINESS,
 ];
+
+/// The families `readiness` answers for, in its order, and their CLIs.
+pub const READINESS_FAMILIES: [(&str, Agent); 3] =
+    [("github", Agent::Github), ("codex", Agent::Codex), ("claude", Agent::Claude)];
 
 /// The id prefix of a GitHub account row (`github:<login>`).
 pub const GITHUB_PREFIX: &str = "github:";
@@ -295,6 +305,7 @@ pub(super) async fn handle(
         method::MUX_ACCOUNT_SWITCH => switch(hub, need(params, "account")?).await,
         method::MUX_ACCOUNT_REMOVE => remove(hub, need(params, "account")?).await,
         method::MUX_ACCOUNT_SIGN_OUT => sign_out(hub, need(params, "account")?).await,
+        method::MUX_ACCOUNT_READINESS => readiness(hub).await,
         other => Err(RpcError::method_not_found(other)),
     }
 }
@@ -622,4 +633,48 @@ fn field<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 /// A row's flag: true only when it is `true`.
 fn flag(row: &Value, key: &str) -> bool {
     row.get(key).and_then(Value::as_bool) == Some(true)
+}
+
+/// `readiness`: each family's [`provider`] answer, from the accounts rows (GitHub's too) and
+/// whether its CLI is found the way [`cli`] finds it for a sign-in.
+async fn readiness(hub: &Hub) -> Result<Value, RpcError> {
+    let (listed, github) = tokio::join!(accounts(hub), github_rows(hub));
+    let mut rows = listed?;
+    rows.extend(github);
+    let mut providers = Vec::with_capacity(READINESS_FAMILIES.len());
+    for (family, agent) in READINESS_FAMILIES {
+        let installed = cli(hub, agent).await.is_ok();
+        providers.push(provider(family, installed, &rows));
+    }
+    Ok(json!({ "providers": providers }))
+}
+
+/// One family's readiness: `notInstalled`, `signInRequired`, or `ready` with the default
+/// signed-in account (else the first signed-in one) as `account` and its email or login as
+/// `label`. A turned-off account does not count.
+pub fn provider(family: &str, installed: bool, rows: &[Value]) -> Value {
+    if !installed {
+        return json!({"family": family, "state": "notInstalled"});
+    }
+    let signed: Vec<&Value> = rows
+        .iter()
+        .filter(|a| field(a, "family") == Some(family) && flag(a, "signedIn"))
+        .filter(|a| a.get("enabled").and_then(Value::as_bool) != Some(false))
+        .collect();
+    let Some(pick) = signed.iter().find(|a| flag(a, "default")).or_else(|| signed.first()) else {
+        return json!({"family": family, "state": "signInRequired"});
+    };
+    let mut out = serde_json::Map::new();
+    out.insert("family".to_owned(), json!(family));
+    out.insert("state".to_owned(), json!("ready"));
+    if let Some(id) = field(pick, "id") {
+        out.insert("account".to_owned(), json!(id));
+    }
+    let label = field(pick, "email")
+        .filter(|l| !l.is_empty())
+        .or_else(|| field(pick, "name").filter(|l| !l.is_empty()));
+    if let Some(label) = label {
+        out.insert("label".to_owned(), json!(label));
+    }
+    Value::Object(out)
 }

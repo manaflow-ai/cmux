@@ -75,6 +75,8 @@ export function agentFamily(agentId: string): AccountFamily | null {
 export type ProviderReadinessProps = {
   rows: readonly ReadinessRow[];
   onAction?(family: AccountFamily, action: ReadinessAction): void;
+  /** Whether Install can run for a provider (an agent row installs it); absent: always. */
+  canInstall?(family: AccountFamily): boolean;
   /** The device card's gestures for the row that signs in. */
   card?: Omit<DeviceSignInCardProps, "family" | "view" | "look">;
 };

@@ -1,4 +1,4 @@
-//! `acpmux account sign-in|sign-out|switch|remove|list`: the subscription and GitHub accounts this
+//! `acpmux account sign-in|sign-out|switch|remove|list|readiness`: the subscription and GitHub accounts this
 //! machine's agents run on, through the daemon's `_acpmux/account/*` methods (Leo, 2026-11-22:
 //! "this is simply logins, done righr").
 //!
@@ -10,6 +10,7 @@
 //! - `switch ID`: make it its family's default (GitHub: gh's active account).
 //! - `remove ID`: drop its route (its login folder stays), or sign it out of gh.
 //! - `list`: every account, from `_acpmux/accounts`.
+//! - `readiness`: GitHub, Codex and Claude each installed, signed in, and on which account.
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 
@@ -45,6 +46,8 @@ pub enum AccountCmd {
     /// Every account: id, family, name, signed in, default.
     #[command(alias = "ls")]
     List,
+    /// Whether GitHub, Codex and Claude are installed and signed in, and on which account.
+    Readiness,
 }
 
 pub async fn run(cmd: AccountCmd, json_out: bool) -> Result<()> {
@@ -109,6 +112,17 @@ pub async fn run(cmd: AccountCmd, json_out: bool) -> Result<()> {
                 print_json(&reply);
             } else {
                 println!("{id} removed");
+            }
+            Ok(())
+        }
+        AccountCmd::Readiness => {
+            let reply = client.request(method::MUX_ACCOUNT_READINESS, json!({})).await?;
+            if json_out {
+                print_json(&reply);
+                return Ok(());
+            }
+            for line in readiness_lines(&reply) {
+                println!("{line}");
             }
             Ok(())
         }
@@ -197,4 +211,51 @@ fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 fn flag(v: &Value, key: &str) -> bool {
     v.get(key).and_then(Value::as_bool) == Some(true)
+}
+
+/// One line per provider: family, what it needs, and the account it is ready on.
+pub fn readiness_lines(reply: &Value) -> Vec<String> {
+    reply
+        .get("providers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            let state = match text(p, "state") {
+                Some("ready") => "ready",
+                Some("signInRequired") => "sign-in required",
+                Some("notInstalled") => "not installed",
+                Some(other) => other,
+                None => "",
+            };
+            let on = match (text(p, "label"), text(p, "account")) {
+                (Some(label), Some(id)) => format!("  {label} ({id})"),
+                (None, Some(id)) => format!("  {id}"),
+                _ => String::new(),
+            };
+            format!("{:<7} {state}{on}", text(p, "family").unwrap_or_default())
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readiness_reads_one_line_per_provider() {
+        let reply = json!({"providers": [
+            {"family": "github", "state": "ready", "account": "github:bob", "label": "bob"},
+            {"family": "codex", "state": "signInRequired"},
+            {"family": "claude", "state": "notInstalled"},
+        ]});
+        assert_eq!(
+            readiness_lines(&reply),
+            [
+                "github  ready  bob (github:bob)",
+                "codex   sign-in required",
+                "claude  not installed"
+            ]
+        );
+    }
 }

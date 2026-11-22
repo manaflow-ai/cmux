@@ -58,6 +58,29 @@ export type SignInStartWire = {
 /** `account.sign_in.finish`'s answer. */
 export type SignInFinishWire = { signedIn: boolean; account: string };
 
+/** One sign-in gesture as a page sends it to its host (`cmux.settings.accounts.run`,
+ * `cmux.onboarding.accounts.run`): an ACCOUNT_ACTIONS action and its params. */
+export type AccountRunParams = {
+  action: string;
+  provider?: string;
+  account?: string;
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** The host's answer to a sign-in gesture: `signIn` for a start, `finished` for a finish, `reason`
+ * for a refusal (SignInFailure). */
+export type AccountRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
+};
+
+/** A gesture's outcome: the answer, or the refusal the call rejected with. */
+export type AccountRunResult = { ok: true; value: AccountRunReply } | { ok: false; error: unknown };
+
 /** One row of the account list. */
 export type AccountRowWire = {
   id: string;
