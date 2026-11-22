@@ -104,16 +104,13 @@ import Testing
         #expect(!panel.isVisible, "and the card goes away")
     }
 
-    /// The footer line names the chat too, in each state; a part with no place keeps its own label.
-    @Test func theFooterLineNamesTheChat() {
+    /// The card's title names the chat in each state; a part with no place keeps its own label.
+    @Test func theTitleNamesTheChat() {
         let places = Self.places(RevealCount())
-        let view = AppHealthIndicatorView()
-        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.failed]))))
-        #expect(view.text == "“Fix the login bug” needs a repair")
-        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.with(Self.failed, "state", "stuck")]))))
-        #expect(view.text == "“Fix the login bug” isn’t responding")
-        view.show(places.headline(AppHealth.headline(of: Self.snapshot([Self.with(Self.failed, "id", "page:8")]))))
-        #expect(view.text == "Agent chat needs a repair", "no place: the model's label")
+        let title = { (part: JSONValue) in AppHealthCard.spec(Self.snapshot([part]), places: places).title }
+        #expect(title(Self.failed) == "“Fix the login bug” needs a repair")
+        #expect(title(Self.with(Self.failed, "state", "stuck")) == "“Fix the login bug” isn’t responding")
+        #expect(title(Self.with(Self.failed, "id", "page:8")) == "Agent chat needs a repair", "no place: the model's label")
     }
 
     /// A chat with no title yet: the card still says where it is and offers Show chat.

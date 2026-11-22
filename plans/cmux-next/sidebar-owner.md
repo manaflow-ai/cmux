@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-22 (lane/status-noise-purge): Sidebar-Look: Leo, 2026-11-22: "i see in the sidebar a repair connection to agent
+  service... which i have requested to remove a while ago. or some similar message to it a while ago. we dont need
+  it. ever." App health's line above the footer row is gone in every state ("… isn't responding", "Repairing …",
+  "… needs a repair", "Reconnecting; will … when back"); the sidebar draws nothing about health. The Restoring
+  card's Details still opens app health's card (`SidebarView.openAppHealth`). Do not add it back as a dot or badge.
 - 2026-11-22 (lane/cloud-icon-trailing): Sidebar-Look: Leo, 2026-11-22: "im not sure we want the cloud icon at the
   left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon. well. for
   consistency, what do we want?" The leading slot is for state only. A Cloud row draws no leading cloud (the old

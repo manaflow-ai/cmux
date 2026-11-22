@@ -11,7 +11,10 @@ public import Foundation
 /// App health's feeds (the shared health contract; Leo, 2026-11-09: "displaying a tiny situation
 /// somewhere in the app that lets the user know... or better yet, figure out how to auto repair that
 /// kinda thing"): each owner tells ``AppHealth`` what it sees, with no decision of its own, and
-/// takes back the repair the Rust model asks for. Made and started once by the App (AppServices), before the daemon starts.
+/// takes back the repair the Rust model asks for. The app repairs in silence: no line or dot anywhere says
+/// a part is stuck, repairing or failed (Leo, 2026-11-22: "i see in the sidebar a repair connection to agent
+/// service... which i have requested to remove a while ago... we dont need it. ever."); the card
+/// (``AppHealthPopover``) opens only when the person asks for it. Made and started once by the App (AppServices), before the daemon starts.
 ///
 /// - pages and their Chromium renderers: `AppHealthPageFeed`;
 /// - the session daemon (`sessionDaemon`): each `server ensure` of the launcher
@@ -36,11 +39,6 @@ public final class AppHealthFeeds {
     public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
-    /// Each window's footer line (``makeIndicator(over:)``) and the headline they show.
-    private let indicators = NSHashTable<AppHealthIndicatorView>.weakObjects()
-    /// Where each part is (the chat a page shows), for the footer line's words and the card.
-    private let places: AppHealthPlaces
-    private var headline: AppHealth.Headline?
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
@@ -53,7 +51,6 @@ public final class AppHealthFeeds {
         self.stateDirectory = stateDirectory
         self.work = work
         let places = places ?? AppHealthPlaces(store: daemon.store)
-        self.places = places
         pageFeed = AppHealthPageFeed(health: health)
         popover = AppHealthPopover(health: health, places: places)
     }
@@ -63,12 +60,6 @@ public final class AppHealthFeeds {
     public func start() {
         guard connectionFeed == nil else { return }
         let health = health
-        // The footer lines follow the snapshot, in order, on main (one subscription for the app's life, as this object's).
-        health.subscribe { [self] snapshot in
-            let headline = AppHealth.headline(of: snapshot)
-            // Always queued, so the lines keep the snapshots' order; named by the chat on main, where the panes are.
-            MainDelivery().later { self.show(self.places.headline(headline)) }
-        }
         // A restore that still makes progress holds the watch's automatic replace.
         daemon.recovery.holdsReplace = { health.holdsReplace }
         // The session daemon: the launcher's facts, and once the registry's size.
@@ -99,21 +90,6 @@ public final class AppHealthFeeds {
         health.setInjector(.acpmux) { [weak daemon] _, fault in await Self.dropConnection(daemon, fault: fault) }
         health.setInjector(.pageHost) { [weak daemon] _, fault in await Self.removeListenerFile(daemon, fault: fault) }
         #endif
-    }
-
-    /// A window's footer line: hidden while all is well, a press opens the popover over `window`.
-    public func makeIndicator(over window: @escaping @MainActor () -> NSWindow?) -> AppHealthIndicatorView {
-        let view = AppHealthIndicatorView()
-        view.onPress = { [popover] in popover.open(over: window()) }
-        view.show(headline)
-        indicators.add(view)
-        return view
-    }
-
-    private func show(_ headline: AppHealth.Headline?) {
-        guard headline != self.headline else { return }
-        self.headline = headline
-        for view in indicators.allObjects { view.show(headline) }
     }
 
     nonisolated static func note(_ signal: DaemonHealthSink.Signal, health: AppHealth) {
