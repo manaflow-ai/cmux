@@ -996,8 +996,19 @@ const KNOWN_CAPABILITY: &str = "list-workspaces-known-v1";
 /// Until every reply of `ids` came, the first `must_ok` of them ok (the arrangement reads after
 /// them are best effort, as on the phone): when the last came and the bytes read up to it.
 async fn answered(conn: &mut Conn, ids: &[u64], must_ok: usize) -> Result<(Instant, u64), String> {
+    answered_keeping(conn, ids, must_ok, None).await.map(|(at, total, _)| (at, total))
+}
+
+/// `answered`, also returning the reply to `keep` (Null when not asked).
+async fn answered_keeping(
+    conn: &mut Conn,
+    ids: &[u64],
+    must_ok: usize,
+    keep: Option<u64>,
+) -> Result<(Instant, u64, Value), String> {
     let deadline = Instant::now() + WAIT;
     let mut pending: Vec<u64> = ids.to_vec();
+    let mut kept = Value::Null;
     loop {
         let (at, total, item) = tokio::time::timeout_at(deadline, conn.inbound.recv())
             .await
@@ -1009,9 +1020,12 @@ async fn answered(conn: &mut Conn, ids: &[u64], must_ok: usize) -> Result<(Insta
             if ids[..must_ok].contains(&got) && reply["ok"] != json!(true) {
                 return Err(format!("request {got} failed: {reply}"));
             }
+            if keep == Some(got) {
+                kept = reply;
+            }
             pending.remove(index);
             if pending.is_empty() {
-                return Ok((at, total));
+                return Ok((at, total, kept));
             }
         }
     }
@@ -1020,7 +1034,10 @@ async fn answered(conn: &mut Conn, ids: &[u64], must_ok: usize) -> Result<(Insta
 /// The Workspaces list settled (the Mac's order and pins applied) on a fresh connection.
 /// `batched` false is the phone before this change: the five-request setup, then `refresh()`'s
 /// `list-personal`, `sidebar_layout.get` and `list-workspaces` one after another (4 round
-/// trips). `batched` true is WorkspaceSync.prepare now: all seven in one write (1).
+/// trips). `batched` true is WorkspaceSync.prepare now: all seven in one write (1), its list
+/// with `known` `{}` so the reply carries the tree's revision, and the check `refresh()` makes
+/// after the list is drawn sends it back and gets `unchanged` (off the critical path: in
+/// `bytes_down`, not in `setup_ms` or `round_trips`). Both lists are the phone's: no `limit`.
 async fn settled_once(
     addr: std::net::SocketAddr,
     daemon: &OpenDaemon,
@@ -1028,10 +1045,8 @@ async fn settled_once(
 ) -> Result<OpenSample, String> {
     let started = Instant::now();
     let mut conn = Conn::open(addr).await.map_err(|e| format!("connect: {e}"))?;
-    let mut list = json!({});
-    if daemon.lists(FIRST_WINDOW_CAPABILITY) {
-        list["limit"] = json!(FIRST_WINDOW_LIMIT);
-    }
+    let knows = daemon.lists(KNOWN_CAPABILITY);
+    let list = if batched && knows { json!({"known": {}}) } else { json!({}) };
     let setup = vec![
         ("set-client-info", setup_client_info()),
         ("identify", json!({})),
@@ -1047,7 +1062,27 @@ async fn settled_once(
             .send_with_resources(setup, vec![("sidebar_layout.get", json!({}))])
             .await
             .map_err(write)?;
-        let (at, bytes) = answered(&mut conn, &ids, 5).await?;
+        let (at, mut bytes, reply) = answered_keeping(&mut conn, &ids, 5, Some(ids[4])).await?;
+        let revision = &reply["data"]["tree_revision"];
+        if knows && revision.is_string() {
+            let mut known = json!({"tree_revision": revision});
+            for field in [
+                "registry_id",
+                "generation",
+                "workspace_revision",
+                "pane_revision",
+                "terminal_revision",
+            ] {
+                if !reply["data"][field].is_null() {
+                    known[field] = reply["data"][field].clone();
+                }
+            }
+            let ids = conn
+                .send(vec![("list-workspaces", json!({"known": known}))])
+                .await
+                .map_err(write)?;
+            (_, bytes) = answered(&mut conn, &ids, 1).await?;
+        }
         (at, bytes, 1)
     } else {
         let ids = conn.send(setup).await.map_err(write)?;
@@ -1060,7 +1095,7 @@ async fn settled_once(
             .map_err(write)?;
         answered(&mut conn, &ids, 0).await?;
         // The setup's list carried no `known` (no tree_revision held): the refresh sends `{}`.
-        let params = if daemon.lists(KNOWN_CAPABILITY) { json!({"known": {}}) } else { json!({}) };
+        let params = if knows { json!({"known": {}}) } else { json!({}) };
         let ids = conn.send(vec![("list-workspaces", params)]).await.map_err(write)?;
         let (at, bytes) = answered(&mut conn, &ids, 1).await?;
         (at, bytes, 4)

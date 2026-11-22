@@ -3,6 +3,7 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+import Synchronization
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 
@@ -129,7 +130,16 @@ public final class WorkspaceSync {
     public struct Prepared: Sendable {
         let client: DaemonClient
         let replies: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>
+        /// The setup list carried `known` (`setupSendsKnown`).
+        var sentKnown = false
     }
+
+    /// Whether the last daemon this process identified takes `known` on `list-workspaces`.
+    /// The setup batch is written before `identify` answers, so its list carries `known` (`{}`:
+    /// the reply then has the tree's revision, and `refresh()`'s check after it costs the
+    /// daemon's `unchanged` line, not the whole tree again) only on this word from the last
+    /// connection. A Mac that refuses it gets its list again without it (`bind`).
+    nonisolated static let setupSendsKnown = Mutex(false)
 
     /// Starts `channel`'s client and sends the whole setup in one write (one
     /// round trip, not eight): declare the client, identify, subscribe, list
@@ -141,8 +151,10 @@ public final class WorkspaceSync {
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
-        replyTimeout: Duration = DaemonClient.defaultDeadline
+        replyTimeout: Duration = DaemonClient.defaultDeadline,
+        sendsKnown: Bool? = nil
     ) async -> Prepared {
+        let sendsKnown = sendsKnown ?? setupSendsKnown.withLock { $0 }
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -155,7 +167,7 @@ public final class WorkspaceSync {
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
-                ("list-workspaces", [:]),
+                ("list-workspaces", listParams(known: nil, sendsKnown: sendsKnown)),
                 ("list-personal", [:]),
             ], resources: [("sidebar_layout.get", [:])], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
@@ -163,7 +175,7 @@ public final class WorkspaceSync {
             ConnectTimeline.shared.mark("first_daemon_response")
             return replies
         }
-        return Prepared(client: client, replies: replies)
+        return Prepared(client: client, replies: replies, sentKnown: sendsKnown)
     }
 
     /// Binds a prepared `daemon` channel for `macID` and publishes its list
@@ -229,6 +241,7 @@ public final class WorkspaceSync {
             }
             identity = setup.identity
             listsKnown = setup.listsKnown
+            Self.setupSendsKnown.withLock { $0 = setup.listsKnown }
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -248,7 +261,15 @@ public final class WorkspaceSync {
                 arrangementStale = false
                 arrangementSequence = personal.sequence
             }
-            let snapshot = try replies[4].get()
+            var snapshot = try replies[4].get()
+            if prepared.sentKnown, (try? Self.check(snapshot.data)) == nil {
+                // Sent `known` on the last Mac's word and this one refused it: list again without.
+                snapshot = try await client.requestOrdered("list-workspaces", params: Self.listParams(known: nil, sendsKnown: setup.listsKnown))
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+            }
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
