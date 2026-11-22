@@ -11,6 +11,7 @@
 use crate::clock::now_ns;
 use crate::desktop::FrameSource;
 use crate::Res;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_engine::EncodeRequest;
 use std::collections::VecDeque;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -53,6 +54,9 @@ pub struct Frame {
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    /// The profile this frame was encoded with, when the encoder applies one (None when it has
+    /// no ultra mode and kept its settings).
+    pub profile: Option<EncodeProfile>,
 }
 
 /// A nonblocking pipe: the encode thread writes a byte after each finished frame, so the loop
@@ -247,6 +251,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        profile: source.applies_profile().then_some(req.profile),
     })
 }
 
@@ -310,5 +315,41 @@ mod tests {
         let mut source = Recorder { kbps: 8_000, set: Vec::new() };
         encode_one(&mut source, &job(9_000, false)).expect("encode");
         assert_eq!(source.kbps, 9_000);
+    }
+
+    /// The stats line names only a profile the encoder applied: one without an ultra mode
+    /// (the Linux X11 source) reports none even for an ultra request.
+    #[test]
+    fn a_frame_names_only_the_profile_its_encoder_applied() {
+        struct Ultra(Recorder);
+        impl FrameSource for Ultra {
+            fn capture(&mut self, damage: Rect) -> Res<()> {
+                self.0.capture(damage)
+            }
+            fn encode(&mut self, force_idr: bool, pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+                self.0.encode(force_idr, pts_us, out)
+            }
+            fn set_bitrate(&mut self, kbps: u32) {
+                self.0.set_bitrate(kbps);
+            }
+            fn applies_profile(&self) -> bool {
+                true
+            }
+            fn kbps(&self) -> u32 {
+                self.0.kbps()
+            }
+            fn encoder_name(&self) -> String {
+                "ultra".into()
+            }
+        }
+        let mut ultra_job = job(8_000, false);
+        ultra_job.req.profile = EncodeProfile::Ultra;
+        let mut plain = Recorder { kbps: 8_000, set: Vec::new() };
+        assert_eq!(encode_one(&mut plain, &ultra_job).expect("encode").profile, None);
+        let mut able = Ultra(Recorder { kbps: 8_000, set: Vec::new() });
+        assert_eq!(
+            encode_one(&mut able, &ultra_job).expect("encode").profile,
+            Some(EncodeProfile::Ultra)
+        );
     }
 }
