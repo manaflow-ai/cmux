@@ -7623,26 +7623,28 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (the controller posts the status itself)
           # A receipt that says "status_poster": "controller" is a pull request head the build fleet's controller posts
           # cmux-next/compile on itself, at each transition and with the verdict this job would relay: this job ends
-          # there instead of holding its runner through the compile. Until a receipt rules that out (one without it:
-          # a push head, or a controller that does not post), each read waits at most 60 s, so it is seen early.
+          # there instead of holding its runner through the compile. A pull request head's first read asks for the
+          # receipt as it is (wait=1), so the mark is seen at once; one without it (a push head, a controller that does
+          # not post) is waited for and relayed as before. The recipe check below runs first, so a marked receipt of
+          # another recipe is still a mismatch.
           controller="" poster_unknown="${PR:+1}"
           controller_posts() {  # the reply in $1 is a non-terminal receipt of this head the controller posts
             [[ -n "${PR:-}" ]] && jq -e --arg sha "$SHA" --arg repo "$REPO" '.sha == $sha and .repo == $repo and
-              .status_poster == "controller" and (.state == "queued" or .state == "running")' "$1" >/dev/null 2>&1
+              .recipe_version == 2 and .configuration == "release-onone" and .status_poster == "controller" and
+              (.state == "queued" or .state == "running")' "$1" >/dev/null 2>&1
           }
           for probe in 1 2; do
-            code="$(curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&wait=1" 2>/dev/null)" || true
             [[ "${code:=000}" =~ ^(000|52[0-9]|530)$ ]] || { [[ "$code" =~ ^(200|404)$ ]] && ok_at=$SECONDS; break; }
             (( probe == 2 )) && down="HTTP $code" || sleep "${PROBE_GAP:-30}"
           done
-          [[ -z "$down" && "${code:-}" == 200 ]] && controller_posts "$reply" && controller=1
           while [[ -z "$down" && -z "$controller" ]]; do
             # The shared deadline: each read gets only what is left of the wait and of the bound for a usable answer.
             end=$(( deadline < ok_at + ${BAD_BOUND:-300} ? deadline : ok_at + ${BAD_BOUND:-300} ))
             left=$((end - SECONDS))
             (( left > 1 )) || break
             wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
-            [[ -z "$poster_unknown" ]] || wait=$(( wait < 60 ? wait : 60 ))
+            [[ -z "$poster_unknown" ]] || wait=1
             code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
               --max-time "$left" "$url&wait=$wait")" || true
             case "${code:=000}" in
