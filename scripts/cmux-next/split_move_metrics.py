@@ -103,7 +103,8 @@ def mover_path(points, ticks, commit):
         if _distance(v0, v1) <= EPS:
             continue
         before, after = _distance(v0, final), _distance(v1, final)
-        away = len(v1) == len(final) and any(abs(b - f) > abs(a - f) + EPS for a, b, f in zip(v0, v1, final))
+        away = len(v1) == len(final) and any(abs(b - f) > abs(a - f) + EPS or (a - f) * (b - f) < -EPS * EPS
+                                             for a, b, f in zip(v0, v1, final))  # farther, or past the final edge
         moved.append((i, before if before != float("inf") else 0.0, away and after > EPS))
     late = again = back = 0
     px = 0.0
