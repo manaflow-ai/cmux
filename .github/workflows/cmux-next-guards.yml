@@ -411,10 +411,11 @@ jobs:
       # A step of this job since 2026-11-21, not a job of its own (cmuxterm-hq#16094: the hot-only route job had
       # never been red, so it folds into the workflow's one router job). Only a same-repository pull request
       # routes; the merge commit goes to hot-route/, beside the trusted placement checkout.
-      # Blobless and sparse, like cmux-next.yml path_route's (#49560): the full clone was 55 s median of 2,317 of these
-      # jobs on 2026-11-21 (4,393 runner-min a day). The patterns hold every file the route step opens or lists
-      # (tests/test_cmux_next_route.py test_guards_hot_route_reads_only_its_blobless_sparse_checkout records them);
-      # `git diff` of the two commits reads trees only.
+      # Blobless and sparse: the full clone was 55 s median of 2,317 of these jobs on 2026-11-21 (4,393 runner-min a
+      # day). path_route's set (cmux-next.yml, #49560) plus the files tooling_steps.py's closure of tooling-tests
+      # opens; tests/test_cmux_next_route.py test_guards_hot_route_reads_only_its_blobless_sparse_checkout records
+      # every file the route step opens or lists in a full checkout and fails on one outside these. `git diff` of the
+      # two commits reads trees only.
       - name: Check out the merge commit and its base (hot-only route)
         if: ${{ github.event_name == 'pull_request' }}
         continue-on-error: true
@@ -440,6 +441,17 @@ jobs:
             /.gitmodules
             /first-party-apps/cloud/
             /workers/cmux-vm/cli/
+            /LICENSE
+            /ci/
+            /Resources/shell-integration/
+            /Native/OptChat/optchat-chief/inspector/
+            /cmux-next-ios/project.yml
+            /cmux-next-ios/AppStoreReview/
+            /cmux-next-ios/scripts/
+            /ios/scripts/
+            /web/app/lib/feature-flags.ts
+            /webviews/package.json
+            /webviews/tsconfig.json
             !/Packages/macOS/CmuxNext/**/*.xcstrings
             !/Packages/macOS/CmuxNext/**/*.avif
             !/Packages/macOS/CmuxNext/**/*.png
