@@ -45,7 +45,25 @@ await requireBrowserLane("chat-row-spacing.test.ts", async () => {
       });
       await page.waitForSelector("[data-row-id]");
       if (variant.startsWith("open-")) await page.waitForSelector(".acpmux-messageRun button[aria-expanded=true]");
-      await page.waitForTimeout(800);
+      // Measured once the rows hold still: their boxes unchanged over 10 frames (a fold's motion and the
+      // fonts' late layout have ended), not after a guessed time.
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
+      await page.waitForFunction(
+        () => {
+          const w = window as unknown as { crsLast?: string; crsStill?: number };
+          const now = [...document.querySelectorAll("[data-row-id]")]
+            .map((e) => {
+              const box = e.getBoundingClientRect();
+              return `${box.top},${box.bottom}`;
+            })
+            .join("|");
+          w.crsStill = now === w.crsLast ? (w.crsStill ?? 0) + 1 : 0;
+          w.crsLast = now;
+          return w.crsStill >= 10;
+        },
+        undefined,
+        { polling: "raf" },
+      );
       return await page.evaluate(() => {
         const rows = [...document.querySelectorAll("[data-row-id]")].map((e) => ({
           id: e.getAttribute("data-row-id")!,
