@@ -92,7 +92,8 @@ extension AppearanceSettingsSchema {
     }
 }
 
-extension AppearanceSettingsSchema {
+/// More of `AppearanceSettingsSchema`'s lists (its own type: the type's line budget).
+nonisolated enum AppearanceSettingsSchema2 {
     static var focusRing: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.focusRing", "Focus Ring")
         return [
@@ -161,4 +162,9 @@ extension AppearanceSettingsSchema {
             ),
         ]
     }
+}
+
+extension AppearanceSettingsSchema {
+    /// The lists on the overflow types (AppearanceSettingsSchema2).
+    static var focusRing: [SettingDescriptor] { AppearanceSettingsSchema2.focusRing }
 }
