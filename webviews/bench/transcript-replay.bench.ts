@@ -721,8 +721,94 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
       } else {
+        const lcEval = process.env.LC_EVAL ? fs.readFileSync(process.env.LC_EVAL, "utf8") : undefined;
+        if (lcEval) await page.evaluate(lcEval);
+        const lcNames = [
+          "LayoutCount",
+          "LayoutDuration",
+          "RecalcStyleCount",
+          "RecalcStyleDuration",
+          "ScriptDuration",
+          "TaskDuration",
+        ];
+        const lcBefore = process.env.LC_METRICS ? await Promise.all(lcNames.map((n) => metric(cdp, n))) : [];
+        const lcTrace = process.env.LC_TRACE && burst.kind === "tool_call" && burst.rows > 1000 && burst.rows < 1700;
+        const lcEvents: any[] = [];
+        if (lcTrace) {
+          cdp.on("Tracing.dataCollected", (d: any) => lcEvents.push(...d.value));
+          await cdp.send("Tracing.start", {
+            categories:
+              "devtools.timeline,disabled-by-default-devtools.timeline.stack,blink.user_timing" +
+              (process.env.LC_INV ? ",disabled-by-default-devtools.timeline.invalidationTracking" : ""),
+            transferMode: "ReportEvents",
+          });
+        }
         await playBurst();
         await paint(page, 2);
+        if (lcTrace) {
+          const done = new Promise((r) => cdp.once("Tracing.tracingComplete", r));
+          await cdp.send("Tracing.end");
+          await done;
+          if (process.env.LC_DUMP)
+            fs.writeFileSync(`${process.env.LC_DUMP}-${burst.rows}.json`, JSON.stringify(lcEvents));
+          const agg = new Map<string, { n: number; ms: number; el: number }>();
+          for (const e of lcEvents) {
+            if (process.env.LC_INV && e.name.endsWith("InvalidationTracking")) {
+              const d = e.args?.data ?? {};
+              const st = d.stackTrace;
+              const key = `INV ${e.name.replace("InvalidationTracking", "")} ${d.reason ?? ""} ${d.changedAttribute ?? ""}${d.changedClass ?? ""}${d.changedPseudo ?? ""} @ ${String(d.nodeName ?? "").slice(0, 70)} :: ${
+                st
+                  ? st
+                      .slice(0, Number(process.env.LC_DEPTH) || 4)
+                      .map((f: any) => `${f.functionName || "?"}@${f.lineNumber}`)
+                      .join("<")
+                  : "-"
+              }`;
+              const a = agg.get(key) ?? { n: 0, ms: 0, el: 0 };
+              a.n++;
+              agg.set(key, a);
+              continue;
+            }
+            if (e.ph !== "X" || !["UpdateLayoutTree", "Layout"].includes(e.name)) continue;
+            const st = e.args?.beginData?.stackTrace ?? e.args?.data?.stackTrace;
+            const key = `${e.name} ${
+              st
+                ? st
+                    .slice(0, Number(process.env.LC_DEPTH) || 4)
+                    .map(
+                      (f: any) =>
+                        `${f.functionName || "?"}@${f.url.split("/").pop()}:${f.lineNumber}:${f.columnNumber}`,
+                    )
+                    .join("<")
+                : "(frame)"
+            }`;
+            const a = agg.get(key) ?? { n: 0, ms: 0, el: 0 };
+            a.n++;
+            a.ms += (e.dur ?? 0) / 1000;
+            a.el += e.args?.elementCount ?? 0;
+            agg.set(key, a);
+          }
+          for (const [k, a] of [...agg]
+            .sort((x, y) => y[1].ms - x[1].ms || y[1].n - x[1].n)
+            .slice(0, Number(process.env.LC_TOP) || 60))
+            console.log(
+              `LT ${(a.n / records).toFixed(2)}/rec ${(a.ms / records).toFixed(3)}ms/rec el/ev ${a.n ? Math.round(a.el / a.n) : 0} ${k}`,
+            );
+        }
+        if (process.env.LC_METRICS) {
+          const after = await Promise.all(lcNames.map((n) => metric(cdp, n)));
+          console.log(
+            `LM ${burst.kind} at ${burst.rows} rows: ` +
+              lcNames
+                .map(
+                  (n, i) =>
+                    `${n} ${(((after[i]! - lcBefore[i]!) * (n.endsWith("Count") ? 1 : 1000)) / records).toFixed(3)}`,
+                )
+                .join(" "),
+          );
+        }
+        if (lcEval)
+          console.log(`LC ${burst.kind} at ${burst.rows} rows recs ${records}: ${await page.evaluate(lcEval)}`);
       }
       const taskMs = ((await metric(clock, "TaskDuration")) - taskBefore) * 1000;
       const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
