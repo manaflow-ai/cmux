@@ -297,6 +297,31 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertGreaterEqual(time.monotonic() - start, 2.0)
 
+    def test_alone_is_true_or_false(self) -> None:
+        self.assertTrue(table('[step.a]\njob = "linux"\nalone = true\nrun = "true"').steps["a"].alone)
+        self.assertFalse(table('[step.a]\njob = "linux"\nrun = "true"').steps["a"].alone)
+        with self.assertRaisesRegex(ci_steps.TableError, "`alone` is true or false"):
+            table('[step.a]\njob = "linux"\nalone = "yes"\nrun = "true"')
+
+    def test_an_alone_step_starts_after_the_others_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # Each step logs its start and end; an alone step must start only after every other one ended.
+            def step(name: str, alone: bool) -> str:
+                return (f'[step.{name}]\njob = "linux"\nalone = {str(alone).lower()}\n'
+                        f'run = "echo start-{name} >> {tmp}/log; sleep 0.3; echo end-{name} >> {tmp}/log"\n')
+            t = table(step("big", True) + step("a", False) + step("b", False) + step("last", True))
+            code, out = self.run_job(t, "linux", workers=4)
+            self.assertEqual(code, 0, out)
+            log = Path(tmp, "log").read_text().split()
+        self.assertEqual(sorted(log[:4]), ["end-a", "end-b", "start-a", "start-b"], log)
+        self.assertEqual(log[4:], ["start-big", "end-big", "start-last", "end-last"])
+        self.assertLess(out.index("::group::a"), out.index("::group::big"), out)
+        self.assertLess(out.index("::group::big"), out.index("::group::last"), out)
+
+    def test_the_tables_coderouter_runs_alone(self) -> None:
+        # Its cargo build takes every core; broker.test.mjs's 50 ms deadline failed beside it, twice.
+        self.assertTrue(ci_steps.load().steps["coderouter"].alone)
+
 
 class PipelineTest(unittest.TestCase):
     """pr-pipeline.yml runs the table's linux job through ci/run; pr-router.yml starts it from the table."""
@@ -497,7 +522,10 @@ class PipelineTest(unittest.TestCase):
     def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
         # Setup, the tools a routed step needs, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
         linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
-        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        # An `alone` step is a wave of its own.
+        shared = [s for s in linux if not s.alone]
+        need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
+                + sum(s.timeout for s in linux if s.alone))
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 

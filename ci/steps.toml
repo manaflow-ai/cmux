@@ -5,7 +5,8 @@
 # reds per 100 landings today). Advisory steps run idle-class and never block."
 #
 # A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
-# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
+# route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout;
+# `alone = true` runs it by itself, after the job's other steps.
 # `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
 # with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
 # job still passes. tests/test_ci_step_table.py holds both rules.
@@ -557,6 +558,8 @@ exit "$rc"
 # starts empty: 159 s on 2 CPUs with an empty cargo registry too, which the runner keeps.
 [step.coderouter]
 job = "linux"
+# Its cargo build takes every core: a step with deadlines beside it fails (broker.test.mjs, twice).
+alone = true
 timeout = 360
 title = "coderouter CLI"
 about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.94.0, its cargo, Python and npm versions agree, and its npm package packs"
