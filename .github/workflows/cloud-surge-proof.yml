@@ -66,4 +66,4 @@ jobs:
           name: cloud-surge-proof-${{ github.run_id }}
           path: ${{ runner.temp }}/surge-proof/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
