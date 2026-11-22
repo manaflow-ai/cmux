@@ -15,14 +15,16 @@ acts on that one red, while it still names its commit:
           1. culprit: each first-parent commit of the range, oldest first, is linted over its own change
              (`web_lint_prepush.py --base C^ --head C`); the first red one is the culprit. None red: the push's red
              did not repeat (a flake), and nothing opens.
-          2. still red: the culprit's change, linted at the branch's tip now. Green: fixed already; nothing opens.
-          3. autofix: the lint's own fixers (`--fix`: Oxfmt, Oxlint --fix, the generators) on the tip. Green
-             after them: the patch is the fix (action=autofix).
-          4. revert: the culprit reverted on the tip, linted the same way. Green: action=revert. Red, or the revert
+          2. still red: the culprit's change, linted at the branch's tip now. Its reds gone: fixed already; nothing opens.
+          3. autofix: the lint's own fixers (`--fix`: Oxfmt, Oxlint --fix, the generators) on the tip. If they
+             clear it: the patch is the fix (action=autofix).
+          4. revert: the culprit reverted on the tip, linted the same way. Clears it: action=revert. Red, or the revert
              conflicts: nothing opens; the summary says why (the red is not the culprit's alone).
+          "Clears" means the culprit's own reds (its diagnostics, else its failed pieces) are gone and no red is
+          added that the tip did not already have; other commits' reds still at the tip are theirs.
   open    in the workflow's `heal-open` job, with the routing App's token and no repository code run but this file
           and git: commits the autofix patch, or the culprit's revert, on the tip. The fix is clear (judge verified
-          the tip lints green with it), so with --direct it is pushed straight to the branch (Leo, 06:01Z: "if the
+          it clears the culprit's own reds at the tip and adds none), so with --direct it is pushed straight to the branch (Leo, 06:01Z: "if the
           fix is clear i think you guys should be able to unilaterally push commits directly."). When that push is
           refused (a ruleset, a tip that moved), the summary keeps GitHub's words and it opens a pull request
           instead, which next-autoland lands at its exact head once its CI is green (cmuxterm-hq
@@ -255,14 +257,14 @@ def pull_request(action: str, culprit: str, good: str, subject: str, *, owner: s
         head = f"heal/web-lint-{culprit[:12]}"
         title = f"web lint fix for {who.split(' ')[0]} (`{JOB}` red on {branch})"
         body = [f"Fixes base red: cmux-next web lint / {JOB}. {seen}",
-                "The lint's own fixers (`scripts/web_lint_prepush.py --fix`) make that change lint green at the tip; "
-                "this is their patch, nothing else."]
+                "The lint's own fixers (`scripts/web_lint_prepush.py --fix`) clear that change's reds at the tip and add "
+                "none; this is their patch, nothing else."]
     else:
         head = f"revert/pr-{pr}" if pr else f"revert/lint-{culprit[:12]}"
         title = f'Revert "{subject}" ({JOB} red on {branch})'
         body = [f"Reverts {who}: {seen}",
-                "The lint's fixers cannot fix it (a type error is not mechanical), and the tip lints green with this "
-                "revert. The base-break rule restores the base first: land this, then reland the change with its fix."]
+                "The lint's fixers cannot fix it (a type error is not mechanical), and reverting it clears its reds at "
+                "the tip and adds none. The base-break rule restores the base first: land this, then reland the change with its fix."]
         if owner:
             body.insert(0, TEAMMATE_HOLD.format(login=owner))
     land = (f"This is {owner}'s to land or close; no agent lands it." if owner else
