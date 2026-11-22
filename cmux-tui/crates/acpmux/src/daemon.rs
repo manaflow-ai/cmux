@@ -1065,6 +1065,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
         Hub::desktop_bridge_loop(weak.clone())
     });
+    // How late this runtime wakes a task (`gauges.workerLag` in `daemon status`): a worker held by
+    // blocking work shows here before requests time out. Ended with the hub's scope.
+    let _worker_lag = hub.scope.spawn_until_cancelled(
+        "worker-lag-canary",
+        crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
+    );
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
