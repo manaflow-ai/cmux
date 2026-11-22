@@ -27,8 +27,8 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::resolution::Picture;
 use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::resolution::Picture;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
