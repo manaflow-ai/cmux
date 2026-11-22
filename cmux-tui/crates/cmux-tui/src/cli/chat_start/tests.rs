@@ -390,6 +390,7 @@ fn on_cloud(listed: Value) -> Result<Route, Value> {
             catalog: || -> Result<Value, Value> { panic!("catalog") },
             signed_in: || true,
             cloud_machines: || Ok(listed),
+            peers: unread_peers,
         },
     )
 }
