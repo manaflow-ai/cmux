@@ -40,15 +40,20 @@ select in the 2 s that the park keeps a text. So a case reads the park's counts 
 first new tab (the focus of the tab's pane, then the select). With one text or more in the park at that read
 (each text that came less each that left: such a text waits or is on its way into its page; the counts do not say
 which text) the case makes NO other act: it reads the park again each WAIT_STEP_S (0.1 s), to the first read with
-no text there or to the first read WAIT_S (2.2 s) and more after the sequence's last key. The park keeps a text
-for 2 s, so in that time the app types the text by itself or drops it. Then the case reads the app's input journal
-(`debug.journal`), and then the park ONE more time: that read is the tool's LAST call before its own acts, and the
-record's `park.select` and `waits_before_select` (the count of the texts in the park) are of it. With one text or
+no text there or to the first read WAIT_S (4 s) and more after the sequence's last key. The park keeps a text
+for 2 s from the app's own dispatch of the key that parks it (the app can dispatch a key later than the key's time
+in the sequence), and at each read the app drops a text that only waited that long. So the app's own clock ends
+the wait (the app types the text by itself or drops it), and only a text that stays on its way into its page gets
+to the 4 s. Then the case reads the app's input journal (`debug.journal`), and then the park ONE more time. With a
+text at that read before the 4 s (a text that came into the park late) the case waits again in the same way, and
+then reads the journal and the park again. The last read of the park is the tool's LAST call before its own acts,
+and the record's `park.select` and `waits_before_select` (the count of the texts in the park) are of it. With one text or
 more at that last read the case is NO PASS, also when the field then has the letter: `letter_is` is `typed only
 after the select` (and `letter_also` has `new tab's field`), or the word of the letter's other place. With no text
 at that last read the verdict is by the places as before: the letter in the first new tab's field is then the
 app's own work, and the case can pass. The record's `park_wait` has `first` (the count at the first read),
-`first_s`, `empty_s` (to the first read with no text in the park; None: no such read) and `last_s`, each in
+`first_s`, `empty_s` (to the first read with no text in the park that has no read with a text after it; None: the
+last read has a text) and `last_s`, each in
 seconds from the app's reply to the call of the keys to that read's end, and `reads` (how many reads of the park).
 `holds_before_select` is the count of the windows with an open New Tab key hold at the last read (None: the reply
 has no such list): a count only, it changes no verdict. A form's line
@@ -109,9 +114,15 @@ only when that field has a text). The park keeps a text for 2 s at most and drop
 `debug.focus` read. So `parked` is almost never said (only for a text that is on its way for more than 5 s): a
 parked text that got to no field is `dropped after the bound`, and the tool's own read at the case's end can be
 the read that makes that count. The first read of the park before the tool's acts comes 0.7 s and more after the
-keys, and the last one 2.2 s and more after them when a text waits: each read of the wait is a `debug.focus` read
-too, and can be the read that drops a text older than 2 s (the app does the same drop before it types). A case
-with a text in the park takes up to 1.5 s more. A text that is on its way into its page at the last read counts
+keys. The last one comes directly after the first read with no text (a text that leaves the park 1.0 s after the
+keys gives a last read at about 1.0 s), and 4 s and more after the keys only for a text that stays to the bound.
+Each read of the wait is a `debug.focus` read too, and can be the read that drops a text older than 2 s (the app
+does the same drop before it types). So after the wait `typed only after the select` is almost never said (only
+for a text that stays on its way into its page for the 4 s): a text that the app does not type by itself is
+`dropped after the bound` with no text at the last read, and the count of such cases is the form's
+`waited_first_read` less those of them that pass. A case
+with a text in the park takes up to 3.3 s more. A case with no text at the first read and a text at a later one is
+not in `waited_first_read` (its `park_wait.reads` is above 2). A text that is on its way into its page at the last read counts
 as a text in the park (no pass), and a text that the app types between the last read and the select (the focus
 call of the pane) is said as typed after the select. The seconds of `park_wait` are of the tool's clock at each
 reply, not of the app's. The tool does not read the type-ahead queue of a key hold.
@@ -157,7 +168,10 @@ NO_RUN, BY_HOLD, UNREAD, NOWHERE = WHERE[8:]
 NO_COUNTS = "the read before the select has no counts of the park: no read of a text that waits there"
 BELOW = "the park's counts give {} texts, a count below 0: no read of a text that waits there"
 OLDER = "{} texts were in the park before the case's keys: a text that waits later can be an older one"
-WAIT_S = 2.2  # after a case's keys: the park keeps a text for 2 s (TypingPark.swift `limit`), so the app's own time is over then
+# After a case's keys. The park keeps a text for 2 s (TypingPark.swift `limit`) from the app's own dispatch of the
+# key, which can be later than the key's time in the sequence: the app's drop of such a text at a read ends the wait
+# by the app's clock, and only a text that stays on its way into its page gets to this bound.
+WAIT_S = 4.0
 WAIT_STEP_S = 0.1  # between 2 reads of the park while a text waits there
 JOURNAL_LAST = 600  # the entries of the journal's read before the select: a case's keys and pages write far fewer
 ENGINES = ("webkit", "chromium", "chromium-key", "chromium-unchosen-key")  # the app's words (FocusEffectApplier.swift)
@@ -318,7 +332,8 @@ def verdict(form, cases):
     `waited_before_select`: how many of its cases had a text in the park at the last read before the tool's acts
     (each is no pass; `letter_is` says what became of the letter). `waited_first_read`: how many had a text there at
     the first read after the keys; `emptied_latest_s`: of those cases, the most seconds from the keys' call to the
-    first read with no text in the park (None: no such case had such a read)."""
+    read from which the park had no text (`park_wait.empty_s`; None: no such case had such a read). These 2 are of
+    each case with a `park_wait`, also of one that a later read of its wait made `not_run`."""
     ran = [case for case in cases if "pass" in case]
     chords = [case for case in ran if case["chord"]]
     moves = [case for case in ran if case.get("moved")]
@@ -431,20 +446,28 @@ class Letters:
         tool's last call before its own acts. While a text is in the park the case makes no other act: a read of
         the park each WAIT_STEP_S, to the first read with no text or the first one WAIT_S after the sequence's
         last key. Then the journal's read (the record's `journal` and `engine`, with the entries of the wait), and
-        ONE more read of the park. The record's `park_wait` is of each read to now, also when a read stops the case."""
-        reads = []
+        ONE more read of the park. With a text at that read before the bound the case waits again in the same way,
+        and then reads the journal and the park again: the last read has no text, or it is at the bound or later.
+        The record's `park_wait` is of each read that gave its counts: a read that stops the case is not in it, and
+        a case that stops at its first read has no `park_wait`."""
+        reads, bound = [], round(self.played_s + WAIT_S, 3)
 
         def read():
             reads.append(self.parked(record))
-            record["park_wait"] = {"first": reads[0][0], "first_s": reads[0][1], "reads": len(reads),
-                                   "empty_s": next((at for waits, at in reads if not waits), None), "last_s": reads[-1][1]}
+            empty = None
+            for waits, at in reads:  # the first read with no text that has no read with a text after it
+                empty = None if waits else at if empty is None else empty
+            record["park_wait"] = {"first": reads[0][0], "first_s": reads[0][1], "reads": len(reads), "empty_s": empty, "last_s": reads[-1][1]}
             return reads[-1]
         waits, at = read()
-        while waits and at < round(self.played_s + WAIT_S, 3):
-            self.pause(WAIT_STEP_S)
+        while True:
+            while waits and at < bound:
+                self.pause(WAIT_STEP_S)
+                waits, at = read()
+            record.update(self.before_select(mark, why, tab))
             waits, at = read()
-        record.update(self.before_select(mark, why, tab))
-        return read()[0]
+            if not waits or at >= bound:
+                return waits
 
     def text(self, pane):
         """(the text, None) of the field of the page that `pane` shows, when `pane` has the app's focus: a New Tab
@@ -661,7 +684,7 @@ class Letters:
         except NotRun as error:
             record["not_run"] = str(error)
         except Exception as error:  # noqa: BLE001  one case that stopped must not lose the other cases
-            record["not_run"] = f"the case stopped: {error!r}"
+            record["not_run"] = f"the case stopped: {type(error).__name__}"  # the class name only: no text of the app
         finally:
             record.setdefault("letter_is", NO_RUN)
             if self.setup_fields:
@@ -670,7 +693,7 @@ class Letters:
                 try:
                     self.builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
                 except Exception as error:  # noqa: BLE001
-                    record["workspace_not_closed"] = repr(error)
+                    record["workspace_not_closed"] = type(error).__name__
         return record
 
     def run(self, count, forms=FORMS, say=out, budget_s=BUDGET_S, now=time.monotonic):
