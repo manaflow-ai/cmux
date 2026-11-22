@@ -508,6 +508,10 @@ import {
   dismissedAsks,
   setAnswerState,
   shownAsks,
+  answeredAsks,
+  givenAnswer,
+  subscribeAnswers,
+  withAnswered,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
@@ -1382,11 +1386,11 @@ function answerNextStep(question: HatQuestion, label: string, asker: string | un
   const key = question.answerKey;
   const text = answerPrompt(question.prompt, label, asker);
   if (!key) return answerThrough(callNative)(text);
-  if (answerState(key).sending !== undefined) return Promise.resolve();
+  if (givenAnswer(answerState(key)) !== undefined) return Promise.resolve();
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(text).then(
-    () => setAnswerState(key, {}),
+    () => setAnswerState(key, { sent: label }),
     (error: unknown) => {
       setAnswerState(key, { failed: true });
       throw error;
@@ -3375,7 +3379,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }));
   if (askDismissals.sessionId !== shownSessionId)
     setAskDismissals({ sessionId: shownSessionId, keys: dismissedAsks(shownSessionId) });
-  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askDismissals.keys), [waitingAskRows, askDismissals]);
+  // A card answered from this page leaves in the click's frame, before its prompt settles it
+  // (waitingAskStore.ts `givenAnswer`): its answer may wait in the queue behind a running turn.
+  const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
+  const askedAway = useMemo(() => withAnswered(askDismissals.keys, answered), [askDismissals, answered]);
+  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askedAway), [waitingAskRows, askedAway]);
   const dismissPinnedAsk = useCallback(
     (key: string) => setAskDismissals({ sessionId: shownSessionId, keys: dismissAsk(shownSessionId, key) }),
     [shownSessionId],
@@ -4180,8 +4188,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // sub-session's ask): one ask renders once (question/hatSeen.ts `hatQuestionsShown`).
   const onStackCards = useMemo(() => stackCardKeys(pinnedAsks, childAsk), [pinnedAsks, childAsk]);
   const hatQuestionsUnseen = useMemo(
-    () => hatQuestionsShown(hatQuestionsRead, askDismissals.keys, onStackCards),
-    [hatQuestionsRead, askDismissals, onStackCards],
+    () => hatQuestionsShown(hatQuestionsRead, askedAway, onStackCards),
+    [hatQuestionsRead, askedAway, onStackCards],
   );
   const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
@@ -14443,7 +14451,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           ) : null}
           {(showsChatView || premountsChatView) && (
-            <Activity key={chatViewMount.current.key} mode={showsChatView || parkVisible ? "visible" : "hidden"}>
+            // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
+            // and a shared key let React lose the page's fiber and mount the page again beside it.
+            <Activity
+              key={`chat-view-${chatViewMount.current.key}`}
+              mode={showsChatView || parkVisible ? "visible" : "hidden"}
+            >
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
