@@ -80,7 +80,10 @@ pub(crate) const HEAD_BYTES: u64 = if cfg!(test) { 4 << 10 } else { 256 << 10 };
 pub(crate) const FILE_BYTES: u64 = SESSION_BYTES + HEAD_BYTES;
 /// Bytes every copy's file keeps together, refused removals included.
 pub(crate) const TOTAL_BYTES: u64 = if cfg!(test) { 40 << 10 } else { 64 << 20 };
-/// Bytes of records held in memory, every copy together.
+/// Bytes of records held in memory, every copy together. At 16 MB, 2,000 live copies did not
+/// fit: each fan-out round unloaded and read back about 2,000 of them from disk (17k rereads in
+/// one coord-sim fan-in run); at 64 MB that run read none back (cmux#49864). The cost is up to
+/// 48 MB more resident memory, only while that many copies are live.
 const MEMORY_BYTES: u64 = if cfg!(test) { 24 << 10 } else { 64 << 20 };
 /// Purged sessions whose generation is barred (`Store::bar`).
 const BARRED_KEYS: usize = if cfg!(test) { 8 } else { 4096 };
