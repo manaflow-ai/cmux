@@ -136,6 +136,7 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  tailFoldsFor,
   hostTailOf,
   type TailHandOver,
 } from "./tailCache";
@@ -535,6 +536,19 @@ const inChat = (question: AgentQuestion): AgentQuestion => ({
 
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
+
+/// Whether a kept tail's last turn has no end among its records: a prompt or `turn_started` with no
+/// `turn_result` (or a status other than running) after it. A tail cut inside a turn (`turnOpener`)
+/// counts as opened before its first record.
+export function tailTurnLeftOpen(tail: Pick<KeptTail, "events" | "turnOpener">): boolean {
+  let open = tail.turnOpener !== undefined;
+  for (const event of tail.events) {
+    if (startsTurn(event) || (event.dir === "mux" && event.kind === "turn_started")) open = true;
+    else if (event.kind === "turn_result") open = false;
+    else if (event.dir === "mux" && event.kind === "status" && event.msg?.status !== "running") open = false;
+  }
+  return open;
+}
 
 /// A prompt the Chief sent a subagent (its task, a tell, a steer, a restart or interrupt message):
 /// optchat-chief ids those `optchat-<kind>:…` (`subagents.rs` PROMPT_PREFIX), so the pane can say
@@ -3694,6 +3708,12 @@ export class AcpmuxDirectClient {
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
   private drewKeptTail = false;
+  /// The chat whose kept tail was drawn with its last turn running when the tail was kept, before
+  /// acpmux has said what the chat is doing now (`drawKeptTail` with no listed status). Its rows are
+  /// shaped as the running turn the page last drew (`keptRunning` in the snapshot); `isWorking`
+  /// still waits for acpmux (#32735). Leo, 2026-11-22: "i just saw the entire thing flash and then
+  /// re-render and then shift as it loaded in and expanded then collapsed tool calls".
+  private keptRun?: string;
   /// The settled view the open's attach answered with (`settled-attach-v1`), for the chat and
   /// selection it was read for: its frame is the one the pane draws first, and the host is told
   /// once it is on screen (`settled` in the snapshot, App.tsx `pane.painted`).
@@ -4258,8 +4278,12 @@ export class AcpmuxDirectClient {
       snapshot = value;
     });
     try {
-      const { status: _status, retry: _retry, queue: _queue, ...past } = tail.summary ?? {};
-      if (client.drawKeptTail(sessionId, { ...tail, summary: tail.summary && past, queue: [] }) === 0) return undefined;
+      const { status, retry: _retry, queue: _queue, ...past } = tail.summary ?? {};
+      if (
+        client.drawKeptTail(sessionId, { ...tail, summary: tail.summary && past, queue: [] }, status === "running") ===
+        0
+      )
+        return undefined;
       client.drewKeptTail = true;
       client.emit("connecting");
       return snapshot;
@@ -4948,6 +4972,7 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(cause = "reset"): void {
+    this.keptRun = undefined;
     // The chat's unsent prompts come back as Not sent rows once the reset and its caller are done
     // (the rows go below): from the host's store, before acpmux answers anything.
     queueMicrotask(() => void this.restoreUnsentPrompts());
@@ -5162,6 +5187,8 @@ export class AcpmuxDirectClient {
         }
       }
     }
+    // The reader's open folds of the chat ride with its rows, so the next page draws both at once.
+    const folds = tailFoldsFor(sessionId);
     return {
       ...(copy ? { peerCopy: { ...copy, attaching: false } } : {}),
       events,
@@ -5174,6 +5201,7 @@ export class AcpmuxDirectClient {
       queue: this.queue,
       configSeq: this.configSeq,
       usageFromSeq: this.usageFromSeq,
+      ...(folds ? { folds } : {}),
     };
   }
 
@@ -5545,8 +5573,12 @@ export class AcpmuxDirectClient {
       this.peerCopy !== undefined
     )
       return;
-    const { status: _status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
-    const through = this.drawKeptTail(sessionId, { ...held, summary: held.summary && past, queue: [] });
+    const { status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
+    const through = this.drawKeptTail(
+      sessionId,
+      { ...held, summary: held.summary && past, queue: [] },
+      status === "running",
+    );
     if (through === 0) return;
     // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
@@ -5611,7 +5643,13 @@ export class AcpmuxDirectClient {
     return true;
   }
 
-  private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
+  /// `ranWhenKept`: the tail's summary said the chat was running when it was kept (the callers that
+  /// strip its live status before the draw say it here).
+  private drawKeptTail(
+    sessionId: string,
+    kept = keptTail(sessionId),
+    ranWhenKept = kept?.summary?.status === "running",
+  ): number {
     // One source wins: a copy older than what this page already showed of the chat (another tab's
     // tail, the Mac's copy, a map entry from before a reconnect) is never drawn over it; the open
     // waits for its attach instead (tailCache.ts `olderThanShown`).
@@ -5641,6 +5679,10 @@ export class AcpmuxDirectClient {
     this.turnEndSeen = false;
     this.turnOpen = this.summaryRuns(listed);
     this.turnOpenedSeq = undefined;
+    // What the chat does now is acpmux's to say, but how its rows are shaped until then is the
+    // last frame's: a turn that ran when the tail was kept draws as that running turn did (its
+    // calls open), not folded under "Worked for" until the attach opens them again.
+    this.keptRun = listed === undefined && ranWhenKept && tailTurnLeftOpen(kept) ? sessionId : undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -11808,6 +11850,17 @@ export class AcpmuxDirectClient {
     this.streamingAssistantMessageId = undefined;
   }
 
+  /// The kept tail on screen ran its last turn when it was kept (`keptRun`), and acpmux has not
+  /// said otherwise yet: no attach of this selection has answered, and the chat's listed status
+  /// (when the list names it) still says running.
+  private keptRunUnconfirmed(): boolean {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.keptRun !== sessionId || this.replayThrough !== undefined) return false;
+    if (this.attachedGeneration === this.selectionGeneration) return false;
+    const listed = this.sessions.find((session) => session.sessionId === sessionId);
+    return listed === undefined || listed.status === "running";
+  }
+
   /// The selected chat's rows are in, from its attach or a kept tail, or no chat is selected: what
   /// the pane draws now is the chat, not a transcript still waiting on acpmux.
   private chatRead(): boolean {
@@ -12027,6 +12080,7 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
     const working = this.workingNow(summary);
+    const keptRunning = !working && this.keptRunUnconfirmed();
     if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
     this.drawnWorking = working;
     this.drawnWorkingSession = this.selectedSessionId;
@@ -12116,7 +12170,10 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
-      ...(working && this.turnStartedAtMs !== undefined ? { turnStartedAtMs: this.turnStartedAtMs } : {}),
+      ...(keptRunning ? { keptRunning: true as const } : {}),
+      ...((working || keptRunning) && this.turnStartedAtMs !== undefined
+        ? { turnStartedAtMs: this.turnStartedAtMs }
+        : {}),
       // Between turns only, and never while a replay seeks: the composer's ghost text.
       ...(this.promptSuggestion && !working && this.replayThrough === undefined
         ? { promptSuggestion: this.promptSuggestion }

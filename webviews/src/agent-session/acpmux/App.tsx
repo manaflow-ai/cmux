@@ -67,7 +67,7 @@ import {
   isTrustRefusal,
   type CarriedChat,
 } from "./direct";
-import { readHostTail } from "./tailCache";
+import { keepTailFoldsWith, keptTail, readHostTail } from "./tailCache";
 import { watchRestoredTail } from "./restoredTail";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
@@ -1048,6 +1048,12 @@ function refusedMachine(error: unknown): string | undefined {
 }
 
 /// The failed prompt rows a failure card's action names: its run's (`rowIds`), else its own.
+/// The open folds chat `sessionId`'s kept tail carries (tailCache.ts `folds`), as the pane holds them.
+function keptTailFolds(sessionId: string): PaneFolds | undefined {
+  const folds = readWakeFolds(keptTail(sessionId)?.folds, sessionId);
+  return folds && (folds.expanded.size > 0 || folds.opened.size > 0 || folds.viewToggles.size > 0) ? folds : undefined;
+}
+
 function failedRowIds(rowId: unknown, rowIds: unknown): string[] {
   if (Array.isArray(rowIds) && rowIds.length) return rowIds.map(String);
   return [String(rowId)];
@@ -2507,6 +2513,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // rules it has not read yet. A chat on another machine or in the cloud gets none.
   const [rules, setRules] = useState<ForumRule[]>([]);
   const turnWorking = snapshot.isWorking;
+  // How the transcript shapes the chat's last turn: as running while acpmux says it runs, and while
+  // the rows are a kept tail of a turn that ran when it was kept and acpmux has not said otherwise
+  // (direct.ts `keptRun`). A reload draws the turn as it last drew, never folded and then opened.
+  const transcriptWorking = snapshot.isWorking || snapshot.keptRunning === true;
   // Only once the chat's summary says where it runs: a remote chat never shows this Mac's rules.
   const rulesLocal = snapshot.summary !== undefined && healthLocal;
   useEffect(() => {
@@ -3068,8 +3078,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts);
     // one "While you were away" card, the newest (conversation/oneRecap.ts).
-    return withoutQuietThoughts(oneRecap(rows), snapshot.isWorking);
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
+    return withoutQuietThoughts(oneRecap(rows), transcriptWorking);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, transcriptWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
@@ -3228,7 +3238,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           source,
           open,
           {
-            working: snapshot.isWorking,
+            working: transcriptWorking,
             clockOffset: snapshot.clockOffsetMs,
             turnStartedAtMs: snapshot.turnStartedAtMs,
             sessionStatus,
@@ -3291,7 +3301,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A held command that still runs and that the line would name again (a newer call took the
       // line and finished) goes back to the line, out of its run as before, so it never reads
       // nowhere: in neither its run nor the line. Shaped from every row only while one is held.
-      if (snapshot.isWorking && heldCalls.current.keys.size > 0) {
+      if (transcriptWorking && heldCalls.current.keys.size > 0) {
         const again = linedCallOf(shapeFrom(rows, withHeldFolds(folds, heldOpen())).rows);
         if (again !== undefined && heldCalls.current.keys.has(again)) {
           const keys = new Set(heldCalls.current.keys);
@@ -3322,7 +3332,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sourceRows,
     started,
     folds,
-    snapshot.isWorking,
+    transcriptWorking,
     snapshot.clockOffsetMs,
     snapshot.turnStartedAtMs,
     sessionStatus,
@@ -3655,13 +3665,64 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (viewToggles.size === 0) setViewToggles(wokenFolds.folds.viewToggles);
     }
   }
+  // A chat this page has not shown yet opens with the folds its kept tail carries (tailCache.ts
+  // `folds`), in the render that first draws its rows: a reloaded page or a new tab draws them in
+  // its first frame, as the page that kept the tail last drew them (Leo, 2026-11-22: "expanded then
+  // collapsed tool calls"). Adjusted in render, as a woken page's folds are above: no extra frame.
+  const [tailFoldsRead, setTailFoldsRead] = useState<string>();
+  if (
+    shownSessionId !== undefined &&
+    subagentChat === shownSessionId &&
+    tailFoldsRead !== shownSessionId &&
+    snapshot.sessionId === shownSessionId &&
+    snapshot.rows.length > 0
+  ) {
+    setTailFoldsRead(shownSessionId);
+    const fromTail = chatFolds.has(shownSessionId) ? undefined : keptTailFolds(shownSessionId);
+    if (fromTail) {
+      setExpanded(new Set([...fromTail.expanded, ...expanded]));
+      setOpenedGroups(new Set([...fromTail.opened, ...openedGroups]));
+      if (viewToggles.size === 0 && fromTail.viewToggles.size > 0) setViewToggles(fromTail.viewToggles);
+    }
+  }
   const foldsNow = useRef<{ session?: string } & PaneFolds>({ expanded, opened: openedGroups, viewToggles });
   foldsNow.current = { session: shownSessionId, expanded, opened: openedGroups, viewToggles };
+  const chatFoldsNow = useRef(chatFolds);
+  chatFoldsNow.current = chatFolds;
+  // Each chat's tail carries its open folds (tailCache.ts `folds`): the shown chat's as they are now,
+  // another's as this page left them. The client keeps its chat's tail once more as it closes, after
+  // this pane is gone: that tail carries the folds as the pane left them, not none.
+  useEffect(() => {
+    const foldsOf =
+      (shown: () => { session?: string } & PaneFolds, left: () => typeof chatFolds) => (session: string) => {
+        const now = shown();
+        if (session === now.session) return wakeFolds(session, now);
+        const kept = left().get(session);
+        return kept ? wakeFolds(session, kept) : undefined;
+      };
+    const stop = keepTailFoldsWith(
+      foldsOf(
+        () => foldsNow.current,
+        () => chatFoldsNow.current,
+      ),
+    );
+    return () => {
+      const shown = foldsNow.current;
+      const left = chatFoldsNow.current;
+      stop();
+      keepTailFoldsWith(
+        foldsOf(
+          () => shown,
+          () => left,
+        ),
+      );
+    };
+  }, []);
   // A group of subagents starts open while its agents run in the working turn, in the render that
   // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
   const liveGroups = useMemo(
-    () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
-    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+    () => (transcriptWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
+    [transcriptWorking, snapshot.rows, snapshot.subagentViews],
   );
   const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
   if (newGroups.length > 0) {
@@ -3716,9 +3777,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
   }, [closedTurn]);
   const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
-  if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
-    const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
-    setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
+  if (workingSeen.session !== shownSessionId || workingSeen.working !== transcriptWorking) {
+    const ended = workingSeen.session === shownSessionId && workingSeen.working && !transcriptWorking;
+    setWorkingSeen({ session: shownSessionId, working: transcriptWorking });
     const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
     // What the reader opened while it ran closes with it, once this render is done (the store tells
     // the rows, which may not update while the pane draws).

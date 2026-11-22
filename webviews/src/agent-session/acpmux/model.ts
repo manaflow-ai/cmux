@@ -1452,6 +1452,12 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The rows are a kept tail whose last turn was running when it was kept, and acpmux has not said
+  /// what the chat is doing now (direct.ts `keptRun`). `isWorking` stays false until it does
+  /// (#32735); the transcript shapes the turn as the running turn the page last drew, so a reload
+  /// draws its calls as they were instead of folding them, then opening them when the attach says
+  /// the turn still runs.
+  keptRunning?: true;
   /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
   /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
   /// the host once the frame is drawn (`pane.painted` with `settled: true`).
