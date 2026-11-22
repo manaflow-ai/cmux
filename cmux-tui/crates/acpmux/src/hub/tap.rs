@@ -383,14 +383,6 @@ impl Hub {
             if d == "out" {
                 crate::claude_stdio::leave_out_prompt_bodies(&kind, &mut value);
             }
-            // Codex's answer to `thread/resume` holds the whole thread: kept without it
-            // (`unread_records.rs`).
-            if d == "in"
-                && kind == "codex.response"
-                && let Some(line) = value.get_mut("params")
-            {
-                crate::unread_records::leave_out_resumed_history(line);
-            }
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"

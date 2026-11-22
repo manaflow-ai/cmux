@@ -94,6 +94,12 @@ pub enum CompactMode<'a> {
     /// journal restore takes back the seqs this machine's own recovery wrote past where the
     /// owner's copy goes on (`hub/journal_restore.rs`). Nothing is compacted.
     Truncate { after: u64 },
+    /// Write the log without only the records no reader takes back (`unread_records.rs`), every
+    /// other line as it is (no long string is cut): the one pass a log written before the tap
+    /// left them out needs (`acpmux daemon retention --unread-only`). The staged log must fold
+    /// into the same chat rows as the old one (`rows::RowTable`), or the pass fails and nothing
+    /// is replaced. `archive` as for [`Self::Write`].
+    Unread { archive: Option<&'a Path> },
 }
 
 /// A log's compacted segments, written beside the old ones and not yet in place. Dropping it
@@ -103,6 +109,8 @@ pub struct Staged {
     last_seq: u64,
     /// A truncation's (`CompactMode::Truncate`): its commit does not count as a compaction.
     cut: Option<u64>,
+    /// An unread-only pass's (`CompactMode::Unread`): the chat both logs fold into.
+    pub read_back: Option<ChatDigest>,
     segments: Vec<StagedSegment>,
 }
 
@@ -211,9 +219,15 @@ impl LocalStore {
         }
         let (write, archive, cut) = match mode {
             CompactMode::DryRun => (false, None, None),
-            CompactMode::Write { archive } => (true, archive, None),
+            CompactMode::Write { archive } | CompactMode::Unread { archive } => {
+                (true, archive, None)
+            }
             CompactMode::Truncate { after } => (true, None, Some(after)),
         };
+        let unread_only = matches!(mode, CompactMode::Unread { .. });
+        // What the old log folds into, for an unread-only pass; the staged one is folded from its
+        // files after it, so only one chat's rows are held at a time.
+        let mut before = unread_only.then(ReadBack::default);
         let archive = match archive {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
@@ -226,8 +240,13 @@ impl LocalStore {
             }
             None => None,
         };
-        let mut staged =
-            Staged { stats: Compaction::default(), last_seq: 0, cut, segments: Vec::new() };
+        let mut staged = Staged {
+            stats: Compaction::default(),
+            last_seq: 0,
+            cut,
+            read_back: None,
+            segments: Vec::new(),
+        };
         let mut line = Vec::new();
         let mut timing = Timing::default();
         for (_, path) in segments {
@@ -265,7 +284,15 @@ impl LocalStore {
                     }
                     continue;
                 }
-                if let Some(record) = compact_line(&line, &mut timing, &mut staged.stats) {
+                if let Some(before) = before.as_mut() {
+                    before.fold(&line);
+                }
+                let kept = if unread_only {
+                    drop_unread(&line, &mut timing, &mut staged.stats)
+                } else {
+                    compact_line(&line, &mut timing, &mut staged.stats)
+                };
+                if let Some(record) = kept {
                     staged.stats.bytes_after += record.len() as u64;
                     if let Some(out) = out.as_mut() {
                         out.write_all(&record)?;
@@ -281,6 +308,31 @@ impl LocalStore {
             if let Some(archive) = &archive {
                 archive.keep(&path, true, false)?;
             }
+        }
+        // An unread-only pass replaces nothing unless the chat reads back the same.
+        if let Some(before) = before {
+            let before = before.finish();
+            let mut after = ReadBack::default();
+            for tmp in staged.segments.iter().filter_map(|s| s.tmp.as_ref()) {
+                let file = crate::config::private_state_file(tmp)?;
+                let mut reader = BufReader::with_capacity(256 * 1024, &file);
+                loop {
+                    line.clear();
+                    if reader.read_until(b'\n', &mut line)? == 0 {
+                        break;
+                    }
+                    after.fold(&line);
+                }
+                drop_cache(&file);
+            }
+            let after = after.finish();
+            anyhow::ensure!(
+                before == after,
+                "{id}: the compacted log does not read back the same chat (rows {} vs {}); nothing was replaced",
+                before.rows,
+                after.rows
+            );
+            staged.read_back = Some(before);
         }
         // The copies, and every folder that names them, are on disk before any segment is
         // replaced.
@@ -423,6 +475,9 @@ pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
 struct Timing {
     awaiting_first_delta: bool,
     hook_calls: std::collections::HashSet<String>,
+    /// The chat's own tool calls whose live records logged no end yet: a replayed end of one is
+    /// kept, as the tap keeps it (`hub/tap.rs` `note_live_tool`, `restart_resume.rs`).
+    unclosed_tools: std::collections::HashSet<String>,
 }
 
 impl Timing {
@@ -457,37 +512,8 @@ fn compact_line<'a>(
             return None;
         }
     }
-    // What the tap no longer logs, as no reader takes it back (`unread_records.rs`): a load's
-    // replay, a thinking tick, a hook callback and its answer.
-    let unread = std::str::from_utf8(kind).is_ok_and(crate::unread_records::unread_replay)
-        || kind == crate::unread_records::THINKING_TICK.as_bytes()
-        || (matches!(kind, b"claude.control_request" | b"claude.stdin")
-            && serde_json::from_slice::<EventRecord>(line).is_ok_and(|r| {
-                if let Some(id) = crate::unread_records::hook_callback_id(&r.msg) {
-                    timing.hook_calls.insert(id.to_owned());
-                    true
-                } else {
-                    crate::unread_records::plain_answer_id(&r.msg)
-                        .is_some_and(|id| timing.hook_calls.remove(id))
-                }
-            }));
-    if unread {
-        stats.dropped += 1;
-        return None;
-    }
-    // Codex's answer to `thread/resume`: kept without the thread it holds.
-    if line.len() > LONG
-        && kind == b"codex.response"
-        && let Ok(mut record) = serde_json::from_slice::<EventRecord>(line)
-        && record
-            .msg
-            .get_mut("params")
-            .is_some_and(crate::unread_records::leave_out_resumed_history)
-        && let Ok(mut out) = serde_json::to_vec(&record)
-    {
-        out.push(b'\n');
-        stats.trimmed += 1;
-        return Some(Cow::Owned(out));
+    if let Some(kept) = leave_out_unread(line, kind, timing, stats) {
+        return kept;
     }
     if line.len() > LONG
         && (raw || kind.starts_with(b"tool_call"))
@@ -500,6 +526,144 @@ fn compact_line<'a>(
         return Some(Cow::Owned(out));
     }
     Some(Cow::Borrowed(line))
+}
+
+/// One log line as an unread-only pass keeps it (`CompactMode::Unread`): the records no reader
+/// takes back go, every other line stays as written.
+fn drop_unread<'a>(
+    line: &'a [u8],
+    timing: &mut Timing,
+    stats: &mut Compaction,
+) -> Option<Cow<'a, [u8]>> {
+    let kind = record_kind(line).unwrap_or_default();
+    leave_out_unread(line, kind, timing, stats).unwrap_or(Some(Cow::Borrowed(line)))
+}
+
+/// What becomes of a line the tap no longer logs as it is, as no reader takes it back
+/// (`unread_records.rs`): `Some(None)` when it goes (a load's replay, a thinking tick, a hook
+/// callback and its answer), `Some(Some(kept))` when a smaller copy stays (a replayed end of a
+/// tool call the live log left open; a `thread/resume` answer without its thread), None for any
+/// other line.
+fn leave_out_unread<'a>(
+    line: &'a [u8],
+    kind: &[u8],
+    timing: &mut Timing,
+    stats: &mut Compaction,
+) -> Option<Option<Cow<'a, [u8]>>> {
+    let in_dir = record_dir(line) == Some(b"in");
+    // The live log's open tool calls, as the tap tracks them.
+    if in_dir
+        && matches!(kind, b"tool_call" | b"tool_call_update")
+        && let Ok(record) = serde_json::from_slice::<EventRecord>(line)
+        && record.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+    {
+        note_open_tool(&mut timing.unclosed_tools, record.msg.pointer("/params/update"));
+    }
+    let replay = std::str::from_utf8(kind).is_ok_and(crate::unread_records::unread_replay);
+    if replay {
+        if in_dir
+            && matches!(kind, b"tool_call.replay" | b"tool_call_update.replay")
+            && let Ok(mut record) = serde_json::from_slice::<EventRecord>(line)
+            && let Some((id, kept)) = crate::unread_records::replayed_tool_end(&record.msg)
+            && timing.unclosed_tools.remove(&id)
+        {
+            record.msg = kept;
+            if let Ok(mut out) = serde_json::to_vec(&record) {
+                out.push(b'\n');
+                stats.trimmed += 1;
+                return Some(Some(Cow::Owned(out)));
+            }
+        }
+        stats.dropped += 1;
+        return Some(None);
+    }
+    let unread = kind == crate::unread_records::THINKING_TICK.as_bytes()
+        || (matches!(kind, b"claude.control_request" | b"claude.stdin")
+            && serde_json::from_slice::<EventRecord>(line).is_ok_and(|r| {
+                if let Some(id) = crate::unread_records::hook_callback_id(&r.msg) {
+                    timing.hook_calls.insert(id.to_owned());
+                    true
+                } else {
+                    crate::unread_records::plain_answer_id(&r.msg)
+                        .is_some_and(|id| timing.hook_calls.remove(id))
+                }
+            }));
+    if unread {
+        stats.dropped += 1;
+        return Some(None);
+    }
+    // Codex's answer to `thread/resume`: kept without the thread it holds, as the tap now logs
+    // it (`codex_app_server::logged`).
+    if line.len() > LONG
+        && kind == b"codex.response"
+        && let Ok(mut record) = serde_json::from_slice::<EventRecord>(line)
+        && record
+            .msg
+            .get_mut("params")
+            .is_some_and(crate::unread_records::leave_out_resumed_history)
+        && let Ok(mut out) = serde_json::to_vec(&record)
+    {
+        out.push(b'\n');
+        stats.trimmed += 1;
+        return Some(Some(Cow::Owned(out)));
+    }
+    None
+}
+
+/// A live update of one of the chat's own tool calls: open until its end (as `hub/tap.rs`
+/// `note_live_tool` keeps `Session::unclosed_tools`).
+fn note_open_tool(open: &mut std::collections::HashSet<String>, update: Option<&Value>) {
+    let Some(update) = update else { return };
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed" | "failed") => {
+            open.remove(id);
+        }
+        Some(_) => {
+            open.insert(id.to_owned());
+        }
+        None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call") => {
+            open.insert(id.to_owned());
+        }
+        None => {}
+    }
+}
+
+/// The chat a log folds into (`rows::RowTable`), as a count and a digest of its rows: what an
+/// unread-only pass compares between the old log and the staged one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDigest {
+    pub rows: u64,
+    /// FNV-1a over every row's JSON, in order.
+    pub digest: u64,
+}
+
+/// Folds a log's lines into its chat rows, one line at a time.
+#[derive(Default)]
+struct ReadBack {
+    table: crate::rows::RowTable,
+    sink: Vec<crate::rows::Patch>,
+}
+
+impl ReadBack {
+    fn fold(&mut self, line: &[u8]) {
+        if let Ok(record) = serde_json::from_slice::<EventRecord>(line) {
+            self.table.apply(&record, &mut self.sink);
+            self.sink.clear();
+        }
+    }
+
+    fn finish(self) -> ChatDigest {
+        let mut digest: u64 = 0xcbf2_9ce4_8422_2325;
+        for row in self.table.rows() {
+            for byte in serde_json::to_vec(row).unwrap_or_default() {
+                digest ^= u64::from(byte);
+                digest = digest.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        ChatDigest { rows: self.table.rows().len() as u64, digest }
+    }
 }
 
 /// Cuts every string in `value` longer than [`LONG`] bytes; whether any was.

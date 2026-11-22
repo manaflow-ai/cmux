@@ -54,10 +54,11 @@ fn codex_wake(turns: usize) -> Vec<Message> {
                 {"type": "agentMessage", "text": text}]})
         })
         .collect();
+    // As the agent's reader hands it to the tap (`agent.rs`, `agent_host/host.rs`).
     let mut wake = vec![Message::notification(
         "codex.response",
-        json!({"id": 2, "result": {"thread": {"id": "th-1", "preview": text,
-            "turns": thread_turns}, "model": "gpt-5.5", "cwd": "/tmp"}}),
+        crate::codex_app_server::logged(&json!({"id": 2, "result": {"thread": {"id": "th-1",
+            "preview": "prompt 0", "turns": thread_turns}, "model": "gpt-5.5", "cwd": "/tmp"}})),
     )];
     for n in 0..turns {
         let id = format!("call-{n}");
@@ -109,6 +110,43 @@ fn a_codex_wake_logs_the_same_bytes_whatever_the_chats_history() {
     let answer = logged.iter().find(|r| r.kind == "codex.response").unwrap();
     assert_eq!(answer.msg.pointer("/params/result/thread/id"), Some(&json!("th-1")));
     assert_eq!(answer.msg.pointer("/params/result/model"), Some(&json!("gpt-5.5")));
+}
+
+/// hq#19257: a Codex chat's log on a lane host was 13.7 GiB, 0.64 GiB of it the chat; every resume
+/// (a wake every 1-2 h) appended the whole history so far again as `.replay` records, about
+/// 20 MiB on that chat, so the log grew with the square of its resumes. A chat that takes a turn
+/// and then resumes, `RESUMES` times over, adds the same bytes on its last resume as on its first.
+#[test]
+fn a_chat_resumed_after_every_turn_logs_bounded_bytes_per_resume() {
+    const RESUMES: usize = 40;
+    let hub = new_hub();
+    let session = chat(&hub, "resumed", "codex");
+    let tap = hub.session_tap(&session);
+    let mut per_resume = Vec::with_capacity(RESUMES);
+    for turn in 1..=RESUMES {
+        // One live turn (the newest turn's four updates; `codex_wake` puts the resume answer
+        // first): its own records stay, they are the chat.
+        let wake = codex_wake(turn);
+        for msg in &wake[1 + 4 * (turn - 1)..1 + 4 * turn] {
+            assert!(tap(Direction::In, msg, None));
+        }
+        // The resume replays every turn so far.
+        let before = log_bytes(&hub, &session.id);
+        session.loading.store(true, Ordering::SeqCst);
+        for msg in &wake {
+            assert!(tap(Direction::In, msg, None));
+        }
+        session.loading.store(false, Ordering::SeqCst);
+        per_resume.push(log_bytes(&hub, &session.id) - before);
+    }
+    let (first, last) = (per_resume[0], per_resume[RESUMES - 1]);
+    println!("log bytes per resume: first {first}, last {last} ({RESUMES} resumes)");
+    assert!(last <= first + 64, "a resume grows with the chat: first {first}, last {last}");
+    assert!(last < 2048, "a resume logs {last} bytes");
+    // The chat itself is all there: every turn's prompt, call and reply, once.
+    let logged = hub.store.events("resumed", 0, usize::MAX).unwrap();
+    let prompts = logged.iter().filter(|r| r.kind == "user_message_chunk").count();
+    assert_eq!(prompts, RESUMES);
 }
 
 /// One Claude tool call as Claude Code and acpmux send it: the model's call, its ACP record,

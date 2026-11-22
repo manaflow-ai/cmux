@@ -11,8 +11,9 @@
 //!   status and session only, when the live log left that call open (`hub/tap.rs`): a cut turn's
 //!   continuation counts it ended (`restart_resume.rs`).
 //! - Codex's answer to `thread/resume` (`codex.response`) carries the whole thread
-//!   (`result.thread.turns`, 977,675 of one answer's 992,343 bytes) and its `preview`: logged
-//!   without them, with how many turns it held ([`leave_out_resumed_history`]).
+//!   (`result.thread.turns`, 977,675 of one answer's 992,343 bytes): the tap logs it without them
+//!   (`codex_app_server::logged`), and retention gives an older line the same
+//!   ([`leave_out_resumed_history`]).
 //! - Claude Code's `system/thinking_tokens` ticks (25,716 in one chat): only a sign of work in
 //!   memory (`hub/tap.rs` `MODEL_LINES`), read before the log.
 //! - Claude Code's PreToolUse hook callbacks (`control_request` `hook_callback`, two per tool call,
@@ -85,21 +86,18 @@ pub(crate) fn plain_answer_id(line: &Value) -> Option<&str> {
     response.get("request_id").and_then(Value::as_str)
 }
 
-/// Codex's `thread/resume` (or `thread/fork`) answer `line` (a raw `codex.response`) without the
-/// thread's turns and preview, with how many turns it held (`_acpmux.turnsLeftOut`); whether it
-/// held any.
+/// Codex's `thread/resume` (or `thread/fork`) answer `line` (a raw `codex.response`) as the tap
+/// now logs it (`codex_app_server::logged`): without the thread's turns, with how many it held
+/// (`turnsOmitted`); whether it held any. Retention gives a log written before that the same line.
 pub(crate) fn leave_out_resumed_history(line: &mut Value) -> bool {
-    let Some(thread) = line.pointer_mut("/result/thread").and_then(Value::as_object_mut) else {
-        return false;
-    };
-    let turns = match thread.get("turns") {
-        Some(Value::Array(turns)) if !turns.is_empty() => turns.len(),
-        _ => return false,
-    };
-    thread.remove("turns");
-    thread.remove("preview");
-    thread.insert("_acpmux".into(), serde_json::json!({"turnsLeftOut": turns}));
-    true
+    let held = line
+        .pointer("/result/thread/turns")
+        .and_then(Value::as_array)
+        .is_some_and(|t| !t.is_empty());
+    if held {
+        *line = crate::codex_app_server::logged(line);
+    }
+    held
 }
 
 #[cfg(test)]
@@ -149,13 +147,13 @@ mod tests {
     }
 
     #[test]
-    fn a_resume_answer_is_logged_without_its_turns_and_preview() {
+    fn a_resume_answer_is_logged_without_its_turns() {
         let mut line = json!({"id": 3, "result": {"thread": {"id": "th", "preview": "hello",
             "turns": [{"id": "t1", "items": []}, {"id": "t2", "items": []}]}, "model": "gpt"}});
         assert!(leave_out_resumed_history(&mut line));
         assert_eq!(
             line,
-            json!({"id": 3, "result": {"thread": {"id": "th", "_acpmux": {"turnsLeftOut": 2}}, "model": "gpt"}})
+            json!({"id": 3, "result": {"thread": {"id": "th", "preview": "hello", "turnsOmitted": 2}, "model": "gpt"}})
         );
         let mut fresh = json!({"id": 1, "result": {"thread": {"id": "th", "turns": []}}});
         assert!(!leave_out_resumed_history(&mut fresh));
