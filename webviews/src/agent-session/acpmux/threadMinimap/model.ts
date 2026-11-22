@@ -8,6 +8,9 @@ import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import type { SenderReference } from "../senderIdentity";
+import { SUBAGENTS } from "../subagents/subagentFold";
+import type { RailShow } from "./railShow";
+import { SUBAGENT_DONE, SUBAGENT_ROW, SUBAGENT_STARTED } from "../subagents/subagentRows";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -19,6 +22,8 @@ export type MinimapTurnMetadata = {
   links: string[];
   failed?: boolean;
   failure?: string;
+  /// The turn started a subagent (a group, a subagent's line, or where one ended).
+  subagents?: true;
   /** A received agent message keeps its identity; it is not labelled as the person's prompt. */
   sender?: SenderReference;
 };
@@ -38,6 +43,12 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// The turn's first reply row, where an agent tick lands (railEntries): its index in the rows and its id.
+  replyAt?: { index: number; id: string };
+  /// What this rail entry stands for: the prompt (absent) or the agent's reply to it (railEntries).
+  side?: "reply";
+  /// A reply entry's prompt turn.
+  turn?: MinimapTurn;
   /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
   /// (pendingTurn): it draws a resting tick in its final row so the rail is full length on its
   /// first frame. Its jump loads history and its card stays blank until the prompt is known.
@@ -555,6 +566,10 @@ export function replyMore(turn: MinimapTurn): readonly ReplyBlock[] {
   return blocks;
 }
 
+/// A row that shows a subagent the turn started.
+const isSubagentRow = (row: AcpmuxRow) =>
+  row.kind === SUBAGENTS || row.kind === SUBAGENT_ROW || row.kind === SUBAGENT_STARTED || row.kind === SUBAGENT_DONE;
+
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
 type CardContribution = {
   version: number;
@@ -618,6 +633,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
       metadata = { ...metadata, fileCount: files.size };
     }
   }
+  if (!metadata.subagents && isSubagentRow(row)) metadata = { ...metadata, subagents: true };
   const failure = row.error || row.delivery?.error || row.delivery?.reason;
   const failed =
     row.failed ||
@@ -638,7 +654,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "members" | "side">;
 
 /// Who sent a prompt that is not the person's (conversation/incomingMessage.ts): another session's
 /// message, or acpmux's inbox notice of several. The rail keeps their ticks, set apart from the
@@ -736,6 +752,7 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
+  let replyIndex = 0;
   let details: CardState | undefined;
   const close = () => {
     if (!user) return;
@@ -746,7 +763,12 @@ export function minimapTurns(
       same &&
       (kept.reply === reply ||
         (reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))));
-    if (sameReply && kept.turn.metadata === nextMetadata) {
+    if (
+      sameReply &&
+      kept.turn.metadata === nextMetadata &&
+      kept.turn.replyAt?.id === reply?.id &&
+      kept.turn.replyAt?.index === (reply ? replyIndex : undefined)
+    ) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
@@ -763,6 +785,7 @@ export function minimapTurns(
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
+        ...(reply && { replyAt: { index: replyIndex, id: reply.id } }),
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
       if (reply) replyRows.set(turn, reply);
@@ -788,9 +811,11 @@ export function minimapTurns(
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
+        replyIndex = index;
         details = cardState(user, row, details);
       }
-      if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(user, row, details);
+      if (row.kind === "activity" || row.kind === "turnSummary" || isSubagentRow(row))
+        details = cardState(user, row, details);
     }
   }
   close();
@@ -1129,6 +1154,107 @@ export function filterTurns(
   return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
 }
 
+/// Whether a turn has what a kind's choice keeps (`errors` and on).
+function turnHas(turn: MinimapTurn, show: RailShow): boolean {
+  const metadata = turn.metadata;
+  if (show === "errors") return metadata?.failed === true;
+  if (show === "edits") return (metadata?.fileCount ?? 0) > 0;
+  if (show === "tools") return (metadata?.toolCount ?? 0) > 0;
+  if (show === "subagents") return metadata?.subagents === true;
+  return false;
+}
+
+/// A turn's reply as a rail entry of its own: it lands on the reply row and keeps the turn's card.
+const replyEntries = new WeakMap<MinimapTurn, MinimapTurn>();
+export function replyEntry(turn: MinimapTurn): MinimapTurn | undefined {
+  const at = turn.replyAt;
+  if (!at) return undefined;
+  const kept = replyEntries.get(turn);
+  if (kept) return kept;
+  const entry: MinimapTurn = {
+    ...turn,
+    index: at.index,
+    id: at.id,
+    key: `${turn.key}#reply`,
+    side: "reply",
+    turn,
+    members: undefined,
+  };
+  replyEntries.set(turn, entry);
+  return entry;
+}
+
+/// A reply entry's tick, kept per prompt tick while the reply row stays: a streamed token makes a new
+/// turn (the card reads it) but leaves the ticks alone, so the tick list renders nothing.
+const replyTicks = new WeakMap<MinimapTick, MinimapTick>();
+function replyTick(tick: MinimapTick, at: { id: string }): MinimapTick {
+  const kept = replyTicks.get(tick);
+  if (kept && kept.id === at.id) return kept;
+  const entry: MinimapTick = {
+    ...tick,
+    id: at.id,
+    key: `${tick.key}#reply`,
+    side: "reply",
+    from: undefined,
+    members: undefined,
+  };
+  replyTicks.set(tick, entry);
+  return entry;
+}
+
+/// The entries `show` keeps, in transcript order, and where the loaded ones start (`loadedStart`, as
+/// filterTurns). A reply entry stands in both lists (a turn is a tick). Whether the earlier, indexed
+/// prompts stay is `keepsIndexed`: they are the person's prompts with no reply known.
+export function railEntries(
+  turns: readonly MinimapTurn[],
+  ticks: readonly MinimapTick[],
+  loadedStart: number,
+  show: RailShow,
+): { turns: readonly MinimapTurn[]; ticks: readonly MinimapTick[]; loadedStart: number } {
+  if (show === "prompts") return { turns, ticks, loadedStart };
+  if (show === "mine" || show === "received")
+    return filterTurns(turns, ticks, loadedStart, show === "mine" ? "mine" : "agents");
+  const keptTurns: MinimapTurn[] = [];
+  const keptTicks: MinimapTick[] = [];
+  let start = 0;
+  for (let at = 0; at < turns.length; at += 1) {
+    const turn = turns[at]!;
+    const reply = replyEntry(turn);
+    const before = keptTurns.length;
+    const tick = ticks[at]!;
+    const replyRow = reply && turn.replyAt ? replyTick(tick, turn.replyAt) : undefined;
+    if (show === "everything") {
+      keptTurns.push(turn);
+      keptTicks.push(tick);
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
+    } else if (show === "replies") {
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
+    } else if (turnHas(turn, show)) {
+      keptTurns.push(reply ?? turn);
+      keptTicks.push(replyRow ?? tick);
+    }
+    if (at < loadedStart) start += keptTurns.length - before;
+  }
+  return { turns: keptTurns, ticks: keptTicks, loadedStart: start };
+}
+
+/// Whether `show` keeps the chat's indexed prompts (older than the held rows; railRows.ts).
+export const keepsIndexed = (show: RailShow) => show === "prompts" || show === "mine" || show === "everything";
+
+/// `next`, or `previous` when it holds the same entries: a streamed token that leaves every entry alone
+/// keeps the list, so the rail's ticks render nothing.
+export function sameEntries<T>(previous: readonly T[] | undefined, next: readonly T[]): readonly T[] {
+  if (!previous || previous.length !== next.length) return next;
+  for (let at = 0; at < next.length; at += 1) if (previous[at] !== next[at]) return next;
+  return previous;
+}
+
 const runsByTicks = new WeakMap<
   readonly MinimapTick[],
   { loadedStart: number; ranges: [number, number][]; ticks: readonly MinimapTick[] }
@@ -1195,4 +1321,16 @@ function foldedTurn(run: readonly MinimapTurn[]): MinimapTurn {
   if (lastReply) replyRows.set(turn, lastReply);
   foldedTurns.set(first, { run, turn });
   return turn;
+}
+
+/// The choices that keep something in this chat (the rest are offered disabled): every prompt always.
+export function railShowsOffered(turns: readonly MinimapTurn[], ticks: readonly MinimapTick[]): ReadonlySet<RailShow> {
+  const offered = new Set<RailShow>(["prompts"]);
+  for (let at = 0; at < turns.length; at += 1) {
+    const turn = turns[at]!;
+    offered.add(ticks[at]?.from === undefined ? "mine" : "received");
+    if (turn.replyAt) offered.add("replies").add("everything");
+    for (const kind of ["errors", "edits", "tools", "subagents"] as const) if (turnHas(turn, kind)) offered.add(kind);
+  }
+  return offered;
 }
