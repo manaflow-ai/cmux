@@ -2304,7 +2304,8 @@ mod tests {
                 "cloud-acpmux-v1",
                 "needs-you-v1",
                 "appearance-v1",
-                "pair-requests-v1"
+                "pair-requests-v1",
+                "tab-snapshots-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2322,6 +2323,7 @@ mod tests {
                 "needs-you-v1",
                 "appearance-v1",
                 "pair-requests-v1",
+                "tab-snapshots-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

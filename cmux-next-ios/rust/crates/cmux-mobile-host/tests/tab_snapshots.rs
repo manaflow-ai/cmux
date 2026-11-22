@@ -148,10 +148,8 @@ impl Phone {
         tokio::time::timeout(Duration::from_secs(3), async {
             while !done(&self.mirror) {
                 if let Some(frame) = self.deframer.next_frame().unwrap() {
-                    if frame.first() == Some(&cmux_tab_snapshots::wire::kind::BLOB) {
-                        if let Ok(Message::Blob(b)) = Message::decode(&frame) {
-                            self.blobs.push(b.hash);
-                        }
+                    if let Ok(Message::Blob(b)) = Message::decode(&frame) {
+                        self.blobs.push(b.hash);
                     }
                     self.mirror.apply_frame(&frame).unwrap();
                     continue;
