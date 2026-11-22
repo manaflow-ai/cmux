@@ -711,7 +711,26 @@ class PlanTest(unittest.TestCase):
     def test_run_without_swift_keeps_scratch_for_live_overlays(self):
         self.assert_run_app_case(swift=False)
 
-    def assert_run_app_case(self, swift):
+    def test_reusable_copy_only_when_nothing_of_the_last_try_stays(self):
+        app = self.fake_app(self.fx.base)
+        kept = {"try_from": str(app), "try_app": hv.app_info(app), "try_label": "cmux t", "try_layers": ["web"]}
+        self.assertIsNone(hv.reusable_copy(kept, app, "cmux t", ["rust", "web"]))
+        self.assertEqual(hv.reusable_copy(kept, app, "cmux t", ["rust"]), "the last try's web would stay")
+        self.assertEqual(hv.reusable_copy({**kept, "try_from": "/other.app"}, app, "cmux t", ["web"]),
+                         "another golden app")
+        self.assertEqual(hv.reusable_copy({**kept, "try_app": {"built": "abc"}}, app, "cmux t", ["web"]),
+                         "the golden app changed")
+        self.assertEqual(hv.reusable_copy({k: v for k, v in kept.items() if k != "try_app"}, app, "cmux t",
+                                          ["web"]), "the golden app changed")
+        self.assertEqual(hv.reusable_copy(kept, app, "cmux u", ["web"]), "another label")
+
+    def test_a_second_run_reuses_the_kept_copy(self):
+        self.assert_run_app_case(swift=False, kept=True)
+
+    def test_a_second_run_from_another_app_clones_afresh(self):
+        self.assert_run_app_case(swift=False, kept=True, kept_from="/Applications/cmux OLD.app")
+
+    def assert_run_app_case(self, swift, kept=False, kept_from=None):
         app = self.fake_app(self.fx.base)
         abi = app / hv.hot().APP_ABI
         abi.parent.mkdir(parents=True, exist_ok=True)
@@ -730,7 +749,11 @@ class PlanTest(unittest.TestCase):
                 self.name = name
 
             def exists(self):
-                return False
+                return kept
+
+            def state(self):
+                return {"try_from": kept_from or str(app), "try_app": hv.app_info(app), "try_label": "cmux try-test",
+                        "try_layers": ["web"]}
 
             def run(self, *args, **kwargs):
                 calls.append(args)
@@ -750,7 +773,7 @@ class PlanTest(unittest.TestCase):
 
         scratch_paths = []
 
-        def apply_overlay(rules, planned, src_tree, side, scratch):
+        def apply_overlay(rules, planned, src_tree, side, scratch, settle=True):
             self.assertIsInstance(scratch, Path)
             self.assertTrue(scratch.is_dir())
             (scratch / "overlay-input").write_text("payload")
@@ -773,6 +796,18 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(calls[0][:3], ("make", "--from", str(built)))
             app_build.assert_called_once()
             apply_web.assert_not_called()
+        elif kept and not kept_from:
+            self.assertTrue(result["copy_reused"])
+            self.assertNotIn("make", [c[0] for c in calls])
+            self.assertNotIn("remove", [c[0] for c in calls])
+            self.assertEqual(calls[0][0], "remember")
+            self.assertEqual(calls[0][1]["try_layers"], ["web"])
+            apply_web.assert_called_once()
+        elif kept:
+            self.assertFalse(result["copy_reused"])
+            self.assertEqual(result["remade_because"], "another golden app")
+            self.assertEqual(calls[0][:2], ("remove", "--keep-sign-in"))
+            self.assertEqual(calls[1][:3], ("make", "--from", str(app)))
         else:
             self.assertEqual(calls[0][:3], ("make", "--from", str(app)))
             app_build.assert_not_called()
