@@ -258,7 +258,17 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Resources/theme-files");
     let home = std::env::temp_dir().join(format!("cmux-theme-file-test-{}", std::process::id()));
     let list = names(&home, Some(&shipped));
-    for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal"] {
+    for look in [
+        "harbor",
+        "classic-desktop",
+        "phosphor",
+        "claude-desktop",
+        "charcoal",
+        "teal",
+        "moss",
+        "meadow",
+        "lily-pond",
+    ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
     for name in &list {
