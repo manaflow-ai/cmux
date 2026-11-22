@@ -153,6 +153,15 @@ pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, 
     Ok((MacDesktop { capture, injector, cursor }, frames))
 }
 
+impl MacDesktop {
+    /// Blocks until the newest frame was captured with the app's newest exclusion list applied,
+    /// within [`FIRST_FRAME_TIMEOUT_NS`]: `desktop::Opening::finish` calls it at Start, because the
+    /// desktop opened before the app's `exclude_windows` line may have reached the stream.
+    pub fn wait_exclusions_applied(&self) -> Res<()> {
+        self.capture.wait_filtered_frame(FIRST_FRAME_TIMEOUT_NS)
+    }
+}
+
 impl Desktop for MacDesktop {
     fn size(&self) -> (u32, u32) {
         self.capture.size()

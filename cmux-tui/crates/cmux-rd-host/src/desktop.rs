@@ -206,13 +206,18 @@ impl Opening {
         }
         let (opened, ready_us) =
             self.thread.join().unwrap_or_else(|_| (Err("opening the desktop panicked".into()), 0));
-        Some(opened.map(|(mut desktop, mut frames)| {
+        Some(opened.and_then(|(desktop, mut frames)| {
+            // SECURITY: the open ran before the app's list of windows to leave out may have
+            // arrived (`serve_session`), so a frame captured before it was applied must not be
+            // the first one sent.
+            desktop.wait_exclusions_applied()?;
+            let mut desktop = desktop;
             frames.set_bitrate(start_kbps);
             // What changed before Start: the session's first frame covers the whole screen.
             let _ = desktop.drain(&mut Vec::new());
             let halves =
                 (Box::new(desktop) as Box<dyn Desktop>, Box::new(frames) as Box<dyn FrameSource>);
-            (halves, (self.started_us, ready_us))
+            Ok((halves, (self.started_us, ready_us)))
         }))
     }
 }
