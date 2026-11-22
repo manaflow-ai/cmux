@@ -81,31 +81,30 @@ final class EventInspectorEdgeUITests: XCTestCase {
     func testMacOfflineMidScrollAddsAndLosesNothing() {
         let (app, window) = launch(count: 40, live: 4, edge: "offline")
         defer { app.terminate() }
-        app.swipeUp()
+        // Online: records arrive (read at the top, where the count header is; it scrolls away with the list).
         let moving = header(app)
-        var lastHeader = moving
         let grows = NSPredicate { _, _ in self.header(app) != moving }
         XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: grows, object: nil)], timeout: 6), .completed,
-                       "records arrive while online")
-        // 8 s after the open the rig's Mac goes away: wait until the count stops for 2 s.
-        let stopped = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            let now = self.header(app)
-            defer { lastHeader = now }
-            return now == lastHeader
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter().wait(for: [stopped], timeout: 20), .completed, "the count stops once the Mac is gone")
+                       "records arrive while online ('\(moving)')")
+        // Mid-scroll when the rig's Mac goes away, 8 s after the open.
+        app.swipeUp()
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the Mac goes away")], timeout: 10)
         let settled = RowFrames.settled(window, key: RowFrames.inspectorSeq)
+        _ = XCTWaiter().wait(for: [XCTestExpectation(description: "nothing arrives")], timeout: 4)
+        let later = RowFrames.read(window, key: RowFrames.inspectorSeq)
+        XCTAssertEqual(Set(later.keys), Set(settled.keys), "the rows on screen stay")
+        // Back at the top: the count holds still with the Mac gone, and scrolling loses nothing.
+        for _ in 0..<6 where header(app).isEmpty { app.swipeDown() }
         let count = header(app)
+        XCTAssertFalse(count.isEmpty, "the count header shows at the top\n\(app.debugDescription)")
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.header(app) != count }, object: nil)
         changed.isInverted = true
         XCTAssertEqual(XCTWaiter().wait(for: [changed], timeout: 4), .completed, "no new records once the Mac is gone ('\(count)' -> '\(header(app))')")
-        let later = RowFrames.read(window, key: RowFrames.inspectorSeq)
-        XCTAssertEqual(Set(later.keys), Set(settled.keys), "the rows on screen stay")
         app.swipeUp()
-        app.swipeDown()
+        for _ in 0..<6 where header(app).isEmpty { app.swipeDown() }
         XCTAssertEqual(header(app), count, "scrolling loses nothing")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
-        edgeNote("online '\(moving)', offline '\(count)', rows \(settled.keys.sorted())", "evt14-offline")
+        edgeNote("online from '\(moving)', offline '\(count)', rows \(settled.keys.sorted())", "evt14-offline")
         edgeShot(app, "evt14-offline")
     }
 

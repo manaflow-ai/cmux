@@ -39,7 +39,22 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
 
     @MainActor
     private func scrollToFooter(_ app: XCUIApplication, _ footer: XCUIElement, swipes: Int = 40) {
-        for _ in 0..<swipes where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
+        for _ in 0..<swipes where !onScreen(app, footer) { app.swipeUp(velocity: .fast) }
+    }
+
+    /// The transcript's state footer: "Done" alone also names the nested subagent card's header.
+    @MainActor
+    private func footer(_ app: XCUIApplication) -> XCUIElement {
+        app.staticTexts["chat.subagent.footer"].firstMatch
+    }
+
+    /// Wholly on screen, by its frame (off screen, a lazy row has no activation point and
+    /// `isHittable` fails the test instead of answering).
+    @MainActor
+    private func onScreen(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        return !frame.isEmpty && app.windows.firstMatch.frame.contains(frame)
     }
 
     @MainActor
@@ -48,8 +63,8 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["Subagent of Rig chat"].exists, "the pill")
         XCTAssertTrue(app.staticTexts["Check the WireGuard dialer's retry path and measure its backoff"].exists, "the task")
-        let done = app.staticTexts["Done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 10) && done.isHittable, "the footer is on the first screen\n\(app.debugDescription)")
+        let done = footer(app)
+        XCTAssertTrue(done.waitForExistence(timeout: 10) && done.label == "Done" && onScreen(app, done), "the footer is on the first screen\n\(app.debugDescription)")
         edgeShot(app, "sub11-one-item")
     }
 
@@ -59,7 +74,7 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         defer { app.terminate() }
         XCTAssertTrue(app.staticTexts["Subagent of Rig chat"].exists, "the pill")
         XCTAssertFalse(app.staticTexts["Check the WireGuard dialer's retry path and measure its backoff"].exists, "no task bubble")
-        XCTAssertTrue(app.staticTexts["Done"].waitForExistence(timeout: 10), "the footer\n\(app.debugDescription)")
+        XCTAssertTrue(footer(app).waitForExistence(timeout: 10) && footer(app).label == "Done", "the footer\n\(app.debugDescription)")
         edgeShot(app, "sub11-zero-items")
     }
 
@@ -70,10 +85,10 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         edgeShot(app, "sub11-burst-1-before")
         // 3 s after the open, the rig's burst lands. The burst's last answer token is at the transcript's end, before its footer.
         let last = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "burst499")).firstMatch
-        let done = app.staticTexts["Done"]
-        for _ in 0..<60 where !(last.exists && done.exists && done.isHittable) { app.swipeUp(velocity: .fast) }
+        let done = footer(app)
+        for _ in 0..<60 where !(last.exists && onScreen(app, done)) { app.swipeUp(velocity: .fast) }
         XCTAssertTrue(last.exists, "the burst's last item shows\n\(app.debugDescription)")
-        XCTAssertTrue(done.exists && done.isHittable, "the transcript scrolls to its footer after the burst")
+        XCTAssertTrue(onScreen(app, done), "the transcript scrolls to its footer after the burst")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeShot(app, "sub11-burst-2-end")
     }
@@ -82,10 +97,10 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
     func testRowTallerThanTheScreenScrollsPast() {
         let app = launch(count: 10, giant: true)
         defer { app.terminate() }
-        let done = app.staticTexts["Done"]
+        let done = footer(app)
         edgeShot(app, "sub11-tall-1-top")
         scrollToFooter(app, done)
-        XCTAssertTrue(done.exists && done.isHittable, "scrolled past the tall row to the footer\n\(app.debugDescription)")
+        XCTAssertTrue(onScreen(app, done), "scrolled past the tall row to the footer\n\(app.debugDescription)")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeShot(app, "sub11-tall-2-footer")
     }
