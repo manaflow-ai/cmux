@@ -55,7 +55,7 @@
   "appearance.titleAreaContrast": 1.75,
   "appearance.twoTone": "off",
   "appearance.focusIndicator": "tabs",
-  "appearance.density": "default",
+  "appearance.density": "cozy",
 
   // A line separates neighbours of the same tone (two panes side by side); the tone step separates
   // chrome from work. Never both: no line where the sidebar meets the pane.

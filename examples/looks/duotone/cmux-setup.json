@@ -16,8 +16,7 @@
     // The reading column: 27 row heights (27 x 28 = 756), three times the sidebar (9 x 28 = 252).
     "agentPane.display.width": 756,
 
-    // The sidebar: one line per row at the row height the theme files set, no accent capsule.
-    "sidebar.density": "default",
+    // The sidebar: one line per row at the row height the theme files set.
     "sidebar.workspaceRow.icon": true,
     // Diffs and sidebar group colors from the theme's own palette.
     "diff.colors": "theme",
