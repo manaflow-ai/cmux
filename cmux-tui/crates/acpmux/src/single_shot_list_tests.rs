@@ -64,6 +64,24 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "the simulated pane's list: a `limit: 200` page per call, its `nextCursor` followed",
     ),
     (
+        "cmux-tui/crates/coord-sim/src/degen/cases.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the degenerate-case reader's page loop: the daemon's own page size, its cursor followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/degen/sidebar.rs",
+        "\"_acpmux/watch\"",
+        1,
+        "turns watching on for the rename timings; the sim reads the changes, not the list",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/fanin/ramp.rs",
+        "\"_acpmux/sessions\"",
+        2,
+        "the sim times one whole read against the paged one (`limit` 100, its cursor followed)",
+    ),
+    (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
         "\"_acpmux/sessions\"",
         1,
