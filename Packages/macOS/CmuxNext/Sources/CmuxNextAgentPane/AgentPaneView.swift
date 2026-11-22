@@ -108,6 +108,8 @@ public final class AgentPaneView: NSView {
     private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
+    /// The text of held keys on its way into the page while the app is not active (``typeHeldText(of:appIsActive:)``), in order.
+    var heldKeyTyping: Task<Void, Never>?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
@@ -123,6 +125,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
+    var languageObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -381,6 +385,7 @@ public final class AgentPaneView: NSView {
         observeMotion()
         observeUIScale()
         observeIconFamily()
+        observeLanguage()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -457,6 +462,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            languageObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -511,6 +517,7 @@ public final class AgentPaneView: NSView {
         // as the mic's click does (`dictation.handoff`). macOS Dictation writes where the keyboard
         // is, so the pane's page takes it first, in whichever engine shows it (the page keeps its
         // prompt focused).
+        model.hostTouch.mark("dictation") // its text goes to this page: the host says so before the page does
         if model.composer.dictationSource == .macos { focusChat() }
         // A session of cmux's own that still runs ends first, as the mic's click ends it, whatever
         // the source is now.
@@ -552,6 +559,8 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
+        languageObservation?.cancel()
+        languageObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil

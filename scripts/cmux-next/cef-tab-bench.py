@@ -37,7 +37,7 @@ The bench's HEADLINE is the WORST arm (a missed run first, else the highest p95,
 60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
 terminals) and runs the cases that need no split in the measured workspace's focused pane.
 
-Not a CI gate (Lawrence 2026-10-23): run it yourself on a fleet GUI host, before and after a change:
+Not a CI gate (Lawrence 2026-10-23, since lifted): run it yourself on a fleet GUI host, before and after a change:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-tab-bench.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$NX_ARTIFACTS" --sessions light,stress
 or, building the app in the step:
