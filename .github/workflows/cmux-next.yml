@@ -110,6 +110,9 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
+      - scripts/cmux-next/web-pieces-file.py
+      - scripts/cmux-next/web-pieces-publish.sh
+      - tests/test_web_pieces_file.sh
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -479,6 +482,9 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
+      - scripts/cmux-next/web-pieces-file.py
+      - scripts/cmux-next/web-pieces-publish.sh
+      - tests/test_web_pieces_file.sh
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -2226,6 +2232,7 @@ jobs:
         run: |
           python3 tests/test_web_ota_publication_contract.py
           bash tests/test_web_ota_pointer.sh
+          bash tests/test_web_pieces_file.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-498
       - name: Companion workflows

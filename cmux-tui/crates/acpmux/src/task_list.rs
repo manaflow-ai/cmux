@@ -10,6 +10,14 @@
 //!   had nothing to say about it); a harness's real plan replaces it, as the harness then keeps
 //!   its own.
 //!
+//! A list belongs to the turn that last wrote it (design/chat-plan-lifecycle.md; Leo, 2026-11-22:
+//! "we need to figure out how to do better plans and have them expired"). It stays the chat's
+//! plan through that turn, the gap after it and the next turn, which may finish it; once a turn
+//! that never touched it has ended, it has expired ([`TaskList::current`]): no summary carries it,
+//! so neither the composer's hat nor the sidebar row shows it again. Claude Code keeps its tasks a
+//! whole session and Codex plans per turn: both end the same way. Only a list the Chief (the
+//! person's side) set never expires by turns.
+//!
 //! The list is saved with the session's meta (`SessionMeta::task_list`) and every summary carries
 //! it as `taskList` ([`TaskListSummary`]), so the sidebar row and the chat read one source.
 //! Each step is masked (`secret_scan`) and cut before it is kept: every view shows it.
@@ -74,6 +82,10 @@ pub struct TaskList {
     pub items: Vec<TaskItem>,
     /// When it last changed, Unix ms.
     pub updated_at: u64,
+    /// The chat's turn (`SessionMeta::turn_count`) that last changed it; 0 for a list kept before
+    /// turns were noted, which has expired in any chat past its second turn.
+    #[serde(default)]
+    pub turn: u64,
 }
 
 /// What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the
@@ -99,6 +111,15 @@ pub struct TaskListSummary {
 }
 
 impl TaskList {
+    /// Whether it is still the chat's plan, with `turn_count` turns started and the latest one
+    /// `running` or not: written in the running turn or the one before it, or in the latest turn
+    /// once it ended. A list the Chief keeps always is.
+    pub fn current(&self, turn_count: u64, running: bool) -> bool {
+        self.source == TaskListSource::Chief
+            || turn_count <= self.turn
+            || (running && turn_count == self.turn + 1)
+    }
+
     /// The summary's view of it.
     pub fn summary(&self) -> TaskListSummary {
         let done = self.items.iter().filter(|i| i.status == TaskStatus::Completed).count();
@@ -173,6 +194,7 @@ pub fn after_plan(
     current: Option<&TaskList>,
     items: Vec<TaskItem>,
     now: u64,
+    turn: u64,
 ) -> Option<Option<TaskList>> {
     if items.is_empty() {
         return match current {
@@ -180,24 +202,27 @@ pub fn after_plan(
             _ => None,
         };
     }
-    after_set(current, TaskListSource::Harness, items, now)
+    after_set(current, TaskListSource::Harness, items, now, turn)
 }
 
-/// `current` after `source` set `items` at `now`, or None when nothing changed (the same steps
-/// from the same keeper). An empty list clears it.
+/// `current` after `source` set `items` at `now` in the chat's turn `turn`, or None when nothing
+/// changed (the same steps from the same keeper in the same turn). An empty list clears it. The
+/// same steps again in a later turn keep the list current: the agent went back to it.
 pub fn after_set(
     current: Option<&TaskList>,
     source: TaskListSource,
     items: Vec<TaskItem>,
     now: u64,
+    turn: u64,
 ) -> Option<Option<TaskList>> {
     if items.is_empty() {
         return current.map(|_| None);
     }
-    if current.is_some_and(|list| list.source == source && list.items == items) {
+    if current.is_some_and(|list| list.source == source && list.items == items && list.turn == turn)
+    {
         return None;
     }
-    Some(Some(TaskList { source, items, updated_at: now }))
+    Some(Some(TaskList { source, items, updated_at: now, turn }))
 }
 
 #[cfg(test)]
