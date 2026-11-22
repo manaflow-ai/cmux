@@ -261,6 +261,56 @@ fn clear_with_scrollback_starts_the_phone_over() {
 }
 
 #[test]
+fn a_cursor_past_the_phones_edge_keeps_the_hosts_column() {
+    // Parity (headers_claude_code, left_and_right_aligned): the host's
+    // cursor at column 90 of a short line sits at column 90 of the phone's
+    // logical line (third row, column 24 at 33 columns), not at column 32.
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(33, 30);
+    phone.apply(host.set_viewport(33, 30));
+    feed(&mut host, &mut phone, b"$ \x1b[91G");
+    assert_same(&host, &phone, "cursor at column 90");
+    assert_eq!(logical(&phone.term, 0).1, logical(host.terminal(), 0).1, "cursor column");
+    assert_eq!(phone.term.primary_cursor(), (24, 2));
+    feed(&mut host, &mut phone, b"x");
+    assert_same(&host, &phone, "typed at column 90");
+    assert_eq!(logical(&phone.term, 0).1, logical(host.terminal(), 0).1, "cursor column");
+    // The line ends: it is the host's again ("$", blanks, "x").
+    feed(&mut host, &mut phone, b"\r\n$ ");
+    assert_same(&host, &phone, "next prompt");
+    assert_eq!(logical(&phone.term, 0).1, logical(host.terminal(), 0).1, "cursor column");
+    // A line that fills the phone's row, the cursor right after it: the next row.
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    feed(&mut host, &mut phone, "y".repeat(54).as_bytes());
+    assert_same(&host, &phone, "cursor after a full phone row");
+    assert_eq!(logical(&phone.term, 0).1, logical(host.terminal(), 0).1, "cursor column");
+    assert_eq!(phone.term.primary_cursor(), (0, 1));
+}
+
+#[test]
+fn a_clear_without_prompt_marks_keeps_no_stale_lines() {
+    // Parity (cursor_positions): `ED 2` is a plain clear in Ghostty unless
+    // the shell marked a prompt (OSC 133); the lines it cleared are not
+    // kept above the phone's screen.
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(33, 30);
+    phone.apply(host.set_viewport(33, 30));
+    let cmd = "git commit -m 'a long message that wraps on the phone and keeps the cursor where the shell put it'";
+    feed(&mut host, &mut phone, format!("$ {cmd}\x1b[30D\x1b[30C\r\n").as_bytes());
+    feed(&mut host, &mut phone, format!("{}\r\n", "Q".repeat(120)).as_bytes());
+    feed(&mut host, &mut phone, b"\x1b[2J\x1b[H\x1b[5;10Hplaced");
+    assert_same(&host, &phone, "after the clear");
+    assert!(host.terminal().history.is_empty(), "the host's model kept the cleared rows");
+    let (lines, _) = logical(&phone.term, 0);
+    assert!(
+        !lines.iter().any(|l| l.contains("git commit") || l.contains("QQQ")),
+        "stale lines on the phone: {lines:?}"
+    );
+}
+
+#[test]
 fn ctrl_l_keeps_the_prompt_at_the_top() {
     let mut host = exact(80, 24, 10_000);
     let mut phone = Phone::new(40, 20);

@@ -110,11 +110,25 @@ pub fn wrap_line(
         end_offset = offset + width;
     }
     if let (Some(target), None) = (cursor_offset, cursor_at) {
-        // Past the line's end: the blank cells up to the cursor count, on
-        // the line's last row. Past the phone's edge it waits on the last
-        // cell, as a terminal's cursor does before it wraps.
+        // Past the line's end: the blank cells up to the cursor count.
         let blanks = target.saturating_sub(end_offset);
-        cursor_at = Some((out.len() - 1, (col + blanks).min(cols - 1)));
+        if col + blanks < cols {
+            // On the line's last row.
+            cursor_at = Some((out.len() - 1, col + blanks));
+        } else {
+            // Past the phone's edge (a prompt's cursor far right on the
+            // host, or right after a line that fills the phone's row): the
+            // line goes on in blank cells through the cursor's own, so its
+            // rows wrap by the phone's autowrap and the cursor sits at the
+            // host's column of the logical line, not clamped to the edge.
+            for _ in 0..=blanks {
+                cursor_at = Some(place(&mut out, &mut col, 1));
+                if let Some(row) = out.last_mut() {
+                    row.cells.push(Cell::blank(0));
+                }
+                col += 1;
+            }
+        }
     }
     let empty = units.is_empty() && cursor_at.is_none();
     Wrapped { rows: out, cursor: cursor_at, empty }
@@ -757,6 +771,11 @@ impl View {
                 // and the host's blanks there are not.)
                 out.extend(std::iter::repeat_n(b' ', col - at_col));
                 self.phone_cursor = (row, col);
+            } else if at_row == row && at_col == col + 1 && at_col < self.cols {
+                // One cell back (onto a blank just written past the line's
+                // end, the cursor's own): a backspace, not a CUP.
+                out.push(0x08);
+                self.phone_cursor = (row, col);
             } else if self.phone_cursor != (row, col) {
                 self.move_to(&mut out, row, col, shown_end);
             }
@@ -900,6 +919,42 @@ mod tests {
         assert_eq!(text, ["abcd", "efgh", "ijkl", "mno"]);
         assert_eq!(wrapped.cursor, Some((3, 3)));
         assert!(wrapped.rows[..3].iter().all(|r| r.wrapped));
+    }
+
+    #[test]
+    fn a_cursor_past_the_line_and_the_phone_edge_extends_the_line() {
+        // A prompt "$ " with the host's cursor at column 90 (a right-side
+        // input, a cursor moved right): on a 33-column phone the cursor is
+        // on the line's third row, column 24, not clamped to column 32.
+        let mut term = Terminal::new(120, 3, 100);
+        for &b in b"$ \x1b[91G" {
+            term.advance(b);
+        }
+        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 90)), false);
+        assert_eq!(wrapped.cursor, Some((2, 24)));
+        assert_eq!(wrapped.rows.len(), 3);
+        assert!(wrapped.rows[0].wrapped && wrapped.rows[1].wrapped && !wrapped.rows[2].wrapped);
+        assert_eq!(wrapped.rows[2].width(), 25, "blanks through the cursor's cell");
+        // Within the row: the cursor waits past the content, nothing added.
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), false);
+        assert_eq!(wrapped.cursor, Some((0, 10)));
+        assert_eq!(wrapped.rows.len(), 1);
+        assert_eq!(wrapped.rows[0].width(), 1, "the prompt's trailing space is not drawn");
+    }
+
+    #[test]
+    fn a_cursor_after_a_line_that_fills_the_phone_row_is_on_the_next_row() {
+        // 54 glyphs on a 54-column phone, the host's cursor right after
+        // them: the logical column is 54, the next row's first cell.
+        let mut term = Terminal::new(120, 3, 100);
+        for _ in 0..54 {
+            term.advance(b'x');
+        }
+        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
+        let wrapped = wrap_line(&term, &rows, 120, 54, Some((0, 54)), false);
+        assert_eq!(wrapped.cursor, Some((1, 0)));
+        assert!(wrapped.rows[0].wrapped);
     }
 
     #[test]

@@ -49,6 +49,18 @@ impl Cell {
 pub struct Row {
     pub cells: Vec<Cell>,
     pub wrapped: bool,
+    /// A shell prompt (or its continuation) is on this row, by OSC 133
+    /// marks: `ED 2` here moves the screen into the scrollback, as Ghostty does.
+    pub prompt: bool,
+}
+
+/// What the cursor writes, by OSC 133 (shell integration) marks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Semantic {
+    #[default]
+    Output,
+    Prompt,
+    Input,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -137,6 +149,11 @@ pub struct Terminal {
     /// The scrollback or every row changed in a way a diff cannot follow
     /// (RIS, ED 3, a host resize): the view starts over.
     pub reset_needed: bool,
+    /// An OSC 133 prompt or input mark was seen (Ghostty's `semantic_prompt.seen`).
+    prompt_seen: bool,
+    semantic: Semantic,
+    /// Input ends at the end of its line (OSC 133;I).
+    semantic_clear_eol: bool,
     // Parser.
     state: State,
     seq: Vec<u8>,
@@ -183,6 +200,9 @@ impl Terminal {
             replies: Vec::new(),
             alt_mode: 1049,
             reset_needed: true,
+            prompt_seen: false,
+            semantic: Semantic::Output,
+            semantic_clear_eol: false,
             state: State::Ground,
             seq: Vec::new(),
             utf8: [0; 4],
@@ -503,6 +523,7 @@ impl Terminal {
                     self.carriage_return();
                 }
                 self.linefeed();
+                self.semantic_next_row(false);
             }
             0x0d => self.carriage_return(),
             0x0e => self.shift_out = true,
@@ -520,6 +541,9 @@ impl Terminal {
         let mut parts = body.splitn(2, |&b| b == b';');
         let number = parts.next().unwrap_or_default();
         let rest = parts.next().unwrap_or_default();
+        if number == b"133" {
+            self.semantic_prompt(rest);
+        }
         match number {
             b"8" => {
                 // `8;params;uri`: the link the next cells are in.
@@ -901,6 +925,7 @@ impl Terminal {
                 row.wrapped = true;
             }
             self.linefeed();
+            self.semantic_next_row(true);
             self.cursor.x = 0;
         }
         self.cursor.pending_wrap = false;
@@ -1095,10 +1120,13 @@ impl Terminal {
                     }
                 }
             }
-            2 => {
-                // The primary screen scrolls its rows into the scrollback
-                // first (as Ghostty does), so a clear keeps what was shown.
-                if !self.alt_active {
+            2 | 22 => {
+                // As Ghostty: `ED 2` clears the screen in place, unless the
+                // last row with something on it is a shell prompt (OSC 133
+                // marks; Ctrl+L at a prompt), and `ED 22` (Kitty's
+                // scroll-clear) always: then the screen's rows up to its
+                // last non-blank one go to the scrollback first.
+                if !self.alt_active && (mode == 22 || self.at_prompt()) {
                     let last = self.primary.iter().rposition(|row| {
                         row.cells.iter().any(|c| !c.is_empty_or_space() || c.style != 0)
                     });
@@ -1123,6 +1151,81 @@ impl Terminal {
             _ => {}
         }
         self.cursor.pending_wrap = false;
+    }
+
+    /// Ghostty's "clearing at a prompt": with OSC 133 marks seen, the last
+    /// row of the primary screen with text (blank rows below it skipped) is
+    /// a prompt row.
+    fn at_prompt(&self) -> bool {
+        if !self.prompt_seen {
+            return false;
+        }
+        for row in self.primary.iter().rev() {
+            if row.prompt {
+                return true;
+            }
+            if row.cells.iter().any(|c| !c.is_empty_or_space()) {
+                return false;
+            }
+        }
+        false
+    }
+
+    /// OSC 133 (`A`, `N`, `P`: a prompt starts; `B`, `I`: input; `C`, `D`:
+    /// output), as Ghostty marks rows. Only the marks a clear reads.
+    fn semantic_prompt(&mut self, body: &[u8]) {
+        if self.alt_active {
+            return;
+        }
+        match body.first() {
+            Some(b'A' | b'N' | b'P') => {
+                self.prompt_seen = true;
+                self.semantic = Semantic::Prompt;
+                self.semantic_clear_eol = false;
+                let y = self.cursor.y;
+                if let Some(row) = self.primary.get_mut(y) {
+                    row.prompt = true;
+                }
+            }
+            Some(b'B' | b'I') => {
+                self.prompt_seen = true;
+                self.semantic = Semantic::Input;
+                self.semantic_clear_eol = body.first() == Some(&b'I');
+            }
+            Some(b'C') => {
+                self.semantic = Semantic::Output;
+                self.semantic_clear_eol = false;
+                let (x, y) = (self.cursor.x, self.cursor.y);
+                if x == 0
+                    && let Some(row) = self.primary.get_mut(y)
+                {
+                    row.prompt = false;
+                }
+            }
+            Some(b'D') => {
+                self.semantic = Semantic::Output;
+                self.semantic_clear_eol = false;
+            }
+            _ => {}
+        }
+    }
+
+    /// The cursor went to the next row inside a prompt or its input: that
+    /// row continues the prompt (input marked to end at its line's end
+    /// ends at a line feed instead).
+    fn semantic_next_row(&mut self, wrap: bool) {
+        if self.alt_active || self.semantic == Semantic::Output {
+            return;
+        }
+        if !wrap && self.semantic_clear_eol {
+            self.semantic = Semantic::Output;
+            self.semantic_clear_eol = false;
+            return;
+        }
+        let y = self.cursor.y;
+        if let Some(row) = self.primary.get_mut(y) {
+            row.prompt = true;
+        }
     }
 
     fn erase_line(&mut self, mode: u16) {
@@ -1228,7 +1331,7 @@ impl Terminal {
 }
 
 fn blank_row(cols: usize, style: u16) -> Row {
-    Row { cells: vec![Cell::blank(style); cols], wrapped: false }
+    Row { cells: vec![Cell::blank(style); cols], wrapped: false, prompt: false }
 }
 
 fn blank_rows(cols: usize, rows: usize) -> Vec<Row> {
@@ -1354,14 +1457,32 @@ mod tests {
     }
 
     #[test]
-    fn erase_display_scrolls_the_screen_into_history() {
+    fn erase_display_clears_in_place_as_ghostty_does() {
+        // No OSC 133 marks: `ED 2` is a plain clear (the rows do not go to
+        // the scrollback), as Ghostty's.
         let mut term = Terminal::new(10, 3, 100);
         feed(&mut term, "a\r\nb\x1b[H\x1b[2J$ ");
-        assert_eq!(term.history.len(), 2);
+        assert!(term.history.is_empty());
         assert_eq!(text(&term, &term.primary[0]), "$");
+        // Kitty's scroll-clear moves them first.
+        feed(&mut term, "\r\nc\x1b[H\x1b[22J");
+        assert_eq!(term.history.len(), 2);
         feed(&mut term, "\x1b[3J");
         assert!(term.history.is_empty());
         assert!(term.reset_needed);
+    }
+
+    #[test]
+    fn erase_display_at_a_marked_prompt_scrolls_into_history() {
+        // Ctrl+L at a prompt the shell marked (OSC 133): the screen goes to
+        // the scrollback first, as Ghostty's "clearing at a prompt".
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, "out\r\n\x1b]133;A\x07$ \x1b]133;B\x07\x1b[H\x1b[2J");
+        assert_eq!(term.history.len(), 2);
+        // Output after the prompt (the command ran): a plain clear again.
+        let mut term = Terminal::new(10, 3, 100);
+        feed(&mut term, "\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07file\x1b[H\x1b[2J");
+        assert!(term.history.is_empty());
     }
 
     #[test]
