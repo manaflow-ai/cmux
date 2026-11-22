@@ -124,8 +124,7 @@ fn a_dead_process_with_its_stderr_line_is_still_typed() {
     let mut e = RpcError::new(-32603, "Internal error (claude): model client crashed");
     annotate_as(&mut e, None, true);
     assert_eq!(kind_of(&e), Some(kind::AGENT_EXITED));
-    let mut e =
-        RpcError::new(-32603, "Internal error (claude): write: No space left on device");
+    let mut e = RpcError::new(-32603, "Internal error (claude): write: No space left on device");
     annotate_as(&mut e, None, true);
     assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
 }
