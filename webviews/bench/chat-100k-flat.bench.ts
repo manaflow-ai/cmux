@@ -59,6 +59,7 @@ import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
+import { cpuTicks, pssMB, renderers, TICK_HZ } from "./procStats";
 import { settledAt } from "./stability";
 
 const ROWS = Number(process.argv[2] ?? 100_000);
@@ -127,7 +128,6 @@ if (process.platform !== "linux") {
   process.exit(2);
 }
 const webviews = path.resolve(import.meta.dir, "..");
-const TICK_HZ = 100; // USER_HZ, the unit of /proc/PID/stat utime and stime on Linux.
 
 type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
 type Template = { events: Rec[]; session: Record<string, unknown>; turns: number };
@@ -141,54 +141,11 @@ const sessionId = (index: number) =>
 const rekey = <T>(value: T, id: string): T =>
   id === PAPERCUT_CHAT ? value : JSON.parse(JSON.stringify(value).replaceAll(PAPERCUT_CHAT, id));
 
-/// The renderer processes under `root` (a Chromium launch), by their command line.
-function renderers(root: number): number[] {
-  const children = new Map<number, number[]>();
-  for (const entry of fs.readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    try {
-      const stat = fs.readFileSync(`/proc/${entry}/stat`, "utf8");
-      const parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-      children.set(parent, [...(children.get(parent) ?? []), Number(entry)]);
-    } catch {
-      // Gone between the listing and the read.
-    }
-  }
-  const out: number[] = [];
-  const walk = (pid: number) => {
-    for (const child of children.get(pid) ?? []) {
-      try {
-        if (fs.readFileSync(`/proc/${child}/cmdline`, "utf8").includes("--type=renderer")) out.push(child);
-      } catch {
-        // Gone.
-      }
-      walk(child);
-    }
-  };
-  walk(root);
-  return out;
-}
-/// utime + stime of `pids` in clock ticks (a process gone since the listing counts nothing).
-function cpuTicks(pids: number[]): number {
-  let ticks = 0;
-  for (const pid of pids) {
-    try {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      ticks += Number(fields[11]) + Number(fields[12]);
-    } catch {
-      // Gone.
-    }
-  }
-  return ticks;
-}
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 };
-const pssMB = (pid: number) =>
-  Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
 type CpuProfile = {
   nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
