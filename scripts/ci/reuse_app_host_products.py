@@ -646,6 +646,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
     matches = candidates(api, value, reasons)
     if not matches:
         record_reason(reasons, "no_matching_contract_artifact")
+    valid = []
     for producer_attempt, artifact in matches:
         try:
             if artifact.get("expired"):
@@ -727,13 +728,17 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             run = dict(run)
             run["_compile_seconds"] = compile_step_seconds(compile_job, compile_step)
             run["_producer_attempt"] = producer_attempt
-            yield artifact, run
+            valid.append((artifact, run))
         except (TypeError, AttributeError, ValueError, KeyError, OSError,
                 subprocess.SubprocessError):
             # A stale candidate can disappear between the bounded artifact list
             # and its attempt/job/tree lookup. Treat only that candidate as a miss.
             record_reason(reasons, "producer_provenance_unavailable")
             continue
+    if len(valid) > 1:
+        record_reason(reasons, "ambiguous_matching_artifacts")
+        return
+    yield from valid
 
 
 def bounded_copy(source, output, limit):
