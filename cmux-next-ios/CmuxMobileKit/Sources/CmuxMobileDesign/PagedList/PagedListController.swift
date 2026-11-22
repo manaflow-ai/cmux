@@ -82,6 +82,9 @@ public final class PagedListProbe {
     /// draws. `midPlacement` when the list's own window frame at this pass or the last one differs
     /// from where the last committed frame drew it; `detail` for a shift over half a point.
     public var passFrameShift: ((_ shift: CGFloat, _ midPlacement: Bool, _ detail: String?) -> Void)?
+    /// How long the committed-frame measure took for one drawn frame, in milliseconds (DEBUG): the
+    /// stress bench reports it beside its hitches, since a run without the probe has no such cost.
+    public var samplerCost: ((_ ms: Double) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -307,7 +310,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var probe: PagedListProbe? {
         didSet {
             guard (probe == nil) != (commitWatch == nil) else { return }
-            commitWatch = probe == nil ? nil : PagedListCommitWatch { [weak self] in self?.sampleCommitted() }
+            commitWatch = probe == nil ? nil : PagedListCommitWatch { [weak self] in self?.timedSampleCommitted() }
         }
     }
     var pinning: PagedListBottomPinning
@@ -1036,6 +1039,13 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// what the scroll explains in between. A layout pass can run while the list is mid-placement
     /// (SwiftUI gives the collection its bounds before its center): that never draws, so only the
     /// committed frames count. Skipped as the pass measure skips (a rotation, the row left or moved).
+    private func timedSampleCommitted() {
+        guard let cost = probe?.samplerCost else { return sampleCommitted() }
+        let start = CACurrentMediaTime()
+        sampleCommitted()
+        cost((CACurrentMediaTime() - start) * 1000)
+    }
+
     private func sampleCommitted() {
         guard !updating, let probe, let report = probe.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
