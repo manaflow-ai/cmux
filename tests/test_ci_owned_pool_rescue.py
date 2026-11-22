@@ -3432,6 +3432,22 @@ class SideLanes(unittest.TestCase):
                                         head_repository={"full_name": "someone/cmux"})
         self.assertIsInstance(rescue.completed_target(fork, "manaflow-ai/cmux"), str)
 
+    def test_a_completed_event_looks_at_once(self):
+        # 2026-11-22 23-01Z: about 270 of these wakes in 2 h, each holding a runner through the 45 s first look
+        # (FIRST_LOOK_SECONDS) at a run that had already finished; every job of it is already listed.
+        red = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
+        red.update(conclusion="failure", steps=[{"name": "Set up runner", "conclusion": "success"},
+                                                {"name": "Run package tests", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [red], finished=lambda seconds: True, conclusion="failure")
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        code, summary = run_main(api, clock, payload=pull)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("the run finished", summary)
+        self.assertLess(clock.seconds, rescue.FIRST_LOOK_SECONDS, summary)
+        self.assertNotIn("rerun-failed", api.calls)
+
     def test_a_completed_event_watches_only_cmux_next_and_never_past_the_bots_attempt_three(self):
         clock = Clock()
         api = FakeAPI(clock, lambda seconds: [])
