@@ -1273,9 +1273,9 @@ jobs:
   web:
     # Beside static-preflight for the same reason as guards.
     # !cancelled() and the result of each need, never the implicit success(): that one also
-    # reads every ancestor, so a skipped ancestor (once the deleted portable-placement job on a
-    # re-run) skipped the web shards and the webview verdict though `changes` routed web=true
-    # (run 41892308895 attempt 3). The same holds for every job below that needs `changes`.
+    # reads every ancestor, and an ancestor that skips on a re-run made a whole-run re-run skip
+    # the web shards and the webview verdict though `changes` routed web=true (run 41892308895
+    # attempt 3). The same holds for every job below that needs `changes`.
     needs: [changes]
     if: ${{ (!cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
     # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).

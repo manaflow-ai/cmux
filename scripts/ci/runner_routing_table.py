@@ -9,8 +9,7 @@ ask whether the job needed macOS. This module asks.
 
 * `job_classes`: what kind of work a job does, and whether that kind of work
   needs macOS (`"needs": "macos"`), runs on Linux (`"needs": "linux"`), or
-  runs anywhere (`"needs": "any"`: fleet Linux first, then a free owned mini,
-  Blacksmith Linux last, through scripts/ci/portable_job_placement.py).
+  runs anywhere (`"needs": "any"`: it takes cmux-linux).
 * `macos_jobs`: every workflow job whose `runs-on:` can route to macOS,
   as `"<workflow file>#<job id>"`, mapped to its class.
 

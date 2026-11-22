@@ -31,7 +31,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
-import one_linux_label  # noqa: E402
 import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 from cmux_next_step_text import step_run  # noqa: E402
@@ -1560,16 +1559,14 @@ OVERFLOW_FAILOVER = re.compile(
 
 
 def can_run_on_owned_runner(job: dict) -> bool:
-    """A runs-on that reads a repository variable, portable placement's mini, or the one Linux label can land on a
-    reused workspace: a mini (glaeda-*) or a cmux-linux pool member, which keeps the last job's checkout.
-    The fork clause (one_linux_label.FORK_PR) reads vars.CI_FORK_LINUX_RUNNER, but only for a fork's hosted runner."""
+    """A runs-on that reads a repository variable or a job output can resolve to a mini (glaeda-*)."""
     cells = workflow_jobs.runs_on_cells(job)
     if cells is None:
         return True  # a matrix value nothing resolves may name a mini
     for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
-        runs_on = unwrap_fork_pool_reads(runs_on).replace(one_linux_label.FORK_PR, "")
-        if "'cmux-linux'" in runs_on:
-            return True
+        runs_on = unwrap_fork_pool_reads(runs_on)
+        # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
+        runs_on = runs_on.replace("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
         if "vars." in runs_on or "outputs.mini_runner" in runs_on:
@@ -1612,12 +1609,10 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        # Every Linux job on the one label cmux-linux (scripts/ci/one_linux_label.py), a persistent pool, is checked.
-        # one_linux_label.FRESH_VM_JOBS keep their ephemeral route until they get the reset step.
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "dev-landing-compile",
-                                           "fast-tier", "generated-files", "path_route", "portable-placement",
-                                           "release-compile", "request-nightly-next", "swift-canary",
-                                           "swift-test", "web-bundles"])
+        # checks, path_route, the nightly-next requests and the web bundles take the one Linux label (cmux-linux)
+        # now and never land on a mini.
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "dev-landing-compile", "fast-tier", "generated-files",
+                                           "release-compile", "swift-canary", "swift-test"])
 
 
 
@@ -2747,16 +2742,14 @@ FAST_LANE_CLAUSE = (
     "needs.macos-placement.outputs.fast_runner != '' && "
     "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
-# While fast-tier-fleet ran, the fast tier only reports its verdict from Linux, the one label cmux-linux
-# (scripts/ci/one_linux_label.py; GatewayRunsOnlyTheFleetClient);
+# While fast-tier-fleet ran, the fast tier only reports its verdict from Linux (GatewayRunsOnlyTheFleetClient);
 # a step still queued (verdict `queued`) hands it back, and it runs on Blacksmith macOS.
 # The hand-back reads the Blacksmith switch as every owned fallback does: only `on` leaves the side lane label
 # here. Under `pr-rescue` a re-run reaches Blacksmith macOS only through the placement's dead-aware retry label
 # (cmux#44966: the plain fallback queued re-runs on a Blacksmith label with no runner online).
 FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
-    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
-    "&& 'cmux-linux' || "
+    "&& needs.fast-tier-fleet.outputs.verdict != 'queued' && 'cmux-linux' || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && "
     "(vars.CI_BLACKSMITH_MACOS != 'on' && "
@@ -2948,61 +2941,36 @@ def evaluate(expression: str, context: dict):
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
 
 
-class PortablePlacementBootstrapAdmission(unittest.TestCase):
-    def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
-        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
-        bootstrap = one_runs_on(jobs["portable-placement"])
-        for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            # Never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735). A same-repository pull
-            # request's first attempt takes the persistent pool's cmux-linux (it took the reserved PR control
-            # label, #48405, until that label's one-job VMs queued 1,860 jobs); a re-run takes cmux-linux too
-            # (scripts/ci/one_linux_label.py), overflow or not.
-            for attempt, overflow, expected in ((1, "", "cmux-linux"),
-                                               (1, "1", "cmux-linux"),
-                                               (2, "", "cmux-linux"),
-                                               (2, "1", "cmux-linux")):
-                with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
-                    context = {"github.repository_owner": "manaflow-ai",
-                               "github.event_name": "pull_request",
-                               "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
-                               "github.repository": "manaflow-ai/cmux",
-                               "github.run_attempt": attempt,
-                               "vars.LINUX_RUNNER": fleet,
-                               "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
-                    self.assertEqual(evaluate(bootstrap, context), expected)
+class ChecksAndRouterTakeOneLabel(unittest.TestCase):
+    """The checks job and the path router run on cmux-linux for every own-branch run, on every attempt.
 
-
-class ChecksTimeoutFitsItsRunner(unittest.TestCase):
-    """A checks job placed on a mini gets a verdict, not a timeout's cancel (docs note-349).
-
-    #42624, a data-only devbox image promotion, was placed on a mini on all three of its heads; each run
-    hit the 15-minute timeout sized for Blacksmith (jobs 131984422217, 132002973791, 132013731059: the
-    runner hook's admission wait and the slower checks), ended cancelled, and land-judge had no verdict.
+    No placement job picks their runner (cmuxterm-hq decisions/junctions.md: one label for every own-branch Linux job,
+    the pickers deleted). A fork's run takes GitHub-hosted Ubuntu, a fork pull request vars.CI_FORK_LINUX_RUNNER
+    (GitHub-hosted Ubuntu while it is unset).
     """
 
     def context(self, **extra) -> dict:
         return {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                 "github.event_name": "pull_request", "github.run_attempt": 1,
-                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
-                "needs.portable-placement.outputs.placed_attempt": "1", **extra}
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux", **extra}
 
-    def test_a_mini_placed_checks_job_outlasts_the_hook_wait_and_the_slow_checks(self):
-        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][JOB]
-        mini = self.context(**{"needs.portable-placement.outputs.mini_jobs": " path_route checks ",
-                               "needs.portable-placement.outputs.mini_runner": "glaeda-side-std-xcode-26.6"})
-        self.assertEqual(evaluate(one_runs_on(job), mini), "glaeda-side-std-xcode-26.6")
-        # Observed on a mini: 8 min 5 s of admission wait (job 132013731059) plus about 16 min of checks.
-        self.assertGreaterEqual(evaluate(str(job["timeout-minutes"]), mini), 30)
-        for why, context in (
-                ("Blacksmith", self.context()),
-                ("fleet Linux", self.context(**{"needs.portable-placement.outputs.linux_jobs": " checks ",
-                                                "needs.portable-placement.outputs.linux_runner": "glaeda-linux"})),
-                ("an earlier attempt's mini", {**mini, "github.run_attempt": 2}),
-                ("a listed job with no mini label", {**mini, "needs.portable-placement.outputs.mini_runner": ""}),
-                ("a fork repository", {**mini, "github.repository_owner": "someone"})):
-            with self.subTest(why=why):
-                self.assertNotEqual(evaluate(one_runs_on(job), context), "glaeda-side-std-xcode-26.6")
-                self.assertEqual(evaluate(str(job["timeout-minutes"]), context), 15)
+    def test_own_runs_take_cmux_linux_and_forks_keep_their_labels(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        for name in (JOB, "path_route"):
+            runs_on = one_runs_on(jobs[name])
+            with self.subTest(job=name):
+                self.assertNotIn("vars.", runs_on.replace("vars.CI_FORK_LINUX_RUNNER", ""))
+                self.assertNotIn("needs.", runs_on)
+                for attempt in (1, 2, 3):
+                    self.assertEqual(evaluate(runs_on, self.context(**{"github.run_attempt": attempt})), "cmux-linux")
+                self.assertEqual(evaluate(runs_on, self.context(**{"github.event_name": "push"})), "cmux-linux")
+                self.assertEqual(evaluate(runs_on, self.context(**{"github.repository_owner": "someone"})),
+                                 "ubuntu-24.04")
+                fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
+                self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
+                self.assertEqual(evaluate(runs_on, {**fork_pr, "vars.CI_FORK_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}),
+                                 "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
@@ -3142,9 +3110,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && "
             "needs.macos-placement.outputs.gateway_runner != '' && needs.macos-placement.outputs.gateway_runner || "),
             one_runs_on(fast))
-        # Off the gateway, the one Linux label (scripts/ci/one_linux_label.py); before it, the 2 vCPU pool.
-        self.assertTrue(one_runs_on(fast).endswith(f"{one_linux_label.FORK_PR} || 'cmux-linux' }}}}"), one_runs_on(fast))
-        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux", one_runs_on(fast))
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", one_runs_on(fast))
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
         self.assertIn("--app", run)
@@ -3370,7 +3336,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
-            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            # The router ran: web-bundles checks its result.
             "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
@@ -3678,7 +3644,6 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     # fleet's own compile of the same sha (2026-11-02: every gateway runner busy from 09:39Z sent pushes 622a6b75
     # and 0fa148c5 to the Mac Release queue for over two hours while cmux-next/compile had passed both). Their
     # Mac fallback runs only when that read gives no verdict.
-    # The one Linux label (scripts/ci/one_linux_label.py); before it, the 2 or 8 vCPU Blacksmith size.
     LINUX_ROUTE = {"release-compile-fast": ("cmux-linux",)}
 
     def jobs(self) -> dict:
@@ -4360,15 +4325,14 @@ esac
                         "needs.macos-placement.outputs.blacksmith_6_jobs": f" {tier} "}
                 for result in ("success", "failure", "cancelled"):
                     context = {**base, f"needs.{client}.result": result}
-                    # The one Linux label (scripts/ci/one_linux_label.py, Leo 2026-11-20): the pool sizes itself,
-                    # so neither the overflow switch nor a fleet variable moves the report route.
-                    self.assertEqual(evaluate(one_runs_on(job), context), "cmux-linux")
+                    self.assertEqual(evaluate(one_runs_on(job), context), "blacksmith-2vcpu-ubuntu-2404")
                     self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.CI_CLOUD_OVERFLOW_SAVED": "1"}),
-                                     "cmux-linux")
+                                     "blacksmith-4vcpu-ubuntu-2404")
+                    # Fleet Linux first (vars.LINUX_RUNNER naming our own runner); Blacksmith is only overflow.
                     self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.LINUX_RUNNER": "glaeda-linux"}),
-                                     "cmux-linux")
+                                     "glaeda-linux")
                     self.assertEqual(evaluate(one_runs_on(job), {**context, "vars.LINUX_RUNNER": "blacksmith-8vcpu-ubuntu-2404"}),
-                                     "cmux-linux")
+                                     "blacksmith-2vcpu-ubuntu-2404")
                     self.assertEqual(evaluate(job["timeout-minutes"], context), 5)
                 skipped = {**base, f"needs.{client}.result": "skipped"}
                 self.assertEqual(evaluate(one_runs_on(job), skipped), "blacksmith-6vcpu-macos-26")
