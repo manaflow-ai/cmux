@@ -54,32 +54,32 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "cmux-tui/crates/acpmux/src/cli/run/board.rs",
         "method::MUX_SESSIONS",
         1,
-        "`acpmux board`'s page fetcher for `ls_pages::read`: one page per call, its cursor followed",
+        "the board's v1 page fetcher for `ls_pages::read`: one `limit` page per call, its cursor \
+         followed",
     ),
     (
         "cmux-tui/crates/coord-sim/src/drive/readers.rs",
         "\"_acpmux/sessions\"",
         1,
-        "coord-sim's reader: a `limit`/`cursor` loop, page by page",
+        "the simulated pane's list: a `limit: 200` page per call, its `nextCursor` followed",
     ),
     (
         "cmux-tui/crates/coord-sim/src/degen/cases.rs",
         "\"_acpmux/sessions\"",
         1,
-        "the degen cases' `whole_list`: a `cursor` loop, page by page",
+        "the degenerate-case reader's page loop: the daemon's own page size, its cursor followed",
     ),
     (
         "cmux-tui/crates/coord-sim/src/degen/sidebar.rs",
         "\"_acpmux/watch\"",
         1,
-        "turns watching on for the one-change case, its page unread",
+        "turns watching on for the rename timings; the sim reads the changes, not the list",
     ),
     (
         "cmux-tui/crates/coord-sim/src/fanin/ramp.rs",
         "\"_acpmux/sessions\"",
         2,
-        "`listing` times the one-read list on purpose beside the `limit`/`cursor` loop it is \
-         compared with",
+        "the sim times one whole read against the paged one (`limit` 100, its cursor followed)",
     ),
     (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
@@ -179,9 +179,9 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // daemon without the list surface or `info-rows-v1` (`Via::open` gave none).
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
-    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "`board`'s fallback (`ls_pages::read`)"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
     ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
+    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "the board's fallback (`ls_pages::read`)"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
     // v1 read kept: `ls --cursor C` reads one v1 page.
     (
