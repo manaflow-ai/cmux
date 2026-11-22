@@ -37,6 +37,7 @@ mod call;
 mod chat_perf;
 mod classic;
 mod events;
+mod fallback_socket;
 mod group_create;
 mod join;
 mod keybinding;
@@ -875,7 +876,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     match &command {
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(global, command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
         _ => {}
@@ -1019,7 +1020,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
-        AppCommand::Live(command) => return Ran::Done(live::run(&command)),
+        AppCommand::Live(command) => return Ran::Done(live::run(global, &command)),
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
@@ -1332,8 +1333,11 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let Some(flag) = explicit_daemon_route(global) else {
+        // No app around this CLI and none in its environment (an ssh shell, a `cmux` copied onto
+        // `PATH`): the one cmux NIGHTLY that answers, when exactly one does.
         return identity
             .map(|identity| identity.control_socket(&home))
+            .or_else(|| fallback_socket::nightly(&home))
             .ok_or_else(|| messages.no_app.to_owned());
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
