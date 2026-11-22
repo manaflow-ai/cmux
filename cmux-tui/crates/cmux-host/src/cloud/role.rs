@@ -680,6 +680,10 @@ struct Worker {
     trajectories: Option<Trajectories<PosterHttp>>,
     /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
     gateway_token: Option<super::gateway_token::GatewayToken>,
+    /// The person's additions since the image, sent once per idle period only under their opt-in usage-sharing
+    /// setting (`additions.rs`), and the idle edge that starts a run.
+    additions: Option<super::additions::Additions>,
+    idle_edge: super::additions::IdleEdge,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -752,6 +756,8 @@ impl Worker {
             keyset,
             trajectories,
             gateway_token: None,
+            additions: None,
+            idle_edge: super::additions::IdleEdge::default(),
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
@@ -1213,6 +1219,21 @@ impl Worker {
             }
             Err(e) => log(&format!("inference gateway token: {e}")),
         }
+        self.additions = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.additions = super::additions::Additions::spawn(
+                    client,
+                    self.paths.clone(),
+                    WORK_HOME,
+                    wall_ms,
+                    log,
+                )
+                .map_err(|e| log(&format!("additions: {e}")))
+                .ok();
+            }
+            Err(e) => log(&format!("additions: {e}")),
+        }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host
         // answers `identify` (`connect_activity`, `Session::daemon_identified`).
@@ -1382,8 +1403,16 @@ impl Worker {
                 None
             }
         };
+        // Idle as the Cloud reads it: no session or turn, and a workload probe that counts nothing.
+        let idle = seen.as_ref().is_some_and(|w| !w.busy())
+            && live.session.reporter.activity().active_sessions == 0;
         let reqs = live.session.workload(seen, now);
         self.drive(reqs);
+        if self.idle_edge.observe(idle, now)
+            && let Some(additions) = &self.additions
+        {
+            additions.idle();
+        }
     }
 
     /// Sends each request and feeds its answer back until nothing is due.

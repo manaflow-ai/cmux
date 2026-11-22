@@ -22,7 +22,8 @@
 //! - resume: the supervisor's `Resumed` event (clock-set wake, id
 //!   confirmed) sends one report named `resume`.
 //!
-//! Modules: [`wire`] (contracts, pure), [`workload`] (the workload probe), [`sender`] (the two senders, sans
+//! Modules: [`additions`] (a person's additions since the image, sent once per idle period only under their
+//! opt-in usage-sharing setting), [`wire`] (contracts, pure), [`workload`] (the workload probe), [`sender`] (the two senders, sans
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
@@ -39,6 +40,9 @@
 //! never sent to a cmux server: it stays in the harness's own files on the
 //! machine, and their next machine gets it from their own machine's snapshot.
 
+pub mod additions;
+#[cfg(all(test, unix))]
+mod additions_tests;
 #[cfg(target_os = "linux")]
 mod agent_socket;
 pub mod apps_call;

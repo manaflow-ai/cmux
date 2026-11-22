@@ -657,6 +657,34 @@ impl<H: Http> CloudClient<H> {
         Answer::Http { status, body }
     }
 
+    /// One `method` request (a JSON `body` or none) against the environment's platform as this machine
+    /// (`additions.rs`). The path is the caller's constant, never a socket caller's; a 401 drops the cached bearer
+    /// and retries once.
+    pub fn platform_answer(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        now_wall_ms: u64,
+    ) -> Answer {
+        let url = format!("{}{}", self.bound.env.platform_origin(), path);
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            if method == "GET" {
+                client.http.get(&url, Some(&token)).ok()
+            } else {
+                client.http.send(method, &url, body, Some(&token), &[]).ok()
+            }
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        if status == 401 {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
     /// One GET on this machine's API origin as its `vm` install. As
     /// [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
     /// cached bearer and retries once.

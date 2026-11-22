@@ -210,8 +210,9 @@ export function imagePackagesCommand(): string {
 /**
  * The first step of a person's own layer (plans/cloud/images-per-user.md in cmuxterm-hq): on their machine,
  * the package names they added since the image, in the same `kind name` form: apt, npm and bun globals, uv
- * and pipx tools, cargo installs. Names only, no versions, paths or arguments; nothing sends it anywhere; the
- * per-user layer reads it only under the opt-in usage setting, off by default.
+ * and pipx tools, cargo installs. Names only, no versions, paths or arguments. cmux-host runs the same shell on an
+ * idle Cloud machine and sends the list only under the opt-in usage setting, off by default
+ * (cmux-tui/crates/cmux-host/src/cloud/additions.rs `collect_command`: keep the two alike).
  */
 export function userAdditionsCommand(home = DEVBOX_WORK_HOME): string {
   const now = [
