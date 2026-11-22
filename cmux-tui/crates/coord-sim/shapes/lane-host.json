@@ -109,8 +109,7 @@
   },
   "harness": {
    "claude": 227,
-   "codex": 129,
-   "codex-review-box": 169
+   "codex": 298
   },
   "kind_bytes": {
    "in:agent_message_chunk": {

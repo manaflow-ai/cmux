@@ -1403,9 +1403,18 @@ impl std::fmt::Display for IdentityError {
                 "identity state was committed but durability confirmation failed: {message}"
             ),
             Self::Invalid(message) => write!(formatter, "invalid identity state: {message}"),
-            Self::InvitationExpired(id) => write!(formatter, "invitation {id} is expired"),
-            Self::UnknownPending(id) => write!(formatter, "no pending enrollment for {id}"),
-            Self::UnknownDevice(id) => write!(formatter, "unknown device {id}"),
+            Self::InvitationExpired(id) => write!(
+                formatter,
+                "invitation {id} is expired; make a new one with `cmux remote enroll create`"
+            ),
+            Self::UnknownPending(id) => write!(
+                formatter,
+                "no pending enrollment for {id}; `cmux remote enroll pending` lists the waiting devices"
+            ),
+            Self::UnknownDevice(id) => write!(
+                formatter,
+                "unknown device {id}; `cmux remote enroll devices` lists the enrolled devices"
+            ),
             Self::Timeout => formatter.write_str("timed out waiting for enrollment"),
         }
     }
@@ -1415,6 +1424,13 @@ impl std::error::Error for IdentityError {}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn identity_refusals_name_the_command_that_lists_the_ids() {
+        assert!(IdentityError::UnknownPending("x".into()).to_string().contains("enroll pending"));
+        assert!(IdentityError::UnknownDevice("x".into()).to_string().contains("enroll devices"));
+        assert!(IdentityError::InvitationExpired("x".into()).to_string().contains("enroll create"));
+    }
+
     use super::*;
     use crate::crypto::NetworkPeer;
     use cmux_remote_protocol::{Lane, SessionId};
