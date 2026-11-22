@@ -136,8 +136,6 @@ final class BrowserHibernation {
     var pageDeadline: Duration = .seconds(2)
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
-    /// Hibernating Chromium pages that kept no leave picture, by why (`snapshot(_:key:)`, `debug.surfaces`).
-    var missingSnapshots: [String: Int] = [:]
     private let lowPower: LowPowerMode
     private var lowPowerObservation: LowPowerModeObservation?
     /// The page's freeze control (a seam for tests; Chromium and WebKit pages in the app).
@@ -794,9 +792,8 @@ final class BrowserHibernation {
     }
 
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history, and closes the engine page. Its snapshot lives in a bounded store
-    /// only (`keep`): each placeholder used to keep its own full-size picture (about 7 MB of
-    /// app memory per hibernated tab in the 2026-10-14 audit).
+    /// holding its history, and closes the engine page. Its snapshot lives in `snapshots` only (a
+    /// file on disk); the placeholder asks the store for it when a pane shows it.
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -805,11 +802,11 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshotImage(key) }
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
-        if let snapshot = saved.snapshot { keep(snapshot, for: key) }
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
