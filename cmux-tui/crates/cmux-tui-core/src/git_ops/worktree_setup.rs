@@ -676,42 +676,52 @@ pub(super) fn dispatch_run(
     mux: &Arc<crate::Mux>,
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, crate::resource::ResourceError> {
+    use super::checkpoint::ledger;
     use super::mutation::refused;
     const OPERATION: &str = "git.worktree.setup.run";
+    let key = super::mutation::key(request);
     let target = super::mutation::Target::resolve(mux, request, OPERATION)?;
-    let main = cmux_git::main_root(target.common_dir()).map(Path::to_path_buf);
-    let root = resolved(&target.repository.root);
-    if main.as_deref().is_none_or(|main| same_folder(main, &root)) {
-        let message = "the main checkout is set up by its user: name a worktree cmux made";
-        return Err(refused(OPERATION, "not_a_worktree", message, Value::Null));
-    }
-    let project = main.clone().unwrap_or_else(|| target.common_dir().to_path_buf());
-    let resolved_recipe = super::worktree_recipe::resolve(mux, main.as_deref(), &project);
-    let place = Place::new(root, main, target.git_dir(), target.common_dir());
-    if let Some(fingerprint) = resolved_recipe.consent()
-        && !approvals::approved(&place.shared, &fingerprint)
-    {
-        let extra = json!({"fingerprint": fingerprint});
-        match request.fields.get("approve").and_then(Value::as_str) {
-            Some(answer) if answer == fingerprint => {
-                if let Err(error) = approvals::approve(&place.shared, &fingerprint) {
-                    let message = format!("the answer could not be kept: {error}");
-                    return Err(refused(OPERATION, "store_failed", message, extra));
+    let fingerprint = target.fingerprint(request);
+    target.exclusive(OPERATION, || {
+        if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let main = cmux_git::main_root(target.common_dir()).map(Path::to_path_buf);
+        let root = resolved(&target.repository.root);
+        if main.as_deref().is_none_or(|main| same_folder(main, &root)) {
+            let message = "the main checkout is set up by its user: name a worktree cmux made";
+            return Err(refused(OPERATION, "not_a_worktree", message, Value::Null));
+        }
+        let project = main.clone().unwrap_or_else(|| target.common_dir().to_path_buf());
+        let resolved_recipe = super::worktree_recipe::resolve(mux, main.as_deref(), &project);
+        let place = Place::new(root, main, target.git_dir(), target.common_dir());
+        if let Some(consent) = resolved_recipe.consent()
+            && !approvals::approved(&place.shared, &consent)
+        {
+            let extra = json!({"fingerprint": consent});
+            match request.fields.get("approve").and_then(Value::as_str) {
+                Some(answer) if answer == consent => {
+                    if let Err(error) = approvals::approve(&place.shared, &consent) {
+                        let message = format!("the answer could not be kept: {error}");
+                        return Err(refused(OPERATION, "store_failed", message, extra));
+                    }
+                }
+                Some(_) => {
+                    let message = "the recipe changed after it was read: read it again";
+                    return Err(refused(OPERATION, "recipe_changed", message, extra));
+                }
+                None => {
+                    let message =
+                        "the repository's setup runs once the person approves it (approve)";
+                    return Err(refused(OPERATION, "approval_required", message, extra));
                 }
             }
-            Some(_) => {
-                let message = "the recipe changed after it was read: read it again";
-                return Err(refused(OPERATION, "recipe_changed", message, extra));
-            }
-            None => {
-                let message = "the repository's setup runs once the person approves it (approve)";
-                return Err(refused(OPERATION, "approval_required", message, extra));
-            }
         }
-    }
-    rerun(place, resolved_recipe.recipe).map_err(|NotRun::Running(state)| {
-        let message = "a setup runs in this worktree now";
-        refused(OPERATION, "setup_running", message, json!({"state": state}))
+        let value = rerun(place, resolved_recipe.recipe).map_err(|NotRun::Running(state)| {
+            let message = "a setup runs in this worktree now";
+            refused(OPERATION, "setup_running", message, json!({"state": state}))
+        })?;
+        ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })
 }
 
