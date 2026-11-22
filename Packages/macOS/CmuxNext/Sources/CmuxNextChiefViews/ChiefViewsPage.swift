@@ -124,6 +124,6 @@ nonisolated enum ChiefViewsStrings {
     static var untitledTerminal: String { t("chiefViews.terminal.untitled", "Terminal") }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "ChiefViews", bundle: .module)
+        String(localized: key, defaultValue: value, table: "ChiefViews", bundle: .localizedModule)
     }
 }
