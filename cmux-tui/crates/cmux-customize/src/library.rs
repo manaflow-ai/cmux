@@ -47,6 +47,7 @@ use crate::store::{Draft, Generation, Kind};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
+pub mod applies;
 pub mod code;
 mod collection;
 pub mod expire;
@@ -56,6 +57,7 @@ mod put;
 pub mod recover;
 mod text;
 
+pub use applies::{NoLongerApplies, Stale};
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
 use keys::KEYBINDINGS;
