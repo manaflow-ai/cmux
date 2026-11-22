@@ -30,7 +30,7 @@ struct NativeBrowserPage: View {
                         .font(.system(size: 15, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .padding(.bottom, insets.bottom)
