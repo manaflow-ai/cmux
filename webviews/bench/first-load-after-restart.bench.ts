@@ -348,7 +348,10 @@ const keptTail = (() => {
   const opener =
     first && !startsTurn(first)
       ? ((kept.length < opened.page.length
-          ? [...opened.page.slice(0, opened.page.length - kept.length)].reverse().find(startsTurn)
+          ? opened.page
+              .slice(0, opened.page.length - kept.length)
+              .reverse()
+              .find(startsTurn)
           : undefined) ?? turnOpener(opened.page, opened.hasMore))
       : undefined;
   return hostTailOf({
