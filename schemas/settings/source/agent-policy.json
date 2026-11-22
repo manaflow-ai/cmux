@@ -784,6 +784,7 @@
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",

@@ -223,8 +223,8 @@ try:
         for name in opts.cases.split(","):
             shape = CASES[name]
             for arm in opts.arms.split(","):
-                page.js("document.documentElement.removeAttribute('data-send-pop'), true" if arm == "product"
-                        else f"document.documentElement.setAttribute('data-send-pop', {json.dumps(arm)}), true")
+                # The product's pop is off unless switched on (agentPane.display.sendPop): its root gate.
+                page.js(f"document.documentElement.setAttribute('data-send-pop', {json.dumps('claude' if arm == 'product' else arm)}), true")
                 path = os.path.join(opts.out, f"{turns}-{name}-{arm}.mov")
                 stop = film(app, path, 20 if shape.get("streaming") else 8)
                 time.sleep(0.4)

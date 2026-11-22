@@ -195,7 +195,7 @@ import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_STARTED, SUBAGENT_ROW, isRunGroup } from "./subagents/subagentRows";
@@ -643,7 +643,9 @@ const RowFrame = React.memo(function RowFrame({
   const holdEntranceOnMount = useEffectEvent(() => {
     if (!entering || !ref.current) return undefined;
     if (messageEntering)
-      return row.kind === "user" ? holdEntranceForFirstFrame(ref.current, undefined, true) : undefined;
+      return row.kind === "user" && sendPopEnabled()
+        ? holdEntranceForFirstFrame(ref.current, undefined, true)
+        : undefined;
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
@@ -3172,10 +3174,12 @@ function TranscriptView({
       // A prompt in such an update (one queued while the reply before it streamed, sent as that turn ends) is
       // still a prompt that just landed: it pops in as a sent one does (conversation.css SEND-POP; Leo
       // 2026-11-22, "oh you better probably also watch that attachments and such are good too when the pop
-      // is there"). A message another agent sent (`incoming`) does not.
+      // is there"). A message another agent sent (`incoming`) does not, nor any prompt with the pop
+      // off (Settings > Agent Chat > Pop In Sent Prompts, chatDisplay.ts SEND_POP_KEY).
       const entering = enteringRows.current;
+      const popping = sendPopEnabled();
       for (const row of arrived)
-        if (live || row.below || isLineRow(row) || (row.kind === "user" && !row.incoming))
+        if (live || row.below || isLineRow(row) || (popping && row.kind === "user" && !row.incoming))
           entering.add(rowFrameKey(row));
     }
   }

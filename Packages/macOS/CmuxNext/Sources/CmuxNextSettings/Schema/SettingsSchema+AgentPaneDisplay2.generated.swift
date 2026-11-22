@@ -60,6 +60,16 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "sound", "sounds", "audio", "finish", "finished", "done", "merged", "checks", "turn", "notification"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.sendPopPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.sendPop", "Pop In Sent Prompts"),
+                help: SettingsText.keyed("settings.agentPane.display.sendPop.help", "A prompt you send pops in and settles where it lands, instead of appearing at once."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.sendPopDefault),
+                keywords: ["agent", "chat", "acp", "display", "send", "sent", "prompt", "pop", "animation", "motion", "entrance", "bubble", "toggle"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.trayTuckedPath,
                 section: .appearance,
                 group: group,
@@ -369,19 +379,6 @@ extension AgentPaneDisplaySettingsSchema {
                 kind: .text,
                 default: nil,
                 keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "custom", "comma", "thinking"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmer", "Thinking Shimmer"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmer.help", "How the light band moves across the live status line."),
-                kind: .choice([
-                    SettingChoice("cadenced", SettingsText.keyed("settings.choice.thinkingShimmerCadenced", "Every Few Seconds")),
-                    SettingChoice("continuous", SettingsText.keyed("settings.choice.thinkingShimmerContinuous", "Continuous")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.thinkingShimmerDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "status", "animation", "sweep", "claude"]
             ),
         ]
     }

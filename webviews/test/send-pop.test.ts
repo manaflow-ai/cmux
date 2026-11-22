@@ -59,11 +59,62 @@ describe("sent prompt pop", () => {
       expect(frames).not.toMatch(/\b(width|height|top|left|margin|padding|clip-path|filter)\s*:/);
     }
     const rule = css.match(
-      /\.acpmux-user\.acpmux-row--message-enter:not\(\.acpmux-row--line, \[data-send-morphed\]\) > \.acpmux-row__message-presentation \{([^}]*)\}/,
+      /:where\(\[data-send-pop\]:not\(\[data-send-pop="none"\]\)\)\s+\.acpmux-user\.acpmux-row--message-enter:not\(\.acpmux-row--line, \[data-send-morphed\]\)\s+> \.acpmux-row__message-presentation \{([^}]*)\}/,
     );
     expect(rule?.[1]).toContain("cv-send-pop var(--agent-motion-send-pop");
     expect(rule?.[1]).toContain("var(--cmux-ease-send-pop");
     expect(rule?.[1]).toContain("transform-origin: right center");
+  });
+
+  test("is off unless switched on: the rule plays only under the setting's data-send-pop gate", () => {
+    // Leo, 2026-11-22: "hm im not necessarily sure if people will be wanting to do the send pop by default".
+    const block = css.slice(css.indexOf("@keyframes cv-send-pop-spring"));
+    // Each rule that plays the pop, by its selector: the text before its own "{", after the rule, block
+    // or comment before it.
+    const pops = [...block.matchAll(/animation:\s*cv-send-pop\b/g)].map((match) => {
+      const head = block.slice(0, match.index);
+      const selector = head.slice(0, head.lastIndexOf("{"));
+      return selector.slice(
+        Math.max(selector.lastIndexOf("}"), selector.lastIndexOf("{"), selector.lastIndexOf("*/")) + 1,
+      );
+    });
+    expect(pops.length).toBe(1);
+    for (const selector of pops) expect(selector).toContain(':where([data-send-pop]:not([data-send-pop="none"]))');
+    const schema = JSON.parse(
+      fs.readFileSync(path.join(import.meta.dir, "../../schemas/settings/source/agent-pane-display.json"), "utf8"),
+    );
+    const find = (node: unknown): { default?: unknown; kind?: string } | undefined => {
+      if (Array.isArray(node)) return node.map(find).find(Boolean);
+      if (node && typeof node === "object") {
+        const record = node as Record<string, unknown>;
+        if (record.key === "agentPane.display.sendPop") return record as { default?: unknown; kind?: string };
+        return Object.values(record).map(find).find(Boolean);
+      }
+      return undefined;
+    };
+    expect(find(schema)).toMatchObject({ kind: "toggle", default: false });
+  });
+
+  test("the setting sets the gate on the root, and clears it off", async () => {
+    const { JSDOM } = await import("jsdom");
+    const scope = globalThis as Record<string, unknown>;
+    const saved = scope.document;
+    scope.document = new JSDOM("<!doctype html>").window.document;
+    try {
+      const { SEND_POP_KEY, sendPopEnabled, setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
+      const root = (scope.document as Document).documentElement;
+      setChatDisplay({});
+      expect(root.hasAttribute("data-send-pop")).toBe(false);
+      expect(sendPopEnabled()).toBe(false);
+      setChatDisplay({ [SEND_POP_KEY]: true });
+      expect(root.getAttribute("data-send-pop")).toBe("claude");
+      expect(sendPopEnabled()).toBe(true);
+      setChatDisplay({ [SEND_POP_KEY]: false });
+      expect(root.hasAttribute("data-send-pop")).toBe(false);
+      expect(sendPopEnabled()).toBe(false);
+    } finally {
+      scope.document = saved;
+    }
   });
 
   test("the room, the thread and the thinking row still land at once", () => {

@@ -97,8 +97,12 @@ async function open(browser: Browser): Promise<Page> {
   )) as { error?: string };
   if (seeded.error) throw new Error(`seed ${TURNS}: ${seeded.error}`);
   await page.locator(field).waitFor({ timeout: 60_000 });
-  if (POP !== "product" && POP !== "paired")
-    await page.evaluate((pop) => document.documentElement.setAttribute("data-send-pop", pop), POP);
+  // The product's pop is off unless switched on (agentPane.display.sendPop): "product" sets its root gate.
+  if (POP !== "paired")
+    await page.evaluate(
+      (pop) => document.documentElement.setAttribute("data-send-pop", pop),
+      POP === "product" ? "claude" : POP,
+    );
   return page;
 }
 
@@ -210,8 +214,7 @@ try {
         const arm = POP === "paired" ? (index % 2 === 0 ? "none" : "product") : POP;
         if (POP === "paired")
           await page.evaluate((value) => {
-            if (value === "product") document.documentElement.removeAttribute("data-send-pop");
-            else document.documentElement.setAttribute("data-send-pop", value);
+            document.documentElement.setAttribute("data-send-pop", value === "product" ? "claude" : value);
           }, arm);
         (arms[arm] ??= []).push(await round(page, index, engine === "chromium"));
       }

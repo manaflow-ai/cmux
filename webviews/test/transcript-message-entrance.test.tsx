@@ -46,6 +46,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { SEND_POP_KEY, setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
@@ -173,44 +174,48 @@ test("a new notice row keeps the generic entrance and its direct .cv-tools child
   }
 });
 
-test("a prompt queued while a reply streamed pops when its turn starts, in the turn end's big update", async () => {
-  // The turn ends and the queued prompt's turn starts in one update: more rows than a live update, so the
-  // turn's work draws in place (turnEndFold.ts), but the prompt itself is a sent prompt that just landed and
-  // takes the send pop (conversation.css SEND-POP).
-  const Row = ({ row: item }: { row: AcpmuxRow }) => <div>{item.text}</div>;
-  const registry = { user: Row, assistant: Row } as never;
-  const host = dom.window.document.createElement("div");
-  dom.window.document.body.append(host);
-  const root = createRoot(host);
-  const render = (rows: AcpmuxRow[]) =>
-    act(async () => {
-      root.render(
-        <VirtualTranscript
-          rows={rows}
-          registry={registry}
-          sessionId="queued-entrance-session"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-  try {
-    const existing = [row("prompt-1", "user", "Earlier prompt"), row("reply-1", "assistant", "Earlier reply")];
-    await render(existing);
-    await render([
-      ...existing,
-      row("work-1", "assistant", "The turn's last words"),
-      row("work-2", "assistant", "And its summary"),
-      row("queued-1", "user", "The prompt sent while it streamed"),
-      row("reply-2", "assistant", "Thinking"),
-    ]);
-    const queued = host.querySelector<HTMLElement>('[data-row-id="queued-1"]');
-    expect(queued?.classList.contains("acpmux-row--message-enter")).toBe(true);
-    expect(queued?.querySelector(".acpmux-row__message-presentation")).toBeTruthy();
-    expect(host.querySelector('[data-row-id="work-1"]')?.classList.contains("acpmux-row--message-enter")).toBe(false);
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-  }
-});
+for (const popOn of [true, false])
+  test(`a prompt queued while a reply streamed ${popOn ? "pops" : "draws in place, the pop off,"} when its turn starts, in the turn end's big update`, async () => {
+    // The turn ends and the queued prompt's turn starts in one update: more rows than a live update, so the
+    // turn's work draws in place (turnEndFold.ts), but the prompt itself is a sent prompt that just landed and,
+    // with Pop In Sent Prompts on (agentPane.display.sendPop), takes the send pop (conversation.css SEND-POP).
+    // Off, the default, it draws in place with the turn's work, as before the pop.
+    setChatDisplay(popOn ? { [SEND_POP_KEY]: true } : {});
+    expect(document.documentElement.getAttribute("data-send-pop")).toBe(popOn ? "claude" : null);
+    const Row = ({ row: item }: { row: AcpmuxRow }) => <div>{item.text}</div>;
+    const registry = { user: Row, assistant: Row } as never;
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    const root = createRoot(host);
+    const render = (rows: AcpmuxRow[]) =>
+      act(async () => {
+        root.render(
+          <VirtualTranscript
+            rows={rows}
+            registry={registry}
+            sessionId={`queued-entrance-session-${popOn}`}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    try {
+      const existing = [row("prompt-1", "user", "Earlier prompt"), row("reply-1", "assistant", "Earlier reply")];
+      await render(existing);
+      await render([
+        ...existing,
+        row("work-1", "assistant", "The turn's last words"),
+        row("work-2", "assistant", "And its summary"),
+        row("queued-1", "user", "The prompt sent while it streamed"),
+        row("reply-2", "assistant", "Thinking"),
+      ]);
+      const queued = host.querySelector<HTMLElement>('[data-row-id="queued-1"]');
+      expect(queued?.classList.contains("acpmux-row--message-enter")).toBe(popOn);
+      expect(host.querySelector('[data-row-id="work-1"]')?.classList.contains("acpmux-row--message-enter")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      setChatDisplay({});
+    }
+  });
