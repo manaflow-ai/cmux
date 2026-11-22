@@ -345,8 +345,9 @@ import UIKit
         try #require(!host.controller.followsNewest, "the list still follows its newest row")
         host.seen.clear()
         let visible = host.list.indexPathsForVisibleItems.map(\.item).sorted()
-        try #require(visible.count > 4 && visible.first == 100, "visible rows \(visible)")
+        try #require(visible.count > 4 && visible.contains(100), "visible rows \(visible)")
         let below = visible[visible.count / 2]
+        try #require(below > 100, "the middle row \(below) is not below the reader")
         let before = try #require(host.top(of: 100))
         let underBefore = try #require(host.top(of: below + 1))
         host.live.extra[host.rows[below].id] = 22
