@@ -436,6 +436,7 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         "display": offer.display.map_or_else(|| "main".to_owned(), |d| d.to_string()),
         "max_fps": offer.max_fps.map(|f| f.min(120)),
         "max_width": offer.max_width,
+        "encode_profile": offer.encode_profile,
     })
 }
 
@@ -525,6 +526,10 @@ mod tests {
         assert_eq!(line["viewer"]["user"], "v1");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["display"], "main");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
+        // The viewer's profile reaches serve as it was asked; no attribute leaves it unset.
+        assert!(line["encode_profile"].is_null());
+        let ultra = RdDocument { encode_profile: Some("ultra".into()), ..RdDocument::default() };
+        assert_eq!(setup_line(&ticket, &ultra, false)["encode_profile"], "ultra");
     }
 
     #[test]

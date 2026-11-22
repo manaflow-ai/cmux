@@ -467,14 +467,14 @@ const Line = memo(function Line({
         {/* The tooltip keeps the cache counts where a narrow page drops their columns. */}
         <span
           className="cst-label"
-          title={`${label}\n${t("ledger.row.cache", {
+          aria-description={`${label}\n${t("ledger.row.cache", {
             read: formatCount(totals.cacheReadTokens, locale),
             write: formatCount(totals.cacheWriteTokens, locale),
           })} · ${fromCache}`}
         >
           {label}
         </span>
-        <span className="cst-num" title={source}>
+        <span className="cst-num">
           {cost}
           <SourceMark source={line.source} />
         </span>
@@ -500,7 +500,7 @@ const Line = memo(function Line({
           <span className="cst-label">{label}</span>
           <span className="cst-detail">{line.detail ? `${line.detail} · ${meta}` : meta}</span>
         </span>
-        <span className="cst-cost" title={source}>
+        <span className="cst-cost">
           {cost}
           <SourceMark source={line.source} />
         </span>
