@@ -73,7 +73,7 @@ test("off (no trail), the title draws exactly as before", () => {
   const plain = renderToStaticMarkup(<ThreadTitle title="A chat" />);
   expect(renderToStaticMarkup(<ThreadTitle title="A chat" trail={[]} />)).toBe(plain);
   expect(renderToStaticMarkup(<ThreadTitle title="A chat" trail={undefined} />)).toBe(plain);
-  expect(plain).toBe('<span class="acpmux-thread-title" title="A chat">A chat</span>');
+  expect(plain).toBe('<span class="acpmux-thread-title">A chat</span>');
 });
 
 test("on, the header reads as one slash path and the title segment still renames", async () => {
@@ -85,7 +85,8 @@ test("on, the header reads as one slash path and the title segment still renames
   });
   const path = container.querySelector<HTMLElement>(".acpmux-thread-crumbs")!;
   expect(path.textContent).toBe("cmux / lane/fix-login / Fix login");
-  expect(path.title).toBe("cmux / lane/fix-login / Fix login");
+  // No tooltip: the path's text shows (the tooltip cuts).
+  expect(path.hasAttribute("title")).toBe(false);
   expect([...container.querySelectorAll(".acpmux-thread-crumb")].map((part) => part.textContent)).toEqual([
     "cmux",
     "lane/fix-login",
@@ -93,7 +94,6 @@ test("on, the header reads as one slash path and the title segment still renames
   expect(container.querySelectorAll(".acpmux-thread-crumb-sep[aria-hidden='true']").length).toBe(2);
   const title = container.querySelector<HTMLElement>(".acpmux-thread-title")!;
   expect(title.textContent).toBe("Fix login");
-  // The title segment shows the full-path tooltip, not a title-only one of its own (router-review F2).
   expect(title.hasAttribute("title")).toBe(false);
   // A double-click on a leading part does not rename; one on the title does.
   await act(async () => {

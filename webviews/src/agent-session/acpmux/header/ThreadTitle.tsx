@@ -37,7 +37,7 @@ export function ThreadTitle({
   const { workspace } = useHeaderState();
   if ((glass ?? glassSwitch) && workspace)
     return (
-      <span className="acpmux-thread-title acpmux-glass-title" title={title} onDoubleClick={onRename}>
+      <span className="acpmux-thread-title acpmux-glass-title" onDoubleClick={onRename}>
         <span className="acpmux-glass-title-name">{workspace.title}</span>
         <span className="acpmux-glass-title-detail">
           {t("header.glassChats", {
@@ -47,16 +47,16 @@ export function ThreadTitle({
         </span>
       </span>
     );
-  // With a trail the title segment carries no tooltip of its own: the path's full-path tooltip shows
-  // over it too.
-  const name = (tooltip: string | undefined) => (
-    <span className="acpmux-thread-title" title={tooltip} onDoubleClick={onRename}>
+  // No tooltip on the title or the path: their text shows (the tooltip cuts: a tooltip only names a
+  // control that shows no text of its own).
+  const name = (
+    <span className="acpmux-thread-title" onDoubleClick={onRename}>
       {title}
     </span>
   );
-  if (!trail?.length) return name(title);
+  if (!trail?.length) return name;
   return (
-    <span className="acpmux-thread-crumbs" title={[...trail, title].join(" / ")}>
+    <span className="acpmux-thread-crumbs">
       {trail.map((part, index) => (
         <Fragment key={index}>
           <span className="acpmux-thread-crumb">{part}</span>
@@ -65,7 +65,7 @@ export function ThreadTitle({
           </span>
         </Fragment>
       ))}
-      {name(undefined)}
+      {name}
     </span>
   );
 }
