@@ -46,5 +46,20 @@ if [[ -z "${CUEVAL_CMUX_CU_COMMAND:-}" ]]; then
   CUEVAL_CMUX_CU_COMMAND="$(python3 -c 'import json,sys; print(json.dumps([sys.argv[1], "computer-use-mcp"]))' "$bridge")"
   export CUEVAL_CMUX_CU_COMMAND
 fi
+# The fixture windows are Tk: pick a Python that has it (Homebrew's often does not).
+if [[ -z "${CUEVAL_FIXTURE_PYTHON:-}" ]]; then
+  for py in python3 /usr/bin/python3 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11 /Library/Frameworks/Python.framework/Versions/Current/bin/python3; do
+    if command -v "$py" >/dev/null 2>&1 && "$py" -c 'import tkinter' >/dev/null 2>&1; then
+      CUEVAL_FIXTURE_PYTHON="$(command -v "$py")"
+      break
+    fi
+  done
+  if [[ -z "${CUEVAL_FIXTURE_PYTHON:-}" ]]; then
+    echo "DURESS blocked: no Python with tkinter on this worker for the fixture windows" | tee "$out/blocked.txt"
+    exit 4
+  fi
+  export CUEVAL_FIXTURE_PYTHON
+fi
+echo "DURESS fixture python $CUEVAL_FIXTURE_PYTHON"
 cd "$root/evals/computer-use"
 python3 -X faulthandler -m cueval duress --out "$out"
