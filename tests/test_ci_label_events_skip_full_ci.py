@@ -41,10 +41,15 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Calls ci.yml for a docs-only pull request that gets one of ci.yml's labels (its `paths:` filters label events
     # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
     "docs-only-fallback.yml": ("full-ci", "dev-build"),
+    # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
+    "cmux-next.yml": ("full-ci",),
+    # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
+    # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
+    "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
-TARGET_EVENT: set[str] = {"merge-freeze.yml"}
+TARGET_EVENT: set[str] = {"merge-freeze.yml", "backend-migrations.yml"}
 
 # Jobs of a GUARDED workflow that run on every label event, and why.
 UNGUARDED_JOBS: dict[tuple[str, str], str] = {
@@ -55,7 +60,6 @@ UNGUARDED_JOBS: dict[tuple[str, str], str] = {
 
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
-    "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
     "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
     "passing, and only the classic-migration label it judges may let a frozen change through",
     "language-boundaries.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "

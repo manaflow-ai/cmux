@@ -191,6 +191,9 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // A projected folder on the owner's own machine: its stream dial passes
+    // `fs_wire::remote_dial_admits` for the owner's Native dial only.
+    crate::projection::PROJECTION_CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 
@@ -366,20 +369,5 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
 }
 
 #[cfg(test)]
-mod fork_admission_tests {
-    use super::*;
-
-    #[test]
-    fn a_native_owner_may_fork_its_attached_chat() {
-        assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
-        assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
-    }
-
-    /// A Cloud chat's New side chat and `/side` (agent_session_side.rs): the owner's carrier
-    /// reaches it, and the carrier's identify names it.
-    #[test]
-    fn a_native_owner_may_open_a_side_chat_of_its_attached_chat() {
-        assert!(admits(r#"{"cmd":"agent-session-side","surface":1,"live":true}"#));
-        assert!(CAPABILITIES.contains(&agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY));
-    }
-}
+#[path = "native_owner_fork_admission_tests.rs"]
+mod fork_admission_tests;

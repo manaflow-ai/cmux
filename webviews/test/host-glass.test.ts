@@ -671,6 +671,62 @@ test("a zoom that leaves the CSS box as it was reports again, at the new zoom", 
   expect(reports.length).toBe(before + 4);
 });
 
+// A NIGHTLY's video showed the App's glass leading the page by 2 to 3 frames on 3 of 6 zoom changes
+// with the model picker open: the App moved its glass at once, the page's frame at the new zoom
+// reached the screen later, and a stray rim showed at the new box inside the old picker.
+/** A report at a new zoom waits as long as a new surface's box does (hostGlass.ts). */
+const ZOOM_HOLD_FRAMES = HOST_GLASS_HOLD_FRAMES;
+
+test("a report at a new zoom goes to the App only after the hold, so its glass never leads the page", async () => {
+  const doc = page();
+  setPageZoom(doc, 1);
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  for (const zoom of [1.25, 0.9]) {
+    const before = reports.length;
+    setPageZoom(doc, zoom);
+    // The frames that put the page's content at the new zoom on screen: the App's glass stays put.
+    await frames(ZOOM_HOLD_FRAMES);
+    expect(reports.length).toBe(before);
+    // The next frame: one report, at the new zoom.
+    await frames(1);
+    expect(reports.length).toBe(before + 1);
+    expect(reports.at(-1)?.zoom).toBe(zoom);
+    await frames(4);
+    expect(reports.length).toBe(before + 1);
+  }
+});
+
+test("a box that moves while a new zoom is held goes to the App as last measured", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.getBoundingClientRect = () =>
+    ({ left: 50, top: 75, right: 300, bottom: 225, width: 250, height: 150, x: 50, y: 75 }) as DOMRect;
+  element.style.width = "250px";
+  await frames(ZOOM_HOLD_FRAMES + 1);
+  expect(reports.at(-1)).toMatchObject({ zoom: 1.25, surfaces: [{ left: 50, top: 75, right: 300, bottom: 225 }] });
+});
+
+test("a surface that goes during a zoom hold is withdrawn at once", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.remove();
+  await settled();
+  expect(reports.at(-1)?.surfaces).toEqual([]);
+});
+
 test("a resizing surface is reported in every frame it changes, never a stale box", async () => {
   const doc = page();
   const reports: HostGlassSurface[][] = [];

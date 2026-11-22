@@ -101,3 +101,26 @@ fn follows_only_the_task_tools() {
     assert!(!TaskPlan::follows("Task"));
     assert!(!TaskPlan::follows("TodoWrite"));
 }
+
+#[test]
+fn a_create_after_a_finished_list_starts_a_new_one() {
+    let mut plan = TaskPlan::default();
+    create(&mut plan, "c1", "echo a", "1");
+    create(&mut plan, "c2", "echo b", "2");
+    update(&mut plan, "u1", "1", "completed");
+    update(&mut plan, "u2", "2", "completed");
+    // Claude Code reset its list; its next task may reuse an id.
+    assert_eq!(
+        entries(create(&mut plan, "c3", "reply done", "1")),
+        json!([{"content": "reply done", "status": "pending", "priority": "medium"}])
+    );
+}
+
+#[test]
+fn a_create_beside_steps_left_keeps_the_list() {
+    let mut plan = TaskPlan::default();
+    create(&mut plan, "c1", "echo a", "1");
+    create(&mut plan, "c2", "echo b", "2");
+    update(&mut plan, "u1", "1", "completed");
+    assert_eq!(entries(create(&mut plan, "c3", "echo c", "3")).as_array().map(Vec::len), Some(3));
+}

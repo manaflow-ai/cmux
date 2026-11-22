@@ -76,7 +76,9 @@ extension NewTabPage {
         }
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
-        let spare = seed == nil && pane.daemon.isLocal
+        // No spare either while an idle page waits (the untouched New Tab page that this pane leaves now, when no other window of the workspace draws that tab or has it selected, or one that no window shows): the new
+        // tab takes that one when the pane shows it (`AgentTabStore.idlePage`), in this turn, so a hold of this key makes no page and uses no spare.
+        let spare = seed == nil && pane.daemon.isLocal && services.agentTabs.idlePage(leaving: pane) == nil
             ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane), still: { [weak strip = pane.view.stripView] in strip?.whenStill($0) }) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
@@ -88,37 +90,30 @@ extension NewTabPage {
         openingPanes.remove(openingKey)
         // The page's tab shows: from now on the key hold ends as soon as the pane shows another tab.
         services.keyRouter.newTabInputCoordinator.didShow(in: pane.view.window)
-        // The adopted page is alive: show it this frame and give it the keyboard now, so the
-        // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        let showedSpare = spare != nil && services.presentation.showNow(pane)
-        if showedSpare {
-            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-        }
+        // The adopted page (a spare, or an idle page that the tab took at its show) is alive: show it this frame and give it
+        // the keyboard now, so the first key typed after the open reaches its field (fleet test: it went to the old responder).
+        //
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
         // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
         // budget (cx-98s). A cold page still gets the strip sync now: its view is made by the
         // scheduler at the next frame (`PaneController.apply`, the frame rule, decision 2026-11-16).
-        if !showedSpare {
+        let showedSpare = pane.selectedContentIsAlive && services.presentation.showNow(pane)
+        if showedSpare {
+            services.keyRouter.newTabInputCoordinator.tookPage(in: pane) // the view that had the keyboard at the key can be the new tab's now: the hold then drops no key
+            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
+        } else {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
-        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+        services.newTabSpares.record(.init(spare: spare != nil, idle: spare == nil && showedSpare, crossWindow: spare?.crossWindow == true, // idle: the tab took an idle page at its show (`AgentTabStore.idlePage`), no page of the pool
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions for the New Tab pages that show without them, as background work from
-    /// the next frame on (``AgentPaneNewTabActions``: a slice of actions per task, yielding to input), so Cmd-T and
-    /// Cmd-N never wait for them and the open's frames never hold the whole list (PACING TRIAGE #32910). The web pages
-    /// take them in place (``AgentPaneView/refreshNewTabActions(_:)``); a page with no view yet (Cmd-N's first page
-    /// before its pane shows it) takes them into its stored page, so the view made from it later lists them.
-    static func fillPaletteActions(_ services: AppServices) {
-        let tabs = services.agentTabs
-        let lacking = { (key: AgentTabKey) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
-        // Checked at the listing's first task: Cmd-N's page joins `newTabPages` after this call (`firstPageNewTab`).
-        services.newTabActions.list(wanted: { tabs.newTabPages.entries.contains { lacking($0.key) } }) { listed in
-            for entry in tabs.newTabPages.entries where lacking(entry.key) {
-                if let view = tabs.views[entry.key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[entry.key]?.page.omnibar.actions = listed.actions }
-            }
+    /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page
+    /// that has a view. The stored page of a tab never takes them: its view asks here again at its make (`listsAtViewMake`).
+    static func fillPaletteActions(_ services: AppServices, again: Bool = false) {
+        services.newTabActions.fill(again: again) { [weak tabs = services.agentTabs] in
+            tabs?.newTabPages.keys.map { AgentPaneNewTabActions.Page(view: tabs?.views[$0]) } ?? []
         }
     }
 
@@ -299,21 +294,22 @@ extension NewTabPage {
 
     /// Tab `key`'s native page in `pane`: the web page's context (``page(_:selected:window:pane:paletteActions:)``), no web view.
     /// The palette's actions (the slow part of that context) load on the frame after the one that shows the page, or at
-    /// the first keystroke if that comes first, so Cmd-T shows the page without waiting for them.
+    /// the first keystroke if that comes first, so Cmd-T shows the page without waiting for them; while the last list holds, the page shows with it (``NativeNewTabList``).
     private static func nativeView(_ key: String, in pane: PaneController) -> NSView {
         let services = pane.services
         let page = BenchSpans.measure("newTab.nativeContext") {
             Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
         }
-        let actions = nativeActions(key, cwd: page.cwd, pane: pane)
-        let list = services.newTabActions.request
+        let list = NativeNewTabList(services.newTabActions)
+        let actions = nativeActions(key, cwd: page.cwd, pane: pane, list: list)
+        let favicons = NativeNewTabFavicons(revision: { [weak services] in services.map { $0.favicons.revision &+ $0.bookmarks.generation } ?? 0 }, page: { [weak services] current in services.map { current.refreshingSuggestions(Self.omnibar($0, excluding: key, paletteActions: false)) } ?? current })
         // Cmd-T took the prepared page: it takes this tab's context, already laid out.
         if let spare = services.newTabSpares.claimNative(key), let model = spare.model {
-            model.adopt(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
+            model.adopt(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
             closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
             return spare
         }
-        let model = NativeNewTabModel(page: page, actions: actions, paletteActions: list, chats: services.agentTabs.pageChats.chats)
+        let model = NativeNewTabModel(page: page, actions: actions, list: list, chats: services.agentTabs.pageChats.chats, favicons: favicons)
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
         let host = NativeNewTabView.hosted(model)
         // The page counts as shown (leaving it ends the hold) only once its field exists: until then
@@ -328,13 +324,14 @@ extension NewTabPage {
 
     /// The native page's requests, over the web page's paths: `newTab.submit`'s table for typed text,
     /// the palette's switchers for jumps, the palette's own run for an action. A submit replaces the page.
-    private static func nativeActions(_ key: String, cwd: String?, pane: PaneController) -> NativeNewTabActions {
+    private static func nativeActions(_ key: String, cwd: String?, pane: PaneController, list: NativeNewTabList) -> NativeNewTabActions {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search in
                 if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
-            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) },
+            // A row the palette refuses now (it cannot run, or its title is not the shown one any more): the page's list reads the actions again (a pane that is gone refuses nothing).
+            action: list.action { [weak pane] id, shown in pane?.services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: pane?.view.window) ?? true },
             openChat: { [weak pane] chat in pane?.services.agentTabs.pageChats.open?(chat) }, start: { [weak pane] harness, folder in
                 if let pane, pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder, harness: harness))) { closingPage(key, in: pane)() } })
     }

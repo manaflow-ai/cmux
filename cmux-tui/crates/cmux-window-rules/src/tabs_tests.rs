@@ -39,6 +39,21 @@ fn a_persons_cmd_t_opens_the_page_where_agent_tabs_live() {
     assert_eq!(new_tab_kind(&agent), NewTabKind::Terminal);
 }
 
+#[test]
+fn a_terminal_first_persons_cmd_t_opens_a_terminal() {
+    let user = NewTabFacts { user: true, follows_setting: true, terminal_first: true, ..facts() };
+    assert_eq!(new_tab_kind(&user), NewTabKind::Terminal);
+    // Even on a chat or a browser: Cmd-T is the person's terminal key.
+    assert_eq!(new_tab_kind(&NewTabFacts { agent: true, ..user.clone() }), NewTabKind::Terminal);
+    let browser = NewTabFacts { selected_kind: SelectedKind::Browser, ..user };
+    assert_eq!(new_tab_kind(&browser), NewTabKind::Terminal);
+    // New <Kind> Tab and scripts still follow the selected tab.
+    assert_eq!(
+        new_tab_kind(&NewTabFacts { follows_setting: false, ..browser }),
+        NewTabKind::Browser { engine: None }
+    );
+}
+
 fn resolved(url: &str) -> Resolution {
     Resolution { url: url.into(), ..Resolution::default() }
 }

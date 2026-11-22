@@ -116,13 +116,15 @@ public final class ScreenSharingService {
     public static let developmentHubURL = URL(string: "https://cmux-device-hub-dev.debussy.workers.dev")!
     public static let productionHubURL = URL(string: "https://cmux-device-hub.debussy.workers.dev")!
 
-    /// The hub a build uses: DEBUG builds the dev hub (or `CMUX_MOBILE_DEVICE_HUB_URL`), others production.
-    public static func hubURL(isDebug: Bool, environment: [String: String]) -> URL {
+    /// The hub a build uses: DEBUG builds `CMUX_MOBILE_DEVICE_HUB_URL`, else the tag stack's own hub when the
+    /// build's Cloud backend is a tag's stack (`stackHub`, CloudBackendOverride.deviceHub), else the dev hub;
+    /// others production.
+    public static func hubURL(isDebug: Bool, environment: [String: String], stackHub: URL? = nil) -> URL {
         guard isDebug else { return productionHubURL }
         if let text = environment["CMUX_MOBILE_DEVICE_HUB_URL"], let url = URL(string: text), url.scheme?.hasPrefix("http") == true {
             return url
         }
-        return developmentHubURL
+        return stackHub ?? developmentHubURL
     }
 
     public init(configuration: Configuration, preferences: ScreenSharingPreferences = ScreenSharingPreferences()) {

@@ -16,3 +16,34 @@
     animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
   }
 }
+/* The ring's faint full track under the turning three-quarter arc. */
+.cv-spinner__track {
+  opacity: 0.25;
+}
+/* The dots look does not turn: its three dots take turns lighting (Reduce Motion and the static look
+   hold all three at one tone). */
+.cv-spinner--dots .cv-spinner__pip {
+  /* One round of the three dots, named like the house's other loop periods (--cmux-breath-period). */
+  --cv-spinner-pip-period: 1200ms;
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-spinner--dots:not([data-working]),
+  :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
+    .cv-spinner--dots {
+    animation: none;
+  }
+  :root:not([data-status-indicators="static"]) .cv-spinner--dots .cv-spinner__pip {
+    animation: cv-spinner-pip var(--cv-spinner-pip-period) var(--cmux-breath-ease) infinite;
+  }
+}
+@keyframes cv-spinner-pip {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
