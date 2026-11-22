@@ -206,8 +206,9 @@ extension LiveCoordinator {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             ConnectTimeline.shared.mark("daemon_channel_open")
             let firstWindow = ListFirstWindow.honors(macID, defaults: .standard)
+            let slimRows = ListFirstWindow.honorsSlim(macID, defaults: .standard)
             return PreparedLink(auth: auth, daemon: .success(await WorkspaceSync.prepare(channel, deviceID: deviceID, deviceName: deviceName,
-                                                                                         firstWindow: firstWindow)))
+                                                                                         firstWindow: firstWindow, slimRows: slimRows)))
         } catch {
             return PreparedLink(auth: auth, daemon: .failure(error as? LinkError ?? LinkError(code: "daemon", message: LinkController.reason(error))))
         }

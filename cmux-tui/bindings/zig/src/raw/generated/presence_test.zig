@@ -315,6 +315,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Tree, "next");
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");
+    try expectExplicitNullRejected(protocol.Tree, "rows");
     try expectExplicitNullRejected(protocol.Tree, "terminal_revision");
     try expectExplicitNullRejected(protocol.Tree, "total");
     try expectExplicitNullRejected(protocol.Tree, "tree_revision");

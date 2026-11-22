@@ -1159,11 +1159,14 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
+    /// `known`, `limit`, `after` and `rows`: server/list_workspaces_page.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
         after: Option<usize>,
+        /// `"slim"` with `limit` (`list-workspaces-slim-v1`): slim rows. Anything else, or
+        /// without `limit`: whole rows.
+        rows: Option<String>,
     },
     GetFrontendProjection {
         frontend: String,

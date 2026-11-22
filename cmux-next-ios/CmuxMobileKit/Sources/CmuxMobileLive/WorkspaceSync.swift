@@ -117,7 +117,8 @@ public final class WorkspaceSync {
             return
         }
         let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName,
-                                          firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults))
+                                          firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults),
+                                          slimRows: ListFirstWindow.honorsSlim(macID, defaults: firstWindowDefaults))
         guard connectionSerial == serial, !Task.isCancelled else {
             prepared.replies.cancel()
             await prepared.client.close()
@@ -141,9 +142,11 @@ public final class WorkspaceSync {
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
     /// With `firstWindow` (the Mac advertised `list-workspaces-page-v1` last time) the list
     /// is the first window only (`ListFirstWindow`); the whole tree follows after it is drawn.
+    /// With `slimRows` (the Mac advertised `list-workspaces-slim-v1` too) its rows are slim.
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
         firstWindow: Bool = false,
+        slimRows: Bool = false,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
         replyTimeout: Duration = DaemonClient.defaultDeadline
     ) async -> Prepared {
@@ -159,7 +162,7 @@ public final class WorkspaceSync {
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
-                ("list-workspaces", ListFirstWindow.params(honors: firstWindow)),
+                ("list-workspaces", ListFirstWindow.params(honors: firstWindow, slim: slimRows)),
             ], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
             // setup gets that grace; subsequent daemon reads keep their normal bound.
@@ -231,7 +234,7 @@ public final class WorkspaceSync {
             }
             identity = setup.identity
             listsKnown = setup.listsKnown
-            ListFirstWindow.note(macID, honors: setup.pages, defaults: firstWindowDefaults)
+            ListFirstWindow.note(macID, honors: setup.pages, slim: setup.slim, defaults: firstWindowDefaults)
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
@@ -473,7 +476,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool, slim: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -485,7 +488,8 @@ public final class WorkspaceSync {
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
         let capabilities = identify?["capabilities"] as? [String] ?? []
-        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability))
+        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability),
+                capabilities.contains(ListFirstWindow.slimCapability))
     }
 
     public func refresh() async {

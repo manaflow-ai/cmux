@@ -359,15 +359,16 @@ fn handle_request_uncounted(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let result = if matches!(cmd, Command::ListWorkspaces { known: None, limit: None, after: None })
-        && reads_the_built_tree(mux, client)
-    {
-        // The readers of one build share its tree's text (tree_reply_text.rs). A `known` or
-        // `limit` request answers from its own reply (cmd_workspaces::list_workspaces).
-        cmd_workspaces::list_workspaces_text(mux, writer).map(ReplyData::Tree)
-    } else {
-        run_command(mux, client, cmd, writer, cancellation).map(ReplyData::Value)
-    };
+    let result =
+        if matches!(cmd, Command::ListWorkspaces { known: None, limit: None, after: None, .. })
+            && reads_the_built_tree(mux, client)
+        {
+            // The readers of one build share its tree's text (tree_reply_text.rs). A `known` or
+            // `limit` request answers from its own reply (cmd_workspaces::list_workspaces).
+            cmd_workspaces::list_workspaces_text(mux, writer).map(ReplyData::Tree)
+        } else {
+            run_command(mux, client, cmd, writer, cancellation).map(ReplyData::Value)
+        };
     let mut tree = None;
     let response = match result {
         Ok(reply) => Response {

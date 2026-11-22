@@ -2461,6 +2461,7 @@ class Tree:
     next: Union[int, MissingType] = field(default=MISSING)
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
+    rows: Union[str, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     total: Union[int, MissingType] = field(default=MISSING)
     tree_revision: Union[str, MissingType] = field(default=MISSING)
@@ -4113,6 +4114,7 @@ class ListWorkspacesRequest:
     after: Union[int, None, MissingType] = field(default=MISSING)
     known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    rows: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

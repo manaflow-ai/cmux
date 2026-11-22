@@ -16718,6 +16718,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("registry_id", std::move(encoded).value());
     }
+    if (value.rows) {
+        auto encoded = encode_value(*value.rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("rows", std::move(encoded).value());
+    }
     if (value.terminal_revision) {
         auto encoded = encode_value(*value.terminal_revision);
         if (!encoded) return std::move(encoded).error();
@@ -16776,6 +16781,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_registry_id);
         if (!decoded) return std::move(decoded).error();
         result.registry_id = std::move(decoded).value();
+    }
+    const Json* field_rows = value.find("rows");
+    if (field_rows) {
+        auto decoded = decode_value<std::string>(*field_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.rows = std::move(decoded).value();
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (field_terminal_revision) {
@@ -27160,6 +27171,11 @@ Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("limit", std::move(encoded).value());
     }
+    if (!value.rows.is_absent()) {
+        auto encoded = encode_value(value.rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("rows", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -27195,6 +27211,16 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
             auto decoded = decode_value<std::uint64_t>(*field_limit);
             if (!decoded) return std::move(decoded).error();
             result.limit = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_rows = value.find("rows");
+    if (field_rows) {
+        if (field_rows->is_null()) {
+            result.rows = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_rows);
+            if (!decoded) return std::move(decoded).error();
+            result.rows = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -47512,10 +47538,11 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand132FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand148FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand148FieldRequirements{{
     {"after", 12U, "list-workspaces-page-v1"},
     {"known", 12U, "list-workspaces-known-v1"},
     {"limit", 12U, "list-workspaces-limit-v1"},
+    {"rows", 12U, "list-workspaces-slim-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand161FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},

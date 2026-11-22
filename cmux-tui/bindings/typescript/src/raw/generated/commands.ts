@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR 4bb7d5fd7c913eed5728db5af82bd1e55077538fa6525c602a40c931ac866caf. */
 
 
 import type * as T from "./types.js";
@@ -1542,8 +1542,10 @@ export type ListWorkspaceGroupsResult = T.JsonValue;
 /** Protocol v5; authority: control. */
 export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
+  "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
+  "rows"?: (string) | null;
 }
 export type ListWorkspacesResult = T.Tree;
 

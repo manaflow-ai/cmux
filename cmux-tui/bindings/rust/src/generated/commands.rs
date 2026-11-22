@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095.
+// cmux-tui mux protocol 12, IR 4bb7d5fd7c913eed5728db5af82bd1e55077538fa6525c602a40c931ac866caf.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2208,9 +2208,13 @@ pub type ListWorkspaceGroupsResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ListWorkspacesRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub known: Optional<T::ListWorkspacesKnown>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -5194,6 +5198,10 @@ impl CmuxClient {
     }
 
     pub fn list_workspaces(&mut self, request: ListWorkspacesRequest) -> Result<ListWorkspacesResult> {
+        if !request.after.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-page-v1")?;
+        }
         if !request.known.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-known-v1")?;
@@ -5201,6 +5209,10 @@ impl CmuxClient {
         if !request.limit.is_missing() {
             self.require_protocol_field("list-workspaces", 12)?;
             self.require_capability_field("list-workspaces", "list-workspaces-limit-v1")?;
+        }
+        if !request.rows.is_missing() {
+            self.require_protocol_field("list-workspaces", 12)?;
+            self.require_capability_field("list-workspaces", "list-workspaces-slim-v1")?;
         }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }

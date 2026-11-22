@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095";
+pub const ir_sha256 = "4bb7d5fd7c913eed5728db5af82bd1e55077538fa6525c602a40c931ac866caf";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3547,8 +3547,10 @@ pub const TerminalResumeCommandResult = struct {
 
 pub const Tree = struct {
     generation: ?[]const u8 = null,
+    next: ?u64 = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
+    rows: ?[]const u8 = null,
     terminal_revision: ?u64 = null,
     total: ?u64 = null,
     tree_revision: ?[]const u8 = null,
@@ -3558,8 +3560,10 @@ pub const Tree = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "generation",
+        "next",
         "pane_revision",
         "registry_id",
+        "rows",
         "terminal_revision",
         "total",
         "tree_revision",
@@ -7252,8 +7256,10 @@ pub fn listWorkspaceGroups(client: anytype, request: ListWorkspaceGroupsRequest)
 }
 
 pub const ListWorkspacesRequest = struct {
+    after: wire.Field(u64) = .absent,
     known: wire.Field(ListWorkspacesKnown) = .absent,
     limit: wire.Field(u64) = .absent,
+    rows: wire.Field([]const u8) = .absent,
 };
 
 pub const ListWorkspacesResult = Tree;
@@ -7267,8 +7273,10 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
                 .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
                 .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+                .{ .name = "rows", .since = 12, .capability = "list-workspaces-slim-v1" },
             },
         },
         request,

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095. */
+/* cmux-tui mux protocol 12, IR 4bb7d5fd7c913eed5728db5af82bd1e55077538fa6525c602a40c931ac866caf. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a28892b8ded1c742cc506178615cfc80feb9c473a8835f5666d3efca73936095" as const;
+export const SDK_IR_SHA256 = "4bb7d5fd7c913eed5728db5af82bd1e55077538fa6525c602a40c931ac866caf" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1769,6 +1769,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "after": {
+        "since": 12,
+        "capability": "list-workspaces-page-v1"
+      },
       "known": {
         "since": 12,
         "capability": "list-workspaces-known-v1"
@@ -1776,6 +1780,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "rows": {
+        "since": 12,
+        "capability": "list-workspaces-slim-v1"
       }
     },
     "stream": null,
@@ -15888,6 +15896,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "next": {
+        "capability": "list-workspaces-page-v1",
+        "constraints": [
+          "With limit: the after of the next page, on every page that is not the last."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -15902,6 +15923,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "optional",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "rows": {
+        "capability": "list-workspaces-slim-v1",
+        "constraints": [
+          "\"slim\" when the request asked for slim rows: the rows are slim, the page is not a tree to hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -23433,6 +23467,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "after": {
+          "capability": "list-workspaces-page-v1",
+          "constraints": [
+            "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "known": {
           "capability": "list-workspaces-known-v1",
           "constraints": [
@@ -23450,7 +23498,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "limit": {
           "capability": "list-workspaces-limit-v1",
           "constraints": [
-            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+            "Only the first limit workspaces in sidebar order, with total, and at most 64 KiB of rows (at least one row). A reply with fewer than total workspaces has no tree_revision."
           ],
           "default": null,
           "nullable": true,
@@ -23459,6 +23507,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "rows": {
+          "capability": "list-workspaces-slim-v1",
+          "constraints": [
+            "With limit: \"slim\" for slim rows, only what a phone's Home and Workspaces rows draw (no layouts, ids or tab details; no null fields). A slim page carries rows: \"slim\" and never tree_revision. Ignored without limit or for any other value."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
