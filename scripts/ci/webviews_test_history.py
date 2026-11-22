@@ -413,6 +413,10 @@ def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     out.mkdir(parents=True, exist_ok=True)
     for shard in (range(1, count + 1) if isinstance(count, int) else count):
         here = shards / HEAD_ARTIFACT.format(shard)
+        # One shard ran: actions/download-artifact puts a pattern's only match straight into SHARDS, with no folder
+        # of the artifact's name (run 44989487266: "Starting download of artifact to: .../head-shards").
+        if not here.is_dir() and not isinstance(count, int) and len(count) == 1 and (shards / HEAD_RESULTS).is_file():
+            here = shards
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
         try:
