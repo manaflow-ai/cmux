@@ -8,7 +8,7 @@ import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { RevealedMarkdown } from "./RevealedMarkdown";
-import { revealFrames, TurnEndCut } from "./revealedMarkdownModel";
+import { revealFrames } from "./revealedMarkdownModel";
 import { StreamReveal, wordEdge } from "../streamReveal";
 import { settleReact } from "../../../../test/support/domTeardown";
 
@@ -442,33 +442,4 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge(url, url.length, false, 0)).toBe(url.length);
   // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
   expect(wordEdge(url, 60, false, 53)).toBe(60);
-});
-
-test("the turn's end shows the rest of a reply still revealing in the same commit", () => {
-  // cmux#50299: the reply's last lines revealed over the frames after the turn's end grew it under the
-  // fold that had just settled the turn. The render that ends the turn (TurnEndCut) shows them all.
-  root = createRoot(container);
-  const text = "The answer has a first sentence. And a second one that is still waiting to show.";
-  const draw = (streaming: boolean, cut: number, body = text) =>
-    act(() => {
-      root!.render(
-        <TurnEndCut.Provider value={cut}>
-          <RevealedMarkdown text={body} streaming={streaming} artifactIdentity="assistant-1" />
-        </TurnEndCut.Provider>,
-      );
-    });
-  draw(true, 0, "");
-  draw(true, 0);
-  frames(0, 3);
-  draw(false, 0);
-  const paced = frames(48, 1)[0]!;
-  expect(paced.length).toBeLessThan(text.length);
-  // The turn ends: all of it, in this commit, drawn as a finished reply (the fold opens its new lines).
-  draw(false, 1);
-  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
-  expect(frames(64, 1)[0]).toBe(text);
-  // A later turn's end changes nothing of a reply that already shows whole.
-  frames(64, 30);
-  draw(false, 2);
-  expect(container.querySelector(".cv-md")?.textContent).toBe(text);
 });
