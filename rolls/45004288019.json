@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45004288019",
+  "recorded_at": "2026-11-22T09:00:06Z",
+  "reason": "image inputs changed in f3f617ffd98252935c94454214e4a679e22ebb0e..aaeeac0b06ceed388f23519c8ac056d995d6cea0",
+  "dry_run": false,
+  "cmux_tui": "45ed727f30d1a623ba43d98d634b84b838a713db",
+  "fixes": [
+    {
+      "sha": "aaeeac0b06ceed388f23519c8ac056d995d6cea0",
+      "mergedAt": "2026-11-22T08:45:21+00:00",
+      "subject": "cmux-rd 0.2.8; the lock may trail the crate by one pendingRelease (#49894)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-22T09:00:06Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
