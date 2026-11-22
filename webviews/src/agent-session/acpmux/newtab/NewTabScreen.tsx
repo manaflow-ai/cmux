@@ -53,7 +53,7 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import { shownResumeReference } from "../resumeCommand";
@@ -356,7 +356,7 @@ type Props = NewTabScreenActions & {
   dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
