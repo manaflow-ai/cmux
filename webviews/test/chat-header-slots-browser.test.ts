@@ -48,16 +48,7 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
   const INSET = 40;
   const STRIP = 28;
 
-  const ITEMS = [
-    "summary",
-    "liveTree",
-    "presence",
-    "warning",
-    "worktree",
-    "pullRequest",
-    "needsYou",
-    "longTitle",
-  ] as const;
+  const ITEMS = ["summary", "liveTree", "presence", "warning", "worktree", "pullRequest", "needsYou", "longTitle"] as const;
   type Item = (typeof ITEMS)[number];
   const COMBOS: Item[][] = [[], ...ITEMS.map((item) => [item]), [...ITEMS]];
   const comboName = (items: readonly Item[]) =>
@@ -122,8 +113,6 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       case "_acpmux/watch":
         return { result: { sessions: [...chats.keys()].map(sessionFor) } };
       case "_acpmux/attach":
-        // A chat whose open fails: the header says so (a warning status, model.ts paneHeader).
-        if (has(id, "warning")) return { error: { code: -32000, message: "attach refused" } };
         return {
           result: {
             session: sessionFor(id),
@@ -135,6 +124,10 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
           },
         };
       case "_acpmux/events":
+        // A warning chat: acpmux dropped its events (`_acpmux/lagged`, sent after its attach) and every read of them
+        // fails, so once the page's retries run out (direct.ts readMissedAfterLag, ~16 s) the chat's connection is
+        // "failed" and the header says so (model.ts paneHeader), and stays so.
+        if (has(id, "warning")) return { error: { code: -32000, message: "events unavailable" } };
         return { result: { events: [], hasMore: false, lastSeq: 4 } };
       case "_acpmux/info":
         return { result: { liveTree: { available: true, lanes: [{ name: "unit", verdict: "passed" }] } } };
@@ -164,8 +157,17 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { sessionId?: unknown } };
-          if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, message.params) }));
+          if (message.id === undefined) return;
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, message.params) }));
+          const id = String(message.params?.sessionId ?? "");
+          if (message.method === "_acpmux/attach" && has(id, "warning"))
+            setTimeout(
+              () =>
+                ws.send(
+                  JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [id], dropped: 3 } }),
+                ),
+              200,
+            );
         },
       },
     });
@@ -215,11 +217,9 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: WINDOW, height: 640 } });
     await installPaintedFrames(page);
     // The app's side: the page's dev host (dev-host/host.ts, installed for `#endpoint=`) answers the page's calls;
-    // this wraps it so the worktree pill reads the folder's git status (`git.status`), and a warning chat has a tail
-    // the app kept (`chat.tail.get`), drawn while its attach is out, so the attach's failure fails the open on screen
-    // (direct.ts: "failed", the header's warning, model.ts paneHeader).
+    // this wraps it so the worktree pill reads the folder's git status (`git.status`).
     await page.addInitScript(
-      ({ worktree, tail }) => {
+      ({ worktree }) => {
         const posts: string[] = [];
         (window as unknown as { __posts: string[] }).__posts = posts;
         type Handler = { postMessage(message: unknown): Promise<unknown> };
@@ -233,7 +233,6 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
                 worktree: { main_root: "/home/dev/uploader-main" },
               },
             };
-          if (method === "chat.tail.get" && tail) return { value: tail };
           return undefined;
         };
         const wrap = (inner: Handler, envelope: (message: unknown) => { id?: unknown; method?: string }): Handler => ({
@@ -259,35 +258,25 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         // The page host's envelopes (`{t: "call", id, op: "cmux.agent.METHOD"}`) and the older bridge's requests.
         slot("cmuxPage", (message) => {
           const call = message as { t?: string; id?: unknown; op?: string };
-          return call?.t === "call" ? { id: call.id, method: String(call.op ?? "").replace(/^cmux\.agent\./, "") } : {};
+          return call?.t === "call"
+            ? { id: call.id, method: String(call.op ?? "").replace(/^cmux\.agent\./, "") }
+            : {};
         });
         slot("agentSession", (message) => ({ method: (message as { method?: string })?.method }));
         (window as unknown as { webkit: unknown }).webkit = { messageHandlers: handlers };
       },
       {
         worktree: items.includes("worktree"),
-        tail: items.includes("warning")
-          ? { events: eventsFor(chat), summary: sessionFor(chat), historyExhausted: true }
-          : null,
       },
     );
     await page.goto(url(chat));
     try {
-      if (items.includes("warning")) await page.locator(".acpmux-status").first().waitFor({ state: "attached" });
-      else await page.getByText(REPLY).waitFor();
+      await page.getByText(REPLY).waitFor();
+      if (items.includes("warning"))
+        await page.locator(".acpmux-status").first().waitFor({ state: "attached", timeout: 45_000 });
     } catch (error) {
-      console.log(
-        `chat-header-slots ${comboName(items)}: posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
-      );
-      console.log(
-        (
-          await page
-            .locator(".acpmux-header")
-            .first()
-            .evaluate((node) => node.outerHTML)
-            .catch(() => "no header")
-        ).slice(0, 4000),
-      );
+      console.log(`chat-header-slots ${comboName(items)}: posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`);
+      console.log((await page.locator(".acpmux-header").first().evaluate((node) => node.outerHTML).catch(() => "no header")).slice(0, 4000));
       throw error;
     }
     await page.waitForFunction(
@@ -317,14 +306,7 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
           });
         if (items.includes("needsYou"))
           bridge.applyAttentionTabs([
-            {
-              kind: "tab",
-              tabId: "t1",
-              reason: "Approve the deploy",
-              workspaceTitle: "uploader",
-              tabTitle: "deploy",
-              atMs: 1,
-            },
+            { kind: "tab", tabId: "t1", reason: "Approve the deploy", workspaceTitle: "uploader", tabTitle: "deploy", atMs: 1 },
           ]);
         const host = {
           need: 0,
@@ -371,17 +353,8 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         .first()
         .waitFor({ state: "attached" })
         .catch(async (error: unknown) => {
-          console.log(
-            `chat-header-slots ${comboName(items)}: no ${selector}; posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`,
-          );
-          console.log(
-            (
-              await page
-                .locator(".acpmux-header")
-                .first()
-                .evaluate((node) => node.outerHTML)
-            ).slice(0, 4000),
-          );
+          console.log(`chat-header-slots ${comboName(items)}: no ${selector}; posts ${await page.evaluate(() => (window as unknown as { __posts: string[] }).__posts.join(","))}`);
+          console.log((await page.locator(".acpmux-header").first().evaluate((node) => node.outerHTML)).slice(0, 4000));
           throw error;
         });
     await settle(page);
@@ -433,10 +406,9 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
         });
       const trailing = named([
         ["panel", header.querySelector(".acpmux-header-panel-toggle")],
-        ...[...header.querySelectorAll("[data-quick-action]")].map((element): [string, Element] => [
-          `quick:${element.getAttribute("data-quick-action")}`,
-          element,
-        ]),
+        ...[...header.querySelectorAll("[data-quick-action]")].map(
+          (element): [string, Element] => [`quick:${element.getAttribute("data-quick-action")}`, element],
+        ),
         ["more", header.querySelector(".acpmux-header-more")],
       ]);
       const items = named([
@@ -547,9 +519,7 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
           expect(base!.trailing.length).toBeGreaterThan(0);
           const place = (layout: Layout, panel: boolean) => ({
             shared: layout.shared,
-            tools: layout.trailing
-              .filter(([name]) => panel || name !== "panel")
-              .map(([name, b]) => [name, ...round(b)]),
+            tools: layout.trailing.filter(([name]) => panel || name !== "panel").map(([name, b]) => [name, ...round(b)]),
           });
           const moved: string[] = [];
           for (const [name, layout] of at) {
@@ -562,9 +532,7 @@ await requireBrowserLane("chat-header-slots-browser.test.ts", async () => {
             if (JSON.stringify(got) !== JSON.stringify(want))
               moved.push(`${name}: ${JSON.stringify(got)} vs ${JSON.stringify(want)}`);
           }
-          console.log(
-            `chat-header-slots ${mode} ${split} ${width}px: ${moved.length} of ${at.size - 1} combinations moved the tools`,
-          );
+          console.log(`chat-header-slots ${mode} ${split} ${width}px: ${moved.length} of ${at.size - 1} combinations moved the tools`);
           expect(moved).toEqual([]);
         });
     });
