@@ -121,6 +121,7 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
+        documentStarted()
         if let chromiumSession {
             chromiumSession.questionKeys?.invalidate()
             navigateChromium(chromiumSession) { $0.load(url) }
@@ -133,6 +134,9 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
+        // crash this reload answers, or the old document's silence, as a page to repair.
+        documentStarted()
         chromiumSession?.questionKeys?.invalidate()
         if let chromiumSession { navigateChromium(chromiumSession) { $0.reload() } } else { webView.reload() }
     }
