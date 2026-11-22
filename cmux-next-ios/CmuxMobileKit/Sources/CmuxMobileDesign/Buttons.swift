@@ -67,7 +67,7 @@ public struct SecondaryCapsule: View {
                 .frame(height: size.height)
                 .contentShape(.capsule)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressGlass)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
@@ -90,7 +90,7 @@ public struct TextCTA: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
     }
 }
 
@@ -146,13 +146,11 @@ public struct CmuxMobileCapsuleStyle: ButtonStyle {
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, size.fullWidth ? 12 : 8)
             .frame(minHeight: size.height)
-            .background(background, in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims, shrinks or changes weight.
+            .cmuxMobilePressFill(pressed, rest: background, in: Capsule())
             .contentShape(.capsule)
             // Disabled primary: the same capsule at 40%, still shaped.
             .opacity(kind == .primary && !isEnabled ? 0.4 : 1)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 
     private var foreground: AnyShapeStyle {

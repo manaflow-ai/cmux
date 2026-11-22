@@ -10,10 +10,11 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
+import { COMPOSER_EDITOR } from "./composerSelectors";
 
 const PROMPT = "Run the sidebar tests and fix what fails";
 const TYPED = "Also check the nightly once that is done";
-const FIELD = ".acpmux-composer-prompt [contenteditable='true']";
+const FIELD = COMPOSER_EDITOR;
 
 type Frame = Window & {
   cmuxAcpmuxDebug?: { runMode(mode?: string): { runMode?: string | null } };

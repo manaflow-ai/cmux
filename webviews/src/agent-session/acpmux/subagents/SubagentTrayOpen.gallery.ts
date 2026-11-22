@@ -11,6 +11,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (task: string, minutes: number, action: string): Subagent => ({
   id: `agent-${task.toLowerCase().replaceAll(/[^a-z]+/g, "-")}`,
@@ -86,7 +87,7 @@ const opened = async (ctx: PlayContext) => {
 const expanded = async (ctx: PlayContext) => {
   await folded(ctx);
   await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
 
 export default agentPaneEntry({

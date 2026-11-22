@@ -391,6 +391,14 @@ impl Store for ForkView {
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         self.inner.kept_parked(id)
     }
+    /// The held tool output bodies of a chat (`store/deferred.rs`): the store's own, beside its
+    /// log, a fork's beside its own.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_held(id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.inner.kept_held(id)
+    }
     /// A fork's lines are its chat's history lines through the seq it was forked through, then
     /// its own, as `scan` shows them. A chunk ends where the history does.
     fn read_log(
@@ -608,6 +616,36 @@ impl Store for ForkView {
         }
         self.inner.scan_kinds(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
+    /// `scan_kinds`'s join, `keep` shown the heads of both sides: the parent's past the fork
+    /// point and the fork's own before it are shown and never visited, which only keeps more.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_kinds_keyed(id, kinds, keep, visit);
+        };
+        let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
+        let mut going = true;
+        if !shown.is_empty() {
+            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+                if rec.seq > r.through_seq {
+                    return false;
+                }
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going {
+            return Ok(());
+        }
+        self.inner
+            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
     fn scan_kinds_strict(
         &self,
         id: &str,
@@ -680,6 +718,34 @@ impl Store for ForkView {
         }
         self.inner.scan_heads(id, &mut |head| head.seq <= r.through_seq || visit(head))
     }
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else { return self.inner.search_records(id, visit) };
+        self.search_records(&r.session, &mut |rec| {
+            if rec.seq <= r.through_seq {
+                visit(rec);
+            }
+        })?;
+        self.inner.search_records(id, &mut |rec| {
+            if rec.seq > r.through_seq {
+                visit(rec);
+            }
+        })
+    }
+
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        // A commit to cold storage or a fork's materialization cannot cross the read.
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.conversation_entries(id, visit);
+        }
+        crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+    }
+
     fn text_entries(
         &self,
         id: &str,

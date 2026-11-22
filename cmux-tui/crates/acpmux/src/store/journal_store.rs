@@ -846,6 +846,10 @@ impl Store for JournalStore {
     }
     // The local store reads these from its kind and text copies; the trait's defaults would
     // scan the log (`journal_store_forwards_every_local_store_override`).
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        self.inner.fenced(|| self.inner.local.search_records(id, visit))
+    }
+
     fn text_entries(
         &self,
         id: &str,
@@ -871,6 +875,15 @@ impl Store for JournalStore {
     ) -> Result<()> {
         self.inner
             .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
+    }
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
@@ -979,6 +992,18 @@ impl Store for JournalStore {
     }
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         Store::kept_parked(&self.inner.local, id)
+    }
+    /// Beside the log, not in the journal, as `keep_parked`: a held body takes no seq, and the
+    /// journal is what the deferral keeps it out of (`store/deferred.rs`). Without the folders'
+    /// lock, which a checkpoint holds across the sync of another chat's `session.json`: this is
+    /// on a chat's append. It needs none: the hub writes no body once its chat is purged (under
+    /// the chat's append lock, which the purge waits out before the delete), the local store
+    /// never makes a chat's folder for one, and a sealed store refuses it.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        Store::keep_held(&self.inner.local, id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Store::kept_held(&self.inner.local, id)
     }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or

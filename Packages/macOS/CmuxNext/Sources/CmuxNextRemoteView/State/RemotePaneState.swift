@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// View or control (the toolbar toggle). Control sends input; view only
@@ -41,8 +42,8 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     /// The reconnect has run for ``reconnectNoticeDelay``: the "Reconnecting" card shows now.
     public var reconnectNoticeDue = false
     /// How long a reconnect over the last frame stays silent (the conn-quiet bound for an
-    /// open view): a reconnect, Take over or Hand back usually lands well under it.
-    public static let reconnectNoticeDelay: Duration = .seconds(10)
+    /// open view, ``QuietHold/connectionDelay``): a reconnect, Take over or Hand back usually lands well under it.
+    public static let reconnectNoticeDelay: Duration = QuietHold.connectionDelay
     /// The toggle, or Take over / Hand back.
     public var modeControl = RemoteModeControl.toggle
     /// Whether the path counts as high latency, held so one sample does not flip it.

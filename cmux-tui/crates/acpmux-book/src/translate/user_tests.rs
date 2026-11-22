@@ -102,6 +102,9 @@ fn each_way_a_prompt_sent_now_never_runs_takes_the_mark_back() {
         ("queue_removed", mux(5, "queue_removed", r#"{"promptId":"q"}"#)),
         ("queue_declined", mux(5, "queue_declined", r#"{"promptId":"q"}"#)),
         ("prompt_refused", mux(5, "prompt_refused", r#"{"promptId":"q"}"#)),
+        // An older writer's withdrawals.
+        ("retracted", mux(5, "retracted", r#"{"promptId":"q"}"#)),
+        ("removed", mux(5, "removed", r#"{"promptId":"q"}"#)),
         ("another prompt first", prompt(5, "r")),
     ] {
         let mut state = State::default();
@@ -495,4 +498,101 @@ fn each_sender_cap_cuts_and_counts() {
     let ops = run(&mut state, &[mux(1, "user_message", said), mux(2, "sender_claim", CLAIM)]);
     assert!(!user_row(&ops, "p").contains_key("sentFrom"));
     assert!(ops.iter().all(|op| !matches!(op.change, Change::Patch(_))));
+}
+
+#[test]
+fn every_held_state_full_at_once_fits_the_translators_segment() {
+    // A turn ends `continued` under a prompt sent now, and that notice is held whole.
+    let mut state = State::default();
+    let mut lines = sent_now("cancelled");
+    lines[3] = mux(
+        4,
+        "turn_result",
+        &format!(r#"{{"turnId":"p","status":"cancelled","errorText":"{}"}}"#, "e".repeat(5000)),
+    );
+    let long = |c: &str, n: usize| c.repeat(n);
+    // The settled prompt a claim may still patch, at its caps.
+    lines[0] = mux(
+        1,
+        "user_message",
+        &format!(
+            r#"{{"promptId":"p","turnId":"p","text":"q","_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
+            long("n", 300),
+            long("h", 80)
+        ),
+    );
+    let mut seq = 10;
+    let mut next = || {
+        seq += 1;
+        seq
+    };
+    // Steers waiting, each at its caps, past the 32 rows and 12 KB they may hold.
+    for n in 0..40 {
+        let said = format!(
+            r#"{{"promptId":"s{n:02}{}","turnId":"p","text":"also","steer":true,"_meta":{{"provenance":{{"kind":"session_message","fromShortName":"{}","fromHarness":"{}"}}}}}}"#,
+            long("i", 253),
+            long("n", 300),
+            long("h", 80)
+        );
+        lines.push(mux(next(), "user_message", &said));
+    }
+    // Asks open, each at its caps, past the 8 KB of fields they may hold (32 small ones fit).
+    for n in 0..40 {
+        let ask = format!(
+            r#"{{"permissionId":"a{n:02}{}","groupId":"{}","turnId":"{}","request":{{"toolCall":{{"title":"{}"}},"options":[]}}}}"#,
+            long("i", 253),
+            long("g", 256),
+            long("t", 256),
+            long("x", 200)
+        );
+        lines.push(mux(next(), "permission_request", &ask));
+    }
+    // Claims held for prompts not yet echoed, each at its caps, past the 16 and 4 KB they may hold.
+    for n in 0..20 {
+        let claim = format!(
+            r#"{{"promptId":"c{n}","claimed":{{"harness":"claude-code","sessionId":"{}","hostSessionId":"{}"}},"checked":{{"harness":"claude-code"}}}}"#,
+            long("中", 128),
+            long("中", 128)
+        );
+        lines.push(mux(next(), "sender_claim", &claim));
+    }
+    run(&mut state, &lines);
+    // The cards at theirs, after every other line (decisions 253, 254).
+    cards_tests::run(&mut state, &cards_tests::full_card_lines(1_000_000));
+    assert!(!state.cards.is_empty());
+    assert!(state.card_bytes() <= cards::MAX_CARD_BYTES, "{}", state.card_bytes());
+    assert_eq!(state.line_failures(), (0, 0), "every line at its caps is read");
+    assert!(state.continued.is_some(), "the held notice");
+    assert!(state.claimable.is_some(), "the row a claim may patch");
+    let asked: usize = state.asks.values().map(|ask| fields_bytes(&ask.row)).sum();
+    assert!(!state.asks.is_empty() && state.asks.len() <= 32 && asked <= 8 * 1024, "{asked}");
+    assert!(!state.prompts.is_empty() && state.held_steer_bytes() <= MAX_HELD_STEER_BYTES);
+    let claimed: usize = state.claims.iter().map(|(_, from)| from.len()).sum();
+    assert!(!state.claims.is_empty() && claimed <= MAX_HELD_CLAIM_BYTES, "{claimed}");
+    let counters = state.counters();
+    assert!(counters.forced_asks > 0 && counters.forced_steers > 0 && counters.unplaced_claims > 0);
+    let len = |name: &str, bytes: usize| println!("part {name}: {bytes} bytes");
+    len("whole", checkpoint::encoded_len(&(VERSION, &state)));
+    len("prompts", checkpoint::encoded_len(&state.prompts));
+    len("asks", checkpoint::encoded_len(&state.asks));
+    len("claims", checkpoint::encoded_len(&state.claims));
+    len("continued", checkpoint::encoded_len(&state.continued));
+    len("claimable", checkpoint::encoded_len(&state.claimable));
+    len("cards", checkpoint::encoded_len(&state.cards));
+    for kind in cards::Card::kinds(&state.cards) {
+        len(&kind.0, kind.1);
+    }
+    let saved = state.checkpoint().expect("every held state at its bound fits");
+    println!(
+        "full held state: {} of {MAX_TRANSLATOR_BYTES} bytes ({} cards, {} bytes of them); {} left for the live turn",
+        saved.translator.len(),
+        state.cards.len(),
+        state.card_bytes(),
+        MAX_TRANSLATOR_BYTES - saved.translator.len()
+    );
+    // And comes back whole.
+    let restored = saved.restore().unwrap();
+    assert_eq!(restored.asks.len(), state.asks.len());
+    assert!(restored.continued.is_some());
+    assert_eq!(restored.cards, state.cards);
 }
