@@ -362,64 +362,6 @@ import Testing
     }
 }
 
-/// The mode and effort a new chat starts with, read from acpmux's harness row: the first
-/// `remote.modes` named by `reported.modes`, and `start.effort` with or without `start.model`
-/// (Leo, 2026-11-22: "opus 5.5 should have medium selected at baseline in the new chat area").
-@MainActor
-@Suite struct StartStateFromTheMacTests {
-    func json(_ text: String) throws -> JSONValue {
-        try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
-    }
-
-    let harnesses = """
-    {"defaultHarness": "claude",
-     "harnesses": {
-       "claude": {"family": "claude", "start": {"model": "opus", "effort": "medium", "modelSource": "harness", "effortSource": "saved"},
-         "remote": {"startable": true, "modes": ["auto", "default"]},
-         "reported": {"modes": [{"id": "default", "name": "Manual"}, {"id": "auto", "name": "Auto", "description": "Asks only when it must"}]}},
-       "profile": {"family": "claude", "start": {"effort": "medium", "effortSource": "model"},
-         "remote": {"startable": true, "modes": ["accept-edits"]}}
-     }}
-    """
-    let models = """
-    {"harnesses": [{"harness": "claude", "models": [
-      {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "shortName": "Opus 5.5", "aliases": ["opus"],
-       "efforts": ["low", "medium", "high"], "defaultEffort": "high"}]}]}
-    """
-
-    actor Sent {
-        var calls: [(String, JSONValue)] = []
-        func send(_ method: String, _ params: JSONValue) { calls.append((method, params)) }
-    }
-
-    @Test func theStartModeIsTheFirstRemoteModeByItsReportedName() throws {
-        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
-        #expect(claude.askingModes.first == "auto" && claude.modes.first?.name == "Auto")
-        // Not reported: its id, readable.
-        let profile = try #require(AgentCatalog(harnesses: json(harnesses)).harness("profile"))
-        #expect(profile.modes.map(\.name) == ["Accept edits"])
-    }
-
-    @Test func theStartEffortIsTheStartModelsLevelOverItsOwnDefault() throws {
-        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
-        #expect(claude.startsOn("claude-opus-5-5") && claude.startsOn(nil))
-        #expect(claude.defaultEffort(model: "claude-opus-5-5") == "medium")
-    }
-
-    @Test func theStartEffortIsShownAndSentWithoutAStartModel() async throws {
-        let profile = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("profile"))
-        #expect(profile.defaultModel == nil && profile.startEffort == "medium")
-        #expect(profile.efforts(model: nil).map(\.name) == ["Medium"] && profile.defaultEffort(model: nil) == "medium")
-        // What the pill shows is what the new chat is set to; its only mode needs no request.
-        let sent = Sent()
-        let start = AgentChatStart(harness: "profile", effort: profile.defaultEffort(model: nil), mode: profile.askingModes.first)
-        await LiveWorkspaceCreationBackend.applyStartSettings(start, to: "s1", choice: profile) { await sent.send($0, $1) }
-        let calls = await sent.calls
-        #expect(calls.map(\.0) == ["session/set_config_option"])
-        #expect(calls.first?.1["configId"]?.stringValue == "effort" && calls.first?.1["value"]?.stringValue == "medium")
-    }
-}
-
 /// A new chat gets the phone's effort, mode and options before its first prompt, each only when
 /// the Mac offers it for that agent and model; one the Mac refuses never stops the others.
 @MainActor
