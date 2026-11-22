@@ -58,9 +58,16 @@ pub struct Scenario {
     /// A link written out as a `cmux-fault` profile; replaces the spec's `link`.
     #[serde(default)]
     pub link: Option<LinkProfile>,
-    /// The full-screen TUI the Mac runs (`projection` only).
+    /// The full-screen TUI the Mac runs. On `terminal` its redraws go as PTY bytes, the way a
+    /// phone without Agent CLI Screen Changes gets them (the default); on `projection` as
+    /// hybrid/lean frames.
     #[serde(default)]
     pub tui: Option<Tui>,
+    /// `terminal` with `[tui]` only: `output` at most once per this many ms (`attach-output-coalesce-v1`: the
+    /// first bytes after idle at once, the rest at the interval's end); `None` is one event per
+    /// redraw, what a phone that declares nothing gets.
+    #[serde(default)]
+    pub coalesce_ms: Option<u64>,
     #[serde(default, rename = "event")]
     pub events: Vec<Event>,
     #[serde(default, rename = "check")]
@@ -275,7 +282,23 @@ impl Scenario {
         Ok(scenario)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    /// `relay-30`: the relayed hop's link as `turn-path-reset.toml` writes it (cmux#50916, as
+    /// relayed: 24.5 ms p50 / 27.7 ms p95 echo), without its resets. Any other name is `None`: a
+    /// builtin `cmux-fault` profile the spec's `link=` names (`lan`, `lte`, `none`).
+    pub fn named_link(name: &str) -> Result<Option<LinkProfile>, String> {
+        if name != "relay-30" {
+            return Ok(None);
+        }
+        toml::from_str(
+            "name = \"relay-30\"\nversion = 1\ndown_kbit = 12000\nup_kbit = 12000\nrtt_ms = 21\n\
+         jitter_ms = 4\nsource = \"cmux#50916 relay-30, as relayed (turn-path-reset.toml)\"\n",
+        )
+        .map(Some)
+        .map_err(|error| format!("relay-30: {error}"))
+    }
+
+    /// The checks `load` runs; a caller that changes a loaded scenario runs them again.
+    pub fn validate(&self) -> Result<(), String> {
         let name_ok = !self.name.is_empty()
             && self.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
         if !name_ok {
@@ -310,15 +333,15 @@ impl Scenario {
         }
         match (self.path, &self.tui) {
             (PathKind::Projection, None) => return Err("path = \"projection\" needs [tui]".into()),
-            (PathKind::Terminal, Some(_)) => {
-                return Err("[tui] runs on path = \"projection\"".into());
+            (PathKind::Terminal, None) if self.coalesce_ms.is_some() => {
+                return Err("coalesce_ms needs [tui]".into());
             }
             _ => {}
         }
         for event in &self.events {
             let terminal_only = !matches!(event, Event::Scroll { .. } | Event::Echo { .. });
-            if self.path == PathKind::Projection && terminal_only {
-                return Err(format!("{event:?}: not on path = \"projection\" (scroll, echo only)"));
+            if self.tui.is_some() && terminal_only {
+                return Err(format!("{event:?}: not with [tui] (scroll, echo only)"));
             }
             match event {
                 Event::Pause { ms: 0, .. } => return Err("pause: ms must be above 0".into()),
@@ -890,6 +913,7 @@ duress = "heavy"
             "resume-after-1s",
             "turn-path-reset",
             "tui-scroll-lag",
+            "tui-scroll-lag-projection",
             "keyboard-open-close",
             "blank-favicons-previews",
             "theme-wallpaper-mismatch",

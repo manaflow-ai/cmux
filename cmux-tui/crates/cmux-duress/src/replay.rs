@@ -12,6 +12,10 @@
 //!   `LeanEncoder::encode`), the link (`cmux-fault` profile), and the phone's
 //!   (`LeanDecoder::decode`, `vt::frame_bytes` written and its frame built, then the next vsync,
 //!   which presents whatever the phone has applied by then), each stage its own metric.
+//! - `terminal` with `[tui]`: the same TUI as `projection`, sent as a phone without Agent CLI
+//!   Screen Changes (the default) gets it: each redraw's PTY bytes as an `output` event (base64
+//!   in JSON), or held to one per `coalesce_ms`; the link; the phone's JSON and base64 decode,
+//!   its terminal's parse of the bytes and its frame build, then the next vsync.
 //! - chat: when the spec has chat records, `claude::render` over all of them.
 //!
 //! Compute is wall time on the machine that runs it; delivery, pauses and stalls are the
@@ -58,6 +62,9 @@ pub fn run(scenario: &Scenario, inputs: &Inputs) -> Result<Run, String> {
     let knobs = scenario.knobs()?;
     let mut metrics = Metrics::default();
     match scenario.path {
+        PathKind::Terminal if scenario.tui.is_some() => {
+            tui_bytes_run(scenario, inputs, &mut metrics)?
+        }
         PathKind::Terminal => terminal_run(scenario, inputs, &mut metrics)?,
         PathKind::Projection => projection_run(scenario, inputs, &mut metrics)?,
     }
@@ -360,14 +367,27 @@ fn redraw(top: u64, len: u64, words: &[String], cols: u16, rows: u16) -> Vec<u8>
     out.into_bytes()
 }
 
-fn projection_run(
-    scenario: &Scenario,
-    inputs: &Inputs,
-    metrics: &mut Metrics,
-) -> Result<(), String> {
-    let tui = scenario.tui.as_ref().ok_or("projection needs [tui]")?;
-    let knobs = scenario.knobs()?;
-    let link = scenario.link_profile(&knobs)?;
+/// One redraw of the TUI: when the Mac's terminal gets it, whether a scroll input caused it,
+/// and its bytes.
+struct Redraw {
+    t: f64,
+    from_input: bool,
+    bytes: Vec<u8>,
+}
+
+/// What one write on the `terminal` TUI path is for: the TUI's own redraw, a scroll's redraw,
+/// or a typed key's echo (`origin`: when the phone sent the key).
+#[derive(Clone, Copy, PartialEq)]
+enum Write {
+    Tick,
+    Scroll,
+    Echo { origin: f64 },
+}
+
+/// The TUI's redraws, in time order: one per scroll input, and one per fps tick when the
+/// document grew.
+fn tui_redraws(scenario: &Scenario, inputs: &Inputs) -> Result<Vec<Redraw>, String> {
+    let tui = scenario.tui.as_ref().ok_or("this path needs [tui]")?;
     let (cols, rows) = (scenario.cols, scenario.rows);
     let view = u64::from(rows.saturating_sub(1)).max(1);
     let length_ms = (tui.seconds * 1000) as f64;
@@ -389,16 +409,8 @@ fn projection_run(
     let tick_ms = 1000.0 / tui.redraw_fps.max(1) as f64;
     let len_at = |t: f64| tui.doc_lines + (t * tui.append_lines_per_s as f64 / 1000.0) as u64;
 
-    let mut mac = terminal(cols, rows)?;
-    let mut phone = terminal(cols, rows)?;
-    let mut hybrid = HybridStream::new(cols, rows);
-    let mut encoder = LeanEncoder::new();
-    let mut decoder = LeanDecoder::new();
-    let mut wire = Link::new(link, Rng::new(knobs.seed ^ SCENARIO_SALT).split(20));
-    let mut phone_state = RenderState::new().map_err(vt_err)?;
-    let mut mac_state = RenderState::new().map_err(vt_err)?;
-    // Each side's CPU runs one frame at a time; the phone presents what it has at each vsync.
-    let (mut back, mut drawn_len, mut mac_free, mut phone_free) = (0u64, 0u64, 0.0f64, 0.0f64);
+    let mut out = Vec::new();
+    let (mut back, mut drawn_len) = (0u64, 0u64);
     let mut input = 0usize;
     let mut tick = 0.0f64;
     loop {
@@ -426,7 +438,50 @@ fn projection_run(
         }
         drawn_len = len;
         let top = len.saturating_sub(view + back);
-        mac.vt_write(&redraw(top, len, &words, cols, rows));
+        out.push(Redraw { t, from_input, bytes: redraw(top, len, &words, cols, rows) });
+    }
+    Ok(out)
+}
+
+/// When the phone sends a typed key, every `echo` event's tick.
+fn tui_keys(scenario: &Scenario) -> Vec<f64> {
+    let length_ms = scenario.tui.as_ref().map_or(0.0, |tui| (tui.seconds * 1000) as f64);
+    let mut keys: Vec<f64> = scenario
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Echo { every_ms, from_ms, until_ms } => {
+                Some(ticks(*every_ms, *from_ms, *until_ms, length_ms))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    keys.sort_by(f64::total_cmp);
+    keys
+}
+
+fn projection_run(
+    scenario: &Scenario,
+    inputs: &Inputs,
+    metrics: &mut Metrics,
+) -> Result<(), String> {
+    let knobs = scenario.knobs()?;
+    let link = scenario.link_profile(&knobs)?;
+    let (cols, rows) = (scenario.cols, scenario.rows);
+
+    let mut mac = terminal(cols, rows)?;
+    let mut phone = terminal(cols, rows)?;
+    let mut hybrid = HybridStream::new(cols, rows);
+    let mut encoder = LeanEncoder::new();
+    let mut decoder = LeanDecoder::new();
+    let mut wire = Link::new(link, Rng::new(knobs.seed ^ SCENARIO_SALT).split(20));
+    let mut phone_state = RenderState::new().map_err(vt_err)?;
+    let mut mac_state = RenderState::new().map_err(vt_err)?;
+    // Each side's CPU runs one frame at a time; the phone presents what it has at each vsync.
+    let (mut mac_free, mut phone_free) = (0.0f64, 0.0f64);
+    for Redraw { t, from_input, bytes } in tui_redraws(scenario, inputs)? {
+        mac.vt_write(&bytes);
 
         let start = t.max(mac_free);
         let started = Instant::now();
@@ -474,6 +529,162 @@ fn projection_run(
         metrics
             .count("paint_mismatch", if trim(&mac_text) == trim(&phone_text) { 0.0 } else { 1.0 });
     }
+    metrics.declare("scroll_to_paint_ms", "ms");
+    Ok(())
+}
+
+/// `terminal` with `[tui]`, Leo's default (Agent CLI Screen Changes off): no grid, diff or frame on the Mac. Each redraw's PTY bytes
+/// go as `output` events (base64 in JSON, as `send_attach_frame_backpressured` writes them),
+/// one per redraw, or held to one per `coalesce_ms` (`OutputCoalescer`: the first bytes after
+/// an idle interval at once, the rest at the interval's end). The phone decodes each event,
+/// writes its bytes into its terminal and builds its frame; it presents at the next vsync.
+fn tui_bytes_run(
+    scenario: &Scenario,
+    inputs: &Inputs,
+    metrics: &mut Metrics,
+) -> Result<(), String> {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+
+    let knobs = scenario.knobs()?;
+    let link = scenario.link_profile(&knobs)?;
+    let (cols, rows) = (scenario.cols, scenario.rows);
+    let interval = scenario.coalesce_ms.filter(|ms| *ms > 0).map(|ms| ms as f64);
+
+    let mut mac = terminal(cols, rows)?;
+    let mut phone = terminal(cols, rows)?;
+    let mut wire = Link::new(link.clone(), Rng::new(knobs.seed ^ SCENARIO_SALT).split(20));
+    let mut phone_state = RenderState::new().map_err(vt_err)?;
+    let (mut mac_free, mut phone_free) = (0.0f64, 0.0f64);
+    let (mut events, mut wire_total) = (0u64, 0u64);
+    let trim = |text: &str| text.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+
+    // One `output` event leaving the Mac's attach worker at `due` (virtual ms): `held` are the
+    // writes (when the Mac's terminal got each, and what it was for) the event carries.
+    let mut send = |due: f64,
+                    bytes: &[u8],
+                    held: &[(f64, Write)],
+                    mac: &mut Terminal,
+                    metrics: &mut Metrics|
+     -> Result<(), String> {
+        let start = due.max(mac_free);
+        let started = Instant::now();
+        let event = serde_json::json!({
+            "event": "output",
+            "surface": 1,
+            "data": STANDARD.encode(bytes),
+        })
+        .to_string();
+        let encode_ms = ms(started);
+        mac_free = start + encode_ms;
+        let sent = mac_free;
+        let arrived = wire.deliver((sent * 1000.0) as u64, event.len()) as f64 / 1000.0;
+        let started = Instant::now();
+        let value: serde_json::Value =
+            serde_json::from_str(&event).map_err(|error| format!("output event: {error}"))?;
+        let data = value
+            .get("data")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|data| STANDARD.decode(data).ok())
+            .ok_or("an output event's data")?;
+        let decode_ms = ms(started);
+        let ready = arrived.max(phone_free) + decode_ms;
+        let started = Instant::now();
+        phone.vt_write(&data);
+        let parse_ms = ms(started);
+        let started = Instant::now();
+        phone_state.update(&mut phone).map_err(vt_err)?;
+        let _ = phone_state.build_frame().map_err(vt_err)?;
+        let build_ms = ms(started);
+        let paint_ms = parse_ms + build_ms;
+        phone_free = ready + paint_ms;
+        let present = (phone_free / FRAME_MS).ceil() * FRAME_MS;
+
+        for (t, _) in held {
+            metrics.push("mac_queue_ms", "ms", start - t);
+        }
+        metrics.push("mac_grid_ms", "ms", 0.0);
+        metrics.push("mac_diff_ms", "ms", 0.0);
+        metrics.push("mac_encode_ms", "ms", encode_ms);
+        metrics.push("wire_ms", "ms", arrived - sent);
+        metrics.push("phone_decode_ms", "ms", decode_ms);
+        metrics.push("phone_parse_ms", "ms", parse_ms);
+        metrics.push("phone_build_ms", "ms", build_ms);
+        metrics.push("vsync_wait_ms", "ms", present - phone_free);
+        metrics.push("phone_paint_ms", "ms", paint_ms);
+        metrics.push("wire_bytes", "bytes", event.len() as f64);
+        events += 1;
+        wire_total += event.len() as u64;
+        metrics.push("redraws_per_event", "redraws", held.len() as f64);
+        for (t, write) in held {
+            match write {
+                Write::Scroll => metrics.push("scroll_to_paint_ms", "ms", present - t),
+                Write::Echo { origin } => metrics.push("echo_to_paint_ms", "ms", present - origin),
+                Write::Tick => {}
+            }
+            // The part that is not the link's: everything but the down link's delivery.
+            if *write != Write::Tick {
+                metrics.push("paint_over_link_ms", "ms", present - t - (arrived - sent));
+            }
+        }
+        mac.vt_write(bytes);
+        let mac_text = mac.viewport_text().map_err(vt_err)?;
+        let phone_text = phone.viewport_text().map_err(vt_err)?;
+        metrics
+            .count("paint_mismatch", if trim(&mac_text) == trim(&phone_text) { 0.0 } else { 1.0 });
+        Ok(())
+    };
+
+    // The TUI's redraws and the typed keys' echoes (a key goes up the link, the TUI echoes it
+    // on its status row), in the order the Mac's terminal gets them.
+    let mut writes: Vec<(f64, Write, Vec<u8>)> = tui_redraws(scenario, inputs)?
+        .into_iter()
+        .map(|Redraw { t, from_input, bytes }| {
+            (t, if from_input { Write::Scroll } else { Write::Tick }, bytes)
+        })
+        .collect();
+    let mut up = Link::new(link.clone(), Rng::new(knobs.seed ^ SCENARIO_SALT).split(21));
+    for origin in tui_keys(scenario) {
+        let at = up.deliver((origin * 1000.0) as u64, 1) as f64 / 1000.0;
+        let echo = format!("\x1b[{rows};{}H\x1b[7mk\x1b[0m", cols.max(1));
+        writes.push((at, Write::Echo { origin }, echo.into_bytes()));
+    }
+    writes.sort_by(|a, b| a.0.total_cmp(&b.0));
+    metrics.declare("echo_to_paint_ms", "ms");
+
+    let mut pending: Vec<u8> = Vec::new();
+    let mut held: Vec<(f64, Write)> = Vec::new();
+    let mut last_sent: Option<f64> = None;
+    for (t, write, bytes) in writes {
+        let Some(interval) = interval else {
+            send(t, &bytes, &[(t, write)], &mut mac, metrics)?;
+            continue;
+        };
+        // The held bytes went out at their interval's end, before this redraw.
+        if let Some(due) = last_sent.map(|sent| sent + interval)
+            && !pending.is_empty()
+            && due <= t
+        {
+            send(due, &pending, &held, &mut mac, metrics)?;
+            (last_sent, pending, held) = (Some(due), Vec::new(), Vec::new());
+        }
+        let idle = last_sent.is_none_or(|sent| t >= sent + interval);
+        if pending.is_empty() && idle {
+            send(t, &bytes, &[(t, write)], &mut mac, metrics)?;
+            last_sent = Some(t);
+        } else {
+            pending.extend_from_slice(&bytes);
+            held.push((t, write));
+        }
+    }
+    if !pending.is_empty() {
+        let due = last_sent.map_or(0.0, |sent| sent + interval.unwrap_or(0.0));
+        send(due, &pending, &held, &mut mac, metrics)?;
+    }
+    drop(send);
+    let seconds = scenario.tui.as_ref().map_or(1, |tui| tui.seconds.max(1)) as f64;
+    metrics.push("events_per_s", "events/s", events as f64 / seconds);
+    metrics.push("wire_bytes_per_s", "bytes/s", wire_total as f64 / seconds);
     metrics.declare("scroll_to_paint_ms", "ms");
     Ok(())
 }
@@ -643,6 +854,55 @@ ui = ["X"]
         ] {
             assert!(!run.metrics.0[stage].samples.is_empty(), "{stage}");
         }
+    }
+
+    /// The default path: the same TUI as PTY bytes, one event per redraw, or coalesced.
+    #[test]
+    fn a_tui_on_the_terminal_path_paints_what_the_mac_shows() {
+        let text = |coalesce: &str| {
+            format!(
+                r#"
+name = "t"
+summary = "t"
+spec = "idle,link=lan"
+headless = true
+cols = 50
+rows = 40
+{coalesce}
+[tui]
+doc_lines = 500
+append_lines_per_s = 62
+redraw_fps = 62
+seconds = 2
+[[event]]
+kind = "scroll"
+every_ms = 50
+rows = -3
+[[event]]
+kind = "echo"
+every_ms = 250
+[[check]]
+metric = "paint_mismatch"
+max = 0
+[sim]
+ui = ["X"]
+"#
+            )
+        };
+        let each = run(&scenario(&text("")), &recordings()).unwrap().metrics;
+        let held = run(&scenario(&text("coalesce_ms = 17")), &recordings()).unwrap().metrics;
+        for metrics in [&each, &held] {
+            assert_eq!(metrics.0["paint_mismatch"].samples, vec![0.0]);
+            assert!(metrics.0["scroll_to_paint_ms"].samples.len() >= 30);
+            assert!(metrics.0["echo_to_paint_ms"].samples.len() >= 7);
+            for stage in ["mac_queue_ms", "wire_ms", "phone_parse_ms", "phone_build_ms"] {
+                assert!(!metrics.0[stage].samples.is_empty(), "{stage}");
+            }
+        }
+        // Every redraw carried, in fewer events when held.
+        let carried = |m: &Metrics| m.0["redraws_per_event"].samples.iter().sum::<f64>();
+        assert_eq!(carried(&each), carried(&held));
+        assert!(held.0["wire_bytes"].samples.len() < each.0["wire_bytes"].samples.len());
     }
 
     #[test]

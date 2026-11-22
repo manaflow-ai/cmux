@@ -5,6 +5,7 @@
 //! cmux-duress presets
 //! cmux-duress scenario list [--dir DIR]
 //! cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
+//!     [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]
 //! ```
 //!
 //! `scenario run` replays a named scenario (`scenarios/NAME.toml`) headless through the phone's
@@ -24,7 +25,8 @@ const USAGE: &str = "usage:
   cmux-duress gen --spec PRESET[,knob=value...] --out DIR [--pty FILE] [--chat FILE] [--repo ROOT]
   cmux-duress presets
   cmux-duress scenario list [--dir DIR]
-  cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]";
+  cmux-duress scenario run NAME|all [--sim] [--dir DIR] [--repo ROOT]
+      [--spec SPEC] [--link NAME] [--path terminal|projection] [--cols N] [--coalesce-ms MS]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -107,9 +109,31 @@ fn repo_root(repo: Option<String>) -> Result<PathBuf, String> {
 fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
     let verb = args.next().unwrap_or_default();
     let (mut name, mut dir, mut repo, mut sim) = (None, None, None, false);
+    // Overrides of each scenario's own fields: the same case under another link, path or width.
+    let (mut spec, mut path, mut cols, mut coalesce_ms) = (None, None, None, None);
+    let mut link: Option<String> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--sim" => sim = true,
+            "--spec" => spec = Some(args.next().ok_or("--spec needs a value")?),
+            "--link" => link = Some(args.next().ok_or("--link needs a value")?),
+            "--path" => {
+                let value = args.next().ok_or("--path needs a value")?;
+                path = Some(match value.as_str() {
+                    "terminal" => scenario::PathKind::Terminal,
+                    "projection" => scenario::PathKind::Projection,
+                    other => return Err(format!("--path {other}: terminal or projection")),
+                });
+            }
+            "--cols" => {
+                let value = args.next().ok_or("--cols needs a value")?;
+                cols = Some(value.parse::<u16>().map_err(|_| format!("--cols {value}"))?);
+            }
+            "--coalesce-ms" => {
+                let value = args.next().ok_or("--coalesce-ms needs a value")?;
+                coalesce_ms =
+                    Some(value.parse::<u64>().map_err(|_| format!("--coalesce-ms {value}"))?);
+            }
             "--dir" => dir = Some(args.next().ok_or("--dir needs a value")?),
             "--repo" => repo = Some(args.next().ok_or("--repo needs a value")?),
             flag if flag.starts_with('-') => return Err(format!("unknown flag {flag}\n{USAGE}")),
@@ -126,11 +150,32 @@ fn scenario(mut args: impl Iterator<Item = String>) -> Result<bool, String> {
         }
         "run" => {
             let name = name.ok_or_else(|| format!("scenario run needs a NAME or all\n{USAGE}"))?;
-            let scenarios = if name == "all" {
+            let mut scenarios = if name == "all" {
                 scenario::load_dir(&dir)?
             } else {
                 vec![scenario::find(&dir, &name)?]
             };
+            for scenario in &mut scenarios {
+                if let Some(spec) = &spec {
+                    scenario.spec.clone_from(spec);
+                }
+                if let Some(link) = &link {
+                    scenario.link = scenario::Scenario::named_link(link)?;
+                    if scenario.link.is_none() {
+                        scenario.spec = format!("{},link={link}", scenario.spec);
+                    }
+                }
+                if let Some(path) = path {
+                    scenario.path = path;
+                }
+                if let Some(cols) = cols {
+                    scenario.cols = cols;
+                }
+                if coalesce_ms.is_some() {
+                    scenario.coalesce_ms = coalesce_ms;
+                }
+                scenario.validate()?;
+            }
             if sim {
                 for scenario in &scenarios {
                     println!("scripts/ci/cmux-next-ios-sim.sh {}", scenario.sim_args());
