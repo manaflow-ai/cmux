@@ -1,10 +1,8 @@
 // What Settings > Appearance's undo stack records: which keys a change touches, their states read
 // from the page's settings, and the label the Undo and Redo buttons name.
 import type { KeyState, TargetState, ThemeState } from "./appearanceHistory";
-import { categoryById, categoryRows, homes } from "./categories";
-import { DENSITY_CARD_ROWS } from "./density";
+import { categoryById, categoryRows } from "./categories";
 import { displayNumber, unitLabel } from "./format";
-import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { rowsByKey, type LocalizedText } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
@@ -90,20 +88,11 @@ const AREA_EXTRAS: Readonly<Record<string, readonly string[]>> = {
   "settings.group.windowBackground": ["appearance.backgroundModes"],
 };
 
-/** The cards an appearance page offers a reset for, in page order: its own groups, and on
- * Personalization (whose parts draw rows homed on other pages) the groups of what its parts draw.
+/** The cards an appearance page offers a reset for, in page order: its own groups.
  * A card with no recorded key (Chat's text, Sounds) is left out: nothing of it is undoable here. */
 export function appearanceAreas(categoryId: string): AppearanceArea[] {
   const category = categoryById(categoryId);
   const groups = new Map(category.groups.map((group) => [group.key, group]));
-  if (category.lead.includes("personalization")) {
-    for (const key of [...PERSONALIZATION_KEYS, ...DENSITY_CARD_ROWS]) {
-      const home = homes.get(key);
-      if (!home || groups.has(home.group)) continue;
-      const group = categoryById(home.category).groups.find((item) => item.key === home.group);
-      if (group) groups.set(group.key, group);
-    }
-  }
   return [...groups.values()].flatMap((group) => {
     const extras = (AREA_EXTRAS[group.key] ?? []).filter((key) => rowsByKey.has(key));
     const keys = [...group.rows.map((row) => row.key).filter(tracksAppearance), ...extras];

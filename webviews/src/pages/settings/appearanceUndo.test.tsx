@@ -256,7 +256,7 @@ describe("recovering from a background or look change", () => {
 
   async function thisWorkspace(value: string | null = null) {
     page = await renderPage({
-      path: "/settings/personalization?focus=personalization.background&workspace=ws-1",
+      path: "/settings/appearance?focus=personalization.background&workspace=ws-1",
       mock: {
         values: { "appearance.background": "friedrich-forest-moonlight" },
         workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value, opacity: null }],
@@ -313,7 +313,7 @@ describe("recovering from a background or look change", () => {
 
   test("Reset Window Background resets only that card's keys, as one undo step", async () => {
     page = await renderPage({
-      path: "/settings/personalization",
+      path: "/settings/appearance",
       mock: {
         values: {
           "appearance.background": "daily",
@@ -326,7 +326,7 @@ describe("recovering from a background or look change", () => {
       },
     });
     await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
-    // Personalization's parts: its theme, its background and its text sizes each reset alone.
+    // Appearance's cards: its theme, its background and its density each reset alone.
     expect(resetItem("Reset App Theme")).toBeDefined();
     expect(resetItem("Reset Density and Motion")).toBeDefined();
     await click(resetItem("Reset Window Background")!);
