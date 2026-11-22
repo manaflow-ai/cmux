@@ -900,8 +900,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   its own channel's tag, strips the SEI before decoding, and starts at its
   first keyframe; it never learns when the lane switched tabs otherwise.
 - `appearance` (`appearance-v1`, 2026-11-12): the Mac's theme and wallpaper. Since
-  2026-11-13 the phone's chrome takes only the accent and the terminal theme from it: its
-  own backgrounds stay the stock ones. Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
+  2026-11-22 the phone's chrome (backgrounds, surfaces, text, fills, accent) follows it again
+  and the wallpaper shows behind the sidebar and Home, while Match Mac theme is on (the
+  default); off, the phone's stock look (2026-11-13 to 11-22 the chrome stayed stock). Since 2026-11-17 its agent chat takes `chat` (below). One JSON frame now and on every change, nothing before the
   Mac app sent its first one: `{"theme": {"background", "foreground", "palette": [8 or
   16 "#rrggbb"], "selection_background"?, "selection_foreground"?, "cursor"?, "accent",
   "accent_color"?, "background_opacity"}, "wallpaper": {"id", "bytes", "tint_opacity"} |
@@ -914,8 +915,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   selection, bold, contrast, faint and cursor opacity, palette generation, blending,
   colorspace, search colors). hostd drops any other key and any value that is not a plain
   color, number, flag, enum or palette entry. The phone's terminals of that Mac reset each
-  of those keys and load these lines, live, whatever Mac the phone focuses and whatever its
-  Match Mac theme switch says (that switch is the accent's); a frame without `terminal` (an
+  of those keys and load these lines, live, whatever Mac the phone focuses, while its
+  Match Mac theme switch is on (the default; off, terminals show the phone's stock black,
+  since 2026-11-22); a frame without `terminal` (an
   older Mac) stands in with `theme`'s colors. Since 2026-11-14 a frame may also carry
   `"look"`, the rest of what the Mac's windows show, every field optional (absent: the
   phone's own default): `{"chrome_style"?: appearance.chromeStyle (`default`, `card`,
@@ -942,12 +944,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Mac's `ThemeScope.shownWindowOpacity`), 1 without. A Mac at its defaults (Ghostty's
   colors `#282c34`/`#ffffff`, no picture, no bubble colors) sends no `chat`, and the phone
   keeps its stock chat. The phone draws it in the agent chat only while Match Mac theme is
-  on; the rest of its chrome stays stock.
+  on.
 - `appearance-wallpaper` (`appearance-v1`): `{"id"}` streams that picture's bytes (a JPEG
   or PNG, at most 8 MB), then `eof`; `stale` when the Mac shows another one now,
   `not_found` when it shows none. Machines need the View grant for both. The phone
-  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17, only for
-  the picture a frame's `chat` names, once per id (size and SHA-256 checked, one kept).
+  stopped reading this service on 2026-11-13 and reads it again since 2026-11-17 (the picture a frame's `chat` names) and since 2026-11-22
+  for any frame's `wallpaper` while Match Mac theme is on, once per id (size and SHA-256
+  checked, one kept).
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it

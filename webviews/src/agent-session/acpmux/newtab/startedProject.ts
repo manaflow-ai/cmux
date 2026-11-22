@@ -1,3 +1,5 @@
+import { isTemporaryFolder } from "../sessionList";
+
 // The project of the chat the person last picked and started (Leo 2026-10-21: "we dont wanna have
 // stuff constantly get clobbered by agents making projects and then the new workspace has to keep
 // redoing the default... your recently PICKED AND STARTED CHAT... makes more sense"). A New Tab with
@@ -33,7 +35,8 @@ export function rememberStartedProject(
   folder: string | undefined,
   post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): void {
-  if (!isStartableProject(folder)) return;
+  // A temporary folder (a scratch chat in /tmp) is no project to come back to (cmux#49610).
+  if (!isStartableProject(folder) || isTemporaryFolder(folder)) return;
   const started = folder.replace(/\/+$/, "");
   try {
     storage()?.setItem(KEY, started);
@@ -47,7 +50,9 @@ export function rememberStartedProject(
 export function rememberedStartedProject(): string | undefined {
   try {
     const value = storage()?.getItem(KEY);
-    return isStartableProject(value ?? undefined) ? (value as string) : undefined;
+    return isStartableProject(value ?? undefined) && !isTemporaryFolder(value ?? undefined)
+      ? (value as string)
+      : undefined;
   } catch {
     return undefined;
   }
