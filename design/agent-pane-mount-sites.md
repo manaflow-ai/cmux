@@ -1,0 +1,52 @@
+# Where the agent pane loads, and what each load costs
+
+Leo, 2026-11-22: "not just here, but anywhere you'd expect an agent pane to load, and anywhere you wouldn't
+expect but it still loads."
+
+One row per place the agent chat (or its code) loads. `Read` says how the row was established: `code` is a
+read of the tree at 55298006b48d, `run` is a measurement from the named harness. A cell that says `not
+measured` has no number yet; nothing here is estimated.
+
+Harness for every number: `webviews/bench/first-load-after-restart.bench.ts` (production build, stand-in
+acpmux, `LINK`, `PAGES`, `CPU` knobs) and `scripts/measure/restart-settled-linux.sh` (the same bench beside
+the terminal's reattach). Both run on Linux Chromium: they leave out the app's process start, CEF start and
+the Swift host. Mac rows need `scripts/cmux-next/bench_relaunch_reconnect.py` and the `agent_pane.*` marks.
+
+## Mount sites
+
+| # | Surface | Site | Trigger | Loads while unseen? | Cache-first draw | Before | After | Read |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Mac, restored chat tab, focused | `CmuxNextApp/AgentTabs.swift` `makeView` → `PageWebView(.agent)` | launch | no | saved page JPEG (native layer), then the page's own saved copy, then kept tail | not measured | | code |
+| 2 | Mac, restored chat tab, other pane | same, behind `AgentTabStore+Launch.swift` `deferAtLaunch` | focused terminal's first frame | waits for the terminal, then loads whether or not looked at | same as 1 | not measured | | code |
+| 3 | Mac, chat tab not selected in its pane | `AgentTabs.view(for:)` on first show or on hover (`PaneController+Neighbors.swift`) | show, hover | hover loads it before it shows | same as 1 | not measured | | code |
+| 4 | Mac, every agent page under Chromium | `CmuxNextPages/PageWebView.swift` init builds a `PageWKWebView` before the engine is chosen | every page | yes: a WebKit view nobody draws when the engine is CEF | n/a | not measured | | code |
+| 5 | Mac, New Tab spare | `AgentTabs.makeSpare`, `NewTabSparePool` | after first frame; refill 250 ms after an open | yes, parked | n/a | not measured | | code |
+| 6 | Mac, chat view under New Tab | `App.tsx` `<Activity mode="hidden">` (`premountsChatView`) | New Tab shown | yes, hidden React tree | n/a | not measured | | code |
+| 7 | Mac, hidden chat released and reopened | `CmuxNextHibernation/HiddenChatPages.swift` (60 s idle, 2 kept warm) → `AgentPageHibernation.releasePage` | show after release | n/a | saved frame, except under Chromium where hidden capture is skipped | not measured | | code |
+| 8 | Mac, chat switch in one page | `chatSwitch.ts`, `selectSession` | click | no | kept tail (20 chats, 400 events) | not measured | | code |
+| 9 | Mac, sub-session tray, Session Info card | `App.tsx` `key={shownSessionId}` | every chat switch | remounts and re-reads each switch | none | not measured | | code |
+| 10 | Mac, Home channels and messages | `pages/home-channels`, `pages/home-messages` import `PromptEditor`, `AgentMessageRow`, `Markdown` | Home open | pane code (Milkdown) in a page that is not the pane | their own | not measured | | code |
+| 11 | Mac, Cloud or remote chat | `direct.ts` attach through the native relay, `cloudChatRecovery.ts` | open | no | saved copy and kept tail, as 1 | not measured | | code |
+| 12 | Browser build | `browser/host.ts`, served by `acpmux web --app` | link opened | no | `sessionStorage` copy only: a fresh browser draws nothing first | not measured | | code |
+| 13 | Guest page | `agent-session/guest/main.tsx` | share link | no | `sessionStorage` after joining | not measured | | code |
+| 14 | iOS chat | native `AgentChatScreen`; `WorkspaceTabsSource.chatStore()` | navigation; also card, accessory and menu bodies | a store is built for tabs never opened | `AgentTranscriptCache` head file | not measured | | code |
+| 15 | iOS Cloud chat | per-chat relay, `AcpmuxHub.transcriptCache == nil` | open | not traced | none | not measured | | code |
+| 16 | iOS Feed markdown pool | `WebMarkdownRenderer.prewarm` (2 web views) | Feed open | yes | n/a | not measured | | code |
+
+iOS has no web agent pane: its chat is native. Rows 14 to 16 are here because the same question applies.
+
+## Things that unload themselves
+
+| What | Where | Trigger | What the person sees |
+|---|---|---|---|
+| Hidden chat page released | `HiddenChatPages.swift` | 60 s hidden and idle (30 s under memory warning) | a rebuild on next show |
+| Hidden Chromium page frozen | `browser.freezeHiddenTabs` | 30 s hidden | thaw on show |
+| Hidden pane's stream shed | `AcpmuxPaneSocket+Hidden.swift` | hidden | `_acpmux/lagged` resync on show |
+| Chat view rebuilt | `App.tsx` `chatViewMount.key += 1` | leaving the chat for New Tab, History, Contexts or Setup | draft and picker state start over |
+| New Tab screen rebuilt | `App.tsx` `key={newTabGeneration}` | every Cmd-T adoption | |
+| Mode chip changes or leaves | `ComposerPickers.tsx` (`highest`, `modeless`, borrowed start mode, saved copy) | acpmux's answer or the harness list arriving | "bypass permissions appears then disappears" (cause not yet reproduced) |
+| iOS older turns spilled | `ChatTranscriptList.relieveMemoryPressure` | memory warning | re-read on scroll |
+
+## Not read yet
+
+`workers/`, the `agent-chat/` sidecar, the Mac's Cloud relay, the sidebar chat-history and session-info hosts.
