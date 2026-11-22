@@ -300,3 +300,43 @@ fn an_interrupted_claude_turn_leaves_no_tokens_to_the_next() {
     assert!(!turn_end(&ops).contains_key("tokens"));
     assert_eq!(state.counters().line_errors, 0);
 }
+
+#[test]
+fn a_stop_hook_ask_is_a_notice_after_the_reply_it_ended() {
+    let mut state = State::default();
+    let ops = run(
+        &mut state,
+        Harness::V1,
+        &[
+            prompt(1, "p1"),
+            update(
+                2,
+                r#"{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"Done."}}"#,
+            ),
+            update(
+                3,
+                r#"{"sessionUpdate":"hook_feedback","hookEvent":"Stop","text":"Save a note first."}"#,
+            ),
+        ],
+    );
+    let notice = ops
+        .iter()
+        .rev()
+        .find_map(|op| match &op.change {
+            Change::Row(row)
+                if row.fields.get("notice").map(String::as_str) == Some("\"hook_feedback\"") =>
+            {
+                Some(row.clone())
+            }
+            _ => None,
+        })
+        .expect("a hook_feedback notice");
+    assert!(!notice.open);
+    assert_eq!(notice.fields.get("hookEvent").map(String::as_str), Some("\"Stop\""));
+    assert!(ops.iter().any(|op| matches!(op.change, Change::Body { id, field: BodyField::Content, .. } if id == notice.id)));
+    // The reply before it settled: the continuation is another text row.
+    assert!(ops.iter().any(
+        |op| matches!(&op.change, Change::Row(row) if row.kind == RowKind::Text && !row.open)
+    ));
+    assert_eq!(state.counters().unknown_kinds, BTreeMap::new());
+}

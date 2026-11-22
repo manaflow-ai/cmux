@@ -1,5 +1,6 @@
 import type { PromptHeads } from "./promptHeads";
 import { PendingEntrances } from "./conversation/pendingEntrances";
+import { HOOK_CONTINUE } from "./conversation/hookContinueKind";
 import {
   gridScale,
   MARK_INDICATOR,
@@ -910,6 +911,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
+    row.kind === HOOK_CONTINUE ||
     row.kind === "agentPair" ||
     row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));

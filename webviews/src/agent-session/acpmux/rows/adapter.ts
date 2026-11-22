@@ -7,6 +7,7 @@
 // (App.tsx `withStartedSessions`), as with v1.
 import { permissionFromMessage, mergeToolItem, textFromContent } from "../direct";
 import { harnessModeName } from "../harnessModes";
+import { HOOK_CONTINUE, hookContinueOf } from "../conversation/hookContinueKind";
 import { translate } from "../i18n";
 import type { AcpmuxRow, QueuedPrompt } from "../model";
 import { answeredBy } from "../multiplayer/participants";
@@ -124,6 +125,11 @@ export function adaptRow(
       return [{ ...head, kind: "activity", toolCount: 1, items: [item], streaming: row.open }];
     }
     case "notice":
+      if (body.notice === "hook_feedback") {
+        // A Stop hook's ask to go on (acpmux-book kinds.rs `hook_feedback`): its text is the reason.
+        const hookContinue = hookContinueOf({ ...body, text: textFromContent(body.content) });
+        return hookContinue ? [{ ...head, kind: HOOK_CONTINUE, ...turnOf(row), hookContinue }] : [];
+      }
       return body.notice === "turn_result"
         ? [{ ...turnSummary(head, body, row.group ? held.get(row.group) : undefined), ...turnOf(row) }]
         : [];

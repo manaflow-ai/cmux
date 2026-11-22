@@ -62,6 +62,7 @@ import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
+import { HOOK_CONTINUE, type HookContinue } from "./conversation/hookContinueKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
@@ -546,6 +547,8 @@ export type AcpmuxRow = {
   backgroundRun?: AcpmuxBackgroundRun;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
+  /// A hook note's ask: a Stop hook blocked the agent's stop and the turn went on (HookContinueNote.tsx).
+  hookContinue?: HookContinue;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
   agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
@@ -2356,6 +2359,7 @@ const isStatusKind = (row: AcpmuxRow) =>
   row.kind === "compaction" ||
   row.kind === "failover" ||
   row.kind === "policyUnenforced" ||
+  row.kind === HOOK_CONTINUE ||
   row.kind === "agentPair" ||
   row.kind === BACKGROUND_TURN ||
   row.kind === TASK_LINE ||
@@ -2800,6 +2804,7 @@ function fallbackRowHeight(
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
+    row.kind === HOOK_CONTINUE ||
     row.kind === "plan" ||
     row.kind === "typing" ||
     row.kind === BACKGROUND_TURN

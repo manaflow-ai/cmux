@@ -298,6 +298,9 @@ mod foreground_work_tests;
 mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
+mod hook_feedback;
+#[cfg(test)]
+mod hook_feedback_tests;
 mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
