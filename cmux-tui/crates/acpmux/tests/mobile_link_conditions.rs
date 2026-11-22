@@ -1117,8 +1117,9 @@ fn stored_page(scale: u64) -> StoredPage {
 /// R1 with the link cut: no daemon, no socket. The Agent Chats list's first page is written into
 /// the phone's read-first store (cmux-mobile-core read_store, as PhoneReadFirst.swift keeps it,
 /// beside other accounts' and Macs' entries), then each run times a cold open: open the store
-/// directory, read the entry for this account, Mac and kind, decode the page. One `NETCOND` line
-/// per run: `"profile":"no-link","phase":"cold","metric":"r1_ms"`, plus `stored_rows` and
+/// directory, read the entry for this account, Mac and kind, decode the page; then warm, the same
+/// read again on the open store. One `NETCOND` line per run and phase:
+/// `"profile":"no-link","phase":"cold|warm","metric":"r1_ms"`, plus `stored_rows` and
 /// `bytes_stored`. The OS file cache is warm (a phone reopening the app usually has it warm too).
 #[test]
 #[ignore = "the network-conditions bench: run with --ignored --nocapture"]
@@ -1147,33 +1148,50 @@ fn chat_list_readable_from_the_phone_store_with_no_link() {
         ReadStore::open(&dir, ReadStoreLimits::default()).unwrap().put(&key, &bytes).unwrap();
         for run in 0..runs {
             let seed = seed_base + run;
-            let k = Key { profile: "no-link", phase: "cold", scale, run, seed };
+            // Cold: a fresh handle opens the store from disk, reads the entry, decodes the page.
             let start = std::time::Instant::now();
-            let page = ReadStore::open(&dir, ReadStoreLimits::default())
-                .ok()
-                .and_then(|store| store.get(&key))
-                .and_then(|data| serde_json::from_slice::<StoredPage>(&data).ok());
-            let took = start.elapsed();
-            match page {
-                Some(page) if !page.chats.is_empty() => {
-                    // Microseconds kept: `emit` keeps one decimal of a millisecond.
-                    println!(
-                        "NETCOND {{\"surface\":\"chat\",\"profile\":\"{}\",\"phase\":\"{}\",\"scale\":\"{}\",\"metric\":\"r1_ms\",\"value\":{:.3},\"run\":{},\"seed\":{}}}",
-                        k.profile,
-                        k.phase,
-                        k.scale,
-                        took.as_secs_f64() * 1000.0,
-                        k.run,
-                        k.seed
-                    );
-                    emit(&k, "stored_rows", Some(page.chats.len() as f64));
-                    emit(&k, "bytes_stored", Some(bytes.len() as f64));
-                }
-                _ => {
-                    emit(&k, "r1_ms", None);
-                    emit_error(&k, "r1_ms", "no stored page");
-                }
-            }
+            let store = ReadStore::open(&dir, ReadStoreLimits::default()).ok();
+            let page = store.as_ref().and_then(|store| read_page(store, &key));
+            let cold = start.elapsed();
+            let k = Key { profile: "no-link", phase: "cold", scale, run, seed };
+            emit_r1(&k, page.as_ref(), cold, bytes.len());
+            // Warm: the store already open (the app came back), the page read and decoded again.
+            let Some(store) = store else { continue };
+            let start = std::time::Instant::now();
+            let page = read_page(&store, &key);
+            let warm = start.elapsed();
+            let k = Key { profile: "no-link", phase: "warm", scale, run, seed };
+            emit_r1(&k, page.as_ref(), warm, bytes.len());
+        }
+    }
+}
+
+fn read_page(
+    store: &cmux_mobile_core::read_store::ReadStore,
+    key: &cmux_mobile_core::read_store::ReadKey,
+) -> Option<StoredPage> {
+    store.get(key).and_then(|data| serde_json::from_slice::<StoredPage>(&data).ok())
+}
+
+fn emit_r1(k: &Key, page: Option<&StoredPage>, took: Duration, bytes: usize) {
+    match page {
+        Some(page) if !page.chats.is_empty() => {
+            // Microseconds kept: `emit` keeps one decimal of a millisecond.
+            println!(
+                "NETCOND {{\"surface\":\"chat\",\"profile\":\"{}\",\"phase\":\"{}\",\"scale\":\"{}\",\"metric\":\"r1_ms\",\"value\":{:.3},\"run\":{},\"seed\":{}}}",
+                k.profile,
+                k.phase,
+                k.scale,
+                took.as_secs_f64() * 1000.0,
+                k.run,
+                k.seed
+            );
+            emit(k, "stored_rows", Some(page.chats.len() as f64));
+            emit(k, "bytes_stored", Some(bytes as f64));
+        }
+        _ => {
+            emit(k, "r1_ms", None);
+            emit_error(k, "r1_ms", "no stored page");
         }
     }
 }
