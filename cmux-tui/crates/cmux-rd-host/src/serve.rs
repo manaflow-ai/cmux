@@ -337,11 +337,14 @@ impl Carrier for ServeCarrier {
         let result = self.link.receive(out);
         // The viewer asks for control or hands it over: the session's floor decides.
         out.retain(|item| match item {
-            Incoming::Control(Control::Floor { control, .. }) => {
-                say(AppLine { floor_request: Some(*control), ..AppLine::default() });
-                false
-            }
-            _ => true,
+            Incoming::Control(message) => match **message {
+                Control::Floor { control, .. } => {
+                    say(AppLine { floor_request: Some(control), ..AppLine::default() });
+                    false
+                }
+                _ => true,
+            },
+            Incoming::Datagram(_) => true,
         });
         self.report_paths();
         result
