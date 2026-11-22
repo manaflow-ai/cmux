@@ -155,7 +155,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
         "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
         "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
-        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte", "maxBytes"], []),
         "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
