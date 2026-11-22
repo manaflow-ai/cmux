@@ -9,10 +9,11 @@
 // first), each listing SESSIONS chats, one chat shown and focused. Each axis grows from 1 to the top rung, measured at
 // every rung after it settles:
 //   chats  one more open chat is one more agent page in the shared renderer, its chat seeded (ROWS rows) and then
-//          hidden, as a chat tab not shown is; with --freeze (the default) it is also frozen, as the app freezes a
-//          hidden page after browser.freezeHiddenTabs (30 s), so a rung is the steady state past those 30 s.
+//          hidden, as a chat tab not shown is. Awake by default: the app keeps a working hidden chat's page and
+//          releases an idle one (HiddenChatPages.swift), so the pages a rung holds are the working ones; --freeze
+//          freezes them instead, as browser.freezeHiddenTabs does to a hidden page past 30 s.
 //   tabs   one more browser tab is one more page of its own site (tN.test, so its own renderer as the app's tabs
-//          have), a stand-in site page (DOM, a timer, an animation, a few MB of heap), hidden and frozen the same way.
+//          have), a stand-in site page (DOM, a timer, an animation, a few MB of heap), hidden the same way.
 // At each rung, over WINDOW ms while the focused chat streams nothing and (when the pane has it,
 // cmuxAcpmuxDebug.sessionChurn) the list churns at RATE changes per second:
 //   cpu_ms_per_s     every renderer's CPU (utime + stime from /proc), ms per second of wall time
@@ -24,13 +25,18 @@
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 1,10,100] [--sessions 3000] [--rows 120]
-//     [--window 5000] [--rate 20] [--no-freeze] [--json out.json]
+//     [--window 5000] [--rate 20] [--freeze] [--json out.json]
+// Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
+// script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
+// launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
+// Emulation.setFocusEmulationEnabled, which keeps every page visible and drawing (~2 ms/s each). A page that does not
+// read hidden fails the run.
 // Linux only (it reads /proc); prints SIM-LADDER lines and PERF_ROW lines (sim_ladder.*).
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { BrowserContext, CDPSession, Page } from "playwright";
+import type { Browser, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
 import { FLOOR, marginalRatio, type Metric, type Sample } from "./ladderRatio";
@@ -50,11 +56,11 @@ const SESSIONS = Number(flag("--sessions") ?? 3000);
 const ROWS = Number(flag("--rows") ?? 120);
 const WINDOW_MS = Number(flag("--window") ?? 5000);
 const RATE = Number(flag("--rate") ?? 20);
-const FREEZE = !argv.includes("--no-freeze");
+const FREEZE = argv.includes("--freeze");
 const JSON_OUT = flag("--json");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-const VERSION = 1;
+const VERSION = 2;
 if (RUNGS.length !== 3 || RUNGS.some((n) => !Number.isInteger(n) || n < 1) || RUNGS[0] === RUNGS[1]) {
   console.error("usage: --rungs LOW,MID,TOP (three distinct counts, e.g. 1,10,100)");
   process.exit(2);
@@ -95,14 +101,36 @@ function renderers(root: number): number[] {
   walk(root);
   return out;
 }
-function cpuTicks(pid: number): number {
+function cpuTicks(pid: number, file = `/proc/${pid}/stat`): number {
   try {
-    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const stat = fs.readFileSync(file, "utf8");
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
     return Number(fields[11]) + Number(fields[12]);
   } catch {
     return 0;
   }
+}
+/// CPU ticks per thread name (/proc/PID/task/TID/comm) over the renderers: where a rung's CPU goes.
+function threadTicks(pids: number[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const pid of pids) {
+    let tids: string[] = [];
+    try {
+      tids = fs.readdirSync(`/proc/${pid}/task`);
+    } catch {
+      continue;
+    }
+    for (const tid of tids) {
+      try {
+        const name = fs.readFileSync(`/proc/${pid}/task/${tid}/comm`, "utf8").trim().replace(/\d+$/, "N");
+        const ticks = cpuTicks(Number(tid), `/proc/${pid}/task/${tid}/stat`);
+        out.set(name, (out.get(name) ?? 0) + ticks);
+      } catch {
+        // Gone.
+      }
+    }
+  }
+  return out;
 }
 function pssMB(pid: number): number {
   try {
@@ -128,14 +156,68 @@ window.__keep = Array.from({ length: 40000 }, (_, i) => ({ i, s: "row " + i }));
 setInterval(() => { document.getElementById("clock").textContent = new Date().toISOString(); }, 250);
 </script>`;
 
-/// A hidden document, as a chat or tab not shown: CEF's WasHidden turns visibilityState hidden. Headless Chromium keeps
-/// every page visible, so the bench says it (as chat-pages-memory.bench.ts does).
-const setHidden = (page: Page) =>
-  page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
+/// A Chrome of this bench's own (so a descendant of this process, its renderers ours to read), its DevTools endpoint
+/// from stderr: the patched headless shell when CI fetched one, else the installed Chrome headless.
+async function launchChrome(): Promise<{ browser: Browser; close: () => Promise<void> }> {
+  const shell = process.env.CMUX_CHROME_HEADLESS_SHELL;
+  const exe = shell || Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  const proc = Bun.spawn(
+    [
+      exe,
+      ...(shell ? [] : ["--headless=new"]),
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--window-size=1100,820",
+      "--process-per-site",
+      "--host-resolver-rules=MAP *.test 127.0.0.1",
+      "about:blank",
+    ],
+    { stdout: "ignore", stderr: "pipe" },
+  );
+  const reader = proc.stderr.getReader();
+  let text = "";
+  const deadline = Date.now() + 30_000;
+  let ws: string | undefined;
+  while (!ws && Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+    ws = /DevTools listening on (ws:\/\/\S+)/.exec(text)?.[1];
+  }
+  if (!ws) {
+    proc.kill();
+    throw new Error(`sim-ladder: Chrome printed no DevTools endpoint: ${text.slice(-400)}`);
+  }
+  // Keep draining stderr so Chrome never blocks on a full pipe.
+  void (async () => {
+    while (!(await reader.read()).done);
+  })().catch(() => undefined);
+  const browser = await chromium.connectOverCDP(ws, { noDefaults: true });
+  return {
+    browser,
+    close: async () => {
+      await browser.close().catch(() => undefined);
+      proc.kill();
+      await proc.exited;
+      fs.rmSync(profile, { recursive: true, force: true });
+    },
+  };
+}
+
+/// Chromium's own visibility and frame rate of a page: a hidden page reads "hidden" and draws no frame.
+const visibility = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<[string, number]>((resolve) => {
+        let frames = 0;
+        requestAnimationFrame(() => (frames += 1));
+        setTimeout(() => resolve([document.visibilityState, frames]), 300);
+      }),
+  );
 
 type Item = { page: Page; cdp: CDPSession; awake: boolean };
 
@@ -155,6 +237,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return all.reduce((sum, m) => sum + (m?.metrics.find((x) => x.name === "ScriptDuration")?.value ?? 0), 0);
   };
   const ticks0 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+  const threads0 = threadTicks(pids);
   const script0 = await script();
   const t0 = performance.now();
   await focused.evaluate(() => {
@@ -181,6 +264,12 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
   const ticks1 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+  const threads = [...threadTicks(pids)]
+    .map(([name, t]) => [name, Math.round((((t - (threads0.get(name) ?? 0)) / ticksPerSecond) * 1000) / secs)] as const)
+    .filter(([, ms]) => ms > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  console.log(`SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")}`);
   const script1 = await script();
   return {
     cpu_ms_per_s: Math.round((((ticks1 - ticks0) / ticksPerSecond) * 1000) / secs),
@@ -212,21 +301,21 @@ const report: Record<string, unknown> = {
 const ratios: Record<string, number> = {};
 
 async function runAxis(axis: "chats" | "tabs") {
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--process-per-site", `--host-resolver-rules=MAP *.test 127.0.0.1`],
-  });
-  // The launched browser is this process's descendant, and one axis runs at a time: its renderers are ours.
+  const chrome = await launchChrome();
+  const browser = chrome.browser;
+  // The launched Chrome is this process's descendant, and one axis runs at a time: its renderers are ours.
   const rootPid = process.pid;
   const samples: Record<number, Sample> = {};
   let churn: Promise<unknown> | null = null;
   try {
-    const context: BrowserContext = await browser.newContext({ viewport: { width: 1100, height: 820 } });
+    const browserCdp = await browser.newBrowserCDPSession();
+    // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
+    const context = browser.contexts()[0]!;
     await context.addInitScript((size) => {
       (globalThis as any).cmuxAcpmuxMockListSize = size;
     }, SESSIONS);
     const url = `http://127.0.0.1:${port}/?mock`;
-    const focused = await context.newPage();
+    const focused = context.pages()[0] ?? (await context.newPage());
     await focused.goto(url);
     await focused.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
     const seed = async (page: Page) => {
@@ -241,22 +330,35 @@ async function runAxis(axis: "chats" | "tabs") {
     await focused.bringToFront();
     const items: Item[] = [{ page: focused, cdp: await context.newCDPSession(focused), awake: true }];
     await items[0]!.cdp.send("Performance.enable");
+    // A tab beside the focused chat, opened in front so it loads as a chat being opened does; bringing the focused
+    // chat back to front then hides it as the app's WasHidden does.
+    const tabPage = async () =>
+      (
+        await Promise.all([
+          context.waitForEvent("page"),
+          browserCdp.send("Target.createTarget", { url: "about:blank" }),
+        ])
+      )[0];
     const hasChurn = await focused.evaluate(() => typeof (window as any).cmuxAcpmuxDebug.sessionChurn === "function");
     report.churn = hasChurn;
     const add = async (index: number) => {
       let page: Page;
       if (axis === "chats") {
-        [page] = await Promise.all([context.waitForEvent("page"), focused.evaluate((u) => void window.open(u), url)]);
-        await page.waitForLoadState();
+        // Same site, so --process-per-site keeps it in the focused chat's renderer.
+        page = await tabPage();
+        await page.goto(url);
         await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
         await seed(page);
       } else {
-        page = await context.newPage();
+        page = await tabPage();
         await page.goto(`http://t${index}.test:${site.port}/`);
       }
       const cdp = await context.newCDPSession(page);
       await cdp.send("Performance.enable");
-      await setHidden(page);
+      await focused.bringToFront();
+      const [state, frames] = await visibility(page);
+      if (state !== "hidden" || frames > 0)
+        throw new Error(`sim-ladder: ${axis} #${index} reads ${state} at ${frames} frames, not hidden`);
       if (FREEZE) await cdp.send("Page.setWebLifecycleState", { state: "frozen" }).catch(() => undefined);
       items.push({ page, cdp, awake: !FREEZE });
     };
@@ -278,8 +380,10 @@ async function runAxis(axis: "chats" | "tabs") {
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
       );
     }
+    const [focusedState, focusedFrames] = await visibility(focused);
+    report[`${axis}_focused`] = `${focusedState} ${focusedFrames}`;
   } finally {
-    await browser.close();
+    await chrome.close();
   }
   report[axis] = samples;
   for (const metric of [...Object.keys(FLOOR), "frame_p95_ms"] as Metric[]) {
