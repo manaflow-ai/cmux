@@ -178,6 +178,14 @@ public final class MacScreenPane {
             session.applyQuality()
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
+        actions.setMaxKbps = { kbps in
+            session.preferences.maxKbps = kbps
+            session.applyQuality()
+        }
+        actions.toggleStreamCursor = {
+            session.preferences.showCursorInStream.toggle()
+            session.applyQuality()
+        }
         actions.refresh = { session.refresh() }
         actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in

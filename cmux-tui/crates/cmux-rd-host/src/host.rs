@@ -152,6 +152,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
             .transpose()?,
+        show_cursor: true,
         // The Cloud host streams its own virtual X display unless `--capture portal` asks
         // for the compositor's screen (a Wayland desktop).
         capture: opts
@@ -514,6 +515,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
+    host_caps.extend([caps::CLOCK, caps::LEDGER]);
     // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
     // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
