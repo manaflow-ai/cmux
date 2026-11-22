@@ -4,14 +4,14 @@ import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
-import CmuxNextHomeEngine
+public import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
-import CmuxNextRemoteView
+public import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextSettings
 import Foundation
