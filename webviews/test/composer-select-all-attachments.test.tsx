@@ -405,6 +405,25 @@ test("a copy pasted back into the same composer brings copies of its attachments
   );
 });
 
+test("a copy pasted back that ends in a cmux link gets a space after the link", async () => {
+  // Leo: "pasting these types of links that get visually formatted should be automatically adding a
+  // space after when pasting". The copy goes back in by the composer's plan, not the field's paste.
+  const link = "cmux-nightly://workspace/ws_81e941825bd898c341c7809813e9c17f";
+  recordHost();
+  const composer = await openComposer();
+  await act(async () => composer.current!.restore(`a ${inlineToken(IMAGE.id)} ${link}`, [IMAGE]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment]")), "the placed attachment");
+  await act(async () => markdownField().selectAll());
+  const { written } = await clip("copy");
+  await act(async () => markdownField().setCaret(markdownField().value().length));
+  await act(async () => markdownField().insertTyped(" "));
+  await pasteBack(written.get("text/plain")!, [], copiedID);
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 2, "the copy of the image");
+  const text = markdownField().plainText();
+  expect(text.endsWith(` ${link} `)).toBe(true);
+  expect(markdownField().caret()).toBe(text.length);
+});
+
 test("a fresh clipboard screenshot never restores a previous prompt with the same image name", async () => {
   recordHost();
   const composer = await openComposer();

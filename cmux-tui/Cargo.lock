@@ -62,9 +62,11 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-source-scan",
+ "cmux-stack-auth",
  "cmux-supervise-core",
  "cmux-tailnet",
  "cmux-transport",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-usage-patterns",
@@ -1355,6 +1357,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-apps"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
 
@@ -1826,6 +1838,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-scope",
  "libc",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -1938,6 +1952,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-apps",
  "cmux-cloud-environment",
  "cmux-file-lock",
  "cmux-json",
@@ -2038,6 +2053,7 @@ dependencies = [
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-motion",
  "proptest",
  "serde",
@@ -2119,6 +2135,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "objc2-app-kit",
+ "png",
  "windows-sys 0.61.2",
 ]
 
@@ -2257,6 +2274,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2619,6 +2637,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-apps",
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
@@ -2637,6 +2656,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
@@ -2683,6 +2703,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
+ "ghostty-vt-sys",
  "glob",
  "libc",
  "notify",
@@ -2832,6 +2853,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "subsecond",
+ "tar",
  "tokio",
  "tokio-tungstenite",
  "toml",
