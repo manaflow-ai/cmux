@@ -50,7 +50,9 @@ export function rememberStartedProject(
 export function rememberedStartedProject(): string | undefined {
   try {
     const value = storage()?.getItem(KEY);
-    return isStartableProject(value ?? undefined) && !isTemporaryFolder(value ?? undefined) ? (value as string) : undefined;
+    return isStartableProject(value ?? undefined) && !isTemporaryFolder(value ?? undefined)
+      ? (value as string)
+      : undefined;
   } catch {
     return undefined;
   }

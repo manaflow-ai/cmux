@@ -649,9 +649,7 @@ export function firstProject(
   if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
-  return folders.find(
-    (cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)),
-  );
+  return folders.find((cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)));
 }
 
 /**
