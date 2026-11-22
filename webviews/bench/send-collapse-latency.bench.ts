@@ -55,6 +55,25 @@ try {
     const page = await browser.newPage({ viewport: { width: 900, height: 720 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
     await seedComposer(page, length);
+    if (process.env.DROP)
+      log(
+        "dropped",
+        await page.evaluate((range) => {
+          const [from, to] = range.split("-").map(Number) as [number, number];
+          const found: [CSSStyleSheet | CSSGroupingRule, CSSStyleRule][] = [];
+          const sweep = (list: CSSRuleList, owner: CSSStyleSheet | CSSGroupingRule) => {
+            for (const rule of list) {
+              if (rule instanceof CSSStyleRule && rule.selectorText.includes(":has(")) found.push([owner, rule]);
+              if ("cssRules" in rule) sweep((rule as CSSGroupingRule).cssRules, rule as CSSGroupingRule);
+            }
+          };
+          for (const sheet of document.styleSheets) sweep(sheet.cssRules, sheet);
+          const chosen = found.slice(from, to);
+          for (const [owner, rule] of chosen) owner.deleteRule([...owner.cssRules].indexOf(rule));
+          const names = chosen.map(([, rule]) => rule.selectorText.replace(/\s+/g, " ").slice(0, 240));
+          return `${chosen.length}/${found.length}` + (chosen.length <= 12 ? ` ${names.join(" || ")}` : "");
+        }, process.env.DROP),
+      );
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
     for (const lines of LINES) {
