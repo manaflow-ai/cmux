@@ -29,7 +29,7 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -190,6 +190,7 @@ import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
+import type { ComposerEditCommand } from "./composerEditCommand";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -224,7 +225,7 @@ const NOT_AN_EDIT_KEY = new Set([
   "CapsLock",
 ]);
 
-export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
+export type { ComposerEditCommand };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -439,7 +440,7 @@ type Props = {
   ): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
