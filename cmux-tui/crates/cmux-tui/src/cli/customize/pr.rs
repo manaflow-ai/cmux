@@ -177,13 +177,18 @@ pub(super) struct Http {
 
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
+        Http::with_timeout(Duration::from_secs(300))
+    }
+
+    /// One whose every request gives up after `timeout`.
+    pub(super) fn with_timeout(timeout: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|error| failure(format!("could not start a network runtime: {error}")))?;
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
