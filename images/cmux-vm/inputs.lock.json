@@ -10,9 +10,9 @@
       "recordedAt": "2026-11-22T13:06:24Z"
     },
     "runtimes": {
-      "node": "v26.13.0",
+      "node": "v26.13.1",
       "npm": "11.20.0",
-      "bun": "1.4.4",
+      "bun": "1.4.5",
       "python3": "Python 3.12.3",
       "uv": "uv 0.12.5",
       "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2"
@@ -34,7 +34,7 @@
       "keep": {
         "corepack": "0.36.0",
         "npm": "11.20.0",
-        "typescript-language-server": "6.0.2"
+        "typescript-language-server": "6.1.0"
       },
       "strip": [
         "openclaw",
