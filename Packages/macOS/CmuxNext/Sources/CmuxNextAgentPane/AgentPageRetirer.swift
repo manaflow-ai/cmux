@@ -86,6 +86,8 @@ public final class AgentPageRetirer {
         parking.addSubview(view)
         view.frame = CGRect(origin: .zero, size: size)
         // The pane hid the page when it let it go (`PaneContentView.retire`): hidden, Chromium drops its frame.
+        // Unhidden in the parking, it draws once at its size there, then reports hidden with that frame kept
+        // (`PageWebView+AwayDrawing`).
         view.isHidden = false
         PageWebView.syncChromiumVisibility(in: view)
     }
