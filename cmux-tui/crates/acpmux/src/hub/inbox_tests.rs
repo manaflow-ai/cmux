@@ -2,6 +2,21 @@
 
 use super::*;
 
+#[test]
+fn fyi_flush_is_a_fifteen_minute_austerity_window() {
+    // FYIs are intentionally coalesced to at most four notice turns per hour;
+    // blockers and questions still bypass this timer in `wakes_as`.
+    assert_eq!(FLUSH_MS, 15 * 60 * 1000);
+}
+
+#[test]
+fn an_unclassified_notice_defaults_to_fyi_without_changing_explicit_classes() {
+    assert_eq!(default_notice_class(None), PromptClass::Fyi);
+    for class in PromptClass::ALL {
+        assert_eq!(default_notice_class(Some(class)), class);
+    }
+}
+
 fn item(
     prompt_id: &str,
     thread: &str,
@@ -148,13 +163,12 @@ fn the_inbox_takes_another_agents_text_only() {
 }
 
 #[test]
-fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false, false));
-    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
-    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
+fn only_a_plain_send_goes_to_the_inbox() {
+    assert!(plain_send(false, false, false, false), "from this host or a peer's forward");
+    assert!(!plain_send(true, false, false, false), "a team message");
+    assert!(!plain_send(false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
     assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
@@ -916,4 +930,46 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         (&m["sender"]["verification"], &m["sender"]["label"]),
         (&json!("declared"), &json!("dot"))
     );
+}
+
+/// The lane-gh broker's relay of a lane VM's message, as a chat on another machine logged it
+/// (2026-11-21): a peer daemon's forward of an agent's message with no class. It woke the idle chat
+/// as a turn of its own, which ended with no tool call (cmuxterm-hq#15820); about 84 of 482
+/// no-op wake turns in 48 h were such forwards. Now the inbox takes it and, unclassified, it is
+/// an FYI: it waits for the next notice and wakes no one.
+#[test]
+fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_no_one() {
+    let provenance = json!({
+        "kind": "agent_message", "from": "fromAgent",
+        "fromName": "gcp-agent-lane-9/civ2-bench-labels", "fromHarness": "claude",
+        "fromRelay": {"by": "lane-gh", "machine": "gcp-agent-lane-9", "session": "civ2-bench-labels"},
+        "forwardedBy": {"actor": "peer"}, "transport": "peer", "verified": false,
+    });
+    let text = [
+        json!({"type": "text", "text": "[message 29188b72f511 from gcp-agent-lane-9/civ2-bench-labels (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 29188b72f511]\"]\n\nno merge SHA yet\n\n[end of message 29188b72f511]"}),
+    ];
+    // `server/requests.rs` gives a peer's forward the inbox as it gives a local send.
+    assert!(plain_send(false, false, false, false));
+    assert!(plain_kind(Some(&provenance)));
+    assert_eq!(
+        super::super::digest::agent_sender(Some(&provenance), None).as_deref(),
+        Some("gcp-agent-lane-9/civ2-bench-labels")
+    );
+    assert!(takes(true, false, Control::Peer, &text, Some(&provenance)));
+    // A relay names no session of this daemon's: it is no chat's parent or delegator.
+    assert_eq!(sender_session(Some(&provenance)), None);
+    let mut meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "coord", "name": "coord", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    meta.turn_count = 40;
+    meta.delegator = Some("s-leo".into());
+    let class = default_notice_class(None);
+    assert_eq!(class, PromptClass::Fyi);
+    assert!(!wakes_as(&meta, class, is_report(Some(&provenance)), None), "an idle chat sleeps on");
+    // A block or a question from the same relay still wakes it at once.
+    for urgent in [PromptClass::Block, PromptClass::Question] {
+        assert!(wakes_as(&meta, urgent, false, None), "{urgent:?}");
+    }
 }

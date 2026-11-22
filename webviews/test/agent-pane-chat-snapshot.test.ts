@@ -119,14 +119,16 @@ const copy = host?.shadowRoot;
 w.atBundle = host && copy ? {
   shown: true,
   header: box(copy.querySelector(".header")),
-  row: box(copy.querySelector('[data-row-id="r60"]')),
+  // Written at the latest row, the copy leaves r60 out (out of view).
+  row: copy.querySelector('[data-row-id="r60"]') ? box(copy.querySelector('[data-row-id="r60"]')) : null,
+  last: copy.querySelector('[data-row-id="r99"]') ? box(copy.querySelector('[data-row-id="r99"]')) : null,
   composer: box(copy.querySelector(".composer textarea")),
   text: copy.querySelector(".composer .prompt")!.textContent,
   field: (copy.querySelector(".composer textarea") as HTMLTextAreaElement).value,
   scrollTop: copy.querySelector(".acpmux-scroll")!.scrollTop,
   rows: copy.querySelectorAll(".acpmux-row").length,
   headerColor: getComputedStyle(copy.querySelector(".header")!).backgroundColor,
-  indent: getComputedStyle(copy.querySelector('[data-row-id="r60"]')!).left,
+  indent: getComputedStyle(copy.querySelector(".acpmux-row")!).left,
 } : { shown: false };
 const root = document.getElementById("root")!;
 const user = document.createElement("style");
@@ -135,7 +137,9 @@ document.head.append(user);
 root.innerHTML = w.liveMarkup;
 document.documentElement.style.setProperty("--agent-indent", "20px");
 root.querySelector(".prompt")!.textContent = "draft text";
-root.querySelector(".acpmux-scroll")!.scrollTop = 2000;
+const scroller = root.querySelector(".acpmux-scroll")!;
+// \`atEnd\`: the live transcript keeps its latest row at its end, as VirtualTranscript does when it follows.
+scroller.scrollTop = w.atEnd ? scroller.scrollHeight - scroller.clientHeight : 2000;
 w.frames = [];
 const watch = () => {
   w.frames.push({ host: !!document.querySelector("cmux-chat-snapshot"), opacity: root.style.opacity });
@@ -146,7 +150,7 @@ requestAnimationFrame(() => {
   swapChatSnapshot();
   watch();
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")) };
+    w.afterSwap = { header: box(root.querySelector(".header")), row: box(root.querySelector('[data-row-id="r60"]')), composer: box(root.querySelector(".composer textarea")), ...(w.atEnd ? { last: box(root.querySelector('[data-row-id="r99"]')) } : {}) };
   }));
 });
 }
@@ -162,14 +166,14 @@ requestAnimationFrame(() => {
 
   /// The page the chat was written from: the chat scrolled to row 50, a draft in the composer, and
   /// the agent theme's variable set as the page's theme event sets it.
-  async function written(page: Page): Promise<Record<string, unknown>> {
+  async function written(page: Page, { atEnd = false }: { atEnd?: boolean } = {}): Promise<Record<string, unknown>> {
     await page.route("http://chat.test/a.html", (route) =>
       route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
     );
     await page.goto("http://chat.test/a.html");
     await page.addScriptTag({ content: capture });
     await page.evaluate((css) => ((window as any).userCss = css), USER_CSS);
-    return await page.evaluate(() => {
+    return await page.evaluate((atEnd) => {
       document.documentElement.style.setProperty("--agent-indent", "20px");
       const user = document.createElement("style");
       user.id = "acpmux-user-theme";
@@ -178,7 +182,8 @@ requestAnimationFrame(() => {
       // The composer's draft is the prompt editor's markup; a field's typed text is never written.
       document.querySelector(".prompt")!.textContent = "draft text";
       document.querySelector("textarea")!.value = "typed in a field";
-      document.querySelector(".acpmux-scroll")!.scrollTop = 2000;
+      const scroller = document.querySelector(".acpmux-scroll")!;
+      scroller.scrollTop = atEnd ? scroller.scrollHeight - scroller.clientHeight : 2000;
       const box = (el: Element | null) => {
         const r = el!.getBoundingClientRect();
         return [r.x, r.y, r.width, r.height];
@@ -189,7 +194,7 @@ requestAnimationFrame(() => {
         row: box(document.querySelector('[data-row-id="r60"]')),
         composer: box(document.querySelector(".composer textarea")),
       };
-    });
+    }, atEnd);
   }
 
   /// The next launch's document, served the snapshot as the host serves it.
@@ -203,7 +208,8 @@ requestAnimationFrame(() => {
       holdUntil,
       drawFirst = false,
       holdDraw = false,
-    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean } = {},
+      atEnd = false,
+    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean; atEnd?: boolean } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -218,7 +224,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};`,
+          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};self.atEnd=${atEnd};`,
         });
       if (url.pathname === "/__snapshot/chat.js")
         return (
@@ -568,6 +574,23 @@ requestAnimationFrame(() => {
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, number[]>;
     expect(afterSwap.composer).toEqual(atBundle.composer as number[]);
     expect(afterSwap.header).toEqual(atBundle.header as number[]);
+    await context.close();
+    await shorter.close();
+  });
+
+  test("a transcript written at its latest row draws there a tab row shorter, as the live page then does", async () => {
+    // Leo, 2026-11-16, after a restart: "it layout shifted as it drew". At its saved offset, the copy drew
+    // the rows 28 px lower than the live page, which keeps its latest row at the end.
+    const context = await newContext(800, 600);
+    const before = await written(await context.newPage(), { atEnd: true });
+    const shorter = await newContext(800, 572);
+    const page = await shorter.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { atEnd: true });
+    const atBundle = (await page.evaluate(() => (window as any).atBundle)) as Record<string, number[] | boolean>;
+    expect(atBundle.shown).toBe(true);
+    const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, number[]>;
+    expect(atBundle.last).toEqual(afterSwap.last);
+    expect(afterSwap.composer).toEqual(atBundle.composer as number[]);
     await context.close();
     await shorter.close();
   });

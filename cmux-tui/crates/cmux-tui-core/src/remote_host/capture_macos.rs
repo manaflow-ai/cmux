@@ -71,7 +71,28 @@ pub(super) fn drain_and_verify(connection: &Connection) -> Result<(), String> {
         return Err("remote_host_group_unverified".into());
     }
     wait_exit(connection, stamp)?;
-    group_absent(stamp.pid)
+    stamped_group_absent(stamp)
+}
+
+/// The group of a recorded host that has exited.
+pub(super) fn exited_group_absent(record: &super::HostRecord) -> Result<(), String> {
+    stamped_group_absent(Stamp::of_record(record))
+}
+
+/// Group absence, or proof that an unrelated process now holds the group ID. The leader's
+/// start is read before and after the group query; an unknown or leaderless group fails closed.
+fn stamped_group_absent(stamp: Stamp) -> Result<(), String> {
+    let before = platform::process_start(stamp.pid);
+    let group = group_absent(stamp.pid);
+    if group.is_ok() || stamp.pid <= 1 {
+        return group;
+    }
+    let after = platform::process_start(stamp.pid);
+    if super::capture::group_reused(before, after, (stamp.start_sec, stamp.start_usec)) {
+        Ok(())
+    } else {
+        group
+    }
 }
 
 pub(super) fn group_absent(pid: u32) -> Result<(), String> {

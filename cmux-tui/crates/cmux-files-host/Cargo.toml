@@ -1,0 +1,19 @@
+[package]
+name = "cmux-files-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux Files (dev): one pinned, team-signed responsible process for the terminals and agents of every DEV build, so macOS asks for Files and Folders once (docs/cmux-files-host.md)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-process.workspace = true
+cmux-signed-bundle.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

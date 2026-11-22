@@ -474,6 +474,30 @@ impl Mux {
         Ok(())
     }
 
+    /// Re-resolve a runtime's workspace default after one of its placements
+    /// changes workspaces. The move has already committed, so the placement
+    /// lookup is outside the topology mutation and the sizing engine can
+    /// apply the new policy immediately.
+    pub(crate) fn refresh_terminal_size_policy(&self, surface: SurfaceId) {
+        let Some(runtime) = self.surface(surface).and_then(|surface| surface.terminal_runtime_id())
+        else {
+            return;
+        };
+        let mut sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        let owners_before = sizing.terminal_owner_clients(runtime);
+        let resolved = self.resolved_size_policy(&sizing, runtime, surface);
+        let Some(entry) = sizing.terminal_sizing.get_mut(&runtime) else {
+            return;
+        };
+        let changed = entry.engine.set_policy(resolved);
+        sizing.note_size_state(runtime, changed);
+        self.apply_terminal_grid(&sizing, runtime);
+        let owners_after = sizing.terminal_owner_clients(runtime);
+        drop(sizing);
+        self.publish_size_states();
+        self.emit_client_sizing_changes(owners_before.symmetric_difference(&owners_after).copied());
+    }
+
     /// The terminal's published size state, creating its engine on demand.
     pub fn terminal_size_state(&self, surface: SurfaceId) -> Option<TerminalSizingState> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;

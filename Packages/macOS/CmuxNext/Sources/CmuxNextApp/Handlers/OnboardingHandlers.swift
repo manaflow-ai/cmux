@@ -6,6 +6,7 @@ import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 
 /// Import and default-app actions. Import from Browser opens the tool window
@@ -15,7 +16,7 @@ import CmuxNextOnboarding
 /// classic's last saved session.
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let services = context.services
+        let services = context.services; registry.bindEffect("home.showSetup") { invocation in services.onboarding.setup.reopen(); _ = registry.perform("home.show", invocation: invocation); _ = registry.perform("home.openChief", invocation: invocation); return .done }
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
         BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in
@@ -133,97 +134,48 @@ enum OnboardingHandlers {
 }
 
 enum ClassicImportStrings {
-    static var previewTitle: String {
-        String(localized: "classicImport.preview.title", defaultValue: "Import these classic workspaces?", bundle: .module)
-    }
-    static var previewButton: String {
-        String(localized: "classicImport.preview.button", defaultValue: "Import", bundle: .module)
-    }
-    static func previewLines(_ plan: ClassicImportPreview) -> [String] {
-        let format = String(
-            localized: "classicImport.preview.summary",
-            defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
-            bundle: .module
-        )
-        // The localized text uses fixed field labels; only the values vary.
-        // Format those numbers for the person's locale before substitution.
-        let text = String(
-            format: format, source(plan), plan.counts.workspaces.formatted(.number),
-            plan.counts.browserTabs.formatted(.number), plan.counts.localFilePages.formatted(.number),
-            plan.counts.sshWorkspaces.formatted(.number), plan.counts.agentChats.formatted(.number),
-            plan.counts.skippedCloudVMs.formatted(.number)
-        )
-        let cleanupFormat = String(
-            localized: "classicImport.preview.cleanup",
-            defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
-            bundle: .module
-        )
-        let cleanup = String(format: cleanupFormat, plan.counts.cleanupWorkspaces.formatted(.number))
-        return text.components(separatedBy: "\n") + [cleanup]
-    }
-    /// The classic app the plan reads and when it saved (the newest save across classic's channels), and whether it is still open.
-    static func source(_ plan: ClassicImportPreview) -> String {
-        let saved = Date(timeIntervalSince1970: plan.savedAt).formatted(date: .abbreviated, time: .shortened)
-        let format = plan.classicRunning
-            ? String(localized: "classicImport.preview.sourceOpen",
-                     defaultValue: "%1$@ (classic), still open: its autosave from %2$@. Quit it first to bring its latest state.", bundle: .module)
-            : String(localized: "classicImport.preview.source", defaultValue: "%1$@ (classic), saved %2$@", bundle: .module)
-        return String(format: format, appName(plan.bundleID), saved)
-    }
     /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it.
-    static func appName(_ bundle: String) -> String {
-        let channel = { (name: String) in bundle == name || bundle.hasPrefix(name + ".") }
-        if bundle == "com.cmuxterm.app" { return "cmux" }
-        if channel("com.cmuxterm.app.nightly") { return "cmux NIGHTLY" }
-        if channel("com.cmuxterm.app.rc") { return "cmux RC" }
-        if channel("com.cmuxterm.app.staging") { return "cmux STAGING" }
-        return "cmux DEV"
-    }
+    static func appName(_ bundle: String) -> String { ClassicImportPreviewStrings.appName(bundle) }
     /// The first launch's toast when cmux-next already had workspaces, so classic's were only recorded.
     static var inUseBefore: String {
         String(localized: "classicImport.toast.inUseBefore",
                defaultValue: "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import.",
-               bundle: .module)
-    }
-    /// The launch's toast when the person cancelled its preview.
-    static var declined: String {
-        String(localized: "classicImport.toast.declined",
-               defaultValue: "Classic workspaces stay in classic cmux. Import them any time from Settings › Import.", bundle: .module)
+               bundle: .module.inAppLanguage)
     }
     /// The first launch's toast when the classic app named `app` is open, so nothing came over.
     static func classicOpen(_ app: String) -> String {
         let format = String(localized: "classicImport.toast.classicOpen",
                             defaultValue: "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import.",
-                            bundle: .module)
+                            bundle: .module.inAppLanguage)
         return String(format: format, app)
     }
     static var imported: String {
-        String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
+        String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module.inAppLanguage)
     }
     static var allHere: String {
-        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module)
+        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module.inAppLanguage)
     }
     static var nothingSaved: String {
-        String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module)
+        String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module.inAppLanguage)
     }
     static var failed: String {
-        String(localized: "classicImport.toast.failed", defaultValue: "Couldn’t import workspaces from classic cmux.", bundle: .module)
+        String(localized: "classicImport.toast.failed", defaultValue: "Couldn’t import workspaces from classic cmux.", bundle: .module.inAppLanguage)
     }
     static var cloudVMsStay: String {
         String(localized: "classicImport.toast.cloudVMsStay",
-               defaultValue: "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet.", bundle: .module)
+               defaultValue: "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet.", bundle: .module.inAppLanguage)
     }
     static var sshStays: String {
         String(localized: "classicImport.toast.sshStays",
-               defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module)
+               defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module.inAppLanguage)
     }
     static var sshScrollbackStays: String {
         String(localized: "classicImport.toast.sshScrollbackStays",
-               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module)
+               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module.inAppLanguage)
     }
     static var tabsStay: String {
         String(localized: "classicImport.toast.tabsStay",
-               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module)
+               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module.inAppLanguage)
     }
 
     /// What opened, then what stayed in classic and why.
@@ -234,8 +186,8 @@ enum ClassicImportStrings {
         return (opened + stayed).joined(separator: " ")
     }
 
-    @MainActor static func toast(_ message: String, in window: NSWindow?) {
+    @MainActor static func toast(_ message: String, in window: NSWindow?, importAgain: (() -> Void)? = nil) {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "classicImport", message: message), in: window)
+        CmuxToastCenter.shared.showClassicImport(message, in: window, importAgain: importAgain)
     }
 }

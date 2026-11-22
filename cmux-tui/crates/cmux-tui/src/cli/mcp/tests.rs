@@ -19,8 +19,6 @@ struct Fake {
     actions: Value,
     fail_resources: bool,
     fail_apps: bool,
-    /// The app socket is absent; remote screen controls may use the worker.
-    app_absent: bool,
     /// The app refuses every `action.run`, as for a path it cannot open.
     refuse_actions: bool,
     /// The app applied an open action but lost the acknowledgement.
@@ -31,9 +29,6 @@ struct Fake {
     resource_result: Option<Value>,
     /// A refusal from the resource owner, passed through unchanged.
     resource_error: Option<Value>,
-    /// Answer and error controls for cmux Remote's legacy daemon calls.
-    daemon_result: Option<Value>,
-    daemon_error: Option<Value>,
     /// The app's transport drops after a `feed.*` request is sent, as
     /// `transport::app_method` reports it.
     lose_app_transport: bool,
@@ -62,17 +57,10 @@ struct Fake {
     caller_terminal: Option<String>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
-    /// The app's `computer_use.status` through `Backend::app_caller`; no
-    /// app caller when unset.
-    computer_use: Option<Value>,
-    /// The card's answer to `permissions.request`; `granted` when unset.
-    setup_outcome: Option<Value>,
     /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
     cloud_machines: Option<Value>,
     /// The server was started on another session (`--session`, `--socket`).
     other_session: bool,
-    /// `{method, params, thread}` of each request the app caller got.
-    app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     /// Successive answers to `tab.list`, before `resource_result`.
     tab_lists: RefCell<std::collections::VecDeque<Value>>,
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
@@ -100,6 +88,10 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// The daemon's `chat.list` rows (its chat index); none when unset.
+    chats: Option<Value>,
+    /// Only the daemon's `chat.list` read fails.
+    chats_down: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -124,6 +116,10 @@ enum Change {
     Expire(usize),
     /// Daemon reads fail (true) or answer again (false).
     DaemonDown(bool),
+    /// The daemon's chat index (`chat.list` rows) now.
+    Chats(Value),
+    /// The daemon's `chat.list` read fails (true) or answers again (false).
+    ChatsDown(bool),
 }
 
 impl Live {
@@ -143,6 +139,8 @@ impl Live {
                 Change::Generation(generation) => self.generation = Some(generation.to_owned()),
                 Change::Expire(oldest) => self.oldest = oldest,
                 Change::DaemonDown(down) => self.daemon_down = down,
+                Change::Chats(rows) => self.chats = Some(rows),
+                Change::ChatsDown(down) => self.chats_down = down,
             }
         }
     }
@@ -184,23 +182,6 @@ impl Backend for Fake {
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
             reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
             Ok(json!({}))
-        }))
-    }
-
-    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
-        let status = self.computer_use.clone()?;
-        let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
-        let calls = self.app_calls.clone();
-        Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
-            calls.lock().unwrap().push(json!({"method": method, "params": params,
-                "thread": format!("{:?}", std::thread::current().id())}));
-            match method {
-                "computer_use.status" => Ok(status.clone()),
-                "permissions.request" => Ok(outcome.clone()),
-                // Restart Computer Use Helper (`cua_recovery.rs`).
-                "action.run" => Ok(json!({"ran": true})),
-                other => panic!("unexpected app call {other}"),
-            }
         }))
     }
 
@@ -264,6 +245,12 @@ impl Backend for Fake {
         if live.daemon_down {
             return Err(CallFailure::local(FailureKind::NotRun, "transport.unavailable", "down"));
         }
+        if request["operation"] == "chat.list" {
+            if live.chats_down {
+                return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
+            }
+            return Ok(live.chats.clone().unwrap_or_else(|| json!([])));
+        }
         if let Some(daemon) = &live.daemon {
             let mut daemon = daemon.clone();
             if let Some(journal) = &live.journal {
@@ -298,9 +285,6 @@ impl Backend for Fake {
             "key": idempotency_key,
             "mutation": mutation,
         }));
-        if self.app_absent {
-            return Err(CallFailure::local(FailureKind::NotRun, "app.not_found", "no cmux app"));
-        }
         if self.lose_app_transport && method.starts_with("feed.") {
             let keyed = idempotency_key.is_some();
             return Err(CallFailure {
@@ -353,25 +337,6 @@ impl Backend for Fake {
             }
             _ => Ok(json!({"ran": true})),
         }
-    }
-
-    fn daemon(&self, request: Value) -> Result<Value, CallFailure> {
-        self.sent.borrow_mut().push(json!({"kind": "daemon", "request": request}));
-        if let Some(error) = &self.daemon_error {
-            return Err(CallFailure {
-                kind: FailureKind::Rejected,
-                error: error.clone(),
-                idempotency_key: None,
-            });
-        }
-        if let Some(result) = &self.daemon_result {
-            return Ok(result.clone());
-        }
-        Err(CallFailure::local(
-            FailureKind::NotRun,
-            "daemon.unavailable",
-            "this server cannot reach the daemon",
-        ))
     }
 
     /// The daemon's stream: its snapshot, then a delta when a daemon change
@@ -888,6 +853,87 @@ fn the_server_refuses_unless_cmux_json_enables_it() {
     assert!(server.backend.sent.borrow().is_empty(), "nothing reached an owner");
 }
 
+/// The off server's reason names the setting the person actually changes:
+/// Settings > Agents > cmux Tools for Agents in cmux (Turn On), or
+/// `cmux settings set agents.cmuxMcp on --confirm`, not `mcp.enabled` (the
+/// switch this flow never sets). An explicit `"mcp": {"enabled": false}` is
+/// named as itself. Read outside an agent chat, in every locale.
+#[test]
+fn the_refusal_names_the_setting_the_person_turns_on() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("cmux-next.json");
+    for text in
+        [None, Some(r#"{"agents": {"cmuxMcp": "off"}}"#), Some(r#"{"agents": {"cmuxMcp": "ask"}}"#)]
+    {
+        match text {
+            Some(text) => std::fs::write(&path, text).unwrap(),
+            None => drop(std::fs::remove_file(&path)),
+        }
+        let message = refusal_for(&path, Caller::Outside, None).expect("off");
+        assert!(message.contains("agents.cmuxMcp on --confirm"), "{message}");
+        assert!(!message.contains("mcp.enabled"), "{message}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+    }
+    std::fs::write(&path, r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#).unwrap();
+    let message = refusal_for(&path, Caller::Outside, None).expect("off");
+    assert!(message.contains("\"mcp\": {\"enabled\": false}"), "{message}");
+    let [english, _] = messages::all();
+    assert!(
+        english
+            .disabled
+            .contains("Turn On in cmux Settings > Agents > cmux Tools for Agents in cmux")
+    );
+    for messages in messages::all() {
+        assert!(messages.disabled.contains("cmux settings set agents.cmuxMcp on --confirm"));
+        assert!(messages.disabled.contains("{path}") && messages.switched_off.contains("{path}"));
+        for text in [messages.usage, messages.disabled] {
+            assert!(!text.contains("mcp.enabled"), "{text}");
+        }
+    }
+}
+
+/// While the server is off, `cmux mcp serve` still completes the MCP
+/// handshake (before, it exited first and Claude Code showed only
+/// CONNECTION_CLOSED): `initialize` succeeds with the reason as its
+/// instructions, `tools/list` offers one tool that says it, and every call,
+/// of any name, answers the reason as an error and runs nothing.
+#[test]
+fn the_off_server_completes_the_handshake_and_answers_every_call_with_the_reason() {
+    let reason = "cmux's tools are off: choose Turn On";
+    let server = off::Off::new(reason.to_owned());
+    let init = server
+        .handle(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                        "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}))
+        .unwrap();
+    assert_eq!(init["result"]["protocolVersion"], "2025-06-18", "{init}");
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux");
+    assert_eq!(init["result"]["instructions"], reason);
+    assert_eq!(
+        server.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})),
+        None
+    );
+    let list = server.handle(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).unwrap();
+    let tools = list["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 1, "{list}");
+    assert_eq!(tools[0]["name"], off::TOOL);
+    assert_eq!(tools[0]["description"], reason);
+    for name in [off::TOOL, "workspace_list", "cmux_exec", "cu_click"] {
+        let call = server
+            .handle(&json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                            "params": {"name": name, "arguments": {}}}))
+            .unwrap();
+        assert_eq!(call["result"]["isError"], true, "{call}");
+        assert_eq!(call["result"]["content"][0]["text"], reason, "{call}");
+        assert_eq!(call["result"]["structuredContent"]["error"]["code"], "mcp.disabled");
+        assert_eq!(call["result"]["structuredContent"]["state"], "not_run", "{call}");
+    }
+    let ping = server.handle(&json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})).unwrap();
+    assert_eq!(ping["result"], json!({}));
+    let other =
+        server.handle(&json!({"jsonrpc": "2.0", "id": 5, "method": "resources/list"})).unwrap();
+    assert_eq!(other["error"]["code"], -32601, "{other}");
+}
+
 #[test]
 fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     let text = "{\"url\": \"https://a//b/*c*/\", // note\n \"list\": [1, 2,], /* x */ }";
@@ -895,6 +941,19 @@ fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     assert_eq!(value, json!({"url": "https://a//b/*c*/", "list": [1, 2]}));
     assert_eq!(config::enabled_in("").ok(), Some(false));
     assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(false));
+}
+
+#[test]
+fn yes_to_cmux_tools_in_coding_agents_turns_the_server_on_unless_mcp_enabled_says_otherwise() {
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "on"}}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents.cmuxMcp": "on"}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "ask"}}"#).ok(), Some(false));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "off"}}"#).ok(), Some(false));
+    // The person's own switch wins over the answer.
+    let both = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(false));
+    let both = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(true));
 }
 
 fn fake_env(
@@ -968,6 +1027,8 @@ fn json_rpc_lifecycle_and_errors() {
         "window_list",
         "agents_snapshot",
         "app_new_window",
+        "device_setup",
+        "device_start",
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
@@ -1628,7 +1689,9 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_connect;
 mod cloud_workspace_list;
+mod computer_use;
 mod keys;
 mod live_open;
 mod machine_catalog;
@@ -1937,9 +2000,6 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
 
-#[path = "cua_recovery_tests.rs"]
-mod cua_recovery_tests;
-
 /// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
 /// the app's `browser.open_split` cannot run without the app (review of the
 /// no-app placement fallback, 2026-10-27).
@@ -1965,79 +2025,6 @@ fn open_url_without_an_app_stays_on_the_daemon() {
     assert!(!sent.iter().any(|sent| sent["method"] == "browser.open_split"), "{sent:?}");
     assert!(
         sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
-        "{sent:?}"
-    );
-}
-
-#[test]
-fn remote_screen_stop_uses_the_app_action_when_it_is_present() {
-    let fake = Fake::default();
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    let sent = server.backend.sent.borrow();
-    let app = sent.iter().find(|item| {
-        item["kind"] == "app"
-            && item["method"] == "action.run"
-            && item["params"]["action"] == "macScreen.stopSharing"
-    });
-    let app = app.unwrap_or_else(|| panic!("{sent:?}"));
-    assert_eq!(app["params"]["wait"], true, "{app}");
-    assert_eq!(app["params"]["origin"], "cli", "{app}");
-    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
-}
-
-#[test]
-fn remote_screen_stop_falls_back_to_the_worker_only_when_the_app_is_absent() {
-    let fake =
-        Fake { app_absent: true, daemon_result: Some(json!({"stopped": true})), ..Fake::default() };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    assert_eq!(result["structuredContent"]["stopped"], true, "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(
-        sent.iter()
-            .any(|item| item["kind"] == "daemon"
-                && item["request"]["method"] == "screen.stop_session"),
-        "{sent:?}"
-    );
-}
-
-#[test]
-fn remote_screen_stop_does_not_hide_an_app_refusal_in_the_worker() {
-    let fake = Fake {
-        refuse_actions: true,
-        daemon_result: Some(json!({"should_not": "run"})),
-        ..Fake::default()
-    };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_stop_session", "arguments": {}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], true, "{result}");
-    assert_eq!(result["structuredContent"]["error"]["code"], "invalid_argument", "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(!sent.iter().any(|item| item["kind"] == "daemon"), "{sent:?}");
-}
-
-#[test]
-fn remote_share_off_uses_the_app_action_and_the_same_absent_app_fallback() {
-    let fake =
-        Fake { app_absent: true, daemon_result: Some(json!({"shared": false})), ..Fake::default() };
-    let mut server = Server::new(fake, None);
-    let result = server
-        .call(&json!({"name": "remote_share", "arguments": {"on": false}}))
-        .expect("a tool result");
-    assert_eq!(result["isError"], false, "{result}");
-    let sent = server.backend.sent.borrow();
-    assert!(
-        sent.iter()
-            .any(|item| item["kind"] == "daemon" && item["request"]["method"] == "screen.share"),
         "{sent:?}"
     );
 }
@@ -2528,5 +2515,43 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     assert_eq!(
         last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
         "{last}"
+    );
+}
+
+/// `device_setup` and `device_start` are listed, say they grant nobody access, and refuse wrong
+/// arguments before running anything.
+#[test]
+fn device_tools_are_listed_and_check_their_arguments() {
+    let mut server = Server::new(Fake::default(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in [device_tools::SETUP, device_tools::START] {
+        let tool = tools.iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"));
+        let description = tool["description"].as_str().unwrap();
+        assert!(description.contains("grants nobody access"), "{description}");
+    }
+    for (name, arguments) in [
+        (device_tools::SETUP, json!({})),
+        (device_tools::SETUP, json!({"device": "studio-mac", "all": true})),
+        (device_tools::SETUP, json!({"device": "--all"})),
+        (device_tools::START, json!({})),
+    ] {
+        let answer = server
+            .handle(&json!({"jsonrpc": "2.0", "id": "c", "method": "tools/call",
+                            "params": {"name": name, "arguments": arguments}}))
+            .unwrap();
+        assert_eq!(answer["result"]["isError"], true, "{name} {arguments}: {answer}");
+    }
+    let words =
+        |name: &str, arguments: Value| device_tools::words(name, arguments.as_object().unwrap());
+    assert_eq!(
+        words(device_tools::SETUP, json!({"device": "studio-mac"})).unwrap(),
+        ["setup", "studio-mac"]
+    );
+    assert_eq!(words(device_tools::SETUP, json!({"all": true})).unwrap(), ["setup", "--all"]);
+    assert_eq!(
+        words(device_tools::START, json!({"device": "studio-mac"})).unwrap(),
+        ["start", "studio-mac"]
     );
 }

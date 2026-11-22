@@ -664,7 +664,7 @@ pub(crate) fn start_v2_tee(
             state.remote_ready();
         }
         if !v2.allows_surfaces(&["list", "peers"]) {
-            write_off_mirror_marks(&v2);
+            write_off_mirror_marks(&v1, &v2).await;
         }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut remote_reconciled = false;
@@ -792,14 +792,30 @@ pub(crate) fn start_v2_tee(
     (handle, task)
 }
 
-/// With `peers` off no mirror runs here, and v1 holds every origin: a mark a mirror left on an
-/// earlier run is written off (a takeover as v1), so a later run with `peers` on walks rather
-/// than resumes past the rows v1 wrote meanwhile.
-fn write_off_mirror_marks(v2: &V2) {
+/// With `peers` off no mirror runs here, and v1 holds every origin. An origin whose mark a
+/// mirror left on an earlier run opens as the mirror's (decision 264), so it is taken over as
+/// v1, which writes the mark off: a later run with `peers` on walks rather than resumes past
+/// the rows v1 wrote meanwhile. Once the writer has handled each takeover, the tee walks those
+/// origins' rows as it does a hand-back's.
+async fn write_off_mirror_marks(v1: &Hub, v2: &V2) {
+    let mut asked = Vec::new();
     for record in v2.hub.snapshot().mirror_marks() {
-        if let Err(error) = v2.hub.takeover(&record.origin, Source::V1) {
-            tracing::warn!(origin = %record.origin, %error, "v2 list tee could not write off a mirror mark");
+        let before = v2.hub.takeover_turns(&record.origin);
+        match v2.hub.takeover(&record.origin, Source::V1) {
+            Ok(()) => asked.push((record.origin, before)),
+            Err(error) => {
+                tracing::warn!(origin = %record.origin, %error, "v2 list tee could not write off a mirror mark");
+            }
         }
+    }
+    // Applied, held with a leaving origin, or refused: each is a turn of the writer's.
+    v2.hub
+        .wait_mirror_until(|hub| {
+            asked.iter().all(|(origin, before)| hub.takeover_turns(origin) != *before)
+        })
+        .await;
+    for (origin, _) in &asked {
+        v1.link_v2.hand_back(origin);
     }
 }
 

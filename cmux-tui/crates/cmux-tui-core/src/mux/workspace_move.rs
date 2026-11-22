@@ -59,7 +59,8 @@ impl Mux {
             "key": requested_key,
             "index": index,
         });
-        let notifications = self.tree_decorations();
+        // The delta serializes the moved workspace only.
+        let notifications = self.tree_decorations_of_target(workspace, requested_key);
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);

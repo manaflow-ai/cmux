@@ -16,6 +16,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func prompt(id: String, text: String) async throws -> Data
     /// Sends ordered ACP content, including images and file links, to the owning session.
     func prompt(id: String, content: Data) async throws -> Data
+    /// A prompt that steers into the running turn (`agent-session-steer-v1`): the owner's or a
+    /// Cloud team member's. A client without the verb queues it as a plain prompt.
+    func prompt(id: String, text: String, steer: Bool) async throws -> Data
+    func prompt(id: String, content: Data, steer: Bool) async throws -> Data
+    /// The owner runs (`approve`) or drops a prompt held for them, a link guest's
+    /// (`agent-session-queue-decision-v1`).
+    func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data
+    func queueDecline(promptID: String) async throws -> Data
     func cancel() async throws
     /// Answers a permission request the daemon announced on this attachment, with a question's
     /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
@@ -74,6 +82,15 @@ extension AgentSessionRemoteClient {
         }
         return try await prompt(id: id, text: text)
     }
+    /// A client without `agent-session-steer-v1` queues a steer as a plain prompt.
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data { try await prompt(id: id, text: text) }
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data { try await prompt(id: id, content: content) }
+    /// A client without `agent-session-queue-decision-v1` cannot decide a held prompt.
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data { throw Self.queueDecisionUnsupported }
+    public func queueDecline(promptID: String) async throws -> Data { throw Self.queueDecisionUnsupported }
+    nonisolated static var queueDecisionUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.queue_decision_unsupported", message: "Update cmux on that machine to approve held messages.")
+    }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
     /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
@@ -126,16 +143,20 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's byte budget (the pane's `maxBytes`), sent where the daemon serves
+    /// `agent-session-page-bytes-v1`; nil leaves acpmux's default.
+    public var maxBytes: Int?
     /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
     /// gets its records. Never sent to the daemon.
     public var listing: Bool
 
     public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
-                listing: Bool = false) {
+                maxBytes: Int? = nil, listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.maxBytes = maxBytes
         self.listing = listing
     }
 }

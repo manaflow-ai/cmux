@@ -1,4 +1,5 @@
 #if os(iOS) && canImport(CmuxMobileLinkFFI)
+import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileModel
 import Foundation
@@ -6,7 +7,7 @@ import Testing
 @testable import CmuxMobileWorkspaces
 
 /// Toggle Terminal and Chat on the phone (Leo, 2026-11-12: terminal and GUI are two live views of one
-/// harness session, instant both ways; on iOS chat is the default for Claude Code and Codex). The
+/// harness session, instant both ways; Leo, 2026-11-15: a terminal opens on its terminal). The
 /// decisions are Rust's (cmux-mobile-link-ffi `terminal_chat.rs`); these check the binding: the facts
 /// the tab source reads, the face it shows and what a tap on the control does.
 @MainActor @Suite(.serialized)
@@ -42,11 +43,33 @@ struct TerminalChatToggleTests {
         return tab
     }
 
-    static func make(_ backend: PairBackend, tabs: [WorkspaceTab]) -> (AppStore, WorkspaceTabsSource) {
+    /// A tab source with Settings → Terminal → Terminal and Chat Toggle `on` (off by default).
+    static func make(_ backend: PairBackend, tabs: [WorkspaceTab], toggleOn on: Bool = true) -> (AppStore, WorkspaceTabsSource) {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "~/p", tabs: tabs, lastActivityAt: Date())]
         let source = WorkspaceTabsSource(store: store, workspaceID: "w", creator: WorkspaceCreator(store: store, backend: backend))
+        source.terminalChatToggleOn = { on }
         return (store, source)
+    }
+
+    // Leo, 2026-11-17: "On the iOS... like the toggle js just so a** rn it needs more baking tiem". Off (the
+    // default), a pair offers no Show Chat / Show Terminal row, shows its own face and asks the Mac for nothing.
+    @Test func theToggleIsOffByDefault() throws {
+        #expect(!CmuxMobilePreferences.terminalChatToggle(UserDefaults(suiteName: "terminal-chat-toggle-\(UUID())")!))
+        let backend = PairBackend(listings: [Self.watch], answer: .chat("w-9"))
+        let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "claude", session: "h-1"), Self.chat("c1", session: "a-1")],
+                                    toggleOn: false)
+        let workspace = try #require(source.workspace)
+        for id in ["s1", "c1"] {
+            let tab = try #require(source.workspaceTab(id))
+            #expect(!source.pairFaces(tab, in: workspace).offered)
+            #expect(source.terminalChatItems(tab, in: workspace).isEmpty)
+            #expect(!source.showsChatFace(tab, in: workspace))
+        }
+        source.openTerminalChatIfNeeded("s1")
+        source.swapTerminalChat("s1", to: .chat)
+        #expect(backend.asked.isEmpty)
+        #expect(!source.showsChatFace(try #require(source.workspaceTab("s1")), in: workspace))
     }
 
     static func settle(_ done: () -> Bool) async {
@@ -55,18 +78,21 @@ struct TerminalChatToggleTests {
 
     static let watch = TerminalChatListing(sessionID: "a-1", harness: "claude", agentSessionID: "h-1", watching: true, status: "idle")
 
-    @Test func aClaudeTerminalOpensOnItsChatAndSwapsBothWaysInPlace() throws {
+    @Test func aClaudeTerminalOpensOnItsTerminalAndSwapsBothWaysInPlace() throws {
         let backend = PairBackend(listings: [Self.watch])
         let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "claude-code", session: "h-1")])
         let workspace = try #require(source.workspace)
         let tab = try #require(source.workspaceTab("s1"))
         #expect(source.pairFaces(tab, in: workspace).offered)
-        // Chat is the default face, on the Mac's View Only chat of the session: nothing to ask for.
-        #expect(source.showsChatFace(tab, in: workspace))
+        // The terminal is the default face (Leo, 2026-11-15); its chat face is the Mac's View Only
+        // chat of the session, kept ready: nothing to ask for.
+        #expect(!source.showsChatFace(tab, in: workspace))
         #expect(source.terminalChatSessionID(tab, in: workspace) == "a-1")
         source.openTerminalChatIfNeeded("s1")
         #expect(backend.asked.isEmpty)
         // Both ways, the same tab: a face flag, no new tab, no request.
+        source.swapTerminalChat("s1", to: .chat)
+        #expect(source.showsChatFace(tab, in: workspace))
         source.swapTerminalChat("s1", to: .terminal)
         #expect(!source.showsChatFace(tab, in: workspace))
         source.swapTerminalChat("s1", to: .chat)
@@ -86,10 +112,12 @@ struct TerminalChatToggleTests {
         await Self.settle { source.terminalChatSessionID(tab, in: workspace) != nil }
         #expect(backend.asked == ["codex h-2 s1"])
         #expect(source.terminalChatSessionID(tab, in: workspace) == "w-9")
+        #expect(!source.showsChatFace(tab, in: workspace))
+        source.swapTerminalChat("s1", to: .chat)
         #expect(source.showsChatFace(tab, in: workspace))
     }
 
-    @Test func aMacThatRefusesAPhoneAViewOnlyChatLeavesTheTerminalAndSaysWhy() async throws {
+    @Test func aMacThatRefusesAPhoneAViewOnlyChatLeavesOnlyTheTerminal() async throws {
         let backend = PairBackend(answer: .refused)
         let (_, source) = Self.make(backend, tabs: [Self.terminal("s1", agent: "claude", session: "h-3"),
                                                     Self.terminal("s2", agent: "claude", session: "h-4")])
@@ -98,10 +126,12 @@ struct TerminalChatToggleTests {
         source.openTerminalChatIfNeeded("s1")
         await Self.settle { source.terminalChatRefusingMacs.contains("mac") }
         let faces = source.pairFaces(tab, in: workspace)
-        #expect(faces.offered && !faces.chatEnabled && faces.defaultFace == .terminal)
+        // No toggle a tap cannot follow: no row, no toast.
+        #expect(!faces.offered && !faces.chatEnabled && faces.defaultFace == .terminal)
+        #expect(source.terminalChatItems(tab, in: workspace).isEmpty)
         #expect(!source.showsChatFace(tab, in: workspace))
         source.swapTerminalChat("s1", to: .chat)
-        #expect(source.toastText == faces.disabledReason)
+        #expect(source.toastText == nil)
         // The Mac is not asked again, for this terminal or another.
         source.openTerminalChatIfNeeded("s2")
         await Self.settle { false }
@@ -109,6 +139,7 @@ struct TerminalChatToggleTests {
         // Once the Mac opens the chat (its own Toggle), the chat face is back.
         backend.listings = [TerminalChatListing(sessionID: "a-3", harness: "claude", agentSessionID: "h-3", watching: true, status: "idle")]
         #expect(source.pairFaces(tab, in: workspace).chatEnabled)
+        source.swapTerminalChat("s1", to: .chat)
         #expect(source.showsChatFace(tab, in: workspace))
     }
 
@@ -126,17 +157,20 @@ struct TerminalChatToggleTests {
         #expect(!source.showsChatFace(terminal, in: workspace))
     }
 
-    @Test func aChatNoTerminalRunsKeepsItsTerminalFaceDisabled() throws {
+    // Leo, 2026-11-17: "bro this is pretty goofy / why is this even a behaviour that happens / just... stop showijg
+    // the toggle on gui." A chat no terminal runs shows no toggle, so "No terminal runs this chat" never shows.
+    @Test func aChatNoTerminalRunsShowsNoToggle() throws {
         let backend = PairBackend(listings: [Self.watch])
         let (_, source) = Self.make(backend, tabs: [Self.chat("c1", session: "a-1")])
         let workspace = try #require(source.workspace)
         let chat = try #require(source.workspaceTab("c1"))
         let faces = source.pairFaces(chat, in: workspace)
-        #expect(faces.offered && !faces.terminalEnabled)
+        #expect(!faces.offered && !faces.terminalEnabled)
+        #expect(source.terminalChatItems(chat, in: workspace).isEmpty)
         source.activate("c1")
         source.swapTerminalChat("c1", to: .terminal)
         #expect(source.activeTabID == "c1")
-        #expect(source.toastText == faces.disabledReason)
+        #expect(source.toastText == nil)
     }
 
     @Test func aPlainTerminalOrAnAgentAcpmuxCannotAdoptHasNoControl() throws {

@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_EASE_OUT, MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
@@ -26,7 +27,7 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
   const src = path.resolve(import.meta.dir, "../src");
   const css = (file: string) => readFileSync(path.join(src, file), "utf8");
   const sheets = [
-    ":root{--agent-motion-in:120ms;--agent-motion-out:80ms;--agent-ease-out:cubic-bezier(0, 0, 0.58, 1)}",
+    `:root{--agent-motion-in:${MOTION_MS.micro}ms;--agent-motion-out:${MOTION_MS.quick}ms;--agent-ease-out:${MOTION_EASE_OUT}}`,
     css("ui/popupSurface.css"),
     css("agent-session/acpmux/conversation/conversation.css"),
     css("agent-session/acpmux/subagents/subagents.css"),
@@ -74,12 +75,12 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     await p.close();
     // A row that arrives in the transcript fades in on the arrival step (--agent-motion-arrive, the
     // quick step: Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
-    expect(row).toBe("cv-enter-fade 0.08s cubic-bezier(0, 0, 0.58, 1)");
+    expect(row).toBe(`cv-enter-fade ${MOTION_MS.quick / 1000}s ${MOTION_EASE_OUT}`);
     // The hat's appearance: the settle's duration and curve (--cmux-motion-settle, --cmux-ease-settle).
-    expect(card).toBe("acpmux-tray-settle-in 0.18s cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(card).toBe(`acpmux-tray-settle-in ${MOTION_SETTLE_MS / 1000}s ${MOTION_SETTLE}`);
     // Its copy leaves on the same settle, folding its height away as it fades (trayMotionModel.ts
     // `playTrayExit`).
-    expect(leave).toBe("acpmux-tray-leave 0.18s cubic-bezier(0.16, 1, 0.3, 1)");
+    expect(leave).toBe(`acpmux-tray-leave ${MOTION_SETTLE_MS / 1000}s ${MOTION_SETTLE}`);
     // Its height and opacity move on the shared fold (SubagentTray.tsx `TrayRow`), a Web Animation.
     expect(line.split(" ")[0]).toBe("none");
     expect(body.split(" ")[0]).toBe("none");
@@ -89,7 +90,7 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     const fade = await page(tray("fade"), "no-preference");
     const faded = await motionOf(fade, ".acpmux-running-tray__list > li");
     await fade.close();
-    expect(faded).toBe("cv-enter-fade 0.12s cubic-bezier(0, 0, 0.58, 1)");
+    expect(faded).toBe(`cv-enter-fade ${MOTION_MS.micro / 1000}s ${MOTION_EASE_OUT}`);
     const slide = await page(tray("slide"), "no-preference");
     const rise = await motionOf(slide, ".acpmux-running-tray__row");
     await slide.close();

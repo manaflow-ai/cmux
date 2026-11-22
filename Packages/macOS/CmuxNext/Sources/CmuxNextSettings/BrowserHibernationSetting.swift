@@ -22,7 +22,7 @@
 /// once cmux.json sets `browser.hibernation` (`discardsAutomatically`). The person's Hibernate
 /// Tab discards whatever the setting.
 ///
-/// `freezeHiddenTabs` is separate: a hidden Chromium page freezes (its timers,
+/// `freezeHiddenTabs` is separate: a hidden Chromium or WebKit page freezes (its timers,
 /// tasks and rendering stop; it keeps its memory and state) after that many
 /// seconds, and thaws when shown. It saves power, not memory.
 /// `keepNeighborTabsAwake` keeps that many tabs on each side of each pane's

@@ -14,6 +14,16 @@ public extension Metrics {
         corners.radius(fitting: size, radius: buttonCornerRadius)
     }
 
+    /// The corner of a small button `side` points tall, such as a tab's close: Helium's roundness, 8 on 28 (its
+    /// location bar and buttons; Lucas 2026-11-14 measured the close's reference at 8 px on 28), at that size on the
+    /// half-point grid, so it rounds as the chrome's other buttons do at every density, never past a circle.
+    /// A corner radius the person set (``cornerRadiusIsSet``) keeps every button on it instead, as the concentric chain
+    /// from that radius needs.
+    static func buttonCornerRadius(proportionalTo side: CGFloat) -> CGFloat {
+        if cornerRadiusIsSet { return min(buttonCornerRadius, side / 2) }
+        return min(((side * 8 / 28) * 2).rounded() / 2, side / 2)
+    }
+
     /// The corner of a button nested `inset` points inside a rounded shape whose corner is the button corner
     /// (a segmented control's segment, a chip in a pill): ``buttonCornerRadius`` less the inset, the
     /// concentric rule (inner = outer - inset), so the gap between the two corners stays even.

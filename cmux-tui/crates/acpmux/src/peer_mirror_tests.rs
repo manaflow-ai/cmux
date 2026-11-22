@@ -294,3 +294,26 @@ async fn a_takeover_held_with_a_leaving_origin_starts_the_dialer_again() {
     assert_eq!(local.mirror_counts().out_of_order, 0);
     link.end();
 }
+
+/// A takeover refused at the bound on origins ends the mirror, refused,
+/// instead of leaving the dialer waiting for a takeover that never applies.
+#[tokio::test]
+async fn a_takeover_refused_at_the_origin_bound_ends_the_mirror() {
+    let peer = hub();
+    let local = hub();
+    peer.submit(row("a", "a1", 1)).unwrap();
+    until("the peer holds its row", || peer.snapshot().len() == 1).await;
+    for n in 0..acpmux_core::hub::MAX_ORIGINS {
+        local.takeover(&format!("full-{n:03}"), Source::V1).unwrap();
+    }
+    until("the origins are full", || {
+        local.source(&format!("full-{:03}", acpmux_core::hub::MAX_ORIGINS - 1)).is_some()
+    })
+    .await;
+    let link = dial(&peer, &local);
+    let end = tokio::time::timeout(WAIT, link.dialing).await.expect("the dialer ended").unwrap();
+    assert!(matches!(end, Ok(DialEnd::Refused(HubError::OriginLimit))), "{end:?}");
+    assert_eq!(local.takeover_turns(ORIGIN).refused, 1);
+    assert!(titles(&local).is_empty());
+    link.serving.abort();
+}

@@ -75,6 +75,19 @@ actor RemoteCaptureLease {
         } catch { return false }
     }
 
+    /// Cleanup after a daemon prepare that never created the native marker. The binding is checked
+    /// before anything changes: a rejected binding never freezes admission or signals children.
+    func cleanupUnprepared(_ binding: CaptureLeaseBinding, children: RemoteChildLifetime,
+                           stopWorkers: @Sendable () -> Void, timeout: Duration = .seconds(15)) async -> CaptureLeaseResult {
+        guard beginUnpreparedCleanup(binding) else { return CaptureLeaseResult(code: "remote_lease_mismatch", leaseBound: true) }
+        children.freeze()
+        stopWorkers()
+        children.stopOwnedChildren()
+        let exited = await children.waitUntilEmpty(timeout: timeout)
+        // Checked again after the drain: a writer may have created a marker or identity meanwhile.
+        return cleanup(binding, writersExited: exited, unprepared: true)
+    }
+
     func cleanup(_ binding: CaptureLeaseBinding, writersExited: Bool, unprepared: Bool = false) -> CaptureLeaseResult {
         if unprepared {
             guard binding.owns(stateDirectory: stateDirectory, home: home), writersExited else {

@@ -25,6 +25,7 @@ import { MOCK_COMPOSER_COMMANDS } from "../../apps/scene/panelsMock";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
 import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
+import { COMPOSER_MD, MODEL_PICKER, PLUS_PICKER } from "./composerSelectors";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
@@ -176,7 +177,7 @@ const SEND_ARRIVES = {
 
 /// The one model button (Leo 2026-10-20: "Opus 5.5  Medium"): it names the model and its effort and
 /// opens the one menu, whose Effort row opens the levels beside it.
-const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
+const MODEL_BUTTON = { selector: MODEL_PICKER };
 const MODEL_DETAIL = ".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label)";
 
 async function openModelMenu(ctx: PlayContext) {
@@ -825,6 +826,35 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
     },
+    // Lawrence 2026-11-19: "hovering on each of the things should show keyboard shortcuts like cmd
+    // ctrl m". The host pushes its bound keys (applyShortcuts); each chip's tooltip ends with its key.
+    "chip-shortcut-tooltips": {
+      note: "The host's bound keys reach the page; hovering the model chip shows its tooltip with ⌃⌘M after it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { applyShortcuts?(labels: Record<string, string>): void };
+          }
+        ).cmuxAcpmuxBridge;
+        bridge?.applyShortcuts?.({
+          "agentPane.switchModel": "⌃⌘M",
+          "agentPane.composer.addMenu": "⌃⌥⌘A",
+          "agentPane.composer.chooseFolder": "⌃⌥⌘O",
+          "agentPane.composer.chooseComputer": "⌃⌥⌘K",
+          "agentPane.composer.switchMode": "⌃⌥⌘M",
+          "agentPane.composer.togglePlan": "⌃⌥⌘P",
+          "agentPane.composer.agentOptions": "⌃⌥⌘G",
+          "agentPane.composer.showContextUsage": "⌃⌥⌘U",
+        });
+        await ctx.waitFor(() => ctx.document.querySelector(`${MODEL_PICKER}[data-tooltip-shortcut="⌃⌘M"]`));
+        await ctx.hover(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip:not([hidden]) .ui-tooltip-hint"));
+      },
+    },
     "side-session": {
       note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
@@ -979,7 +1009,7 @@ export default agentPaneEntry({
       note: 'Play: hover the +; the tooltip reads "Add files and more".',
       snapshot: chat(finished),
       play: async (ctx) => {
-        const selector = ".acpmux-composer-plus .acpmux-picker-button";
+        const selector = PLUS_PICKER;
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.hover({ selector });
         await ctx.waitFor(
@@ -995,7 +1025,7 @@ export default agentPaneEntry({
     // The composer's states, the New Tab page's beside them (agent-pane.new-tab composer-*):
     // test/composer-caret-focus.test.ts asserts the same.
     ...Object.fromEntries(
-      Object.entries(composerStatePlays(".acpmux-composer-box .acpmux-md")).map(([state, variant]) => [
+      Object.entries(composerStatePlays(COMPOSER_MD)).map(([state, variant]) => [
         `composer-${state}`,
         { ...variant, snapshot: quietChips() },
       ]),
@@ -1427,7 +1457,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
           return Boolean(
-            failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
+            failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
             failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
             !failed.querySelector(".acpmux-attachment-retry"),
@@ -1949,7 +1979,7 @@ export default agentPaneEntry({
       note: "Play: the first Esc of the double press. Stop keeps its plain square glyph and footprint and takes the theme's accent; its name and the placeholder say Esc again stops (Leo 2026-10-21: no discs).",
       snapshot: chat(working, { isWorking: true }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-box .acpmux-md" });
+        await ctx.click({ selector: COMPOSER_MD });
         await ctx.press("Escape");
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
       },
@@ -2417,7 +2447,7 @@ export default agentPaneEntry({
         commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
         // The Search section: Search chats and Search pages open the app's palette pages.
         for (const id of ["agentPane.searchChats", "history.search"])
@@ -2459,7 +2489,7 @@ export default agentPaneEntry({
       ),
       native: { "composer.capture": null },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
         // test/composer-plus-menu-shape.browser.test.ts holds the shape: no skill rows, one-line rows,
         // a bounded panel. The play only opens it, so the same state draws the menu before the fix.
@@ -2500,7 +2530,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         // Back in the prompt, to type about the capture (the + menu does not take focus back).
@@ -2519,7 +2549,7 @@ export default agentPaneEntry({
       ),
       native: { "composer.capture": null },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.window"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
           .cmuxGalleryLog;
@@ -2561,7 +2591,7 @@ export default agentPaneEntry({
         "video.frames": VIDEO_FRAMES,
       },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
         await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
@@ -2581,7 +2611,7 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       native: { "composer.capture": { cancelled: true } },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
           .cmuxGalleryLog;
@@ -2614,7 +2644,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.recording"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
       },
@@ -2626,7 +2656,7 @@ export default agentPaneEntry({
       ),
       native: { "composer.capture": null },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.screenshot"]'));
         if (ctx.document.querySelector('.acpmux-composer-plus [data-value="add.recording"]'))
           throw new Error("a Cloud chat offered Record Screen…");
@@ -2669,7 +2699,7 @@ export default agentPaneEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: PLUS_PICKER });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
@@ -2765,7 +2795,7 @@ export default agentPaneEntry({
     // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
     // labelled with the extension's name. Picking one writes its text over the typed /word.
     "slash-menu-extension-command": {
-      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup beside other sources, and picking it writes the extension's text in the prompt.",
       snapshot: chat(finished, {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
@@ -2777,9 +2807,12 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.click(prompt);
         await ctx.type("/st");
+        // The tag shows when the list holds more than one source (cmux's own /status matches too).
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
-            (label) => label.textContent?.trim() === "Standup",
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].some(
+            (option) =>
+              option.querySelector(".acpmux-slash-name")?.textContent === "/standup" &&
+              ["Standup", undefined].includes(option.querySelector(".acpmux-slash-source")?.textContent?.trim()),
           ),
         );
       },
@@ -3079,7 +3112,7 @@ export default agentPaneEntry({
       },
     },
     "slash-menu-cmux-descriptions": {
-      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, fork opens a new chat, and side reads as fork does (a side chat, no argument hint).",
       snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
@@ -3088,14 +3121,22 @@ export default agentPaneEntry({
           [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
-        await ctx.waitFor(() => !!row("import") && !!row("fork"));
-        if (
-          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
-          "Start a new chat with this transcript as its first prompt"
-        )
+        await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
+        // The highlighted row shows what it does; the others say it to a screen reader only.
+        const said = (name: string) =>
+          row(name)?.querySelector(".acpmux-slash-description")?.textContent ??
+          row(name)?.getAttribute("aria-description");
+        if (said("import") !== "Start a new chat with this transcript as its first prompt")
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+        if (said("fork") !== "Fork this turn into a new chat tab")
           throw new Error("/fork description does not describe its new chat");
+        // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
+        // its name and its description.
+        if (said("side") !== "Fork this turn into a side chat")
+          throw new Error("/side description does not match /fork's wording");
+        for (const name of ["fork", "side"])
+          if (row(name)?.querySelector(".acpmux-slash-hint"))
+            throw new Error(`/${name} shows an argument hint the other row does not`);
       },
     },
     "reasoning-claude": {

@@ -5,6 +5,13 @@
 /// The Rust twin in cmux-tui-core must stay identical; both replay
 /// `schemas/terminal-sizing/fixtures.json`.
 public struct TerminalSizingEngine: Sendable {
+    /// The narrowest grid a shared terminal takes while some counting view is
+    /// at least this wide: an iPhone's portrait terminal page. A narrower view
+    /// gets the wider grid instead of squeezing every view below a phone (Leo,
+    /// 2026-11-15: "i dont see the point of a narrower-than-iphone terminal").
+    /// `fixed` and `held` keep their grid. Rust: `MIN_SHARED_COLS`.
+    public static let minSharedCols = 40
+
     private struct Entry: Sendable {
         var participant: TerminalSizingParticipant
         var activity: UInt64
@@ -192,8 +199,14 @@ public struct TerminalSizingEngine: Sendable {
 
     private mutating func publish() -> Bool {
         let counting = entries.filter(counts)
-        let (size, owners, reason) = decide(counting)
-        if reason != .held && reason != .fixed { held = size }
+        let (decided, owners, reason) = decide(counting)
+        var size = decided
+        if reason != .held && reason != .fixed {
+            if counting.contains(where: { ($0.participant.viewport?.cols ?? 0) >= Self.minSharedCols }) {
+                size.cols = max(size.cols, Self.minSharedCols)
+            }
+            held = size
+        }
         let rows = entries.map { TerminalSizingParticipantState(participant: $0.participant, counts: counts($0)) }
         var next = TerminalSizingState(
             generation: state.generation, cols: size.cols, rows: size.rows, reason: reason,

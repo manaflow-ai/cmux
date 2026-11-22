@@ -254,8 +254,16 @@ impl Mux {
     }
 }
 
-/// The late thread. It holds the mux weakly: a mux that is dropped or shuts
-/// down ends it at the next read slice.
+/// The late thread. In its wait for the holder it holds the mux weakly: a
+/// mux that is dropped or shuts down ends it at the next read slice, or at
+/// the end of its pause between two asks. After the holder's answer, or
+/// when no holder serves the socket, it keeps the mux for the re-attach (or
+/// the end of the terminals) and for the wait of
+/// `settle_creations_after_late_holder`. With the terminal journal on (the
+/// registry has a database file), the reader of a holder terminal also
+/// holds the mux while it waits for output (`LocalOutput::read` takes its
+/// journal target before the read), so a drop with no `shutdown()` does not
+/// end such a mux whose holder terminal re-attached.
 fn wait_for_late_holder(
     mux: &Weak<Mux>,
     options: &SurfaceOptions,
@@ -297,6 +305,12 @@ fn wait_for_late_holder(
             return;
         }
         let until = clock.now() + LATE_WAIT;
+        // The closure runs under the holder service's `connecting` lock.
+        // When its stop check has the last reference of the mux, the mux
+        // drops on this thread under that lock, so no drop of a mux or of a
+        // surface may take `connecting` or wait for a thread that takes it
+        // (the service's `close`, `detach` and `untrack`, which a surface
+        // calls at its end, do not take it).
         let reach = service.reach(&|| {
             if live().is_none() {
                 return Duration::ZERO;
