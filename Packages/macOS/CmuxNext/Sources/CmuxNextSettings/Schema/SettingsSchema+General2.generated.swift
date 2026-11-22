@@ -55,6 +55,16 @@ extension GeneralSettingsSchema {
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
             ),
             SettingDescriptor(
+                CmuxConfigSnapshot.captureScreenshotGlobalHotKeyPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.captureScreenshotGlobalHotKey", "Capture Screenshot to Chat from Any App"),
+                help: SettingsText.keyed("settings.app.captureScreenshotGlobalHotKey.help", "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.captureScreenshotGlobalHotKeyDefault),
+                keywords: ["global", "hotkey", "hot key", "screenshot", "capture", "screen", "region", "image", "agent", "chat", "system-wide"]
+            ),
+            SettingDescriptor(
                 CmuxConfigSnapshot.hideDockIconWithoutWindowsPath,
                 section: .general,
                 group: group,
