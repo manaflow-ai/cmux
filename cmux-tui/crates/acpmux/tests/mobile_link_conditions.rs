@@ -467,19 +467,14 @@ async fn cold_and_warm(
         .await;
     let mut shown = None;
     if sent.is_ok() {
-        loop {
-            match link.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    let p = v["params"].to_string();
-                    if v["method"] == method::MUX_EVENT
-                        && p.contains("user_message")
-                        && p.contains(&prompt_id)
-                    {
-                        shown = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = link.notification(deadline).await {
+            let p = v["params"].to_string();
+            if v["method"] == method::MUX_EVENT
+                && p.contains("user_message")
+                && p.contains(&prompt_id)
+            {
+                shown = Some(at);
+                break;
             }
         }
     }
@@ -628,15 +623,10 @@ async fn reconnect(
                 continue;
             }
         }
-        loop {
-            match l.notification(deadline).await {
-                Next::Frame(at, v) => {
-                    if event_seq(&v).is_some_and(|s| s > last) {
-                        first = Some(at);
-                        break;
-                    }
-                }
-                _ => break,
+        while let Next::Frame(at, v) = l.notification(deadline).await {
+            if event_seq(&v).is_some_and(|s| s > last) {
+                first = Some(at);
+                break;
             }
         }
     }
@@ -755,6 +745,7 @@ fn link_frames(payload: u64) -> u64 {
 }
 
 /// A WebSocket frame's header for a payload of `len` (`masked`: client to server).
+#[allow(dead_code)]
 fn ws_header(len: u64, masked: bool) -> u64 {
     let base = if len < 126 {
         2
