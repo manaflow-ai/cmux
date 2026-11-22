@@ -106,9 +106,10 @@ if (!devHost && params.has("mock")) {
   installAppPanelsDevClient(new MockAppPanelsClient());
 }
 if (params.get("recents") === "demo") seedDevRecents();
-// A standalone daemon has no cmux host to send the `display` event: the frame-cost bench
-// (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead.
-if (devHost) {
+// A standalone daemon or the in-page mock has no cmux host to send the `display` event: the frame-cost
+// bench (bench/thread-minimap-frame-cost.bench.ts) turns the chat minimap on through this instead, and
+// bench/send-placement-frames.bench.ts switches Sent Prompt Placement on the mock.
+{
   const { setChatDisplay } = await import("./chatDisplay");
   (window as { cmuxDevDisplay?: (value: unknown) => void }).cmuxDevDisplay = setChatDisplay;
 }
