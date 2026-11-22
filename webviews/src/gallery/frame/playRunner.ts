@@ -342,6 +342,11 @@ function measurePopups(): PopupMeasure[] {
       ["bottom-right", rect.right - inset, rect.bottom - inset],
       ["center", rect.left + rect.width / 2, rect.top + rect.height / 2],
     ];
+    // A tooltip draws no hit target (pointer-events: none), so elementFromPoint sees what is under it;
+    // it takes hits for the sampling only, to tell a covered tooltip from one on top.
+    const element = popup as HTMLElement;
+    const hitTestable = element.style.pointerEvents;
+    element.style.pointerEvents = "auto";
     const hits = points
       .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
       .map(([point, x, y]) => {
@@ -356,6 +361,7 @@ function measurePopups(): PopupMeasure[] {
           !found.some((other) => other.contains(top));
         return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
       });
+    element.style.pointerEvents = hitTestable;
     const clippedBy: string[] = [];
     for (let parent = popup.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
       const style = getComputedStyle(parent);
