@@ -6,9 +6,11 @@ rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
 workspace = "../cmux-app-ffi"
-description = "Which input the stage-0 launch window holds, in order, for the real window"
+description = "The stage-0 launch window's plan (what it shows) and input hold, in Rust"
 
 [dependencies]
+cmux-launch-record = { path = "../cmux-launch-record" }
+cmux-window-rules = { path = "../cmux-window-rules" }
 
 [dev-dependencies]
 proptest = "1"
