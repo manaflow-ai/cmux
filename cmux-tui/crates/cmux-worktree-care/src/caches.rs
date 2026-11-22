@@ -158,7 +158,7 @@ pub fn decide(
     pressure: Pressure,
     now_ms: u64,
 ) -> Verdict {
-    let Some(hours) = family.idle_hours[pressure as usize] else {
+    let Some(hours) = family.idle_hours.get(pressure as usize).copied().flatten() else {
         return verdict(
             Action::Keep,
             "shared package cache: goes only when the disk is nearly full",
@@ -234,7 +234,7 @@ fn bytes_of(path: &Path) -> Option<u64> {
 pub fn run(options: &Options) -> Report {
     let mut report = Report { applied: options.apply, ..Report::default() };
     for entry in entries(&options.families) {
-        let family = &options.families[entry.family];
+        let Some(family) = options.families.get(entry.family) else { continue };
         let decided = decide(family, entry.last_activity_ms, options.pressure, options.now_ms);
         let goes = decided.action == Action::Reclaim;
         let bytes =
