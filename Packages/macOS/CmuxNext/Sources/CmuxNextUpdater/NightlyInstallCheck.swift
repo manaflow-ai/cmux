@@ -31,10 +31,10 @@ public struct NightlyInstallCheck {
 
     /// The record of builds and their results, beside the kept versions.
     var recordFile: URL {
-        updater.keptVersions.root.deletingLastPathComponent().appending(path: "install-check.json")
+        updater.keptVersions.root.deletingLastPathComponent().appending(path: "install-check.json", directoryHint: .notDirectory)
     }
 
-    var cli: URL { Bundle.main.bundleURL.appending(path: "Contents/Resources/bin/cmux") }
+    var cli: URL { Bundle.main.bundleURL.appending(path: "Contents/Resources/bin/cmux", directoryHint: .notDirectory) }
 
     /// Runs the check when this build is due one. `canary` opens the chat connection (nil: no daemon
     /// of the app's own to ask); `notify` shows the person one line (title, body).
