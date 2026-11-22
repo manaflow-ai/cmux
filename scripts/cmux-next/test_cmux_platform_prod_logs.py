@@ -340,6 +340,15 @@ class ProjectionTests(unittest.TestCase):
         for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
             self.assertNotIn(leak, text)
 
+    def test_a_gateway_read_keeps_its_flags_and_mode(self):
+        msg = "cloud.spare.gateway_read"
+        row = logs.line(event({"msg": msg, "team": TEAM, "lacks": False, "shared": False, "host": True, "mode": "off"}))
+        self.assertEqual(row["log"], {"msg": msg, "team": logs.base.tag(TEAM), "lacks": False, "shared": False,
+                                      "host": True, "mode": "off"})
+        row = logs.line(event({"msg": msg, "team": TEAM, "lacks": "yes", "shared": 1, "host": None, "mode": None}))
+        self.assertEqual(row["log"], {"msg": msg, "team": logs.base.tag(TEAM)})
+        self.assertNotIn(TEAM, json.dumps(row))
+
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)
         self.assertIn("machines.spare.claim", logs.PLATFORM_MSGS)
