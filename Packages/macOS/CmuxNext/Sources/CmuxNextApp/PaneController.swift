@@ -72,6 +72,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The notice shown for a tab whose one view another window draws, and the tab Show Here takes now.
     var elsewhereNotice: (key: String, view: TabShownElsewhereView)?
     var takesHere: String?
+    var leftEmptyByMove = false // another pane took the shown tab's view (`surfaceWasDisplaced`): the next first visit shows now (`presentSelection`)
     private var windowController: WindowController? { view.window?.delegate as? WindowController }
     #if DEBUG
     private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
@@ -227,8 +228,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func structure(_ file: StaticString = #fileID, _ line: UInt = #line) -> Snapshot {
+        DebugLayoutCounters.paneSnapshots &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.paneSnapshots &+= 1
         debugSnapshotRuns += 1
         DebugLayoutCounters.note(debugSnapshotRuns > 3 ? "snapshot later" : "snapshot #\(debugSnapshotRuns)", file, line) // a new pane's runs, else another pane's
         #endif
@@ -502,10 +503,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away
     }
 
-    /// Another pane took `key`'s view (the tab moved there) or its surface
-    /// was destroyed. Let the view go without pausing it; re-present when
-    /// this pane shows the tab again.
-    func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    /// Another pane took `key`'s view (a move) or its surface was destroyed: let it go unpaused; show the selection.
+    func surfaceWasDisplaced(_ key: String) { if currentTabKey == key { leftEmptyByMove = true }; letGo(key, parks: false); showSelectionAfterDisplacement(of: key) }
     func surfaceIsFree(_ key: String) { if currentTabKey == nil, stripModel.selectedID?.rawValue == key { services.presentation.setNeedsShowSelected(self) } }
     func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }

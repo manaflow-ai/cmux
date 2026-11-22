@@ -61,6 +61,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `background-ready-idle.py` | Idle cost of a running or quit copy (procs.py) and its stop by pid, for background-ready.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
+| `helper-fresh-grant.sh` | On a SIP-off fleet Mac: a Screen Recording and Accessibility grant made while cmux runs reaches Computer Use with no restart of cmux or its daemon (TCC rows written, status and screenshot timed), Computer Use in TextEdit, and the helper's share host streaming to a bench viewer. `ref=SHA` builds any commit. | cmux#49813 | 2026-11-22 | active |
+| `helper-fresh-grant.py` | Python driver for helper-fresh-grant.sh. | cmux#49813 | 2026-11-22 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
 | `nightly-fresh-launch.py` | Python driver for nightly-fresh-launch.sh. | CMUX-571 | 2026-11-15 | active |
 | `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
