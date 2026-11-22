@@ -394,6 +394,26 @@ pub(crate) fn mode_below_full_access(family: &str, available: &[String]) -> Opti
         .or_else(|| available.iter().find(|m| !is_full_access(m)).cloned())
 }
 
+/// The mode a new chat on `profile` runs in when acpmux sets `set` on it (none: it sets no
+/// mode) and the harness's own start mode is `own` (none: not known yet). It is what
+/// `_acpmux/start_mode` answers, so a client's Mode control names the mode the chat then reports
+/// and never a placeholder (Leo 2026-11-22: "dont make it show mode if auto is the default").
+///
+/// acpmux's own Claude Code backend starts every chat in `claude_stdio::spawn_mode`: the mode
+/// its argv pins, else `set`, else Claude Code's own (`OWN_MODE`, Auto), with a full access the
+/// process cannot take moved to Auto. Any other harness runs in `set`, else in its own.
+pub(super) fn runs_in(
+    profile: &HarnessProfile,
+    set: Option<&str>,
+    own: Option<&str>,
+) -> Option<String> {
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        let mode = set.unwrap_or(crate::claude_stdio::OWN_MODE);
+        return Some(crate::claude_stdio::spawn_mode(profile, mode).to_owned());
+    }
+    set.or(own).map(str::to_owned)
+}
+
 /// What `access` gives a harness of `family` offering `available`.
 fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<String> {
     match access {
@@ -884,10 +904,12 @@ impl Hub {
     /// preset) in `cwd` would start in, by the rules `new_session` applies
     /// (`mode_eligible`, `start_level`, `mode_for`), for a connection of
     /// this origin (`remote`: a remote-origin chat gets none). Read only.
-    /// `modeId` is null when acpmux would set no mode: the chat is not
-    /// eligible, the level keeps the harness's own mode, or the harness's
-    /// modes are not known yet (no chat of it in this daemon, and not
-    /// acpmux's own Claude backend). `fullAccess: "managed"` while MDM or the team policy forces
+    /// `modeId` is the mode the chat runs in (`runs_in`): the one acpmux sets
+    /// (`setBy: "cmux"`), else the harness's own start mode (`setBy: "harness"`: the chat is
+    /// not eligible, or the level keeps the harness's own mode). Null only when neither is
+    /// known yet: a harness other than acpmux's own Claude backend that no chat or startup
+    /// probe of this daemon has reported modes for. `level` and `source` are null for a chat
+    /// that is not eligible. `fullAccess: "managed"` while MDM or the team policy forces
     /// `sessions.allowFullAccess` off.
     pub async fn start_mode_answer(
         &self,
@@ -915,7 +937,7 @@ impl Hub {
             }
             answer
         };
-        let (agent, profile, eligible, policy) = {
+        let (agent, profile, eligible, policy, preset_mode) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
             let plain = plain_for_mode(r.preset_name.as_deref(), &cfg) && r.folder_root.is_none();
@@ -926,12 +948,21 @@ impl Hub {
             let policy = (!terminal)
                 .then(|| super::policy_mode::narrower(r.defaults.policy, cfg.permission_policy))
                 .flatten();
-            (r.agent, r.profile, eligible, policy)
+            let preset_mode = r
+                .preset_name
+                .as_deref()
+                .and_then(|name| cfg.presets.get(name))
+                .and_then(|p| p.mode.clone());
+            (r.agent, r.profile, eligible, policy, preset_mode)
         };
         let none =
             json!({"harness": agent, "modeId": null, "name": null, "level": null, "source": null});
         let family = crate::config::derive_family(&agent, &profile);
-        let modes = self.known_modes(&agent, &profile);
+        // The harness's modes as a chat of it reported them, else as its startup probe did: a
+        // first chat's answer names its mode too.
+        let (probed_own, probed) = self.probed_modes(&agent);
+        let known = self.known_modes(&agent, &profile);
+        let modes = if known.is_empty() { probed } else { known };
         let ids: Vec<String> = modes.iter().map(|(id, _)| id.clone()).collect();
         let name_of = |mode: &Option<String>| {
             mode.as_ref()
@@ -950,20 +981,81 @@ impl Hub {
                 "name": name_of(&mode),
                 "level": DefaultMode::Ask.as_str(),
                 "source": "policy",
+                "setBy": "cmux",
             })));
         }
-        if !eligible {
-            return Ok(mark(none));
-        }
-        let (level, source) = self.start_level(&agent).await;
-        let mode = mode_for(level, &family, &ids);
+        // The harness's own start mode, which the chat runs in when acpmux sets none.
+        let own = self
+            .own_start_modes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&agent)
+            .cloned()
+            .or(probed_own);
+        let (set, level, source) = if eligible {
+            let (level, source) = self.start_level(&agent).await;
+            (mode_for(level, &family, &ids), Some(level.as_str()), Some(source.as_str()))
+        } else {
+            // A preset that names its mode starts in it (`start_gate.rs`); a folder profile, a
+            // pinned profile and a preset without one keep the harness's own.
+            (preset_mode, None, None)
+        };
+        let mode = runs_in(&profile, set.as_deref(), own.as_deref());
+        let set_by = match (&mode, &set) {
+            (None, _) => None,
+            (Some(runs), Some(set)) if runs == set => Some("cmux"),
+            _ => Some("harness"),
+        };
         Ok(mark(json!({
             "harness": agent,
             "modeId": mode,
             "name": name_of(&mode),
-            "level": level.as_str(),
-            "source": source.as_str(),
+            "level": level,
+            "source": source,
+            "setBy": set_by,
         })))
+    }
+
+    /// Keeps the mode `meta`'s harness started its new plain chat in (`own_start_modes`).
+    pub(super) fn note_own_start_mode(&self, agent: &str, meta: &crate::store::SessionMeta) {
+        if super::permission_modes::of_session(meta).is_none() {
+            return;
+        }
+        let Some(mode) = crate::web_modes::mode_of(meta) else { return };
+        self.own_start_modes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(agent.to_owned(), mode);
+    }
+
+    /// The permission modes `agent`'s startup probe's `session/new` answered
+    /// (`probed_choices`): the mode it started in, the harness's own start mode, and its modes
+    /// (id and name). Nothing for a harness not probed, or one whose modes are no permission
+    /// modes (`permission_modes.rs`).
+    fn probed_modes(&self, agent: &str) -> (Option<String>, Vec<(String, Option<String>)>) {
+        let probed =
+            self.probed_choices.lock().unwrap_or_else(|e| e.into_inner()).get(agent).cloned();
+        let Some(modes) = probed.and_then(|(modes, options)| {
+            super::permission_modes::permission_modes(modes.as_ref(), options.as_ref())
+        }) else {
+            return (None, Vec::new());
+        };
+        let rows: Vec<(String, Option<String>)> = modes
+            .get("availableModes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m.get("id").and_then(Value::as_str)?;
+                Some((id.to_owned(), m.get("name").and_then(Value::as_str).map(str::to_owned)))
+            })
+            .collect();
+        let own = modes
+            .get("currentModeId")
+            .and_then(Value::as_str)
+            .filter(|id| rows.iter().any(|(row, _)| row == id))
+            .map(str::to_owned);
+        (own, rows)
     }
 
     /// The modes harness profile `agent` offers, as its newest chat in this

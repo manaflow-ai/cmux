@@ -456,3 +456,54 @@ async fn a_catalog_default_the_harness_does_not_offer_is_not_used() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Leo 2026-11-22: "opus 5.5 should have medium selected at baseline in the new chat area. it
+/// shouldnt just show plain opus 5.5 if it's going to go to medium by default." The effort a new
+/// chat is started on is the effort its `_acpmux/harnesses` row names, however the model is
+/// named: by its catalog id, by an alias, or as a context variant (`[1m]`).
+#[tokio::test]
+async fn the_row_names_the_effort_the_chat_starts_on_however_its_model_is_named() {
+    for (tag, model) in
+        [("id", "claude-opus-5-5"), ("alias", "opus"), ("variant", "claude-opus-5-5[1m]")]
+    {
+        let (dir, calls) = home_with(
+            &format!("effort-named-{tag}"),
+            json!({}),
+            json!({"claude": {"model": model}}),
+        );
+        let daemon = hub(&dir);
+        let mut app = client(&daemon);
+        let row =
+            app.call("_acpmux/harnesses", json!({})).await["harnesses"]["claude"]["start"].clone();
+        assert_eq!(row["model"], model, "{tag}: {row}");
+        assert_eq!(row["effort"], "medium", "{tag}: the model's default effort is named: {row}");
+        app.new_chat("claude").await;
+        assert_eq!(take_calls(&calls), set(model, "medium"), "{tag}: and it is what the chat got");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A profile that chooses its model itself (its env here) gets no start model, and its chats are
+/// still set to a start effort. The row names that effort, never nothing: a chip that showed the
+/// bare model while the chat ran at an effort was the bad state.
+#[tokio::test]
+async fn a_profile_that_sets_its_model_still_names_the_effort_its_chats_start_on() {
+    let (dir, calls) =
+        home_with("effort-own-model", json!({"ANTHROPIC_MODEL": "claude-opus-5-5"}), json!({}));
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    let row =
+        app.call("_acpmux/harnesses", json!({})).await["harnesses"]["claude"]["start"].clone();
+    assert!(row["model"].is_null(), "the profile's own model is not a start model: {row}");
+    app.new_chat("claude").await;
+    let got = take_calls(&calls);
+    let effort: Vec<&str> =
+        got.iter().filter(|(what, _)| what == "effort").map(|(_, value)| value.as_str()).collect();
+    assert!(
+        got.iter().all(|(what, _)| what != "model"),
+        "no model is set over the profile: {got:?}"
+    );
+    assert_eq!(effort, vec!["medium"], "{got:?}");
+    assert_eq!(row["effort"], "medium", "the row names the effort the chat was set to: {row}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
