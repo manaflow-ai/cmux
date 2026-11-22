@@ -261,13 +261,12 @@ extension WorkspaceRowView {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
             // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
             // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
-            // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
-            // who hovers the row can still point at it and read its tooltip.
-            let onColumn = columnMark?.view === usageWarningMark
-            let end = onColumn ? usageWarningMark.frame.maxX : trailing
-            let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
-            if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
-            if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
+            // box). Like every other mark it gives way to the hover controls in place (no move); the row's hover card
+            // still names each warning.
+            if columnMark?.view !== usageWarningMark {
+                usageWarningMark.frame = statusGlyphFrame(trailing: trailing, centerY: cy)
+                trailing = usageWarningMark.frame.minX - Metrics.space2
+            }
         }
         if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
@@ -309,14 +308,13 @@ extension WorkspaceRowView {
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
         // The drive indicator never gives way to the hover controls (it is a button the person came to press):
-        // while they show it sits just left of them, as the usage warning does.
+        // while they show it sits just left of them.
         if !driveIndicator.isHidden, let overlayStart, driveIndicator.frame.maxX > overlayStart - Metrics.space1 {
             driveIndicator.frame.origin.x = overlayStart - Metrics.space1 - driveIndicator.frame.width
         }
-        let warningStart = [usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX,
-                            driveIndicator.isHidden ? nil : driveIndicator.frame.minX].compactMap { $0 }.min()
-        // The text and marks give way to the controls and to the badge beside them.
-        let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
+        let driveStart = driveIndicator.isHidden ? nil : driveIndicator.frame.minX
+        // The text and marks give way to the controls and to the drive button beside them.
+        let coverStart = overlayStart.map { min($0, driveStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
         startMarqueeAfterLayout()
@@ -324,22 +322,21 @@ extension WorkspaceRowView {
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered
         // buttons should just replace the other ones"): while the ✕, the ⋮ or the pin shows, the dot, the spinner, the
-        // status stack, the counts and the time hide in place (no layout shift). Only what a person points at keeps
-        // its place: the usage warning (its tooltip, left of the controls), the audio button, and the Cloud mark,
-        // which belongs to the name.
+        // status stack, the counts, the time and the usage warning hide in place (no layout shift). Only what a person
+        // points at keeps its place: the audio button, and the Cloud mark, which belongs to the name.
         let controlsShow = !shownControls.isEmpty
         for mark in ([activity, rowBadge, agentMark, mutedMark, cloudMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
-            let keepsPlace = mark === usageWarningMark || mark === cloudMark || mark === audioSlot.made
+            let keepsPlace = mark === cloudMark || mark === audioSlot.made
                 || (mark === agentMark && agentMarkVariant == .besideTitle)
-            let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
+            let covered = mark === columnMark?.view ? markGivesWay || controlsShow
                 : (controlsShow && !keepsPlace) || (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
-            // The usage warning never gives way (the layout keeps it left of the controls).
-            let underControl = mark !== usageWarningMark && Self.covers(shownControls, mark)
+            let underControl = Self.covers(shownControls, mark)
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
+        if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
