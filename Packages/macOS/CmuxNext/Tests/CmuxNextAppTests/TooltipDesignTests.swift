@@ -26,9 +26,12 @@ import Testing
         #expect(abs(keycap.frame.minY - inset) < 0.5)
         #expect(abs((size.height - keycap.frame.maxY) - inset) < 0.5)
         #expect(keycap.frame.height == TooltipMetrics.keycapHeight * Self.scale)
-        // After the text, with the gap between them, and centred on its line.
-        #expect(content.text.frame.maxX + TooltipMetrics.keycapGap * Self.scale <= keycap.frame.minX + 0.5)
-        #expect(abs(content.text.frame.midY - keycap.frame.midY) <= 1, "text \(content.text.frame) keycap \(keycap.frame)")
+        // After the text, with the gap between them, and centred on its line. The label's frame holds 2 pt of line
+        // padding each side of its glyphs; its alignment rect is the glyphs' box, which starts at the inline padding.
+        let glyphs = content.text.alignmentRect(forFrame: content.text.frame)
+        #expect(abs(glyphs.minX - TooltipMetrics.paddingInline * Self.scale) < 0.5, "text starts at \(glyphs.minX)")
+        #expect(glyphs.maxX + TooltipMetrics.keycapGap * Self.scale <= keycap.frame.minX + 0.5, "text \(glyphs) keycap \(keycap.frame)")
+        #expect(abs(glyphs.midY - keycap.frame.midY) <= 0.5, "text \(glyphs) keycap \(keycap.frame)")
         // Its corner nests in the tooltip's: the tooltip's radius less the inset.
         #expect(keycap.layer?.cornerRadius == (TooltipMetrics.radius - TooltipMetrics.keycapInset) * Self.scale)
         // Regular text at the detail size, never the old bold caption.

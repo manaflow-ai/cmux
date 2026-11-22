@@ -383,8 +383,8 @@ build output, or run it in a lane with `approve-edits`. Rules sit above the poli
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
-A session you start from inside your own session (`cmux agent new|run`, a local
-`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+A session you start from inside your own session (`cmux agent new` or its alias
+`cmux agent run`, a local `dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
 pass neither: your policy, and your mode (or, on another harness family, the
 same level: full access, asking, or its own mode). It never runs wider than
 you: a wider `--mode` is refused. A start from a plain shell with no session
@@ -499,6 +499,9 @@ acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull
 acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
 acpmux process list                            # background processes agents left running
 acpmux worktree list                           # this machine's worktrees and the agents that made them
+acpmux ls --archived                           # archived chats, newest archive first, and who archived each
+acpmux archive NAME OTHER                      # take chats off the lists (--json says what changed)
+acpmux unarchive NAME                          # bring an archived chat back
 ```
 
 Add `--json` before the command for ids and paths to act on. The rest of the

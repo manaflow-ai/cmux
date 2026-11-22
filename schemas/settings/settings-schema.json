@@ -10,6 +10,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.language",
+            "rows" : [
+              "app.language"
+            ],
+            "title" : {
+              "key" : "settings.group.language",
+              "text" : "Language"
+            }
+          },
+          {
             "key" : "settings.group.window",
             "rows" : [
               "window.titlebar",
@@ -283,6 +293,7 @@
               "appearance.paneBackgrounds",
               "ui.reducedBackgrounds",
               "appearance.agentGlow",
+              "appearance.previousGlass",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
@@ -421,6 +432,7 @@
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.minimal",
+              "sidebar.look",
               "sidebar.style",
               "sidebar.density",
               "sidebar.textSize",
@@ -671,6 +683,8 @@
               "appearance.chromeStyle",
               "appearance.titleAreaTone",
               "appearance.titleAreaContrast",
+              "appearance.twoTone",
+              "appearance.cornerFlush",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -1181,6 +1195,7 @@
               "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled",
+              "agentPane.display.finishSound",
               "agentPane.showMachineLoadWarnings"
             ],
             "title" : {
@@ -1216,7 +1231,10 @@
             "key" : "chat.2",
             "rows" : [
               "agentPane.display.font.ui",
+              "agentPane.display.font.uiFamily",
               "agentPane.display.font.preset",
+              "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
@@ -1301,7 +1319,6 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
-              "agentPane.display.finishSound",
               "agentPane.newChatsIn",
               "agents.defaultPermissionMode",
               "agents.promptCache",
@@ -1589,6 +1606,18 @@
             "title" : {
               "key" : "settings.group.banners",
               "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
             }
           },
           {
@@ -2220,7 +2249,8 @@
           {
             "key" : "settings.group.experiments",
             "rows" : [
-              "experiments.glassToolbarGroups"
+              "experiments.glassToolbarGroups",
+              "experiments.composerV2"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -2400,6 +2430,323 @@
     ]
   },
   "rows" : [
+    {
+      "accepts" : [
+        "system",
+        "en",
+        "ar",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "it",
+        "nb",
+        "pl",
+        "pt-BR",
+        "tr",
+        "vi",
+        "ru",
+        "uk",
+        "th",
+        "km",
+        "ja",
+        "ko",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.app.language.system",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "English"
+          },
+          "value" : "en"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "العربية"
+          },
+          "value" : "ar"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bosanski"
+          },
+          "value" : "bs"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Dansk"
+          },
+          "value" : "da"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Deutsch"
+          },
+          "value" : "de"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Español"
+          },
+          "value" : "es"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Français"
+          },
+          "value" : "fr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Italiano"
+          },
+          "value" : "it"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Norsk bokmål"
+          },
+          "value" : "nb"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Polski"
+          },
+          "value" : "pl"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Português (Brasil)"
+          },
+          "value" : "pt-BR"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Türkçe"
+          },
+          "value" : "tr"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Tiếng Việt"
+          },
+          "value" : "vi"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Русский"
+          },
+          "value" : "ru"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Українська"
+          },
+          "value" : "uk"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ไทย"
+          },
+          "value" : "th"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "ខ្មែរ"
+          },
+          "value" : "km"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "日本語"
+          },
+          "value" : "ja"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "한국어"
+          },
+          "value" : "ko"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "简体中文"
+          },
+          "value" : "zh-Hans"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "繁體中文"
+          },
+          "value" : "zh-Hant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.language",
+        "text" : "Language"
+      },
+      "help" : {
+        "key" : "settings.app.language.help",
+        "text" : "The language of cmux's menus, pages and messages."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.language",
+      "keywords" : [
+        "language",
+        "locale",
+        "localization",
+        "translation",
+        "Sprache",
+        "langue",
+        "idioma",
+        "lingua",
+        "言語",
+        "언어",
+        "语言",
+        "язык"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "language"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:app.language"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.language",
+        "text" : "Language"
+      },
+      "validation" : "portable"
+    },
     {
       "accepts" : [
         true,
@@ -27569,7 +27916,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -28602,6 +28967,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         }
       ],
       "consumers" : [
@@ -29944,6 +30435,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         },
         {
           "title" : {
@@ -31305,6 +31922,132 @@
         },
         {
           "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.desktopWallpaper",
             "text" : "Desktop Wallpaper"
           },
@@ -32479,6 +33222,132 @@
             "text" : "The Raven — Gustave Doré"
           },
           "value" : "dore-raven"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fine Wind, Clear Morning (Red Fuji) — Katsushika Hokusai"
+          },
+          "value" : "hokusai-red-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Thunderstorm beneath the Summit — Katsushika Hokusai"
+          },
+          "value" : "hokusai-storm-below-fuji"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kajikazawa in Kai Province — Katsushika Hokusai"
+          },
+          "value" : "hokusai-kajikazawa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sudden Shower over Shin-Ōhashi Bridge and Atake — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-sudden-shower"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Night Snow at Kanbara — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-kanbara-snow"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Plum Park in Kameido — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-plum-garden"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Moon Pine, Ueno — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-moon-pine"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Irises at Yatsuhashi — Ogata Kōrin"
+          },
+          "value" : "korin-irises"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Pine Trees — Hasegawa Tōhaku"
+          },
+          "value" : "tohaku-pine-trees"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Mandarin Ducks in the Snow — Itō Jakuchū"
+          },
+          "value" : "jakuchu-mandarin-ducks"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Travelers among Mountains and Streams — Fan Kuan"
+          },
+          "value" : "fan-kuan-travelers"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Early Spring — Guo Xi"
+          },
+          "value" : "guo-xi-early-spring"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clouds Rising from the Green Sea — Ma Yuan"
+          },
+          "value" : "ma-yuan-clouds-green-sea"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Along the River During the Qingming Festival — Zhang Zeduan"
+          },
+          "value" : "zhang-zeduan-qingming"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "A Thousand Li of Rivers and Mountains — Wang Ximeng"
+          },
+          "value" : "wang-ximeng-thousand-li"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Clearing after Rain on Mount Inwang — Jeong Seon"
+          },
+          "value" : "jeong-seon-inwang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "General View of Mount Geumgang — Jeong Seon"
+          },
+          "value" : "jeong-seon-geumgang"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Nature Better than the Official Ranks — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-samgong"
         },
         {
           "title" : {
@@ -34010,6 +34879,321 @@
       "title" : {
         "key" : "settings.appearance.agentGlow",
         "text" : "React to Agents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.previousGlass.help",
+        "text" : "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.previousGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "previous",
+        "old",
+        "classic look",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "menu",
+        "popover"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "previousGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.previousGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.previousGlass",
+        "text" : "Previous Glass Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "flush",
+        "flush-tight",
+        "flush-goo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.off",
+            "text" : "Pill"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.flush",
+            "text" : "Flush"
+          },
+          "value" : "flush"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.tight",
+            "text" : "Flush, Tight to the Sidebar"
+          },
+          "value" : "flush-tight"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.cornerFlush.goo",
+            "text" : "Goo"
+          },
+          "value" : "flush-goo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flush",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.cornerFlush.help",
+        "text" : "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.cornerFlush",
+      "keywords" : [
+        "corner",
+        "flush",
+        "goo",
+        "gooey",
+        "folder tab",
+        "fillet",
+        "pill",
+        "selected tab",
+        "tab shape",
+        "card",
+        "material"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "cornerFlush"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.cornerFlush.summary",
+        "text" : "Pill, flush or goo for the selected tab"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.cornerFlush"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.cornerFlush",
+        "text" : "Selected Tab Shape"
       },
       "validation" : "portable"
     },
@@ -38294,6 +39478,236 @@
       "title" : {
         "key" : "settings.appearance.titleAreaContrast",
         "text" : "Title Area Contrast"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "auto",
+        "inkSakura",
+        "charcoalRose",
+        "inkMagenta",
+        "creamForest",
+        "navySand",
+        "boneOxblood",
+        "slateMatcha",
+        "plumAmber"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.auto",
+            "text" : "From Theme"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.inkSakura",
+            "text" : "Ink & Sakura"
+          },
+          "value" : "inkSakura"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.charcoalRose",
+            "text" : "Charcoal & Rose"
+          },
+          "value" : "charcoalRose"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.inkMagenta",
+            "text" : "Ink Blue & Magenta"
+          },
+          "value" : "inkMagenta"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.creamForest",
+            "text" : "Cream & Forest"
+          },
+          "value" : "creamForest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.navySand",
+            "text" : "Navy & Sand"
+          },
+          "value" : "navySand"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.boneOxblood",
+            "text" : "Bone & Oxblood"
+          },
+          "value" : "boneOxblood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.slateMatcha",
+            "text" : "Slate & Matcha"
+          },
+          "value" : "slateMatcha"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.twoTone.plumAmber",
+            "text" : "Plum & Amber"
+          },
+          "value" : "plumAmber"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.twoTone.help",
+        "text" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.twoTone",
+      "keywords" : [
+        "two tone",
+        "two-tone",
+        "duotone",
+        "tone",
+        "pairing",
+        "sidebar",
+        "tab bar",
+        "chrome",
+        "color",
+        "sakura",
+        "pink",
+        "magenta",
+        "forest",
+        "sand",
+        "oxblood",
+        "matcha",
+        "amber",
+        "palette"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "twoTone"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.twoTone.summary",
+        "text" : "A second tone for the sidebar and tab bar"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.twoTone"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.twoTone",
+        "text" : "Two-Tone"
       },
       "validation" : "portable"
     },
@@ -53006,6 +54420,439 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiFamily.help",
+        "text" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.uiFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "font",
+        "interface",
+        "ui",
+        "family",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "uiFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.uiFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiFamily",
+        "text" : "Chat Interface Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseFamily.help",
+        "text" : "The font of the agent's replies. When set, it replaces the Chat Font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseFamily",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "family",
+        "serif",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseFamily"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseFamily"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseFamily",
+        "text" : "Chat Reply Font Family"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fontFaces.help",
+        "text" : "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.faces",
+      "keywords" : [
+        "agent",
+        "chat",
+        "display",
+        "font",
+        "file",
+        "woff2",
+        "ttf",
+        "otf",
+        "face",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "faces"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.faces"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.fontFaces",
+        "text" : "Chat Font Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         10,
         28,
         19
@@ -66378,6 +68225,176 @@
     },
     {
       "accepts" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCmux",
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookClaude",
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookCodex",
+            "text" : "Codex"
+          },
+          "value" : "codex"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookStudio",
+            "text" : "Studio"
+          },
+          "value" : "studio"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.look.help",
+        "text" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.look",
+      "keywords" : [
+        "sidebar",
+        "look",
+        "preset",
+        "style",
+        "claude",
+        "codex",
+        "studio",
+        "like",
+        "app"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "look"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.look"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.look",
+        "text" : "Sidebar Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "standard",
         "rail"
       ],
@@ -68001,6 +70018,7 @@
     },
     {
       "accepts" : [
+        "folder",
         "auto",
         "glass",
         "solid",
@@ -68009,6 +70027,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundFolder",
+            "text" : "Folders"
+          },
+          "value" : "folder"
+        },
         {
           "title" : {
             "key" : "settings.choice.groupBackgroundAuto",
@@ -68041,7 +70066,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "folder",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -68049,7 +70074,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws. Sections shows plain headings instead."
+        "text" : "How a group draws. Folders shows plain folders; Sections shows plain headings."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -103693,6 +105718,460 @@
     },
     {
       "accepts" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.badge",
+            "text" : "Badge"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.permissionRequest",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "permissionRequest"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "permissionRequest"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.permissionRequest"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.permissionRequest",
+        "text" : "Permission Request"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "badge",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.badge",
+            "text" : "Badge"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.question",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "question"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "question"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.question"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.question",
+        "text" : "Question"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "banner"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.notifications.delivery.banner",
+            "text" : "Banner"
+          },
+          "value" : "banner"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "banner",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.notificationDelivery",
+        "text" : "Delivery by Event"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.delivery.taskComplete",
+      "keywords" : [
+        "banner",
+        "delivery",
+        "taskComplete"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "delivery",
+        "taskComplete"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.delivery.taskComplete"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.notifications.delivery.taskComplete",
+        "text" : "Task Complete"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -104913,6 +107392,143 @@
       "title" : {
         "key" : "settings.experiments.glassToolbarGroups",
         "text" : "Glass Toolbar Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.composerV2.help",
+        "text" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.composerV2",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "composer",
+        "glass",
+        "chips",
+        "mention",
+        "send"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "composerV2"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.composerV2"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.composerV2",
+        "text" : "Composer Refresh"
       },
       "validation" : "portable"
     },
