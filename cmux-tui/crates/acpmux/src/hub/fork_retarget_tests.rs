@@ -231,8 +231,11 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let mut nofork = lister.clone();
     nofork["env"]["FAKE_NO_FORK"] = json!("1");
     let lister2 = lister.clone();
+    // Another family whose modes (`normal`, `strict`) no list names: a chat in one asks.
+    let moded = json!({"argv": ["python3", fake], "family": "moded",
+                       "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "1"}});
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
-                                   "nofork": nofork, "lister2": lister2},
+                                   "nofork": nofork, "lister2": lister2, "moded": moded},
                      "defaultHarness": "fake",
                      // New chats start in full access, the default a person has: a fork must
                      // still start at its chat's own level.
@@ -489,9 +492,11 @@ async fn a_transcript_fork_and_its_fork_run_the_chats_model() {
         hub.cancel(&chat).await.unwrap();
         let _ = turn.await;
         assert_eq!(forked_from(&hub, &fork).as_deref(), Some("transcript"), "{step}");
-        // The model its own agent runs, as its turn reports it.
-        hub.prompt(&fork, vec![json!({"type":"text", "text": step})], "test", false).await.unwrap();
-        assert_eq!(turn_model(&hub, &fork).as_deref(), Some("claude-opus-5-5"), "{step}");
+        // The model its own agent runs, as the agent says, not as acpmux's meta does.
+        let before = replies(&hub, &fork).len();
+        let ask = vec![json!({"type":"text", "text": "picked-model"})];
+        hub.prompt(&fork, ask, "test", false).await.unwrap();
+        assert_eq!(&replies(&hub, &fork)[before..], "claude-opus-5-5", "{step}");
         chat = fork;
     }
     hub.shutdown_all().await;
@@ -504,13 +509,6 @@ fn forked_from(hub: &Hub, fork: &Session) -> Option<String> {
     forked.msg.get("from").and_then(Value::as_str).map(str::to_owned)
 }
 
-/// The model `session`'s last turn ran, as its agent reported it.
-fn turn_model(hub: &Hub, session: &Session) -> Option<String> {
-    let events = hub.events(&session.id, 0, 10_000).unwrap();
-    let last = events.iter().rev().find(|e| e.kind == "turn_result")?;
-    last.msg.get("model").and_then(Value::as_str).map(str::to_owned)
-}
-
 /// A switch onto another harness starts at the chat's own permission level: in the chat's mode
 /// where the new harness has it, as a chat it starts would (`start_mode.rs` "Inherit"). It started
 /// in the level a new chat starts at: a chat under `ask` became a `bypassPermissions` fork
@@ -520,6 +518,7 @@ async fn a_switch_keeps_the_chats_permission_mode() {
     let dir = tempfile::tempdir().unwrap();
     let calls = dir.path().join("calls.jsonl");
     let hub = lister_hub(&calls);
+    // Same family: the chat's own mode.
     let parent = hub
         .new_session(NewRequest {
             harness: Some("lister".into()),
@@ -529,14 +528,32 @@ async fn a_switch_keeps_the_chats_permission_mode() {
         .await
         .unwrap();
     hub.prompt(&parent, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
-    // `acceptEdits`: a mode that asks for commands, not `plan`, a toggle no chat inherits.
     hub.set_mode(&parent, "acceptEdits").await.unwrap();
-    assert_eq!(crate::web_modes::mode_of(&parent.meta()).as_deref(), Some("acceptEdits"));
-
     let fork = hub
         .fork_to(&parent, to("lister2"), None, None, Default::default(), None, true)
         .await
         .unwrap();
     assert_eq!(fork.meta().harness, "lister2");
     assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("acceptEdits"));
+
+    // Another family, from a chat in a mode that asks (pi's, any mode the lists do not name):
+    // not the full access new chats start in.
+    let asking = hub
+        .new_session(NewRequest {
+            harness: Some("moded".into()),
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&asking, vec![json!({"type":"text", "text":"ONE"})], "test", false).await.unwrap();
+    assert_eq!(crate::web_modes::mode_of(&asking.meta()).as_deref(), Some("normal"));
+    let fork = hub
+        .fork_to(&asking, to("lister"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    assert_eq!(fork.meta().harness, "lister");
+    let mode = crate::web_modes::mode_of(&fork.meta());
+    assert_ne!(mode.as_deref(), Some("bypassPermissions"), "a fork of an asking chat");
+    hub.shutdown_all().await;
 }
