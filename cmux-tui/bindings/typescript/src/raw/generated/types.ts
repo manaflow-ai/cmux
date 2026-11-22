@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4. */
+/* cmux-tui mux protocol 12, IR 55d920aaf43a9dd16ab9357fde78f6ca23c6aa01b0276e01959597ab913b99a2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -34,6 +34,8 @@ export type AgentRecord = {
   /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
   "status"?: (AgentState) | null;
   "surface": Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 

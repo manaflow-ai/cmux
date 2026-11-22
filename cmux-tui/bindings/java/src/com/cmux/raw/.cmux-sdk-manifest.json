@@ -32,8 +32,8 @@
     },
     {
       "path": "AgentChangedEvent.java",
-      "sha256": "3a63deb5c81601441ad2516bae6388d4d8e4e48bd3636795c9bec6e67242e264",
-      "size": 8714
+      "sha256": "d49d9286a1d641a01a4f18bc2a65d04ac3afc6ca5c74c59e8727ce3afab78d57",
+      "size": 9613
     },
     {
       "path": "AgentCliFrameEvent.java",
@@ -67,13 +67,18 @@
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "832f6d3cbca97bf64f6901090730ab32c08bc7ad4964efbe4a833d2165162a90",
-      "size": 9217
+      "sha256": "260ee7b7995ccbe61a36b594713e4e198a540c2db67e1fa438abf31e613bba5f",
+      "size": 10110
     },
     {
       "path": "AgentReportSource.java",
       "sha256": "ee0be2214a26bd90a0c8abe02a3fd8095757435430340eccaabe76c2f9c40c49",
       "size": 905
+    },
+    {
+      "path": "AgentSessionShareChangedEvent.java",
+      "sha256": "51a15abbba03ed0b6562439507e7f1b5bad2d89558e4a6e0b4c0de99fa8ecbfe",
+      "size": 2471
     },
     {
       "path": "AgentSessionSource.java",
@@ -782,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "23bb7033921463214f0149a3033b95d7a688a883266c398a301f39253a905146",
-      "size": 85561
+      "sha256": "8a38fea26181c44fdad0aa699601258748f33065046fa4ff8223a3c8963d1d25",
+      "size": 85636
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -1352,8 +1357,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "90e3ee053efc4d6c7ce4af4aa29acd3c3731be62a15f667f062086ed18740c3c",
-      "size": 20489
+      "sha256": "c2431b73beb2fbb732561c74bc30993dc1eb8de81f1a38c2dea42699af7494eb",
+      "size": 20752
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2247,8 +2252,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "61c040d3226caa2426d0c61bdbcf52c2e46a1626f0ed9a785c7d6b5afa4545c2",
-      "size": 8310
+      "sha256": "3e1278e80213d373292b09d936e7209d6e86478f865571957821e66d70a1cdab",
+      "size": 8407
     },
     {
       "path": "ProtocolEvent.java",
@@ -3037,8 +3042,8 @@
     },
     {
       "path": "ShutdownDaemonRequest.java",
-      "sha256": "a6cd1bed1567cf70ec231ac946103306fb2da692d0c4ba1a64e1efe7b76d4efb",
-      "size": 5350
+      "sha256": "a52698d0550159d4fd71b76f2a30afc3e5f8d54ba8a52b1953d02eaaf27872f5",
+      "size": 5953
     },
     {
       "path": "ShutdownDaemonResult.java",
@@ -3792,7 +3797,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4",
+  "ir_sha256": "55d920aaf43a9dd16ab9357fde78f6ca23c6aa01b0276e01959597ab913b99a2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

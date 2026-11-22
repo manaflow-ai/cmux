@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4'
+IR_SHA256 = '55d920aaf43a9dd16ab9357fde78f6ca23c6aa01b0276e01959597ab913b99a2'
 
 
 @dataclass(frozen=True)
@@ -3643,6 +3643,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),
@@ -4182,6 +4183,7 @@ EVENTS = {
     'agent-inventory-changed': EventMetadata('agent-inventory-changed', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
+    'agent-session-share-changed': EventMetadata('agent-session-share-changed', 12, 'agent-session-share-events-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),

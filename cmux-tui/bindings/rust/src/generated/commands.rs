@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4.
+// cmux-tui mux protocol 12, IR 55d920aaf43a9dd16ab9357fde78f6ca23c6aa01b0276e01959597ab913b99a2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3926,6 +3926,8 @@ pub struct ShutdownDaemonRequest {
     pub force: Option<bool>,
     pub generation: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -6027,6 +6029,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.if_idle.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "daemon-stop-if-idle-v1")?;
         }
         if request.keep_layout.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;
