@@ -647,6 +647,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // A memory handed to this machine over a projected folder (memory_place.rs) is taken in
+    // before anything opens the memory; a mounted hand-out that is not this machine's refuses.
+    {
+        let capability =
+            crate::memory_place::daemon_capability(Path::new(&daemon_socket)).unwrap_or(false);
+        match crate::memory_place::at_host_start(&home, capability) {
+            Ok(line) => log(line),
+            Err(why) => {
+                log(format!("not starting: {why}"));
+                return crate::migrate::MOVED_EXIT;
+            }
+        }
+    }
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
