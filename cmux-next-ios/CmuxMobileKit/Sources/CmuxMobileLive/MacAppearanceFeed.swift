@@ -11,11 +11,13 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "appearance")
 /// `appearance` service (`cmux-mobile-host` `appearance.rs`: one frame now and on every change);
 /// the newest frame of each linked Mac is kept here. Every Mac's terminal theme goes to
 /// ``CmuxMobileTerminalThemes``, and the focused Mac's appearance goes to ``CmuxMobileMacTheme``,
-/// which keeps it on disk for the accent and the agent chat's look. The app's own chrome stays the
-/// stock one. When the frame's `chat` names the Mac's picture, the chat shows it: the picture is
-/// fetched once per content id (`appearance-wallpaper`, at most ``maxWallpaperBytes``, its size
-/// and SHA-256 checked) and kept on disk, one at a time; a cached one is never fetched again. A Mac
-/// whose host predates the service refuses it, and the phone keeps what it had.
+/// which derives the chrome's palette, keeps it on disk and paints it (while Match Mac theme is
+/// on), and draws the accent and the agent chat's look from it. The frame's wallpaper shows behind
+/// the sidebar and Home, and behind the chat when its `chat` names it: one picture, fetched once per
+/// content id (`appearance-wallpaper`, at most ``maxWallpaperBytes``, its size and SHA-256 checked)
+/// and kept on disk, one at a time; a cached one is never fetched again. The theme shows as soon as
+/// a frame arrives or its Mac is focused; the picture follows. A Mac whose host predates the
+/// service refuses it, and the phone keeps what it had.
 @MainActor
 public final class MacAppearanceFeed {
     public static let service = "appearance"
@@ -42,16 +44,18 @@ public final class MacAppearanceFeed {
         self.terminalThemes = terminalThemes
     }
 
-    /// The focused Mac changed: its newest theme shows at once, and a chat picture not cached yet
-    /// is fetched from it then.
+    /// The focused Mac changed: its newest theme shows at once, and a picture not cached yet is
+    /// fetched from it then (first pairing, or a switch to a Mac whose picture this phone lacks).
     public func focus(macID: String?) {
         focusedMacID = macID
+        pictureFetch?.cancel()
+        pictureFetch = nil
         guard let macID, let appearance = latest[macID] else { return }
         theme.apply(appearance)
         fetchPicture(of: appearance, macID: macID)
     }
 
-    /// One `appearance` frame of `macID`. `fetch` brings the chat picture's bytes when they are not
+    /// One `appearance` frame of `macID`. `fetch` brings the picture's bytes when they are not
     /// cached (nil: this frame's picture is not fetched).
     func apply(_ message: Data, macID: String, fetch: Fetch? = nil) {
         guard let appearance = CmuxMobileMacAppearance.decode(message) else {
@@ -68,12 +72,13 @@ public final class MacAppearanceFeed {
         fetchPicture(of: appearance, macID: macID)
     }
 
-    /// Fetches `appearance`'s chat picture when it is not cached, and hands it over if
-    /// `appearance` is still `macID`'s newest and `macID` still the focused Mac.
+    /// Fetches `appearance`'s picture (the chrome's wallpaper and the chat's) when it is not
+    /// cached, and hands it over if `appearance` is still `macID`'s newest and `macID` still the
+    /// focused Mac.
     private func fetchPicture(of appearance: CmuxMobileMacAppearance, macID: String) {
         pictureFetch?.cancel()
         pictureFetch = nil
-        guard theme.needsChatWallpaper(appearance), let wallpaper = appearance.chatWallpaper,
+        guard theme.needsWallpaper(appearance), let wallpaper = appearance.wallpaper,
               let fetch = fetchers[macID] else { return }
         // task-owner: pictureFetch; one picture per frame or focus, cancelled by the next one.
         pictureFetch = Task { [weak self] in
