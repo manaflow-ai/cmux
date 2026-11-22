@@ -57,6 +57,8 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// ``origin`` is then only the caller's claim, `user` included, so a handler that gives a
     /// person more than automation (a raw screenshot) checks this, not the origin alone.
     public var viaControlSocket = false
+    /// The one-based line of a local chat citation passed to the configured editor.
+    public var editorLine: Int?
     /// The calling app preserved by the native provider, even during its user gesture.
     /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
     public var callerApp: String?
