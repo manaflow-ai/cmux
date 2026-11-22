@@ -148,6 +148,15 @@ pub fn ifconfig_active(text: &str) -> Option<bool> {
     text.lines().find_map(|l| l.trim().strip_prefix("status:").map(|s| s.trim() == "active"))
 }
 
+/// Whether `ifconfig IFACE` (macOS) shows an Ethernet medium
+/// (`media: autoselect (1000baseT <full-duplex>)`): a USB or Thunderbolt
+/// adapter `networksetup` may not list.
+pub fn ifconfig_is_ethernet(text: &str) -> bool {
+    text.lines()
+        .find_map(|l| l.trim().strip_prefix("media:"))
+        .is_some_and(|m| m.contains("baseT") || m.contains("baseSR") || m.contains("baseLR"))
+}
+
 /// `tailscale status --json`: every peer, direct or through DERP.
 pub fn tailscale_status(json: &str) -> Vec<TailscalePeer> {
     let Ok(v) = serde_json::from_str::<Value>(json) else { return Vec::new() };
@@ -161,6 +170,12 @@ pub fn tailscale_status(json: &str) -> Vec<TailscalePeer> {
                     .or_else(|| s("DNSName").and_then(|d| d.split('.').next()))
                     .unwrap_or("?")
                     .to_owned(),
+                address: p
+                    .get("TailscaleIPs")
+                    .and_then(Value::as_array)
+                    .and_then(|ips| ips.first())
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
                 online: p.get("Online").and_then(Value::as_bool).unwrap_or(false),
                 direct_addr: s("CurAddr").map(str::to_owned),
                 derp_region: if s("CurAddr").is_none() {

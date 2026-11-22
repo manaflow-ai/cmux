@@ -118,6 +118,10 @@ pub struct RouteInfo {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TailscalePeer {
     pub name: String,
+    /// Its first tailnet address: what `tailscale ping` is given, since a
+    /// host name can hold spaces or be ambiguous.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
     pub online: bool,
     /// The direct endpoint (`ip:port`) when the path is direct.
     #[serde(skip_serializing_if = "Option::is_none")]

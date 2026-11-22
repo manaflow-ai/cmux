@@ -117,8 +117,41 @@ fn awdl(obs: &Observations, out: &mut Vec<Finding>) {
     }
 }
 
+/// Past this many relayed peers, one finding names the count and the closest
+/// few instead of a line each.
+const RELAYED_LISTED: usize = 3;
+
 fn tailscale(obs: &Observations, out: &mut Vec<Finding>) {
-    for peer in obs.tailscale_peers.iter().filter(|p| p.online && !p.is_direct()) {
+    let mut relayed: Vec<_> =
+        obs.tailscale_peers.iter().filter(|p| p.online && !p.is_direct()).collect();
+    if relayed.len() > RELAYED_LISTED {
+        // Measured peers first, fastest first: those are the ones in reach.
+        relayed.sort_by(|a, b| {
+            let key = |p: &crate::TailscalePeer| p.ping_ms.unwrap_or(f64::INFINITY);
+            key(a).total_cmp(&key(b))
+        });
+        let online = obs.tailscale_peers.iter().filter(|p| p.online).count();
+        let named: Vec<String> = relayed
+            .iter()
+            .take(RELAYED_LISTED)
+            .map(|p| match (&p.derp_region, p.ping_ms) {
+                (Some(r), Some(ms)) => format!("{} (via {r}, {ms:.0} ms)", p.name),
+                (Some(r), None) => format!("{} (via {r})", p.name),
+                _ => p.name.clone(),
+            })
+            .collect();
+        out.push(finding(
+            Severity::Warn,
+            "tailscale_derp",
+            format!(
+                "Tailscale reaches {} of {online} online peers through a relay, not direct, e.g. {}: allow UDP out (and UPnP/NAT-PMP) on the router",
+                relayed.len(),
+                named.join(", ")
+            ),
+        ));
+        return;
+    }
+    for peer in relayed {
         let via = peer.derp_region.as_deref().unwrap_or("a DERP relay");
         let ms = peer.ping_ms.map(|m| format!(", {m:.0} ms")).unwrap_or_default();
         out.push(finding(

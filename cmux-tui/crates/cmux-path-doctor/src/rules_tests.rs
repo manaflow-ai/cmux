@@ -141,3 +141,29 @@ fn quantile_is_nearest_rank() {
     assert_eq!(quantile(&v, 0.99), Some(99.0));
     assert_eq!(quantile(&[], 0.5), None);
 }
+
+#[test]
+fn many_relayed_peers_read_as_one_line_with_the_closest_named() {
+    // cosmic-gray's first reading: 15 relayed peers printed 15 lines.
+    let mut obs = wifi_obs(Band::Ghz5, -50, 866.0);
+    obs.tailscale_peers = (0..15)
+        .map(|i| TailscalePeer {
+            name: format!("peer-{i}"),
+            online: true,
+            derp_region: Some("sfo".into()),
+            ping_ms: (i % 2 == 0).then_some(f64::from(100 - i)),
+            ..TailscalePeer::default()
+        })
+        .chain([TailscalePeer {
+            name: "near".into(),
+            online: true,
+            direct_addr: Some("172.20.21.235:41641".into()),
+            ..TailscalePeer::default()
+        }])
+        .collect();
+    let r = Report::new(obs);
+    let derp: Vec<_> = r.findings.iter().filter(|f| f.code == "tailscale_derp").collect();
+    assert_eq!(derp.len(), 1);
+    assert!(derp[0].line.contains("15 of 16 online peers"), "{}", derp[0].line);
+    assert!(derp[0].line.contains("peer-14 (via sfo, 86 ms)"), "{}", derp[0].line);
+}

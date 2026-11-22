@@ -67,7 +67,7 @@ fn hardware_ports_and_link() {
 #[test]
 fn tailscale_status_direct_and_derp() {
     let json = r#"{"Self":{"HostName":"cosmic-gray"},"Peer":{
-      "nodekey:a":{"HostName":"air-blue","DNSName":"air-blue.t.ts.net.","Online":true,"CurAddr":"192.168.1.20:41641","Relay":"sfo"},
+      "nodekey:a":{"HostName":"air-blue","TailscaleIPs":["100.64.0.7","fd7a::7"],"DNSName":"air-blue.t.ts.net.","Online":true,"CurAddr":"192.168.1.20:41641","Relay":"sfo"},
       "nodekey:b":{"HostName":"","DNSName":"iphone-69.t.ts.net.","Online":true,"CurAddr":"","Relay":"sea"},
       "nodekey:c":{"HostName":"old","Online":false,"CurAddr":"","Relay":""}}}"#;
     let peers = tailscale_status(json);
@@ -75,6 +75,7 @@ fn tailscale_status_direct_and_derp() {
     assert_eq!(peers[0].name, "air-blue");
     assert!(peers[0].is_direct());
     assert_eq!(peers[0].derp_region, None);
+    assert_eq!(peers[0].address.as_deref(), Some("100.64.0.7"));
     assert_eq!(peers[1].name, "iphone-69");
     assert_eq!(peers[1].derp_region.as_deref(), Some("sea"));
     assert!(!peers[2].online);
@@ -101,4 +102,13 @@ fn ping_macos_and_linux() {
     let linux = "64 bytes from 10.0.0.1: icmp_seq=1 ttl=64 time=0.412 ms\n--- 10.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss, time 0ms\n";
     let s = ping_output(linux);
     assert_eq!((s.sent, s.received, s.rtts_ms.len()), (1, 1, 1));
+}
+
+#[test]
+fn ifconfig_ethernet_medium() {
+    // cosmic-gray's en7: a USB-C adapter the port list did not name.
+    let en7 = "en7: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500\n\tmedia: autoselect (1000baseT <full-duplex>)\n\tstatus: active\n";
+    assert!(ifconfig_is_ethernet(en7));
+    let wifi = "en0: flags=8863<UP> mtu 1500\n\tmedia: autoselect\n\tstatus: active\n";
+    assert!(!ifconfig_is_ethernet(wifi));
 }

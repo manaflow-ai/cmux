@@ -147,9 +147,12 @@ fn observe_macos(obs: &mut Observations) {
         obs.route.medium = Some(match ports.iter().find(|(_, d)| d == i) {
             Some((p, _)) if is_wifi(p) => Medium::Wifi,
             Some((p, _)) if is_wired(p) && !p.contains("Bridge") => Medium::Wired,
-            Some(_) => Medium::Other,
-            None if i.starts_with("utun") => Medium::Other,
-            None => Medium::Other,
+            _ if run("/sbin/ifconfig", &[i], short)
+                .is_some_and(|t| parse::ifconfig_is_ethernet(&t)) =>
+            {
+                Medium::Wired
+            }
+            _ => Medium::Other,
         });
     }
     for (port, dev) in &ports {
@@ -162,7 +165,7 @@ fn observe_macos(obs: &mut Observations) {
             obs.route.idle_wired_with_link.push(format!("{dev} ({port})"));
         }
     }
-    match run("/usr/sbin/system_profiler", &["SPAirPortDataType", "-json"], Duration::from_secs(20))
+    match run("/usr/sbin/system_profiler", &["SPAirPortDataType", "-json"], Duration::from_secs(60))
     {
         Some(json) => obs.wifi = parse::macos_system_profiler_wifi(&json),
         None => obs.skipped.push("wifi: system_profiler did not answer".to_owned()),
@@ -212,7 +215,8 @@ fn observe_tailscale(obs: &mut Observations, opts: &ProbeOptions) {
         // One ping reads the path; with --fix, up to 10 drive the upgrade:
         // `tailscale ping` stops at the first direct pong.
         let count = if opts.fix { "10" } else { "1" };
-        let args = ["ping", "--c", count, "--timeout", "3s", peer.name.as_str()];
+        let target = peer.address.clone().unwrap_or_else(|| peer.name.clone());
+        let args = ["ping", "--c", count, "--timeout", "3s", target.as_str()];
         if let Some((direct, derp, ms)) = run_lenient(&bin, &args, Duration::from_secs(40))
             .and_then(|t| parse::tailscale_ping(&t))
         {
@@ -284,6 +288,8 @@ pub fn examine(opts: &ProbeOptions) -> Report {
     report
 }
 
+const RELAYED_NAMED: usize = 3;
+
 /// After a `--fix` run every peer the probe moved to direct reads as direct,
 /// so it has no finding left; say so on the ok line instead of silently.
 fn mark_fixed(report: &mut Report) {
@@ -298,7 +304,15 @@ fn mark_fixed(report: &mut Report) {
         report.findings.push(Finding {
             severity: crate::Severity::Info,
             code: "tailscale_direct_now".to_owned(),
-            line: format!("Tailscale is direct to {}", fixed.join(", ")),
+            line: if fixed.len() > RELAYED_NAMED {
+                format!(
+                    "Tailscale is direct to {} peers, e.g. {}",
+                    fixed.len(),
+                    fixed[..RELAYED_NAMED].join(", ")
+                )
+            } else {
+                format!("Tailscale is direct to {}", fixed.join(", "))
+            },
             fixed: Some("drove the path to direct with tailscale ping".to_owned()),
         });
     }
