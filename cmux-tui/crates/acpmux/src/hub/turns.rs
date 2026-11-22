@@ -966,8 +966,13 @@ impl Hub {
             let head =
                 super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
             let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
-            provenance = Some(super::digest::digest_provenance(&parts));
-            let blocks = super::digest::digest_blocks(&parts);
+            // The person's prompts a hold gathered stay the person's words (`person_hold.rs`).
+            let blocks = if run.agent.is_none() {
+                super::person_hold::person_blocks(&parts)
+            } else {
+                provenance = Some(super::digest::digest_provenance(&parts));
+                super::digest::digest_blocks(&parts)
+            };
             let text = prompt_text(&blocks);
             display_parts = None;
             (blocks, text)
@@ -1712,8 +1717,25 @@ impl Hub {
         }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
-            let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
+            let was_unstored = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.claude_unstored_work = false;
+                std::mem::take(&mut m.claude_unstored)
+            };
             if was_unstored {
+                self.save_meta(session);
+            }
+        } else if let Err(e) = &result
+            && session.meta().claude_unstored
+            && self.unstored_turn_worked(session, &e.message)
+        {
+            // A failed turn whose agent did work keeps the unstored conversation awake
+            // (`SessionMeta::claude_unstored_work`); one that only got agent errors does not.
+            let marked = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                !std::mem::replace(&mut m.claude_unstored_work, true)
+            };
+            if marked {
                 self.save_meta(session);
             }
         }

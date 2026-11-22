@@ -155,7 +155,7 @@ PAGE_METRICS = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyle
 
 
 def page_activity(call, seconds: float = 10.0) -> list[dict]:
-    """After the measured windows (its DevTools calls wake the pages): per shown cmux page (`debug.cef_pages`), the
+    """After the measured windows (its DevTools calls wake the pages): per cmux page, shown or hidden (`debug.cef_pages`), the
     PAGE_PROBE reply and Chromium's page metrics per second over `seconds`. `call(method, params)` is the app's
     control socket. A page whose DevTools call fails keeps its error."""
     def devtools(browser, method, params=None):
@@ -171,12 +171,14 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         reply = devtools(browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
 
+    # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
     pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
-             if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+             if str(page.get("origin", "")).startswith("cmux-page://")]
     out = []
     for page in pages:
         devtools(page["browser"], "Performance.enable")
-        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path")}
+        entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
+                 "hidden": bool(page.get("hidden")), "renderer_clients": page.get("renderer_clients")}
         probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
         try:
             entry.update(json.loads(probe["result"]["value"]))

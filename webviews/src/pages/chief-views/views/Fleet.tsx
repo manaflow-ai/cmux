@@ -111,6 +111,7 @@ function MachineRow({
   const load = loadPerCore(machine);
   return (
     <tr data-error={machine.error ? "" : undefined} data-hot={load !== undefined && load > 1 ? "" : undefined}>
+      {/* tooltip-allow: a machine's error shows nowhere else. */}
       <th scope="row" className="cv-host" title={machine.error ?? undefined}>
         {machine.host.split(".")[0]}
       </th>
