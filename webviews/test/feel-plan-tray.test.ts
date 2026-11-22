@@ -44,8 +44,8 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  // Red on feat-cmux-next today; gcp-agent-lane-7/plan-display-proper is fixing the tray's drag.
-  const FIX = "gcp-agent-lane-7/plan-display-proper";
+  // Red on feat-cmux-next today; the plan-display-proper lane is fixing the tray's drag.
+  const FIX = "the plan-display-proper lane";
   const SNAP = `${FIX}: the list stops between lines (it sizes to raw px)`;
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.feel-plan-tray",

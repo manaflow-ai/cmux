@@ -37,8 +37,8 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     },
   };
 
-  // Red on feat-cmux-next today; gcp-agent-lane-7/composer-hat-calm is calming the header.
-  const FIX = "gcp-agent-lane-7/composer-hat-calm: the header swaps its words as fast as they come";
+  // Red on feat-cmux-next today; the composer-hat-calm lane is calming the header.
+  const FIX = "the composer-hat-calm lane: the header swaps its words as fast as they come";
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.composer-hat-head",
     variant: "running",
