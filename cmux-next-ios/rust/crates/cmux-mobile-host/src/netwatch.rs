@@ -8,7 +8,7 @@
 //! [`SETTLE`]; then, if the addresses a phone can reach the Mac on changed
 //! ([`reachable_addresses`]), signaling and the live endpoints are refreshed.
 //! An address that comes and goes on a VM bridge, AWDL or a link-local
-//! interface is no change: on cosmic-gray a VM bridge's IPv6 address came and
+//! interface is no change: on one Mac a VM bridge's IPv6 address came and
 //! went every 84 s (43 refreshes an hour), and each refresh reconnected the
 //! Mac's signaling and roamed every live phone link, which then died of its
 //! keepalive about 30 s later (every phone link alive across one, 2 of 2,
@@ -232,7 +232,7 @@ mod tests {
 
     #[test]
     fn a_vm_bridge_or_link_local_address_is_not_a_network_change() {
-        // cosmic-gray, 2026-11-22: this address came and went on bridge0 every 84 s.
+        // 2026-11-22, a nightly host log: this address came and went on bridge0 every 84 s.
         let bridge_v6: std::net::IpAddr = "fd3b:55e7:c578:637e:86d:660c:a307:f086".parse().unwrap();
         assert!(!counts("bridge0", UP_RUNNING, bridge_v6));
         assert!(!counts("bridge100", UP_RUNNING, "192.168.64.1".parse().unwrap()));
