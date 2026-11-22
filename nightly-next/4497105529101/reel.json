@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "build": "4497105529101",
+  "notes": "notes/4497105529101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49540,
+      "title": "machine-join-e2e harness test: host doctor --here --json is a read on the joined machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47578,
+      "title": "Session Info: a faint divider between sections",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47578/hv-6ce21a5e40e4-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49206,
+      "title": "cmux-browser-host Linux notices: regenerate for cmux-embed and zstd (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49407,
+      "title": "test: pin the defaults guard call main's skipped-judge step makes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49487,
+      "title": "measure: startup_loop's untimed warm build gets 4800 s, and a timeout says what reload.sh last printed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48796,
+      "title": "Choose notification delivery per event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47186,
+      "title": "Experimental: count and status badges on tabs and sidebar rows (experiments.agentBadges, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49440,
+      "title": "cmux NEXT: a restored terminal's tab keeps its agent icon (#49392)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49488,
+      "title": "acpmux: a reply hint names only an address acpmux send can deliver to",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49406,
+      "title": "Agent chat: a recorded chat delivered out of order draws the in-order transcript, over 300 seeds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47820,
+      "title": "Customize recipes: App looks like the Codex app, and a true black one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49292,
+      "title": "Page profiler: a Release-safe, read-only CLI view of each cmux page's heap and CPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48986,
+      "title": "Explain the token verifier deny_all start log in plain words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48958,
+      "title": "cmux-next-ios: a composer draft survives a reconnect, a rebuild and a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47291,
+      "title": "coord-sim fanin: N sessions over H acpmux hosts through one controller (ramps 50/200/2000)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49450,
+      "title": "ci(next): cmux-tui spec router checks out only what it reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49459,
+      "title": "agent-evals: Wilson 95% interval beside every pass rate, paired per-task comparisons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48234,
+      "title": "Computer use: stop waiting for screen frames when the app says nothing changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48655,
+      "title": "Agent pane: a slow but alive daemon keeps its socket; any frame only the daemon makes retires the liveness probe",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48655/hv-eedb1ece7993-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49297,
+      "title": "Whole-pane drag by its header: lift the live pane, move it to every tab drop target (RFD 0022 item 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47270,
+      "title": "coord-sim degen: seven degenerate cases against a scratch acpmux daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35298,
+      "title": "cmux NEXT: the Invite People sheet refreshes live on a daemon share-change event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47251,
+      "title": "coord-sim: report (coord-sim-run.v1), bench coord-sim, perf cron Linux part",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49211,
+      "title": "ci: pr-checks.yml's six advisory jobs become steps of one job (CI v2 step 6)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49441,
+      "title": "ci: step table takes only the pinned bun; node tool installs atomically",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46836,
+      "title": "cmux vm new and cmux chat --on vm:new answer their start stages (journey names, --timings)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47315,
+      "title": "coord-sim gen: synthetic coordinator chats as scripts and acpmux session dirs, up to multi-GB",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47315/hv-f87319a6e4af-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 46281,
+      "title": "customize: a watched folder stays on; launch expiry survives a hung network",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
