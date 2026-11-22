@@ -18,7 +18,12 @@ public final class AgentCloudStartTitles {
         let title: String
     }
 
+    private struct Mark { weak var tab: TabModel? }
+
     private var titles: [ObjectIdentifier: Entry] = [:]
+    /// New Tab pages whose Send started a Cloud chat (cmux#51000): marked from the Send, kept when the start fails (its
+    /// page shows the failure and Retry), cleared once the chat shows in place (``CloudFrontedChats`` marks it then).
+    private var cloudSends: [ObjectIdentifier: Mark] = [:]
     /// New Cloud Chat's own workspaces (cmux#45947): each row reads as Cloud from the click, before a Send names its chat.
     private var cloudWorkspaces: Set<String> = []
 
@@ -46,6 +51,17 @@ public final class AgentCloudStartTitles {
     public func begin(_ tab: TabModel, task: String, untitled: String) {
         titles = titles.filter { $0.value.tab != nil }
         titles[ObjectIdentifier(tab)] = Entry(tab: tab, title: Self.title(task: task) ?? untitled)
+        cloudSends = cloudSends.filter { $0.value.tab != nil }
+        cloudSends[ObjectIdentifier(tab)] = Mark(tab: tab)
+    }
+
+    /// Whether `tab`'s Send started a Cloud chat that is starting or failed (``begin(_:task:untitled:)`` until ``opened(_:)``):
+    /// its tab shows the cloud (cmux#51000). Only the tab strip reads it; the sidebar row reads ``startsInCloud(_:)``.
+    public func sentToCloud(_ tab: TabModel) -> Bool { cloudSends[ObjectIdentifier(tab)]?.tab === tab }
+
+    /// `tab`'s start opened its chat, which now shows in place: the front marks it from here (``sentToCloud(_:)`` ends).
+    public func opened(_ tab: TabModel) {
+        if cloudSends[ObjectIdentifier(tab)] != nil { cloudSends[ObjectIdentifier(tab)] = nil }
     }
 
     /// The start of `tab` ended (refused, failed or handed over): it reads as its page again.
