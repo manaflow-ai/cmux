@@ -8,7 +8,7 @@
 //! ```text
 //! tree    every path the layer changes (mb..head) the app changed too
 //!         (mb..app), to the same blob, or removed it too
-//! patch   the layer's whole diff (mb..head) has the stable patch-id of one
+//! patch   the layer's whole diff (mb..head) has the patch-id of one
 //!         commit in mb..app (a squash merge or a re-land), or every commit
 //!         of mb..head has an equal one there (`git cherry`: cherry-picks)
 //! ```
@@ -20,12 +20,11 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use cmux_process::{Command, Stdio};
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 /// The note, the history line and the one line refresh prints.
 pub const FOLDED: &str = "now built in";
@@ -139,7 +138,8 @@ pub fn local_folded(repo: &Path, head: &str, app: &str) -> Option<How> {
     // the layer's whole diff.
     let range = format!("{mb}..{app}");
     let max = format!("--max-count={MAX_APP_COMMITS}");
-    let mut args = vec!["log", "--no-merges", "-p", max.as_str(), range.as_str()];
+    let mut args =
+        vec!["log", "--no-merges", "-p", "--format=commit %H", max.as_str(), range.as_str()];
     args.extend(PLAIN_DIFF);
     args.push("--");
     args.extend(layer.iter().map(|touched| touched.path.as_str()));
@@ -186,38 +186,72 @@ fn changes(repo: &Path, from: &str, to: &str) -> Option<Vec<Touched>> {
     Some(touched)
 }
 
-/// `git patch-id --stable` over what git command `args` (a `diff` or a
-/// `log -p`) writes: the ids, in order. The patches go through a file of our
-/// own, removed after.
+/// What git command `args` (a `diff` or a `log -p`) prints, as patch-ids.
 fn patch_ids(repo: &Path, args: &[&str]) -> Option<Vec<String>> {
-    static SEQ: AtomicU32 = AtomicU32::new(0);
-    let file = std::env::temp_dir().join(format!(
-        "cmux-customize-fold-{}-{}.patch",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    ));
-    let output = format!("--output={}", file.display());
-    let mut written: Vec<&str> = args.to_vec();
-    // `--output` goes before any `--` (the pathspec).
-    let at = written.iter().position(|arg| *arg == "--").unwrap_or(written.len());
-    written.insert(at, output.as_str());
-    let ids = git(repo, &written).and_then(|_| {
-        let out = Command::new("git")
-            .args(["patch-id", "--stable"])
-            .current_dir(repo)
-            .open_stdin_path(&file)
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        out.status.success().then(|| {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter_map(|line| line.split_whitespace().next().map(str::to_owned))
-                .collect()
-        })
-    });
-    let _ = std::fs::remove_file(&file);
-    ids
+    Some(patch_ids_of(&git(repo, args)?))
+}
+
+/// The patch-id of each patch in `text` (one diff, or a `git log -p` with a
+/// `commit SHA` line before each), as `git patch-id --stable` judges them:
+/// line numbers, context and whitespace do not count, nor the order of the
+/// files. A binary file counts by its blobs (its `index` line). Our own
+/// hash, so both sides only ever meet ids made here.
+pub fn patch_ids_of(text: &str) -> Vec<String> {
+    fn finish(files: &mut Vec<Vec<u8>>, file: &mut Option<Sha256>, out: &mut Vec<String>) {
+        if let Some(hash) = file.take() {
+            files.push(hash.finalize().to_vec());
+        }
+        if files.is_empty() {
+            return;
+        }
+        files.sort();
+        let mut all = Sha256::new();
+        for hash in files.drain(..) {
+            all.update(hash);
+        }
+        out.push(all.finalize().iter().map(|b| format!("{b:02x}")).collect());
+    }
+    let squeeze = |line: &str| line.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let mut out = Vec::new();
+    let mut files: Vec<Vec<u8>> = Vec::new();
+    let mut file: Option<Sha256> = None;
+    let mut index = String::new();
+    let mut in_hunk = false;
+    for line in text.lines() {
+        if let Some(sha) = line.strip_prefix("commit ")
+            && sha.split_whitespace().next().is_some_and(|sha| sha.len() >= 40)
+        {
+            finish(&mut files, &mut file, &mut out);
+        } else if line.starts_with("diff --git ") {
+            if let Some(hash) = file.take() {
+                files.push(hash.finalize().to_vec());
+            }
+            let mut hash = Sha256::new();
+            hash.update(squeeze(line));
+            hash.update(b"\n");
+            file = Some(hash);
+            in_hunk = false;
+            index.clear();
+        } else if let Some(hash) = file.as_mut() {
+            if line.starts_with("@@") {
+                in_hunk = true;
+            } else if !in_hunk && line.starts_with("index ") {
+                index = line.to_owned();
+            } else if !in_hunk && (line.starts_with("Binary files") || line == "GIT binary patch") {
+                hash.update(index.as_bytes());
+                hash.update(b"\n");
+            } else if !in_hunk && (line.starts_with("new file") || line.starts_with("deleted file"))
+            {
+                hash.update(line.split_whitespace().take(2).collect::<String>());
+                hash.update(b"\n");
+            } else if in_hunk && (line.starts_with('+') || line.starts_with('-')) {
+                hash.update(squeeze(line));
+                hash.update(b"\n");
+            }
+        }
+    }
+    finish(&mut files, &mut file, &mut out);
+    out
 }
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
@@ -282,6 +316,29 @@ mod tests {
 
     fn t(path: &str, blob: Option<&str>) -> Touched {
         Touched { path: path.to_owned(), blob: blob.map(str::to_owned) }
+    }
+
+    #[test]
+    fn patch_ids_ignore_line_numbers_context_and_whitespace() {
+        let one = "diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n ctx\n-old\n+new\n";
+        let moved = "diff --git a/x b/x\nindex 7..8 100644\n--- a/x\n+++ b/x\n@@ -40,3 +40,3 @@ fn f\n other\n-old\n+  new\n";
+        let other = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+newer\n";
+        let id = |text: &str| patch_ids_of(text);
+        assert_eq!(id(one).len(), 1);
+        assert_eq!(id(one), id(moved));
+        assert_ne!(id(one), id(other));
+        // A header line inside a hunk is content (`--- x` removed).
+        let dashes = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n--- x\n+new\n";
+        assert_ne!(id(dashes), id("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n+new\n"));
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let log = format!("commit {sha}\nAuthor: t\n\n    one\n\n{one}commit {sha}\n\n{other}");
+        assert_eq!(id(&log), [id(one), id(other)].concat());
+        let bin = |index: &str| {
+            format!(
+                "diff --git a/i.png b/i.png\nindex {index} 100644\nBinary files a/i.png and b/i.png differ\n"
+            )
+        };
+        assert_ne!(id(&bin("1..2")), id(&bin("1..3")));
     }
 
     #[test]
