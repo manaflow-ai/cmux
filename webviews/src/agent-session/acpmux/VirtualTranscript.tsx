@@ -775,6 +775,20 @@ function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
 /// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
 /// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
 /// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
+/// The rows that came at the tail bring none of the reply's text: a send's or a steer's own rows (the
+/// prompt, its date, the live line). The steady arm moves those at once and lets the reply drift.
+/// O(rows that came).
+export function noReplyCame(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  const first = Math.max(0, before.length - ARRIVAL_TAIL);
+  const known = new Set<string>();
+  for (let index = first; index < before.length; index += 1) known.add(before[index]!.id);
+  for (let index = first; index < after.length; index += 1) {
+    const row = after[index]!;
+    if (!known.has(row.id) && row.kind === "assistant") return false;
+  }
+  return true;
+}
+
 export function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
   const promptRow = (row: AcpmuxRow | undefined): row is AcpmuxRow => row?.kind === "user" && !isLineRow(row);
   const becameCanonical = (was: AcpmuxRow | undefined, row: AcpmuxRow | undefined) => {
@@ -2276,13 +2290,23 @@ function TranscriptView({
       chase.fit(below);
       return;
     }
-    const rowTop = (id: string) => {
+    // Where a row lies in the layout: its drawn top less all the thread is drawn by, the chase's own
+    // offset and any motion added to it (the bottom stack's resize as the composer clears after a
+    // send, `resized` below). Less the chase's offset alone, an anchor taken while the stack's motion
+    // drew the thread 46.75 px up read the rows as moved 8 px down when the reply's first row scrolled
+    // them 38.75 px up once that motion was over, and the rows jumped 46 px in one frame
+    // (send-stream-motion.test.ts, the steady arm).
+    const drawnBy = () => {
+      const translate = thread.current ? getComputedStyle(thread.current).translate : "none";
+      return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+    };
+    const rowTop = (id: string, drawn: number) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
-      return row ? row.getBoundingClientRect().top - chase.outstanding() : undefined;
+      return row ? row.getBoundingClientRect().top - drawn : undefined;
     };
     const before = chaseAnchor.current;
-    const now = before ? rowTop(before.id) : undefined;
+    const now = before ? rowTop(before.id, drawnBy()) : undefined;
     // Followed again after the reader's input held it: it goes on home from where it is drawn.
     resumeFollowMotion();
     chase.fit(below);
@@ -2292,7 +2316,7 @@ function TranscriptView({
       chase.shift(thread.current, now - before.top, below, held, arrived, sent);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
-    const top = id === undefined ? undefined : rowTop(id);
+    const top = id === undefined ? undefined : rowTop(id, drawnBy());
     chaseAnchor.current = id !== undefined && top !== undefined ? { id, top } : undefined;
   };
   /// When the view last changed size: the passes that settle the rows after it never glide.
@@ -5289,9 +5313,16 @@ function TranscriptView({
             // The slim arm moves every pass's rows at once, the send's own among them: the sent prompt is
             // in place in the frame after Return, and nothing settles after it (Leo, 2026-11-09: "the
             // scroll up is extremely sluggish").
-            // The steady arm moves a send's own rows at once too, as the slim arm does.
+            // The steady arm moves a send's own rows at once too, as the slim arm does: the prompt and
+            // the rows it brings, not the reply's text that lands in the send's window. A
+            // steer's next reply segment landing within SEND_RISE_MS moved 40.69 px in one frame, and
+            // a send's first reply row 38.75 px (send-stream-motion.test.ts); they drift with the stream.
             const atOnce =
-              dockMoved || !live || stepped || slimFollow || (followArm === "steady" && (sentRows || promptCame));
+              dockMoved ||
+              !live ||
+              stepped ||
+              slimFollow ||
+              (followArm === "steady" && (promptCame || (sentRows && noReplyCame(oldRows, rows))));
             // A row that came above the live line (not the reply's own growth) holds back up to the
             // trail bound, while the live line glides under it (followChase CHASE_ARRIVAL_HOLD_LINES).
             // The arrived row's room often lands a pass later (its measured height), so the passes
