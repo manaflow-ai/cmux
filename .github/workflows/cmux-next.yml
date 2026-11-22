@@ -1877,6 +1877,8 @@ jobs:
         env:
           # The job's own cap (the same expression as its timeout-minutes; tests/test_run_checks_concurrently.py).
           JOB_TIMEOUT_MINUTES: ${{ github.repository_owner == 'manaflow-ai' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && !contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner != '' && 35 || 15 }}
+          # The pull request's base (the merge commit's first parent; fetch-depth 2); empty on a push.
+          AFFECTED_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
         run: |
           # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
           # A check still running POOL_TAIL_SECONDS before the cap stops with its name, so the job ends in a verdict.
@@ -1888,8 +1890,10 @@ jobs:
           # A stale or future event file (not this job's) is no clock: count from now.
           (( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"
           deadline=$(( job_start + JOB_TIMEOUT_MINUTES * 60 - POOL_TAIL_SECONDS ))
+          # A pull request runs only the commands its diff reaches (--affected, scripts/ci/check_pool_affected.py); a push
+          # runs every one, so each command skipped here still has a verdict on the base.
           scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" \
-            --deadline-at "$deadline" <<'CHECKS'
+            --deadline-at "$deadline" --affected "$AFFECTED_BASE" <<'CHECKS'
             # The longest commands first (the prepush gate suite, then the two pin waits), so a pool as narrow as
             # the job's share (CMUX_CI_CPU_BUDGET on a mini) does not start them last.
             [script-tests]
