@@ -134,6 +134,32 @@ export const beginWithInvite = async (
   return redeemed.reason === "unknown" ? notFound() : used()
 }
 
+/**
+ * Which pairing made a server, as the Durable Object ids of its PairingDO record and its invite
+ * (never the codes: TeamDO state and events reach every member). TeamDO keeps it a while after
+ * `server.enrolled` (domains/team-servers.ts).
+ */
+export interface ServerPairingRef {
+  readonly pairing_object: string
+  readonly invite_object: string | null
+}
+
+export const serverPairingObjects = (env: Env, code: string, invite: string | null): ServerPairingRef => ({
+  pairing_object: env.PAIRING_DO.idFromName(code).toString(),
+  invite_object: invite ? env.PAIRING_DO.idFromName(`invite:${invite}`).toString() : null
+})
+
+/**
+ * A server was revoked (server.revoke, or its box signed itself out): spend the pairing code that
+ * made it, so that thumbprint cannot be approved or collected again on that record, and void the
+ * invite it came through, so a retried `/v1/pair/begin` with that invite gets 409 and the
+ * inviter's watcher hears `voided {reason:"revoked"}`. Both are idempotent.
+ */
+export const revokeServerPairing = async (env: Env, pairing: ServerPairingRef, now = Date.now()): Promise<void> => {
+  await env.PAIRING_DO.get(env.PAIRING_DO.idFromString(pairing.pairing_object)).serverRevoked(now)
+  if (pairing.invite_object) await env.PAIRING_DO.get(env.PAIRING_DO.idFromString(pairing.invite_object)).inviteRevoked(now)
+}
+
 /** After an approval of an invited record completed: the inviter's watcher hears `paired`. */
 export const invitePairedNotify = async (env: Env, invite: string, code: string, host: string): Promise<void> => {
   await inviteStub(env, invite).invitePaired(invite, code, host, Date.now())
