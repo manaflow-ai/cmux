@@ -19,6 +19,16 @@ fn screen_sharing_is_found_by_the_words_people_type() {
         assert!(action.keywords.contains(&"vnc"), "{id} lacks \"vnc\"");
     }
     assert!(palette::DAILY.contains(&"macScreen.open"));
+    // Built-in aliases: these whole queries rank Screen Sharing first, above any row whose title
+    // starts with "Share Screen".
+    let aliases = palette::ALIASES
+        .iter()
+        .find(|(id, _)| *id == "macScreen.open")
+        .map(|(_, words)| *words)
+        .expect("macScreen.open aliases");
+    for word in ["screen share", "share screen", "remote desktop", "vnc"] {
+        assert!(aliases.contains(&word), "macScreen.open lacks the alias {word:?}");
+    }
 }
 
 #[test]
@@ -51,12 +61,11 @@ fn one_row_ends_this_macs_session() {
 fn screen_sharing_has_default_shortcuts() {
     use cmux_action_catalog::model::{CMD, KEYBOARD, OPT, SHIFT};
     for (id, modifiers) in
-        [("macScreen.open", OPT | CMD), ("macScreen.stopSharing", OPT | SHIFT | CMD)]
+        [("macScreen.open", SHIFT | CMD), ("macScreen.stopSharing", OPT | SHIFT | CMD)]
     {
         let action = find(id).expect(id);
         let shortcut = action.default_shortcut.as_ref().expect(id);
         assert_eq!((shortcut.key, shortcut.modifiers), ("s", modifiers), "{id}");
-        assert!(action.surfaces & KEYBOARD != 0, "{id} is not on the keyboard surface");
         let others: Vec<_> = cmux_action_catalog::actions()
             .filter(|other| other.id != id)
             .filter(|other| {
@@ -69,4 +78,6 @@ fn screen_sharing_has_default_shortcuts() {
             .collect();
         assert!(others.is_empty(), "{id}'s shortcut is also {others:?}'s");
     }
+    let stop = find("macScreen.stopSharing").expect("macScreen.stopSharing");
+    assert!(stop.surfaces & KEYBOARD != 0, "Stop Sharing This Mac is not on the keyboard surface");
 }

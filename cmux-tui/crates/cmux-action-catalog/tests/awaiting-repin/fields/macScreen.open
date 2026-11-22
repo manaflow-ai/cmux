@@ -1,2 +1,1 @@
-# a keyboard surface for its new default shortcut
-/surfaces
+/arguments # macScreen.open gains autoconnect (lane/mac-screen-autoconnect)

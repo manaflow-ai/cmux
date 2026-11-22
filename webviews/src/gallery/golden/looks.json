@@ -1,0 +1,196 @@
+{
+  "$comment": "The looks the golden screen draws (gallery entry looks.golden, `bun run golden:looks`), one per row of the sheet. A look is what a setup carries (docs: theme files, settings, agent-pane/theme.css): `schemes.light` and `schemes.dark` are each a theme file (a repo path in `themeFile`, or its keys inline in `theme`), `settings` are setup settings (agentPane.display.* reach the chat's display push; sidebar.* the window's sidebar), `composerLook` the composer's look, `themeCSS` a repo path of an agent-pane/theme.css. `setup` instead names a setup folder (examples/looks/NAME): its cmux-setup.json settings, its appearance.themeFile under themes/ (for the scheme it is drawn in; the other scheme keeps the default theme under the look's stylesheet) and its agent-pane/theme.css. A look whose files are missing in this checkout is skipped, with the reason in the gallery note. A scheme with no theme draws cmux's default (Apple System Colors and Apple System Colors Light). Settings a checkout does not know yet (agentPane.display.transcriptLook before it lands) are sent and ignored, as the app does.",
+  "looks": [
+    {
+      "id": "cmux",
+      "title": "cmux",
+      "note": "The default: no look installed, the chat and window as cmux draws them today.",
+      "schemes": { "light": {}, "dark": {} }
+    },
+    {
+      "id": "claude",
+      "title": "Claude",
+      "note": "The built-in Claude look: Claude's composer, the claude transcript preset, the shipped Claude Desktop theme file in light and the Claude Dark theme in dark.",
+      "composerLook": "claude",
+      "settings": {
+        "agentPane.display.transcriptLook": "claude",
+        "sidebar.density": "compact",
+        "sidebar.sectionLook": "quiet"
+      },
+      "schemes": {
+        "light": { "themeFile": "Resources/theme-files/claude-desktop.json" },
+        "dark": {
+          "theme": {
+            "appearance.theme": "Claude Dark",
+            "colors": { "background": "#171716", "foreground": "#ebe9e4", "selection": "#2c2c2a", "accent": "#d97757" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#121211",
+            "appearance.surfaces.agentPane.color": "#171716",
+            "appearance.density": "comfortable"
+          }
+        }
+      }
+    },
+    {
+      "id": "codex",
+      "title": "Codex",
+      "note": "The built-in Codex look: Codex's composer, the codex transcript preset, and the Codex app's white and #181818 pages with a blue accent and a slate sidebar.",
+      "composerLook": "codex",
+      "settings": {
+        "agentPane.display.transcriptLook": "codex",
+        "agentPane.display.font.size": 14,
+        "agentPane.display.width": 820,
+        "sidebar.density": "comfortable",
+        "sidebar.showTimestamps": true
+      },
+      "schemes": {
+        "light": {
+          "theme": {
+            "appearance.theme": "Apple System Colors Light",
+            "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#dcebff", "accent": "#0285ff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#f7f7f7",
+            "appearance.surfaces.agentPane.color": "#ffffff",
+            "appearance.density": "comfortable"
+          }
+        },
+        "dark": {
+          "theme": {
+            "appearance.theme": "Apple System Colors",
+            "colors": { "background": "#181818", "foreground": "#f5f5f5", "selection": "#2c2c2c", "accent": "#339cff" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#24303a",
+            "appearance.surfaces.agentPane.color": "#181818",
+            "appearance.density": "comfortable"
+          }
+        }
+      }
+    },
+    {
+      "id": "studio",
+      "title": "Studio",
+      "note": "The built-in Studio look, measured against the reference agent GUI's tokens: a true-black page and sidebar (dark) or zinc-25 over a zinc-50 sidebar (light), its blue primary for Send and links, 14 px text at 1.625 in a 46rem (736 px) column, a 16 px prompt bubble at 80% of the column, 8% hairlines, a 16 px composer card, and each row's age at the right.",
+      "settings": {
+        "agentPane.display.transcriptLook": "studio",
+        "agentPane.display.font.size": 14,
+        "agentPane.display.font.lineHeight": 1.625,
+        "agentPane.display.width": 736,
+        "sidebar.density": "compact",
+        "sidebar.showTimestamps": true
+      },
+      "themeCSS": "webviews/src/gallery/golden/studio-theme.css",
+      "schemes": {
+        "light": {
+          "theme": {
+            "appearance.theme": "Apple System Colors Light",
+            "colors": { "background": "#fcfcfc", "foreground": "#18181b", "selection": "#ebebed", "accent": "#1b4ed8" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#fafafa",
+            "appearance.surfaces.agentPane.color": "#fcfcfc",
+            "appearance.density": "compact"
+          }
+        },
+        "dark": {
+          "theme": {
+            "appearance.theme": "Apple System Colors",
+            "colors": { "background": "#000000", "foreground": "#f5f5f5", "selection": "#1e1e1e", "accent": "#346bf1" },
+            "appearance.accent": "theme",
+            "appearance.surfaces.sidebar.color": "#000000",
+            "appearance.surfaces.agentPane.color": "#000000",
+            "appearance.density": "compact"
+          }
+        }
+      }
+    },
+    {
+      "id": "studio-addon",
+      "title": "Studio (add-on)",
+      "note": "The Studio example add-on, from its setup folder alone (docs/cmux-next/look-addons.md).",
+      "setup": "examples/looks/studio"
+    },
+    {
+      "id": "paper-addon",
+      "title": "Paper (add-on)",
+      "note": "The Paper example add-on, from its setup folder alone (docs/cmux-next/look-addons.md).",
+      "setup": "examples/looks/paper"
+    },
+    {
+      "id": "tachyon-addon",
+      "title": "Tachyon (add-on)",
+      "note": "The Tachyon example add-on, drawn from captured references (examples/looks/tachyon/README.md).",
+      "setup": "examples/looks/tachyon"
+    },
+    {
+      "id": "kerf-addon",
+      "title": "Kerf (add-on)",
+      "note": "The Kerf example add-on, drawn from captured references (examples/looks/kerf/README.md).",
+      "setup": "examples/looks/kerf"
+    },
+    {
+      "id": "prism-addon",
+      "title": "Prism (add-on)",
+      "note": "The Prism example add-on, drawn from captured references (examples/looks/prism/README.md).",
+      "setup": "examples/looks/prism"
+    },
+    {
+      "id": "hush-addon",
+      "title": "Hush (add-on)",
+      "note": "The Hush example add-on, drawn from captured references (examples/looks/hush/README.md).",
+      "setup": "examples/looks/hush"
+    },
+    {
+      "id": "basalt-addon",
+      "title": "Basalt (add-on)",
+      "note": "The Basalt example add-on, drawn from captured references (examples/looks/basalt/README.md).",
+      "setup": "examples/looks/basalt"
+    },
+    {
+      "id": "linen-addon",
+      "title": "Linen (add-on)",
+      "note": "The Linen example add-on, drawn from captured references (examples/looks/linen/README.md).",
+      "setup": "examples/looks/linen"
+    },
+    {
+      "id": "docket-addon",
+      "title": "Docket (add-on)",
+      "note": "The Docket example add-on, drawn from captured references (examples/looks/docket/README.md).",
+      "setup": "examples/looks/docket"
+    },
+    {
+      "id": "ember-addon",
+      "title": "Ember (add-on)",
+      "note": "The Ember example add-on, drawn from captured references (examples/looks/ember/README.md).",
+      "setup": "examples/looks/ember"
+    },
+    {
+      "id": "folio-addon",
+      "title": "Folio (add-on)",
+      "note": "The Folio example add-on, drawn from captured references (examples/looks/folio/README.md).",
+      "setup": "examples/looks/folio"
+    },
+    {
+      "id": "tandem-addon",
+      "title": "Tandem (add-on)",
+      "note": "The Tandem example add-on, drawn from captured references (examples/looks/tandem/README.md).",
+      "setup": "examples/looks/tandem"
+    },
+    {
+      "id": "shadcn-addon",
+      "title": "shadcn (add-on)",
+      "note": "The shadcn/ui exemplar look, from its setup folder alone: neutral tokens, hairline cards, Geist, a muted tab track.",
+      "setup": "examples/looks/shadcn"
+    },
+    {
+      "id": "material-addon",
+      "title": "Material (add-on)",
+      "note": "The Material 3 exemplar look, from its setup folder alone: tonal surfaces, Roboto, a 20 px tonal prompt bubble.",
+      "setup": "examples/looks/material"
+    },
+    {
+      "id": "apple-addon",
+      "title": "Apple (add-on)",
+      "note": "The macOS exemplar look, from its setup folder alone: a vibrant source-list sidebar, SF, systemBlue, an 18 px bubble.",
+      "setup": "examples/looks/apple"
+    }
+  ]
+}

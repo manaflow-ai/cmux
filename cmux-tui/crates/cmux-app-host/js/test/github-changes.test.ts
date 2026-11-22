@@ -167,6 +167,30 @@ describe("cmux.watch: github.changes", () => {
     expect(host.calls.some((c) => c.name === "net.fetch")).toBe(false)
   })
 
+  test("a sandboxed install says to turn off Run sandboxed, not to sign in", async () => {
+    const sandboxed = { ok: false, body: { code: "scope.missing", message: "the app runs sandboxed: no network", retryable: false } }
+    const host = new FakeHost(section(`{ show: "mine", login: "octo" }`))
+    host.handlers["integration.request"] = () => sandboxed
+    host.handlers["net.fetch"] = () => sandboxed
+    host.mount("m", "render")
+    await host.settle()
+    expect(host.eval("w().status")).toBe("error")
+    expect(host.eval("w().error.code")).toBe("scope.missing")
+    expect(host.eval("w().error.details.sandboxed")).toBe(true)
+    expect(String(host.eval("w().error.message"))).toContain("Run sandboxed")
+  })
+
+  test("the public limit (403) says it resets and that a sign-in avoids it", async () => {
+    const host = new FakeHost(section(`{ show: "mine", login: "octo" }`))
+    host.handlers["integration.request"] = () => ({ ok: false, body: { code: "integration.unavailable", message: "no gh" } })
+    host.handlers["net.fetch"] = () => ok({ status: 403, headers: {}, body: "{}" })
+    host.mount("m", "render")
+    await host.settle()
+    expect(host.eval("w().status")).toBe("error")
+    expect(host.eval("w().error.details.limit")).toBe("public")
+    expect(String(host.eval("w().error.message"))).toContain("Sign in to GitHub")
+  })
+
   test("params the schema refuses throw at the watch", () => {
     const host = new FakeHost(section(`{}`))
     expect(host.eval(`(() => { try { cmux.watch("github.changes", { show: "everything" }) } catch (e) { return e.code } })()`)).toBe("signal.params")

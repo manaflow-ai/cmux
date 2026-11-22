@@ -21,6 +21,8 @@ use std::thread::JoinHandle;
 /// One request for the encode thread.
 struct Job {
     req: EncodeRequest,
+    /// When the engine's gate released the request (protocol clock, µs).
+    released_us: u64,
     /// Halve the encoder's bitrate before this frame's target is set (the engine dropped a
     /// frame too large to send).
     halve_first: bool,
@@ -36,9 +38,15 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// Why the encoder made this IDR on its own (`None` when asked for, or a delta frame).
+    pub idr_cause: Option<&'static str>,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
     pub t_capture_us: u64,
-    /// When the encode ended, on the protocol clock in µs.
+    /// When the engine's gate released this frame's request, on the protocol clock in µs.
+    pub released_us: u64,
+    /// When the encoder was handed the picture, on the protocol clock in µs.
+    pub encode_start_us: u64,
+    /// When the encode ended (the bitstream was ready), on the protocol clock in µs.
     pub encoded_us: u64,
     /// The source's display and arrival times of the picture (measurement only).
     pub picked_times: Option<(u64, u64)>,
@@ -95,7 +103,7 @@ pub struct EncodeThread {
     /// The thread has a job.
     busy: bool,
     /// Requests the engine released while the thread was busy, oldest first.
-    queue: VecDeque<EncodeRequest>,
+    queue: VecDeque<(EncodeRequest, u64)>,
     halve_next: bool,
     name: String,
     kbps: u32,
@@ -153,7 +161,7 @@ impl EncodeThread {
 
     /// Encodes `req` after the frames already handed over; never waits.
     pub fn submit(&mut self, req: EncodeRequest) {
-        self.queue.push_back(req);
+        self.queue.push_back((req, now_ns() / 1000));
         self.start_next();
     }
 
@@ -183,8 +191,8 @@ impl EncodeThread {
         if self.busy {
             return;
         }
-        let Some(req) = self.queue.pop_front() else { return };
-        let job = Job { req, halve_first: std::mem::take(&mut self.halve_next) };
+        let Some((req, released_us)) = self.queue.pop_front() else { return };
+        let job = Job { req, released_us, halve_first: std::mem::take(&mut self.halve_next) };
         // The thread has no job (busy is false), so the one slot is free: this never waits.
         // A send error means the thread ended; take_done reports it.
         if let Some(jobs) = &self.jobs {
@@ -206,14 +214,24 @@ impl Drop for EncodeThread {
     }
 }
 
+/// The bitrate this frame encodes at: the engine's target, at most half the encoder's
+/// current rate after the engine dropped a frame too large to send (the halve used to be
+/// set and then overwritten by the target on the next line, so the retry was as large).
+fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
+    if job.halve_first {
+        job.req.target_kbps.min(current_kbps / 2)
+    } else {
+        job.req.target_kbps
+    }
+}
+
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
-    if job.halve_first {
-        source.set_bitrate(source.kbps() / 2);
-    }
-    source.set_bitrate(req.target_kbps);
+    source.set_profile(req.profile, req.refine);
+    source.set_changed_pixels(u64::from(req.damage.width) * u64::from(req.damage.height));
+    source.set_bitrate(frame_kbps(job, source.kbps()));
     let t0 = now_ns();
     let mut access_unit = Vec::new();
     let idr = source.encode(req.force_idr, t_capture_us as i64, &mut access_unit)?;
@@ -221,10 +239,76 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        idr_cause: if idr { source.idr_cause() } else { None },
         t_capture_us,
+        released_us: job.released_us,
+        encode_start_us: t0 / 1000,
         encoded_us: t1 / 1000,
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cmux_rd_core::flow::Rect;
+
+    /// Records every bitrate it is given.
+    struct Recorder {
+        kbps: u32,
+        set: Vec<u32>,
+    }
+
+    impl FrameSource for Recorder {
+        fn capture(&mut self, _damage: Rect) -> Res<()> {
+            Ok(())
+        }
+        fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+            out.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+            Ok(true)
+        }
+        fn set_bitrate(&mut self, kbps: u32) {
+            self.kbps = kbps;
+            self.set.push(kbps);
+        }
+        fn kbps(&self) -> u32 {
+            self.kbps
+        }
+        fn encoder_name(&self) -> String {
+            "recorder".into()
+        }
+    }
+
+    fn job(target_kbps: u32, halve_first: bool) -> Job {
+        let damage = Rect { x: 0, y: 0, width: 16, height: 16 };
+        let req = EncodeRequest {
+            stream: 0,
+            frame: 1,
+            damage,
+            force_idr: true,
+            idr_reason: None,
+            target_kbps,
+            profile: Default::default(),
+            refine: false,
+        };
+        Job { req, released_us: 0, halve_first }
+    }
+
+    #[test]
+    fn the_frame_after_a_drop_encodes_at_half_the_rate() {
+        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        let frame = encode_one(&mut source, &job(8_000, true)).expect("encode");
+        assert_eq!(frame.kbps, 4_000, "the halve holds for this frame: {:?}", source.set);
+        assert_eq!(source.set.last(), Some(&4_000));
+        // A target already under half wins.
+        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        encode_one(&mut source, &job(3_000, true)).expect("encode");
+        assert_eq!(source.kbps, 3_000);
+        // Without a drop the engine's target applies.
+        let mut source = Recorder { kbps: 8_000, set: Vec::new() };
+        encode_one(&mut source, &job(9_000, false)).expect("encode");
+        assert_eq!(source.kbps, 9_000);
+    }
 }

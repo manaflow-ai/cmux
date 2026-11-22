@@ -6,10 +6,17 @@
 pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_host;
+pub(crate) mod cursor;
+mod display_pick;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+pub(crate) mod pasteboard;
+#[cfg(feature = "bench")]
+pub(crate) mod synthetic;
 mod sys;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
@@ -20,6 +27,7 @@ use cmux_encode::videotoolbox::{
     ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect, VideoToolbox,
 };
 use cmux_rd_core::flow::Rect;
+use cmux_rd_core::profile::EncodeProfile;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -37,10 +45,12 @@ fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
     fps.min(limit as u32)
 }
 
-/// The loop thread's half: the capture's damage and CGEvent input.
+/// The loop thread's half: the capture's damage, CGEvent input, and the cursor.
 pub struct MacDesktop {
     capture: Capture,
     injector: Injector,
+    /// The cursor as metadata (cap `cursor`): the pictures leave it out.
+    cursor: Option<cursor::CursorReader>,
 }
 
 /// The encode thread's half: picks the newest captured frame and encodes it with VideoToolbox.
@@ -58,7 +68,8 @@ pub struct MacFrames {
 }
 
 /// Starts the display's capture and opens both halves of the session's desktop.
-pub fn open(cfg: &SessionCfg) -> Res<Halves> {
+/// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -66,7 +77,11 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         )
         .into());
     }
-    let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
+    let cursor_metadata = cursor_metadata && cursor::available();
+    // The cursor is in the pictures unless the viewer draws it or asked for none at all.
+    let in_pictures = !cursor_metadata && cfg.show_cursor;
+    let capture =
+        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
@@ -89,7 +104,9 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         #[cfg(feature = "bench")]
         quality: crate::eval::Quality::from_env(),
     };
-    Ok((Box::new(MacDesktop { capture, injector }), Box::new(frames)))
+    let cursor =
+        cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
+    Ok((Box::new(MacDesktop { capture, injector, cursor }), Box::new(frames)))
 }
 
 impl Desktop for MacDesktop {
@@ -102,6 +119,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }
@@ -114,6 +132,10 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
+        self.cursor.as_mut()?.sample()
     }
 }
 
@@ -157,11 +179,24 @@ impl FrameSource for MacFrames {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
     }
 
+    fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
+        self.encoder.set_ultra(profile.is_ultra());
+        self.encoder.set_refine(refine);
+    }
+
+    fn set_changed_pixels(&mut self, pixels: u64) {
+        self.encoder.set_changed_pixels(pixels);
+    }
+
     fn kbps(&self) -> u32 {
         SurfaceEncoder::kbps(&self.encoder)
     }
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }

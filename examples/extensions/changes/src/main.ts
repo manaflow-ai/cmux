@@ -102,6 +102,8 @@ export function params(settings: Record<string, unknown>, at: { repo: string | n
 }
 
 function problem(e: CmuxError | undefined): string {
+  // Sandboxed (an unverified install has no network until the person allows it): the runtime's text names the switch.
+  if ((e?.details as { sandboxed?: boolean } | undefined)?.sandboxed) return e!.message
   if (e?.code === "integration.unavailable" || e?.code === "integration.not_connected" || e?.code === "scope.missing") {
     return "Sign in to GitHub (gh auth login), or set a GitHub login in this extension's settings for public repositories."
   }

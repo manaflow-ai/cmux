@@ -110,13 +110,14 @@ struct AgentChatDestinationsTests {
         #expect(!offline.isEnabled)
         #expect(offline.subtitle == "reconnecting")
         let peer = try #require(items.first { $0.id == "option:dev-box" })
-        guard case .perform(let pick) = peer.primary.effect else { Issue.record("no pick"); return }
+        // A row's run is decided when it is picked (`.deferred`, #42286), as the palette does with `resolved()`.
+        guard case .perform(let pick) = peer.primary.effect.resolved() else { Issue.record("no pick"); return }
         pick()
         #expect(chosen == "dev-box")
         let cloud = try #require(items.first { $0.id == "option:cloud-machine:" + Self.sameNameCloudID })
         #expect(cloud.isEnabled)
         #expect(items.contains { $0.id == "option:cloud-peer" })
-        guard case .perform(let pickCloud) = cloud.primary.effect else { Issue.record("no Cloud pick"); return }
+        guard case .perform(let pickCloud) = cloud.primary.effect.resolved() else { Issue.record("no Cloud pick"); return }
         pickCloud()
         #expect(chosen == "cloud-machine:" + Self.sameNameCloudID, "the chooser forwards the stable Cloud ID, not its matching peer name")
         #expect(items.first { $0.id == "option:cloud-machine:vm-ready" }?.isEnabled == true)

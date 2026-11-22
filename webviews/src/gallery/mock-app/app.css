@@ -102,9 +102,22 @@ body {
   color: var(--app-text);
 }
 .app-sidebar-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* A row's age (sidebar.showTimestamps), at the right of its title. */
+.app-sidebar-age {
+  flex: none;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-3);
+}
+.app-sidebar-row[data-mark="unread"] .app-sidebar-title {
+  color: var(--app-text);
+  font-weight: 600;
 }
 .app-sidebar-mark {
   /* The sidebar row's 6 pt status dot. */
@@ -125,6 +138,20 @@ body {
 }
 .app-mark-unread {
   background: var(--app-accent);
+}
+/* A look's nav row (sidebar.nav): a plain label, no fill at rest, above the chats. */
+.app-sidebar-nav {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--app-text-2);
+}
+/* The Settled (N) fold (sidebar.settleFinished) at the end of the list. */
+.app-sidebar-settled {
+  padding: 12px 8px 4px;
+  font-size: var(--text-caption);
+  color: var(--app-text-3);
 }
 .app-sidebar-empty {
   padding: 12px 8px;
@@ -159,6 +186,11 @@ body {
   border-radius: 6px;
   background: var(--app-tab);
   color: var(--app-text);
+}
+/* Tabs beside the selected one (format.ts windowTabs): the strip's own fill, quieter text. */
+.app-tab:not([data-selected]) {
+  background: transparent;
+  color: var(--app-text-2);
 }
 .app-tab-title {
   overflow: hidden;
