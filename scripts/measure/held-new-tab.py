@@ -138,7 +138,8 @@ has no wait in the connection's queue); and each record of the daemon's `slow-re
 request above its threshold with `queue_ms` and `handler_ms` apart, a long lock hold). The queue time of a faster
 request is in no log. `tab_shows` is the count of changes of a pane's shown tab in the take (the input journal's
 `show` records: each new tab page that was the shown one at a frame is one, and so is the tab that a close uncovers).
-`opens` says how many of the row's new tab pages took the page that the app keeps ready (`warm`) and how many did
+`opens` says how many of the row's new tab pages took a page that was there before the key (`warm`: the page that
+the app keeps ready, or the page of a new tab that the person did not use, which `idle` counts) and how many did
 not (`cold`), from `debug.new_tab`, which keeps the last OPENINGS opens only.
 
 `order`: the pane's tab list and selected tab after the row against a small pure model of the keys that did something,
@@ -819,12 +820,23 @@ def between(intervals, runs, record, fates, form):
     return out, own
 
 
+def page_was_ready(opening):
+    """Whether the open took a page that was there before its key: the page that the app makes ahead (`spare`), or
+    the page of a New Tab tab that the person did not use (`idle`; an app before that field has none). None: the
+    record does not say."""
+    if not isinstance(opening.get("spare"), bool):
+        return None
+    return opening["spare"] or opening.get("idle") is True
+
+
 def opens_of(last):
-    """The row `opens` from the app's records of the row's opens (`debug.new_tab`)."""
-    def part(spare):
-        values = [o["ms"] for o in last if o.get("spare") is spare and isinstance(o.get("ms"), (int, float))]
+    """The row `opens` from the app's records of the row's opens (`debug.new_tab`). `idle`: how many of the `warm`
+    opens took an idle page and not the page that the app makes ahead."""
+    def part(ready):
+        values = [o["ms"] for o in last if page_was_ready(o) is ready and isinstance(o.get("ms"), (int, float))]
         return {**(BENCH.percentiles(values) or {"n": 0}), "sum": round(sum(values), 1)}
-    return {"warm": sum(o.get("spare") is True for o in last), "cold": sum(o.get("spare") is False for o in last),
+    return {"warm": sum(page_was_ready(o) is True for o in last), "cold": sum(page_was_ready(o) is False for o in last),
+            "idle": sum(page_was_ready(o) is True and o.get("spare") is False for o in last),
             "known_of_the_last": OPENINGS, "main_ms": {"warm": part(True), "cold": part(False)}}
 
 

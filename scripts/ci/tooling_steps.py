@@ -3,8 +3,8 @@
 
 Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". cmux-next guards / tooling-tests ran
 about 50 script test suites on every pull request whatever it changed: a webviews/-only change ran the App Store
-listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. portable-placement's hot-only route step runs this on the
-merge commit's diff, and each selectable step of the job runs only when this selects it.
+listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. tooling-tests' own setup-tooling-route step runs this on
+the merge commit's diff, and each selectable step of the job runs only when this selects it.
 
 A step runs when a changed file is an input of a test its run text runs (the test itself and what it imports,
 sources, runs or reads, transitively: workflow_paths_cover_inputs.Walker, the walker the path-filter coverage check
@@ -23,7 +23,7 @@ selectable.
 
 Outputs (`--github-output`): `tooling_steps= tt-a tt-b ` (selected step ids, space-padded, so a workflow tests
 `contains(..., ' tt-a ')`) and `tooling_all=true|false`. A workflow step tests both, and an empty `tooling_all` (the
-routing job did not run or failed) is != 'false', so it runs everything. `--summary` writes the verdict and one line
+routing step did not run or failed) is != 'false', so it runs everything. `--summary` writes the verdict and one line
 per skipped step with why.
 
     python3 tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
