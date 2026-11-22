@@ -35,6 +35,7 @@ import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import step_run  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 import deadline_http  # noqa: E402
 
@@ -136,6 +137,28 @@ QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-n
               job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
 
 
+class Previous(unittest.TestCase):
+    """A base tier run's checks job compares against the tip the run before it tested (workflow note-26)."""
+
+    def firsts(self, runs):
+        return tier.base_tier_runs(FakeApi(runs, TIP), tier.REPO)
+
+    def test_the_run_before_tips(self):
+        firsts = self.firsts([(OLD, T0), (MID, T0 + 900), (TIP, T0 + 1800)])
+        self.assertEqual(tier.previous(firsts, TIP), MID)
+
+    def test_tip_not_listed_yet_is_the_newest(self):
+        self.assertEqual(tier.previous(self.firsts([(OLD, T0), (MID, T0 + 900)]), TIP), MID)
+
+    def test_a_rerun_of_an_older_tip_after_tip_does_not_count(self):
+        firsts = self.firsts([(OLD, T0), (TIP, T0 + 900), (MID, T0 + 1800)])
+        self.assertEqual(tier.previous(firsts, TIP), OLD)
+
+    def test_no_earlier_run_is_none(self):
+        self.assertIsNone(tier.previous(self.firsts([(TIP, T0)]), TIP))
+        self.assertIsNone(tier.previous(self.firsts([]), TIP))
+
+
 class CancelSuperseded(unittest.TestCase):
     """Once the tip has a base tier run, older ones whose Mac jobs never started are cancelled."""
 
@@ -206,7 +229,7 @@ class CancelSuperseded(unittest.TestCase):
 
     def test_no_dispatch_cancels_nothing(self):
         # Not due (no cmux-next push path changed): the last run is the newest verdict and stays.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md"])
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.cancelled, [])
@@ -279,7 +302,7 @@ class Kick(unittest.TestCase):
 
     def test_a_tip_whose_landings_change_no_cmux_next_push_path_is_left_alone(self):
         # The same paths that start a cmux-next push run: a docs-only burst runs no base tier.
-        api = FakeApi([(OLD, T0)], TIP, files=["README.md", "docs/blog/post.md"])
+        api = FakeApi([(OLD, T0)], TIP, files=["docs/blog/notes.md", "docs/blog/post.md"])
         self.assertIsNone(kick(api, Clock(T0 + 20 * 60)))
         self.assertEqual(api.dispatched, [])
 
@@ -1076,7 +1099,7 @@ class PushPaths(unittest.TestCase):
 
 class Defer(unittest.TestCase):
     ROUTED = ["native=true", "macos=true", "scheme=true", "generated=true", "swift=false", "daemon=true",
-              "fast_tier=true", "swift_targets="]
+              "fast_tier=true", "swift_targets=", "swift_canary=true", "swift_canary_targets=CmuxNextTests"]
 
     def test_a_push_leaves_only_the_base_tier_to_the_kick(self):
         out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED))
@@ -1085,6 +1108,10 @@ class Defer(unittest.TestCase):
         self.assertEqual((out["native"], out["macos"], out["fast_tier"]), ("true", "true", "true"))
         self.assertEqual(out["base_tier"], "deferred")
         self.assertEqual(out["base_tier_deferred"], "scheme,generated,daemon")
+
+    def test_a_push_leaves_the_swift_canary_to_the_tip_suite(self):
+        out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED))
+        self.assertEqual((out["swift_canary"], out["swift_canary_targets"]), ("false", ""))
 
     def test_the_scheme_compile_stays_when_it_is_the_dev_landing_build(self):
         out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED, ("scheme",)))
@@ -1107,6 +1134,8 @@ class RouteStep(unittest.TestCase):
             shutil.copy(ROOT / "scripts/ci/cmux_next_tree_notify.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/github_quota_client.py", root / "scripts/ci/")
             shutil.copy(ROOT / "scripts/ci/deadline_http.py", root / "scripts/ci/")
+            # The step's commands, moved to scripts/ci/cmux-next-steps/ for cmux-next.yml's size budget.
+            shutil.copytree(ROOT / "scripts/ci/cmux-next-steps", root / "scripts/ci/cmux-next-steps")
             (root / "scripts/ci/cmux_next_route.py").write_text(
                 "import sys\nout = sys.argv[sys.argv.index('--github-output') + 1]\n"
                 "open(out, 'a').write('native=true\\nmacos=true\\nscheme=true\\ngenerated=true\\n"
@@ -1164,7 +1193,7 @@ class Workflows(unittest.TestCase):
         route = yaml.safe_load(WORKFLOW.read_text())["jobs"]["path_route"]
         marker = next(step for step in route["steps"] if step.get("id") == "marker")
         self.assertEqual(marker["env"]["BASE_TIER"], "${{ inputs.base_tier || false }}")
-        self.assertIn('marker.update(tip_suite="base")', marker["run"])
+        self.assertIn('marker.update(tip_suite="base")', step_run(marker))
 
     def test_push_attribution_runs_for_a_red_base_tier(self):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
@@ -1237,7 +1266,7 @@ class Workflows(unittest.TestCase):
         # Only the three base tier outputs are rewritten; nightly-next's Release compile (native), the DEV
         # landing compile (its own job) and the fast tier keep their push routing.
         self.assertEqual(tier.TIERS, ("daemon", "scheme", "generated"))
-        text = route_step()["run"]
+        text = step_run(route_step())
         self.assertTrue(re.search(r'"\$EVENT_NAME" == push && "\$GITHUB_REF" == refs/heads/feat-cmux-next && '
                                   r'"\$BASE_TIER_COALESCE" == true', text))
 

@@ -20,11 +20,11 @@ import Testing
         /// The suite runner's windows are occluded (no screen): Ghostty draws there only with this on.
         let drew = WindowDrawPolicy.drawsWhenOccluded
 
-        init() async throws {
+        init(size: NSSize = NSSize(width: 480, height: 240)) async throws {
             _ = NSApplication.shared
             WindowDrawPolicy.drawsWhenOccluded = true
             session = TerminalSession(io: io)
-            window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
+            window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 200, y: 200), size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = session.view

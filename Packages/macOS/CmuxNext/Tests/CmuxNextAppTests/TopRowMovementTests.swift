@@ -45,7 +45,9 @@ import Testing
 
     func fixture(topRow: Bool) -> Fixture {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
+        // 2x whatever the display: at 1x (a fleet runner's) the top row's pill and the strip's own centering snap to
+        // the same whole point at every density, so no density is left to check.
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

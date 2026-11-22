@@ -476,6 +476,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmux-agent-pane-policy"
+version = "0.1.0"
+dependencies = [
+ "cmux-unix-socket",
+ "serde",
+ "serde_json",
+ "sha2",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "cmux-build-space"
+version = "0.1.0"
+dependencies = [
+ "cmux-agent-pane-policy",
+ "http",
+]
+
+[[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -483,6 +506,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bytes",
+ "cmux-build-space",
+ "cmux-message-preview",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
@@ -513,6 +538,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "cmux-build-space",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
@@ -611,6 +637,13 @@ version = "0.1.0"
 
 [[package]]
 name = "cmux-transport"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
@@ -3095,6 +3128,15 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-width"

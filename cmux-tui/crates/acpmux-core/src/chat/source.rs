@@ -2,6 +2,7 @@
 #![deny(clippy::indexing_slicing, clippy::string_slice, clippy::expect_used)]
 #![forbid(unsafe_code)]
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
@@ -144,13 +145,17 @@ pub trait RawSource: Send + 'static {
     }
 }
 
+/// Each `raw.map` entry's number by its path and identity.
+type MapEntries = HashMap<(String, String), u32>;
+
 /// A durable source entry in `raw.map`. The map is append-only and synced before the first raw
 /// record names the returned number.
 pub struct RawMap {
     file: File,
     path: PathBuf,
     next: u32,
-    last: Option<(u32, String, String)>,
+    /// Read once at open. A lookup is one hash, not a scan of the file.
+    entries: MapEntries,
     poisoned: bool,
 }
 
@@ -158,14 +163,8 @@ impl RawMap {
     pub fn open(path: &Path) -> io::Result<Self> {
         let mut file = OpenOptions::new().create(true).read(true).append(true).open(path)?;
         repair_torn_tail(&mut file)?;
-        let last = read_last_map_entry(&mut file)?;
-        let next = match &last {
-            Some((number, _, _)) => {
-                number.checked_add(1).ok_or_else(|| io::Error::other("raw map is full"))?
-            }
-            None => count_map_lines(&mut file)?,
-        };
-        Ok(Self { file, path: path.to_path_buf(), next, last, poisoned: false })
+        let (entries, next) = read_map_entries(&mut file)?;
+        Ok(Self { file, path: path.to_path_buf(), next, entries, poisoned: false })
     }
 
     /// Append and sync one source description. The returned number is the zero-based map line.
@@ -175,25 +174,19 @@ impl RawMap {
         }
         let identity = String::from_utf8_lossy(identity).into_owned();
         let path_text = path.to_string_lossy().into_owned();
-        if let Some((number, existing_path, existing_identity)) = &self.last
-            && existing_path == &path_text
-            && existing_identity == &identity
-        {
-            return Ok(*number);
-        }
         // A source may be reopened after another source was registered. Preserve the existing
         // map number instead of registering the same file twice.
-        if let Some(number) = find_map_entry(&mut self.file, &path_text, &identity)? {
-            self.last = Some((number, path_text, identity));
-            return Ok(number);
+        let key = (path_text, identity);
+        if let Some(number) = self.entries.get(&key) {
+            return Ok(*number);
         }
         let number = self.next;
         let next = number.checked_add(1).ok_or_else(|| invalid("raw map is full"))?;
         let line = serde_json::json!({
             "source": number,
             "kind": "file",
-            "path": path_text,
-            "identity": identity,
+            "path": &key.0,
+            "identity": &key.1,
         });
         let mut bytes = serde_json::to_vec(&line).map_err(io::Error::other)?;
         bytes.push(b'\n');
@@ -210,7 +203,7 @@ impl RawMap {
             return Err(error);
         }
         self.next = next;
-        self.last = Some((number, path_text, identity));
+        self.entries.insert(key, number);
         Ok(number)
     }
 }
@@ -226,6 +219,9 @@ pub struct RawWriter {
     offset: u64,
     last_sync: Instant,
     unsynced: bool,
+    /// The index file's length, set at open and advanced by each mark, so no append asks the
+    /// file system for it.
+    index_len: u64,
     last_index_offset: u64,
     poisoned: bool,
     #[cfg(test)]
@@ -273,21 +269,23 @@ impl RawWriter {
             file.sync_all()?;
             sync_parent_dir(path)?;
         }
-        let (index, last_index_offset) = if let Some(index_path) = index_path {
+        let (index, index_len, last_index_offset) = if let Some(index_path) = index_path {
             let mut index =
                 OpenOptions::new().create(true).read(true).append(true).open(index_path)?;
             let length = index.metadata()?.len();
             let mut valid_length = length - length % 16;
-            let last_index_offset = loop {
+            let last_mark = loop {
                 if valid_length == 0 {
-                    break 0;
+                    break None;
                 }
-                index.seek(SeekFrom::Start(valid_length - 8))?;
-                let mut bytes = [0; 8];
-                index.read_exact(&mut bytes)?;
-                let mark = u64::from_le_bytes(bytes);
+                index.seek(SeekFrom::Start(valid_length - 16))?;
+                let mut seq = [0; 8];
+                let mut mark = [0; 8];
+                index.read_exact(&mut seq)?;
+                index.read_exact(&mut mark)?;
+                let mark = u64::from_le_bytes(mark);
                 if mark < offset {
-                    break mark;
+                    break Some((u64::from_le_bytes(seq), mark));
                 }
                 valid_length -= 16;
             };
@@ -295,9 +293,23 @@ impl RawWriter {
                 index.set_len(valid_length)?;
                 index.sync_all()?;
             }
-            (Some(index), last_index_offset)
+            let mut last_index_offset = last_mark.map_or(0, |(_, mark)| mark);
+            // A kill between the raw write and the index write leaves lines with no mark.
+            let missing = missing_index_marks(&mut file, offset, last_mark, next_seq)?;
+            if let Some((_, start)) = missing.last() {
+                let mut bytes = Vec::with_capacity(missing.len().saturating_mul(16));
+                for (seq, start) in &missing {
+                    bytes.extend_from_slice(&seq.to_le_bytes());
+                    bytes.extend_from_slice(&start.to_le_bytes());
+                }
+                index.write_all(&bytes)?;
+                index.sync_all()?;
+                valid_length += bytes.len() as u64;
+                last_index_offset = *start;
+            }
+            (Some(index), valid_length, last_index_offset)
         } else {
-            (None, 0)
+            (None, 0, 0)
         };
         Ok(Self {
             file,
@@ -307,6 +319,7 @@ impl RawWriter {
             offset,
             last_sync: Instant::now(),
             unsynced: false,
+            index_len,
             last_index_offset,
             poisoned: false,
             #[cfg(test)]
@@ -337,8 +350,7 @@ impl RawWriter {
         let end =
             start.checked_add(line.len() as u64).ok_or_else(|| invalid("raw offset overflow"))?;
         let next_seq = seq.checked_add(1).ok_or_else(|| invalid("raw seq overflow"))?;
-        let index_start =
-            self.index.as_ref().map(|index| index.metadata().map(|m| m.len())).transpose()?;
+        let index_start = self.index.as_ref().map(|_| self.index_len);
         if let Err(error) = self.write_raw(&line) {
             return Err(self.rollback(start, index_start, error));
         }
@@ -353,6 +365,7 @@ impl RawWriter {
             {
                 return Err(self.rollback(start, index_start, error));
             }
+            self.index_len += 16;
             self.last_index_offset = start;
         }
         self.unsynced = true;
@@ -387,7 +400,10 @@ impl RawWriter {
         self.offset = start;
         let raw = self.file.set_len(start).and_then(|_| self.file.sync_all());
         let index = match (self.index.as_mut(), index_start) {
-            (Some(index), Some(length)) => index.set_len(length).and_then(|_| index.sync_all()),
+            (Some(index), Some(length)) => {
+                self.index_len = length;
+                index.set_len(length).and_then(|_| index.sync_all())
+            }
             _ => Ok(()),
         };
         if let Err(repair) = raw.and(index) {
@@ -471,57 +487,127 @@ fn parse_map_entry(bytes: &[u8], fallback: u32) -> Option<(u32, String, String)>
     ))
 }
 
-fn read_last_map_entry(file: &mut File) -> io::Result<Option<(u32, String, String)>> {
-    let length = file.metadata()?.len();
-    if length == 0 {
-        return Ok(None);
+/// Read every entry once, at open. A torn or invalid last line is what a kill mid-write leaves:
+/// it is cut and every earlier entry kept. An invalid line before the last fails the open.
+/// Returns the entries and the next number.
+fn read_map_entries(file: &mut File) -> io::Result<(MapEntries, u32)> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut reader = BufReader::new(&mut *file);
+    let mut entries = HashMap::new();
+    let mut next = 0u32;
+    let mut ordinal = 0u32;
+    let mut at = 0u64;
+    let mut invalid_at = None;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let count = reader.read_until(b'\n', &mut line)?;
+        if count == 0 {
+            break;
+        }
+        if invalid_at.is_some() {
+            return Err(invalid("invalid raw map entry before its last line"));
+        }
+        // Entries written before the map carried numbers take their line's ordinal.
+        match parse_map_entry(line.as_slice(), ordinal) {
+            Some((number, path, identity)) => {
+                entries.entry((path, identity)).or_insert(number);
+                next = number.checked_add(1).ok_or_else(|| invalid("raw map is full"))?;
+            }
+            None => invalid_at = Some(at),
+        }
+        at = at.checked_add(count as u64).ok_or_else(|| invalid("raw map offset overflow"))?;
+        ordinal = ordinal.checked_add(1).ok_or_else(|| invalid("raw map is full"))?;
     }
-    // Inspect only the last complete line. New entries carry their ordinal, so the map's
-    // size is not the cost of reopening it. Older entries need the one compatibility scan.
-    let mut end = length - 1;
-    let start = loop {
-        let start = end.saturating_sub(REPAIR_BLOCK_BYTES);
+    drop(reader);
+    if let Some(start) = invalid_at {
+        file.set_len(start)?;
+        file.sync_all()?;
+    }
+    Ok((entries, next))
+}
+
+/// The start of the raw file's last line, walking back from `end` no further than `floor`.
+/// `floor` is a line start, so it is the answer when no newline lies past it. The walk costs
+/// at most the last line's length.
+fn last_line_start(file: &mut File, end: u64, floor: u64) -> io::Result<u64> {
+    // The byte before `end` is the last line's own newline.
+    let mut at = end.saturating_sub(1);
+    while at > floor {
+        let start = at.saturating_sub(REPAIR_BLOCK_BYTES).max(floor);
         file.seek(SeekFrom::Start(start))?;
-        let mut block = vec![0; usize::try_from(end - start).map_err(io::Error::other)?];
+        let mut block = vec![0; usize::try_from(at - start).map_err(io::Error::other)?];
         file.read_exact(&mut block)?;
         if let Some(newline) = block.iter().rposition(|byte| *byte == b'\n') {
-            break start + newline as u64 + 1;
+            return Ok(start + newline as u64 + 1);
         }
-        if start == 0 {
-            break 0;
-        }
-        end = start;
-    };
-    file.seek(SeekFrom::Start(start))?;
-    let mut bytes = vec![0; usize::try_from(length - 1 - start).map_err(io::Error::other)?];
-    file.read_exact(&mut bytes)?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
-    let fallback =
-        if value.get("source").is_none() { count_map_lines(file)?.saturating_sub(1) } else { 0 };
-    parse_map_entry(&bytes, fallback).map(Some).ok_or_else(|| invalid("invalid raw map entry"))
-}
-
-fn count_map_lines(file: &mut File) -> io::Result<u32> {
-    file.seek(SeekFrom::Start(0))?;
-    BufReader::new(file).lines().try_fold(0u32, |count, line| {
-        line?;
-        count.checked_add(1).ok_or_else(|| invalid("raw map is full"))
-    })
-}
-
-fn find_map_entry(file: &mut File, path: &str, identity: &str) -> io::Result<Option<u32>> {
-    file.seek(SeekFrom::Start(0))?;
-    for (fallback, line) in BufReader::new(file).lines().enumerate() {
-        let line = line?;
-        if let Some((number, existing_path, existing_identity)) =
-            parse_map_entry(line.as_bytes(), u32::try_from(fallback).map_err(io::Error::other)?)
-            && existing_path == path
-            && existing_identity == identity
-        {
-            return Ok(Some(number));
-        }
+        at = start;
     }
-    Ok(None)
+    Ok(floor)
+}
+
+/// The `(seq, start)` marks `append` would have written that the index lacks, after a kill
+/// between the raw write and the index write or a torn last mark. It reads from the last good
+/// mark forward only, and reads at most the last line when no mark is missing. With no mark the
+/// first line's seq comes from `next_seq` and the file's line count.
+fn missing_index_marks(
+    file: &mut File,
+    end: u64,
+    last_mark: Option<(u64, u64)>,
+    next_seq: u64,
+) -> io::Result<Vec<(u64, u64)>> {
+    let from = last_mark.map_or(0, |(_, mark)| mark);
+    // No line past `from` can need a mark until the file holds a mark's spacing past it.
+    if end.saturating_sub(from) < RAW_INDEX_BYTES {
+        return Ok(Vec::new());
+    }
+    // A marked line may be long; if it is the last line, the next one is not written yet.
+    if last_mark.is_some() && last_line_start(file, end, from)? == from {
+        return Ok(Vec::new());
+    }
+    let mut marks = Vec::new();
+    let mut last = from;
+    let mut line_start = from;
+    let mut ordinal = 0u64;
+    let mut at = from;
+    let mut block = vec![0; usize::try_from(REPAIR_BLOCK_BYTES).map_err(io::Error::other)?];
+    file.seek(SeekFrom::Start(from))?;
+    while at < end {
+        let count =
+            usize::try_from((end - at).min(REPAIR_BLOCK_BYTES)).map_err(io::Error::other)?;
+        let bytes = block.get_mut(..count).ok_or_else(|| invalid("index rebuild block"))?;
+        file.read_exact(bytes)?;
+        for (position, byte) in bytes.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            let line_end = at + position as u64 + 1;
+            // The line at a good mark is marked already.
+            let marked_already = last_mark.is_some() && ordinal == 0;
+            if !marked_already && line_end - last >= RAW_INDEX_BYTES {
+                marks.push((ordinal, line_start));
+                last = line_start;
+            }
+            line_start = line_end;
+            ordinal += 1;
+        }
+        at += count as u64;
+    }
+    let first_seq = match last_mark {
+        Some((seq, _)) => seq,
+        None => next_seq
+            .checked_sub(ordinal)
+            .ok_or_else(|| invalid("raw seq is below the file's line count"))?,
+    };
+    marks
+        .into_iter()
+        .map(|(ordinal, start)| {
+            first_seq
+                .checked_add(ordinal)
+                .map(|seq| (seq, start))
+                .ok_or_else(|| invalid("raw seq overflow"))
+        })
+        .collect()
 }
 
 /// Part of one line, from [`RawSource::read_at`]. `bytes` holds no newline.
@@ -938,6 +1024,10 @@ fn file_identity(metadata: &std::fs::Metadata) -> (u64, u64) {
 mod follow_gates;
 
 #[cfg(test)]
+#[path = "raw_append_cost_bench.rs"]
+mod raw_append_cost_bench;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
@@ -1309,6 +1399,100 @@ mod tests {
         let mut reopened = RawMap::open(&map_path)?;
         assert_eq!(reopened.append_file(&raw_path, b"file:test")?, 0);
         assert_eq!(reopened.append_file(&dir.path().join("third"), b"file:third")?, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn raw_map_finds_an_entry_without_reading_its_file() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let map_path = dir.path().join("raw.map");
+        let mut map = RawMap::open(&map_path)?;
+        for (n, name) in ["first", "second", "third"].into_iter().enumerate() {
+            let path = dir.path().join(name);
+            assert_eq!(map.append_file(&path, name.as_bytes())?, n as u32);
+        }
+        // The lookup is in memory: with the file emptied under it, the first entry is still
+        // found and nothing is written.
+        OpenOptions::new().write(true).open(&map_path)?.set_len(0)?;
+        assert_eq!(map.append_file(&dir.path().join("first"), b"first")?, 0);
+        assert_eq!(std::fs::metadata(&map_path)?.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn raw_map_cuts_an_invalid_last_line_and_keeps_every_earlier_entry() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let map_path = dir.path().join("raw.map");
+        let mut map = RawMap::open(&map_path)?;
+        assert_eq!(map.append_file(&dir.path().join("a"), b"file:a")?, 0);
+        assert_eq!(map.append_file(&dir.path().join("b"), b"file:b")?, 1);
+        drop(map);
+        let length = std::fs::metadata(&map_path)?.len();
+        // A whole last line that is not an entry, as a kill mid-write can leave.
+        OpenOptions::new().append(true).open(&map_path)?.write_all(b"{\"source\":2,\"pa\n")?;
+        let mut reopened = RawMap::open(&map_path)?;
+        assert_eq!(std::fs::metadata(&map_path)?.len(), length);
+        assert_eq!(reopened.append_file(&dir.path().join("a"), b"file:a")?, 0);
+        assert_eq!(reopened.append_file(&dir.path().join("b"), b"file:b")?, 1);
+        assert_eq!(reopened.append_file(&dir.path().join("c"), b"file:c")?, 2);
+        drop(reopened);
+        // An invalid line before the last is not a torn write: the open fails.
+        let mut bytes = b"not an entry\n".to_vec();
+        bytes.extend_from_slice(&std::fs::read(&map_path)?);
+        std::fs::write(&map_path, &bytes)?;
+        assert!(RawMap::open(&map_path).is_err());
+        assert_eq!(std::fs::read(&map_path)?, bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn raw_writer_keeps_its_index_length_and_rolls_it_back() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let raw = dir.path().join("events.ndjson");
+        let index = dir.path().join("events.idx");
+        let mut writer = RawWriter::open_with_index(&raw, Some(&index), 0)?;
+        let line = vec![b'x'; RAW_INDEX_BYTES as usize];
+        writer.append(&line, true)?;
+        assert_eq!(writer.index_len, 16);
+        assert_eq!(std::fs::metadata(&index)?.len(), 16);
+        // Bytes the writer did not write: a failed append cuts the index back to the length it
+        // keeps, not to the length the file system reports at that append.
+        OpenOptions::new().append(true).open(&index)?.write_all(&[7; 16])?;
+        writer.fail_after(3);
+        assert!(writer.append(&line, true).is_err());
+        assert_eq!(writer.index_len, 16);
+        assert_eq!(std::fs::metadata(&index)?.len(), 16);
+        Ok(())
+    }
+
+    #[test]
+    fn index_rebuilds_the_marks_a_kill_left_out() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let live_raw = dir.path().join("live.ndjson");
+        let live_index = dir.path().join("live.idx");
+        let mut live = RawWriter::open_with_index(&live_raw, Some(&live_index), 5)?;
+        let line = vec![b'x'; 100_000];
+        for _ in 0..12 {
+            live.append(&line, false)?;
+        }
+        live.append(&vec![b'y'; RAW_INDEX_BYTES as usize * 2], false)?;
+        live.append(b"short", true)?;
+        drop(live);
+        let marks = std::fs::read(&live_index)?;
+        assert!(marks.len() >= 16 * 4);
+        let raw = dir.path().join("events.ndjson");
+        let index = dir.path().join("events.idx");
+        std::fs::copy(&live_raw, &raw)?;
+        // The index lost its last marks, then lost a torn half mark, then lost every mark.
+        let cuts = [16usize, 16 + 7, 0];
+        for cut in cuts {
+            std::fs::write(&index, marks.get(..cut).ok_or_else(|| invalid("cut"))?)?;
+            let _writer = RawWriter::open_with_index(&raw, Some(&index), 19)?;
+            assert_eq!(std::fs::read(&index)?, marks, "index cut to {cut} bytes");
+        }
+        // A whole index reads nothing more and writes nothing.
+        let _writer = RawWriter::open_with_index(&raw, Some(&index), 19)?;
+        assert_eq!(std::fs::read(&index)?, marks);
         Ok(())
     }
 
