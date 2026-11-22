@@ -530,7 +530,16 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     }
     let info = settled(&mut local, &session, ran).await;
     let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
-    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    // The chat's records, each kind with its prompt's id, so a failure says which prompt ran.
+    let page = local.call("_acpmux/events", json!({"sessionId": session})).await;
+    let records: Vec<String> = page
+        .pointer("/result/events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|e| format!("{} {}", e["kind"], e["msg"]["promptId"]))
+        .collect();
+    assert_eq!(count, ran, "a message for elsewhere ran here: {records:?} {info}");
     relay.stop().await;
 }
 
