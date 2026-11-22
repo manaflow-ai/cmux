@@ -100,10 +100,16 @@ pub struct ResumeRegistry {
 }
 
 impl ResumeRegistry {
-    pub(crate) fn insert(&self, token: Token, link: Weak<crate::link::Inner>) {
+    /// Registers a new link under `token` unless a live one has it already
+    /// (a late carrier of a link another carrier opened).
+    pub(crate) fn claim(&self, token: Token, link: Weak<crate::link::Inner>) -> bool {
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         links.retain(|_, link| link.strong_count() > 0);
+        if links.contains_key(&token) {
+            return false;
+        }
         links.insert(token, link);
+        true
     }
 
     pub(crate) fn get(&self, token: &Token) -> Option<std::sync::Arc<crate::link::Inner>> {
@@ -223,6 +229,10 @@ pub(crate) enum HelloKind {
     Resume = 1,
     ResumeOk = 2,
     Refused = 3,
+    /// A phone's resume of a link it never heard the Mac on: the carrier
+    /// may have dropped before the Mac read the link's `New`. The Mac
+    /// resumes the link when it has it, and opens it fresh when not.
+    Reopen = 4,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,6 +263,7 @@ impl Hello {
             1 => HelloKind::Resume,
             2 => HelloKind::ResumeOk,
             3 => HelloKind::Refused,
+            4 => HelloKind::Reopen,
             _ => return None,
         };
         let _version = payload.get_u8();

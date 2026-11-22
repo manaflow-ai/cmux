@@ -30,9 +30,13 @@ fn spawn_echo_mac_with(mac: SignalingClient, mac_options: DialOptions) -> tokio:
             let mac = mac.clone();
             let mac_options = mac_options.clone();
             tokio::spawn(async move {
-                let connected = dial::answer(&mac, first, events, &mac_options, LinkConfig::default())
-                    .await
-                    .expect("answer");
+                // A carrier can drop before its hello (the phone then
+                // reopens its link over the next one): that answer is over.
+                let Ok(connected) =
+                    dial::answer(&mac, first, events, &mac_options, LinkConfig::default()).await
+                else {
+                    return;
+                };
                 if connected.resumed {
                     // A new carrier under a link already served.
                     return;

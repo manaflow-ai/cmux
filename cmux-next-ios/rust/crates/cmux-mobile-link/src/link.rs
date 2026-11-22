@@ -510,6 +510,9 @@ struct Reliable {
     deliver: tokio::sync::Mutex<()>,
     /// Link::close was called: the writer ends the carrier with `bye`.
     bye: AtomicBool,
+    /// A frame of the peer arrived on some carrier of this link: the peer
+    /// has the link (a phone resumes it with `Resume`, not `Reopen`).
+    heard: AtomicBool,
     stats: Mutex<ReliableStats>,
     /// Per channel: unacked payload bytes when carriers dropped, and bytes
     /// replayed, summed over resumes.
@@ -929,7 +932,8 @@ pub struct IncomingChannel {
 
 /// What [`Link::accept_reliable`] made of a carrier.
 pub enum Accepted {
-    /// A new link: serve it.
+    /// A new link: serve it. Also a phone's `Reopen` of a link whose first
+    /// carrier dropped before this Mac read its hello.
     New(Link),
     /// The carrier resumed this (already served) link.
     Resumed(Link),
@@ -1016,6 +1020,7 @@ impl Link {
             ack_wake: Notify::new(),
             deliver: tokio::sync::Mutex::new(()),
             bye: AtomicBool::new(false),
+            heard: AtomicBool::new(false),
             stats: Mutex::new(ReliableStats::default()),
             channel_stats: Mutex::new(HashMap::new()),
         });
@@ -1137,13 +1142,29 @@ impl Link {
         match hello.kind {
             HelloKind::New => {
                 let inner = Self::build(Role::Mac, &config, transport, Some(hello.token));
-                registry.insert(hello.token, Arc::downgrade(&inner));
+                if !registry.claim(hello.token, Arc::downgrade(&inner)) {
+                    return Err(LinkError::Closed("a late carrier of a link already open".into()));
+                }
                 let tag = inner.reliable.as_ref().map(|reliable| (reliable.generation.subscribe(), 0));
                 inner.run_carrier(tag, sink, source);
                 Ok(Accepted::New(Self::start(inner, &config)))
             }
-            HelloKind::Resume => {
+            HelloKind::Resume | HelloKind::Reopen => {
                 let target = registry.get(&hello.token).filter(|target| target.closed_reason().is_none());
+                if target.is_none() && hello.kind == HelloKind::Reopen {
+                    // The link's first carrier dropped before this Mac read
+                    // its `New`: open it now. The phone replays all of it.
+                    let inner = Self::build(Role::Mac, &config, transport, Some(hello.token));
+                    if !registry.claim(hello.token, Arc::downgrade(&inner)) {
+                        return Err(LinkError::Closed("another carrier opened the link".into()));
+                    }
+                    sink.send(Frame::new(0, FrameType::Hello, inner.hello(HelloKind::ResumeOk).encode()))
+                        .await
+                        .map_err(|error| LinkError::Closed(format!("reopen failed: {error}")))?;
+                    let tag = inner.reliable.as_ref().map(|reliable| (reliable.generation.subscribe(), 0));
+                    inner.run_carrier(tag, sink, source);
+                    return Ok(Accepted::New(Self::start(inner, &config)));
+                }
                 let Some(target) = target else {
                     let refused = Hello {
                         kind: HelloKind::Refused,
@@ -1201,13 +1222,18 @@ impl Link {
         let (read_half, write_half) = tokio::io::split(stream);
         let mut sink = FramedWrite::new(write_half, FrameCodec);
         let mut source = FramedRead::new(read_half, FrameCodec);
-        let hello = self.inner.hello(HelloKind::Resume);
+        // Until the Mac is heard on this link it may never have read the
+        // link's `New` (the first carrier dropped first).
+        let kind = if reliable.heard.load(Ordering::Acquire) { HelloKind::Resume } else { HelloKind::Reopen };
+        let hello = self.inner.hello(kind);
         sink.send(Frame::new(0, FrameType::Hello, hello.encode()))
             .await
             .map_err(|error| LinkError::Closed(format!("resume failed: {error}")))?;
         let reply = read_hello(&mut source).await?;
         match reply.kind {
-            HelloKind::ResumeOk if reply.token == reliable.token => {}
+            HelloKind::ResumeOk if reply.token == reliable.token => {
+                reliable.heard.store(true, Ordering::Release);
+            }
             HelloKind::Refused => {
                 self.inner.shut("the Mac no longer has this link");
                 return Err(self.inner.closed_error());
@@ -1695,7 +1721,8 @@ async fn read_loop<R>(
                 changed
             });
         }
-        if inner.reliable.is_some() {
+        if let Some(reliable) = &inner.reliable {
+            reliable.heard.store(true, Ordering::Release);
             if let Err(reason) = handle_reliable(&inner, stream, frame, &incoming).await {
                 inner.shut(&reason);
                 return;
@@ -2306,25 +2333,83 @@ mod tests {
         server.abort();
     }
 
-    /// A reliable link whose Mac no longer has it: the resume is refused and
-    /// the link closes as today.
-    #[tokio::test]
-    async fn a_resume_the_mac_does_not_know_is_refused() {
-        let config = LinkConfig {
+    fn reliable_config() -> LinkConfig {
+        LinkConfig {
             keepalive: None,
             reliable: Some(ReliableConfig {
                 registry: Some(Arc::new(rel::ResumeRegistry::default())),
                 ..ReliableConfig::default()
             }),
             ..LinkConfig::default()
-        };
-        let (a, _b) = tokio::io::duplex(64 * 1024);
-        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        }
+    }
+
+    /// A reliable link whose Mac no longer has it (the phone heard the Mac
+    /// on it, then the Mac restarted): the resume is refused and the link
+    /// closes as today.
+    #[tokio::test]
+    async fn a_resume_the_mac_does_not_know_is_refused() {
         let (a, b) = tokio::io::duplex(64 * 1024);
-        let mac = tokio::spawn(Link::accept_reliable(b, config, None));
+        let phone = Link::new(a, Role::Phone, reliable_config(), None);
+        let Accepted::New(mac) = Link::accept_reliable(b, reliable_config(), None).await.unwrap() else {
+            panic!("a new link");
+        };
+        let echo = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            if let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                incoming.channel.send(bytes).await.unwrap();
+            }
+            mac
+        });
+        let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from_static(b"hi")).await.unwrap();
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(_))));
+        drop(echo.await.unwrap());
+        // A Mac with a new registry: it never had this link.
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let mac = tokio::spawn(Link::accept_reliable(b, reliable_config(), None));
         assert!(phone.resume(a, None).await.is_err());
         assert!(phone.is_closed());
         assert!(mac.await.unwrap().is_err());
+    }
+
+    /// The link's first carrier drops before the Mac reads its `New` (the
+    /// phone queued it and a channel's data behind it): the phone, which
+    /// never heard the Mac on the link, reopens it over the next carrier,
+    /// the Mac opens it then, and every byte arrives once.
+    #[tokio::test]
+    async fn a_link_whose_first_carrier_dropped_before_its_hello_reopens() {
+        let config = reliable_config();
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from_static(b"before the cut")).await.unwrap();
+        // The Mac never reads this carrier.
+        drop(b);
+        phone.drop_carrier("test cut");
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let mac = tokio::spawn(Link::accept_reliable(b, config.clone(), None));
+        phone.resume(a, None).await.expect("reopen");
+        let Accepted::New(mac) = mac.await.unwrap().expect("accept") else {
+            panic!("the Mac never had the link: a new one");
+        };
+        let mut incoming = mac.accept().await.expect("incoming");
+        assert_eq!(incoming.service, "echo");
+        channel.send(Bytes::from_static(b" and after")).await.unwrap();
+        let mut got = Vec::new();
+        while got.len() < b"before the cut and after".len() {
+            match incoming.channel.recv().await {
+                Some(ChannelEvent::Data(bytes)) => got.extend_from_slice(&bytes),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(&got[..], b"before the cut and after");
+        // A late `New` of the first carrier finds the link open: refused.
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let mut late = FramedWrite::new(a, FrameCodec);
+        late.send(Frame::new(0, FrameType::Hello, phone.inner.hello(HelloKind::New).encode())).await.unwrap();
+        assert!(Link::accept_reliable(b, config, None).await.is_err());
+        assert!(!phone.is_closed() && !mac.is_closed());
     }
 
     #[tokio::test]
