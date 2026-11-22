@@ -609,17 +609,23 @@ button.cv-subagent > :last-child {
    keep the composer's columns, folded and open, scrollbar or not. The lines under it give a classic
    scrollbar their own end inset instead (`--acpmux-tray-inset-end` below), so their Stop squares and
    chevrons stay under the header's. test/composer-hat-head-still.test.ts measures both states. */
+/* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
+   folded tray is this one row, so it alone grows; the lines keep their row height. One variable on the
+   tray, so the controls laid over the header (the panel button, the `hide` arm's button) take the same
+   box and share its centre line with the counts and the chevron (cmux#49587: the panel icon sat 3px
+   high in a 28px box at the top of the 34px header). */
+.acpmux-running-tray {
+  --acpmux-tray-head-height: var(--ui-row-height, 28px);
+}
+.acpmux-running-tray[data-head-height="roomy"] {
+  --acpmux-tray-head-height: calc(8.5 * var(--grid-base));
+}
+.acpmux-running-tray[data-head-height="tall"] {
+  --acpmux-tray-head-height: calc(10 * var(--grid-base));
+}
 .acpmux-running-tray__head {
   padding-inline: var(--acpmux-tray-inset);
-  height: var(--ui-row-height, 28px);
-}
-/* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
-   folded tray is this one row, so it alone grows; the lines keep their row height. */
-.acpmux-running-tray[data-head-height="roomy"] > .acpmux-running-tray__head {
-  height: calc(8.5 * var(--grid-base));
-}
-.acpmux-running-tray[data-head-height="tall"] > .acpmux-running-tray__head {
-  height: calc(10 * var(--grid-base));
+  height: var(--acpmux-tray-head-height);
 }
 /* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
    lines' icon column, the kinds apart by the counts' separator. They give way before the time and the
@@ -1824,7 +1830,7 @@ button.cv-subagent > :last-child {
   right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   width: var(--acpmux-tray-stop-width);
-  height: var(--ui-row-height, 28px);
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
   display: inline-flex;
   align-items: center;
   justify-content: center;
