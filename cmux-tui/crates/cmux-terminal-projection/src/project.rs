@@ -752,6 +752,11 @@ impl View {
                 // Past the row's end, as the host's own echo of a space does.
                 out.extend(std::iter::repeat_n(b' ', col - at_col));
                 self.phone_cursor = (row, col);
+            } else if at_row == row && at_col == col + 1 && at_col < self.cols {
+                // One cell back (onto a blank just written past the line's
+                // end, the cursor's own): a backspace, not a CUP.
+                out.push(0x08);
+                self.phone_cursor = (row, col);
             } else if self.phone_cursor != (row, col) {
                 self.move_to(&mut out, row, col, shown_end);
             }
