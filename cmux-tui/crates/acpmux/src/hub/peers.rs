@@ -656,7 +656,7 @@ impl Hub {
         v.extend(self.mesh_book_hosts().into_iter().map(|mut row| {
             let host = row.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
             if let Some(hub) = crate::share_host::device_hub_of(&host) {
-                row["deviceHub"] = hub;
+                row.set("deviceHub", hub);
             }
             row
         }));
