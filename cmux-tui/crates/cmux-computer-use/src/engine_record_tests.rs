@@ -312,7 +312,7 @@ fn read_returns_the_file_in_pieces_and_never_takes_a_path() {
 #[test]
 fn bad_arguments_are_refused_and_hold_no_slot() {
     let d = Arc::new(FakeDesktop::standard());
-    let e = engine(d.clone(), PolicyConfig::default());
+    let e = engine(d, PolicyConfig::default());
     let window = e.call(&ctx(), "record", &json!({"seconds": 1, "window_id": "1"}));
     assert_eq!(window.code.as_deref(), Some("invalid_arguments"));
     let fps = e.call(&ctx(), "record", &json!({"seconds": 1, "fps": 500}));
