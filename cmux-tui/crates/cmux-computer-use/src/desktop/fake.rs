@@ -916,7 +916,8 @@ impl Desktop for FakeDesktop {
                 alert.window_id
             )));
         };
-        if !alerts[at].buttons.iter().any(|b| b == title) {
+        let has_button = alerts.get(at).is_some_and(|a| a.buttons.iter().any(|b| b == title));
+        if !has_button {
             return Err(DesktopError::TargetNotFound(format!("button {title:?}")));
         }
         alerts.remove(at);

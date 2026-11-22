@@ -119,8 +119,8 @@ fn norm(text: &str) -> String {
 fn seq(text: &str, parts: &[&str]) -> bool {
     let mut rest = text;
     for part in parts {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
+        match rest.split_once(part) {
+            Some((_, after)) => rest = after,
             None => return false,
         }
     }
@@ -454,11 +454,13 @@ pub fn to_json(alert: &RawAlert) -> Value {
         "class": reading.class,
         "put_off": reading.put_off,
     });
-    if alert.secure_field {
-        out["secure_field"] = json!(true);
-    }
-    if let Some(why) = &alert.unreadable {
-        out["unreadable"] = json!(why);
+    if let Some(map) = out.as_object_mut() {
+        if alert.secure_field {
+            map.insert("secure_field".to_string(), json!(true));
+        }
+        if let Some(why) = &alert.unreadable {
+            map.insert("unreadable".to_string(), json!(why));
+        }
     }
     out
 }
