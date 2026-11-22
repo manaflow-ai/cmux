@@ -855,10 +855,11 @@ fn projection_matches_the_macs_grid_cell_by_cell() {
         "| **total** | | | {} | {} | {} | {} | | |",
         total.cells, total.exact, total.compact, total.cursor
     );
-    println!("{table}");
+    // The table last: a fleet log keeps the tail.
     if !details.is_empty() {
         println!("First mismatches:{details}");
     }
+    println!("{table}");
     if let Ok(dir) = std::env::var("PARITY_OUT") {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).unwrap();
