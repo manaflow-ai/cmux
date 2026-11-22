@@ -199,12 +199,20 @@ read_pin() {
 # a published manifest, then lost the fourth download to one timed-out TLS read
 # and failed the job (cx-4pdg, 2026-10-11). So every failure except an HTTP
 # error (exit 22: the object is not there, which callers poll for) is retried
-# here, with a short backoff.
+# here, with a short backoff. The HTTP status decides what is an HTTP error, not
+# the exit code: macOS curl 8.7.1 over HTTP/2 exits 56, not 22, on a --fail 404,
+# so every unpublished key cost 4 attempts and 12 s of backoff, and the nightly's
+# fallback search (resolve-tree-pending.sh) spent 6 to 12 min of each build
+# walking 24 to 48 of them (nightly-next runs 44990363506, 44992267457,
+# 44993740115). A 4xx returns 22 at once (curl's --retry already retried 408
+# and 429); a transfer that failed with no status (000) or a 2xx is retried.
 download() {
-  local attempt=1 rc=0
+  local attempt=1 rc=0 code=""
   while :; do
     rc=0
-    curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1" || rc=$?
+    code="$(curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 \
+      -w '%{http_code}' -o "$2" "$1")" || rc=$?
+    if (( rc != 0 )) && [[ "$code" =~ ^4[0-9][0-9]$ ]]; then return 22; fi
     (( rc == 0 || rc == 22 || attempt >= ${CMUX_TUI_DOWNLOAD_ATTEMPTS:-4} )) && return "$rc"
     echo "warning: download of $1 failed (curl exit $rc, attempt $attempt); retrying" >&2
     sleep "$(( attempt * ${CMUX_TUI_DOWNLOAD_BACKOFF_SECONDS:-2} ))"
