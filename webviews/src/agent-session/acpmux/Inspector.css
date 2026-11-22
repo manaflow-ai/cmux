@@ -176,3 +176,174 @@
   border-radius: 6px;
   font: inherit;
 }
+
+/* The Perf tab (PerfPanel.tsx): the switch and Copy diagnosis, then notes, spans and the data meter. */
+.acpmux-inspector-perf {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.acpmux-inspector-perf-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-4);
+  border-bottom: 1px solid var(--agent-border);
+}
+
+.acpmux-inspector-perf-switch {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.acpmux-inspector-perf-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: var(--ds-space-3);
+}
+
+.acpmux-inspector-perf-heading {
+  margin: 0;
+  padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-1);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+}
+
+.acpmux-inspector-perf-empty {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2);
+  color: var(--agent-muted);
+}
+
+.acpmux-inspector-perf-notes,
+.acpmux-inspector-perf-spans {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acpmux-inspector-perf-notes li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent);
+}
+
+.acpmux-inspector-perf-notes time,
+.acpmux-inspector-perf-span time,
+.acpmux-inspector-perf-total {
+  flex: none;
+  color: var(--agent-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.acpmux-inspector-perf-span {
+  --perf-status: var(--agent-status-success);
+  padding: var(--ds-space-1) var(--ds-space-4) var(--ds-space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent);
+}
+
+.acpmux-inspector-perf-span[data-over="true"] {
+  --perf-status: var(--agent-status-failure);
+}
+
+.acpmux-inspector-perf-span-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+
+.acpmux-inspector-perf-span .acpmux-inspector-perf-total,
+.acpmux-inspector-perf-over {
+  color: var(--perf-status);
+}
+
+.acpmux-inspector-perf-over {
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+.acpmux-inspector-perf-track {
+  position: relative;
+  height: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+  border-radius: var(--ds-space-1);
+  background: var(--agent-input-bg);
+}
+
+.acpmux-inspector-perf-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--ds-space-1);
+  /* chat-surface-allow: a perf bar is its status colour (good, slow, hung), not a surface */
+  background: color-mix(in srgb, var(--perf-status) 70%, transparent);
+}
+
+.acpmux-inspector-perf-bar:nth-child(even) {
+  /* chat-surface-allow: a perf bar is its status colour (good, slow, hung), not a surface */
+  background: color-mix(in srgb, var(--perf-status) 40%, transparent);
+}
+
+.acpmux-inspector-perf-budget {
+  position: absolute;
+  top: calc(-1 * var(--grid-half-step));
+  bottom: calc(-1 * var(--grid-half-step));
+  width: 1px;
+  background: var(--agent-soft);
+}
+
+.acpmux-inspector-perf-parts {
+  margin: var(--grid-half-step) 0 0;
+  color: var(--agent-soft);
+  font-size: var(--text-caption);
+}
+
+.acpmux-inspector-perf-meter {
+  width: calc(100% - 2 * var(--ds-space-4));
+  margin: 0 var(--ds-space-4);
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.acpmux-inspector-perf-meter th {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  text-align: right;
+}
+
+.acpmux-inspector-perf-meter th:nth-child(-n + 2),
+.acpmux-inspector-perf-meter td:nth-child(-n + 2) {
+  text-align: left;
+}
+
+.acpmux-inspector-perf-meter td {
+  padding: var(--grid-half-step) 0 var(--grid-half-step) var(--ds-space-2);
+  border-top: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.acpmux-inspector-perf-meter td:first-child,
+.acpmux-inspector-perf-meter th:first-child {
+  padding-left: 0;
+}
+
+.acpmux-inspector-perf-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
