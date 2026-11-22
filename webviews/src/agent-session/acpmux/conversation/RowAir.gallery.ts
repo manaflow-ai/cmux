@@ -23,7 +23,7 @@ import {
 } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "../model";
 
-const PEER = "huge-blue";
+const PEER = "studio-mac";
 const send = (to: string, message: string): AcpmuxActivity =>
   tool("SendMessage", "other", "completed", {
     inputSummary: JSON.stringify({ to, message }),
@@ -64,7 +64,7 @@ function leoChat(): AcpmuxSnapshot {
       activity(
         [
           send("composer-geometry", "Composer geometry, caret, thumb, bottom band"),
-          send("unstick-huge-blue", "Unstick huge-blue lanes"),
+          send("unstick-studio-mac", "Unstick studio-mac lanes"),
         ],
         10.5,
         { id: "ra-sends-1" },
@@ -95,9 +95,9 @@ function leoChat(): AcpmuxSnapshot {
       ),
       done("ra-done-1", 8.5, subagent("Ask Siri in tab popover", "Ask Siri in tab popover", "completed")),
       received(
-        "glaeda-land",
+        "land-queue",
         "s-glaeda",
-        "[notice from glaeda-land on huge-blue · WARN] glaeda-land queue stalled on manaflow-ai/cmux#49311",
+        "[notice from land-queue on studio-mac · WARN] land-queue queue stalled on manaflow-ai/cmux#49311",
         8,
         "ra-recv-2",
       ),
@@ -135,8 +135,8 @@ function leoChat(): AcpmuxSnapshot {
         }),
         session({
           sessionId: "s-glaeda",
-          name: `${PEER}/glaeda-land`,
-          title: "glaeda-land",
+          name: `${PEER}/land-queue`,
+          title: "land-queue",
           peer: PEER,
           host: PEER,
           hostKind: undefined,
