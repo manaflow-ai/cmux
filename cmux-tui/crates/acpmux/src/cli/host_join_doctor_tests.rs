@@ -275,7 +275,9 @@ fn the_output_parses_as_host_step_lines_then_a_report() {
     let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), checked.len() + 1);
     for line in &lines[..checked.len()] {
-        let mut keys: Vec<&str> = line.as_object().unwrap().keys().map(String::as_str).collect();
+        // `data` is optional structured readiness data (the agents and team steps).
+        let mut keys: Vec<&str> =
+            line.as_object().unwrap().keys().map(String::as_str).filter(|k| *k != "data").collect();
         keys.sort_unstable();
         assert_eq!(keys, ["detail", "fix", "state", "step"]);
         assert!(matches!(line["state"].as_str(), Some("ok" | "fixed" | "fail" | "warn" | "skip")));
