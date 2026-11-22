@@ -9,9 +9,11 @@ import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
+import { CENTERED_FILL, PLACEMENT_KEY, placementsValue, readPlacements } from "../backgroundPlacement";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
+import { BackgroundPlacementPreview } from "./BackgroundPlacementPreview";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
@@ -181,6 +183,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // over Art to change. A workspace that follows may still show a picture the page does not see
   // (a window's own, `appearance.set scope=window`), so it keeps the slider.
   const ownPicture = own !== null && own.value !== "none";
+  // One picture that stays, so it has a place: not None, the desktop's own, a shuffle or a mode.
+  const placeable = isFixed(current) && current !== "none" && current !== DESKTOP_ID;
+  const placementRow = rows.get(PLACEMENT_KEY)?.value;
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
   const rotation = rowsByKey.get(ROTATION_KEY);
@@ -404,6 +409,19 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           onChange={(choice) => {
             endPreview();
             setOwnScope(choice);
+          }}
+        />
+      )}
+      {/* Where the one picture shown lies (appearance.backgroundPlacement): for All Workspaces' own
+        picture; a shuffle, a mode or a workspace's own background has none to place here. */}
+      {!own && placeable && (
+        <BackgroundPlacementPreview
+          src={`backdrop/${encodeURIComponent(encodeURIComponent(current))}`}
+          value={readPlacements(placementRow)[current] ?? CENTERED_FILL}
+          disabled={!state.readable}
+          onPlace={(next) => {
+            const value = placementsValue(placementRow, current, next);
+            void (value === null ? store.reset(PLACEMENT_KEY) : store.set(PLACEMENT_KEY, value));
           }}
         />
       )}

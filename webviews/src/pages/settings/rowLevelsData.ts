@@ -73,6 +73,8 @@ export const ROW_LEVELS: {
     "appearance.displayBackgroundRotations": "hidden",
     // What each background mode last showed: the Background card keeps it, nothing edits it by hand.
     "appearance.backgroundMemory": "hidden",
+    // Written by the Background card's placement preview and Adjust Background…, not a row.
+    "appearance.backgroundPlacement": "hidden",
     "appearance.statusIndicator.animation": "more",
     "appearance.statusIndicator.showPageLoading": "more",
     "appearance.statusIndicator.size": "hidden",
