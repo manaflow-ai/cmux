@@ -45,7 +45,7 @@ public struct CloudEnvironmentBootstrap: Sendable {
         guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
         let environment = ProcessInfo.processInfo.environment
         mark("cloud_env.in_process_start")
-        guard let json = CloudEnvironmentLaunchRead.selectionJSON(bundleID: bundleID, home: environment["HOME"] ?? NSHomeDirectory(),
+        guard let json = CloudEnvironmentLaunchRead().selectionJSON(bundleID: bundleID, home: environment["HOME"] ?? NSHomeDirectory(),
                                                                   arguments: ProcessInfo.processInfo.arguments, environment: environment),
               let selection = try? CloudRuntimeSelection.decode(json), selection.bundleId == bundleID else { return nil }
         mark("cloud_env.in_process")

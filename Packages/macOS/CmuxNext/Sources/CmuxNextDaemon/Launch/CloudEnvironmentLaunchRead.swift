@@ -4,11 +4,12 @@ public import Foundation
 /// `cloud_environment_launch_read`): what the bundled CLI's `cloud env get --cache-first --launch-args`
 /// answered, with no child process and no network read. Rust seeds, resolves and persists it; this only
 /// carries the request and the answer.
-public enum CloudEnvironmentLaunchRead {
+public struct CloudEnvironmentLaunchRead {
+    public init() {}
     /// The selection as the CLI's `--json` answer (snake_case), or nil when only the CLI can answer:
     /// a fetch is needed (a custom origin with no cache), the read failed (the CLI says why), or this
     /// app's Rust library has no such op yet.
-    public static func selectionJSON(bundleID: String, home: String, arguments: [String],
+    public func selectionJSON(bundleID: String, home: String, arguments: [String],
                                      environment: [String: String]) -> Data? {
         let reply = DaemonLaunchRules.call("cloud_environment_launch_read", [
             "bundleId": bundleID, "home": home, "arguments": arguments,
