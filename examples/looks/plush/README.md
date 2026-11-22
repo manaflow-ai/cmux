@@ -53,7 +53,7 @@ check it).
 
 | Part | Where | Waits on |
 | --- | --- | --- |
-| The native toast: flat and solid, not a frosted capsule | a `notifications.toast.style` setting (with a flat style) | an open cmux pull request adding `notifications.toast.style` |
+| The native toast: flat and solid, not a frosted capsule | a `notifications.toast.style` setting (with a flat style) | pending on cmux #49661, which adds `notifications.toast.style` (`flat`) |
 | Opaque, shadowed native menus and popovers | a popover and menu opacity setting | the same pull request, if it adds one |
 
 ## Not yet possible
