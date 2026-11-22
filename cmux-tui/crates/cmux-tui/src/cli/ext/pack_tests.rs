@@ -11,7 +11,12 @@ use super::tests::{extension_repo, words};
 use super::{Request, exit, parse, share, source};
 
 fn options(dir: &Path, expect: Option<&str>) -> PackOptions {
-    PackOptions { dir: dir.to_path_buf(), out: None, expect: expect.map(str::to_string) }
+    PackOptions {
+        dir: dir.to_path_buf(),
+        out: None,
+        expect: expect.map(str::to_string),
+        entry: None,
+    }
 }
 
 #[test]
@@ -22,7 +27,8 @@ fn parses_expect_as_a_sha256() {
         Ok(Request::Pack(PackOptions {
             dir: "x".into(),
             out: None,
-            expect: Some(hash.to_ascii_lowercase())
+            expect: Some(hash.to_ascii_lowercase()),
+            entry: None,
         }))
     );
     assert!(parse(&words("pack --expect")).is_err(), "no hash");
@@ -95,4 +101,25 @@ fn the_recorded_origin_names_the_built_hash() {
     assert_eq!(origin["sha256"], sha.as_str());
     assert_eq!(origin["commit"], fetched.commit.as_str());
     assert!(share::origin_json(&repo, &fetched, None)["sha256"].is_null());
+}
+
+/// `--entry FILE` checks against a signed registry entry; this build ships
+/// no registry key, so any entry is refused as unsigned, before a mismatch.
+#[test]
+fn entry_needs_a_registry_signature() {
+    let Ok(Request::Pack(parsed)) = parse(&words("pack x --entry e.sig")) else { panic!("pack") };
+    assert_eq!(parsed.entry.as_deref(), Some(Path::new("e.sig")));
+    assert!(parse(&words("pack --entry")).is_err(), "no file");
+
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let dir = upstream.join("widgets/hello");
+    let entry = root.path().join("e.sig");
+    let mut with_entry = options(&dir, None);
+    with_entry.entry = Some(entry.clone());
+    let Err(PackError::Invalid(missing)) = pack::pack(&with_entry) else { panic!("no file") };
+    assert!(missing.contains("no registry entry"), "{missing}");
+    std::fs::write(&entry, r#"{"schema":1,"payload":"e30=","signatures":[]}"#).unwrap();
+    let Err(PackError::Invalid(unsigned)) = pack::pack(&with_entry) else { panic!("unsigned") };
+    assert!(unsigned.contains("not a registry entry cmux signed"), "{unsigned}");
 }

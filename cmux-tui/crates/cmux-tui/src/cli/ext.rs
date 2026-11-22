@@ -94,11 +94,12 @@ cmux ext: make a cmux extension and watch it change as you work.
                                repository, a picture) and the steps: push, a release, the
                                registry PR; writes nothing to the network; exit 1 when
                                something is left to do
-  cmux ext pack [DIR] [--out DIR] [--expect SHA256] [--json]
+  cmux ext pack [DIR] [--out DIR] [--expect SHA256 | --entry FILE] [--json]
                                the release assets: cmux-extension.tar.gz (the manifest and the
                                files it names) and cmux-app.v2.json in DIR/release; prints the sha256,
                                the same for the same files; --expect exits 9 unless it is SHA256
-                               (rebuild a published release from its commit and compare)
+                               (rebuild a published release from its commit and compare);
+                               --entry checks against a registry entry cmux signed
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
   cmux ext shot [DIR] [--out PNG] [--json]
@@ -332,7 +333,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         }
         "pack" => {
             let mut options =
-                pack::PackOptions { dir: PathBuf::from("."), out: None, expect: None };
+                pack::PackOptions { dir: PathBuf::from("."), out: None, expect: None, entry: None };
             let mut dir = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
@@ -348,6 +349,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                             return Err(usage("--expect takes the 64 hex digits of a sha256"));
                         }
                         options.expect = Some(hash.to_ascii_lowercase());
+                    }
+                    "--entry" => {
+                        let file = words.next().ok_or_else(|| usage("--entry needs a file"))?;
+                        options.entry = Some(PathBuf::from(file));
                     }
                     flag if flag.starts_with('-') => {
                         return Err(usage(&format!("unknown option {flag}")));
@@ -556,6 +561,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
+            options.entry = options.entry.map(absolute);
             match pack::pack(&options) {
                 Ok(packed) => {
                     if json_out {

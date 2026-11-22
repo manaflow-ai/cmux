@@ -32,6 +32,18 @@ pub(in crate::cli) struct PackOptions {
     pub out: Option<PathBuf>,
     /// `--expect SHA256`: the published hash this folder must pack to.
     pub expect: Option<String>,
+    /// `--entry FILE`: a signed registry entry whose id, version and hash
+    /// this folder must pack to.
+    pub entry: Option<PathBuf>,
+}
+
+/// The registry entry at `path`, opened with the registry's keys; else why not.
+pub(super) fn read_entry(path: &Path) -> Result<cmux_tui_core::registry_trust::Entry, String> {
+    use cmux_tui_core::registry_trust as trust;
+    let body = trust::read_signed(path)
+        .unwrap_or_else(|| Err(format!("no registry entry at {}", path.display())))?;
+    trust::open_entry(&body, &trust::trusted_keys())
+        .map_err(|why| format!("{} is not a registry entry cmux signed: {why}", path.display()))
 }
 
 /// What `ext pack` wrote.
@@ -145,6 +157,19 @@ pub(super) fn pack(options: &PackOptions) -> Result<Packed, PackError> {
     let out = options.out.clone().unwrap_or_else(|| dir.join(OUT_DIR));
     let out_rel = out.strip_prefix(dir).ok().map(Path::to_path_buf);
     let built = build(dir, out_rel.as_deref()).map_err(PackError::Invalid)?;
+    let mut expect = options.expect.clone();
+    if let Some(path) = &options.entry {
+        let entry = read_entry(path).map_err(PackError::Invalid)?;
+        if (entry.id.as_str(), entry.version.as_str())
+            != (built.id.as_str(), built.version.as_str())
+        {
+            return Err(PackError::Invalid(format!(
+                "the entry is {}@{}'s, and this folder is {}@{}",
+                entry.id, entry.version, built.id, built.version
+            )));
+        }
+        expect = Some(entry.sha256);
+    }
     let io = |what: &str, path: &Path, e: std::io::Error| {
         PackError::Invalid(format!("cannot {what} {}: {e}", path.display()))
     };
@@ -162,7 +187,7 @@ pub(super) fn pack(options: &PackOptions) -> Result<Packed, PackError> {
         manifest: manifest_path,
         files: built.files,
     };
-    match &options.expect {
+    match &expect {
         Some(expected) if !expected.trim().eq_ignore_ascii_case(&packed.sha256) => {
             Err(PackError::Mismatch { expected: expected.trim().to_ascii_lowercase(), packed })
         }

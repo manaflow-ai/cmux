@@ -109,7 +109,12 @@ fn new_and_publish_parse_their_repository_flags() {
     assert!(options.write_badge);
     assert_eq!(
         parse(&words("pack x --out y")),
-        Ok(Request::Pack(PackOptions { dir: "x".into(), out: Some("y".into()), expect: None }))
+        Ok(Request::Pack(PackOptions {
+            dir: "x".into(),
+            out: Some("y".into()),
+            expect: None,
+            entry: None
+        }))
     );
     let Ok(Request::Publish(options)) = parse(&words("publish")) else { panic!("bare publish") };
     assert_eq!(
