@@ -333,7 +333,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .fanKuanTravelers: String(localized: "backdrop.fan-kuan-travelers.title", defaultValue: "Travelers among Mountains and Streams", bundle: .localizedModule)
         case .guoXiEarlySpring: String(localized: "backdrop.guo-xi-early-spring.title", defaultValue: "Early Spring", bundle: .localizedModule)
         case .maYuanCloudsGreenSea: String(localized: "backdrop.ma-yuan-clouds-green-sea.title", defaultValue: "Clouds Rising from the Green Sea", bundle: .localizedModule)
-        case .zhangZeduanQingming: String(localized: "backdrop.zhang-zeduan-qingming.title", defaultValue: "Along the River at Qingming", bundle: .localizedModule)
+        case .zhangZeduanQingming: String(localized: "backdrop.zhang-zeduan-qingming.title", defaultValue: "Along the River During Qingming", bundle: .localizedModule)
         case .wangXimengThousandLi: String(localized: "backdrop.wang-ximeng-thousand-li.title", defaultValue: "Thousand Li of Rivers and Mountains", bundle: .localizedModule)
         case .jeongSeonInwang: String(localized: "backdrop.jeong-seon-inwang.title", defaultValue: "Clearing after Rain on Mount Inwang", bundle: .localizedModule)
         case .jeongSeonGeumgang: String(localized: "backdrop.jeong-seon-geumgang.title", defaultValue: "General View of Mount Geumgang", bundle: .localizedModule)

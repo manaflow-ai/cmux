@@ -13,8 +13,7 @@ import AppKit
 
 /// NSTextView's own `annotatedSubstringForProposedRange:actualRange:`, for the cases the field leaves to it.
 private typealias AnnotatedCopy = @convention(c) (AnyObject, Selector, NSRange, UnsafeMutablePointer<NSRange>?) -> Unmanaged<NSAttributedString>?
-/// `checkingCopy` is exported under that selector, so naming it here gives the same selector, checked at compile time.
-private let annotatedCopySelector = #selector(FieldTextView.checkingCopy(forProposedRange:actualRange:))
+private let annotatedCopySelector = #selector(NSTextCheckingClient.annotatedSubstring(forProposedRange:actualRange:))
 private let appKitAnnotatedCopy = unsafeBitCast(class_getMethodImplementation(NSTextView.self, annotatedCopySelector), to: AnnotatedCopy.self)
 
 /// The span of a long paragraph that text checking reads around a range.
