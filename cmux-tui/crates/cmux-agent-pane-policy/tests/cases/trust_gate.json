@@ -111,14 +111,14 @@
    "breaks": true
   },
   {
-   "name": "trust gate: initialize may not carry any _meta",
+   "name": "trust gate: initialize's _meta holds only acpmux.peerRowBatches (#49148), nothing else",
    "frame": {
     "jsonrpc": "2.0",
     "method": "initialize",
     "id": 1,
     "params": {
      "protocolVersion": 1,
-     "_meta": {}
+     "_meta": {"acpmux": {"peerRowBatches": true}, "other": {}}
     }
    },
    "breaks": true
