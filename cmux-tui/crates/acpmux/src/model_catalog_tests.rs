@@ -129,6 +129,36 @@ fn a_name_two_ids_share_is_ambiguous_and_names_both() {
 }
 
 #[test]
+fn a_family_word_goes_to_its_newest_model() {
+    let x = codex();
+    for name in ["astra", "Astra", "Astra 6.2", "astra-6.2", "astra6.2", "codex/astra"] {
+        assert_eq!(canon(&x, name), "gpt-6.2-astra", "{name}");
+    }
+    for name in ["sol", "Sol 6.2", "sol-6.2"] {
+        assert_eq!(canon(&x, name), "gpt-6.2-sol", "{name}");
+    }
+    assert_eq!(canon(&x, "luna"), "gpt-6.1-luna");
+    assert_eq!(canon(&x, "Sol 6.1"), "gpt-6.1-sol");
+    assert_eq!(canon(&x, "astra-6"), "gpt-6-astra");
+    let c = claude();
+    assert_eq!(canon(&c, "Fable"), "claude-fable-5-2");
+    assert_eq!(canon(&c, "opus"), "opus", "a listed alias stays as the harness takes it");
+}
+
+#[test]
+fn only_two_real_models_competing_is_ambiguous() {
+    let x = codex();
+    for name in ["gpt-6.2", "GPT 6.2", "codex-6.2"] {
+        let err = canonical_model(&x, name).unwrap_err();
+        assert_eq!(err.choices, ["gpt-6.2-astra", "gpt-6.2-sol"], "{name}");
+    }
+    assert_eq!(canon(&x, "gpt 5.6"), "gpt-5.6", "an id itself beats the ids it heads");
+    let err = canonical_model(&claude(), "claude").unwrap_err();
+    assert!(err.choices.contains(&"claude-fable-5-2".to_owned()), "{err}");
+    assert!(err.choices.len() > 2, "{err}");
+}
+
+#[test]
 fn only_claude_and_codex_names_fold() {
     let mut gateway = claude();
     gateway.id = "vercel-ai-gateway".into();

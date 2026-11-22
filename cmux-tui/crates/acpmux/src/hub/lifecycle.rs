@@ -228,6 +228,13 @@ impl Hub {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
         };
+        // Every model a chat starts on, from any entry point (`new -m`, `exec -m`, ACP and MCP
+        // starts, a preset, the defaults, a saved pick), as the catalog names it: `fable-5.2`
+        // runs as `claude-fable-5-2` (`model_alias.rs`).
+        let model = match model {
+            Some(m) => Some(self.rewrite_model(None, agent, &profile, &m, "new")?),
+            None => None,
+        };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
             (false, Some(start)) => (Some(start.value), true),
