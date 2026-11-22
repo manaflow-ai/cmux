@@ -76,6 +76,16 @@ OFFLINE_REASONS = ("is not a controller worker", "is not healthy", "has not been
 # host (its rows are host-keyed; split-spring.sh --app-cache builds on a cache miss); a bisect step ends without
 # blaming its commit (its rows are judged only on that host). The host is not pinned again for as long.
 HOST_WAIT_HOURS = 2
+# The controller route runs a measurement's Mac parts back to back (cmuxterm-hq perf_cron_batch.go): the request job
+# prints them as one BATCH_PREFIX line, the requested part first, at most BATCH_MAX, and every result comes back in one
+# result run when the last part ends. Leo, 2026-11-22, on the perf cron's 2 h bench window: "does it need to take it for
+# 2h tho? cant it be faster?" One part per round trip took a tip measurement 3 to 14 h (each part waited for a plan,
+# a request and a result run on the shared Linux queue); its Mac parts back to back take about 1.5 h. No result comes
+# while the batch runs, so the host's silence is bounded by the batch's own deadline on top of HOST_WAIT_HOURS: every
+# listed part's run_seconds plus BATCH_SLACK_HOURS (the controller's perfCronBatchSlack).
+BATCH_PREFIX = "perf-cron-batch: "
+BATCH_MAX = 32
+BATCH_SLACK_HOURS = 1
 # A Mac host that ran no part for this long while Mac parts ran on other hosts is gone (it left the fleet, or it is
 # never idle): its open regressions close as not judged, since it can neither confirm nor clear them (12 tip
 # measurements at TIP_EVERY_HOURS went to other hosts meanwhile).
@@ -88,6 +98,8 @@ STALE_HOURS = 24
 PART_STALE_HOURS = 20
 ABANDON_HOURS = 12          # of active time: the hours a measurement spent yielding to the fleet do not count
 ABANDON_WALL_HOURS = 48     # the hard cap, yielding included
+# A tip measurement closed at its bound (close_at_bound) has this long to finish before it is abandoned after all.
+CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
@@ -205,6 +217,11 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+    # Tabs and terminals as they grow (Leo 2026-11-10: "opening/closing tabs was p important to lawrence ... we defo need
+    # to encode and warn sometimes if those get slow"): tab switch at 2 and 30 tabs, 20 quick Cmd-W on terminal and chat
+    # tabs, Cmd-T and Ctrl-` at 10 and 30 workspaces. Not timed yet: 25 minutes, as the other multi-bench parts.
+    {"name": "tabs", "args": [*MEASURE, "--suite=budgets", "--only=tab_scale,tab_close,surfaces_scale"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "tabs", "run_seconds": 1500},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
     # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
@@ -296,6 +313,10 @@ PARTS = [
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
     {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
+    # A fast fling and clicks along the prompt rail in a long chat with 200, 500 and 1,000 listed sessions
+    # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
+    # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
+    {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -324,7 +345,9 @@ PARTS = [
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
 ROW_PARTS = [
-    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
+    (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"),
+    (r"^(cmd_t|ctrl_backtick)\.idle_\d+ws\.", "tabs"), (r"^tab_switch\.terminal\.(2|30)\.", "tabs"), (r"^tab_close\.", "tabs"),
+    (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^idle_budget\.", "idle-budget"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
@@ -343,6 +366,8 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
+    (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.coord_sim\.", "coord-sim"),
@@ -1099,6 +1124,8 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "web-ui-scroll":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
@@ -1216,17 +1243,31 @@ def with_build(parts):
 def part_order(state, todo, t):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet keeps its
-    place. A yielded part stays first in todo, so without this a part that keeps yielding, or a measurement dropped
-    before its tail, starved the last parts: throughput, the 13th Mac part, went 38 h without a row (2026-11-19)."""
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
+    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
+    yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
+    38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
+    ran (2026-11-21)."""
     stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
-    stale = []
+    never, stale = [], []
     for i, name in enumerate(todo):
+        if name == "build":
+            continue
         e = stored.get(name)
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
-        if name != "build" and at and hours_between(at, t) > PART_STALE_HOURS:
+        if not at:
+            never.append(name)
+        elif hours_between(at, t) > PART_STALE_HOURS:
             stale.append((at, i, name))
-    first = [n for _, _, n in sorted(stale)]
+    # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
+    # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
+    # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    if never:
+        names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
+            | set(state.get("part_rows") or {})
+        seen = {part_for_row(n) for n in names}
+        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
+    first = never + [n for _, _, n in sorted(stale)]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
@@ -1336,7 +1377,10 @@ def drop_dead_measurement(state, t, measurable):
     (give_up_host)."""
     cur = state.get("current")
     why = None
-    if cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS):
+    over = cur and (active_hours(cur, t) > ABANDON_HOURS or hours_between(parse_iso(cur["started_at"]), t) > ABANDON_WALL_HOURS)
+    if over and close_at_bound(cur, t):
+        return "closed at its bound"
+    if over and not (cur.get("closed_at") and hours_between(parse_iso(cur["closed_at"]), t) <= CLOSE_GRACE_HOURS):
         why = "abandoned"
     elif cur and needs_mac(cur) and not measurable(cur["sha"]):
         why = "unmeasurable"
@@ -1354,11 +1398,50 @@ def drop_dead_measurement(state, t, measurable):
     return why
 
 
+def close_at_bound(cur, t):
+    """A tip measurement that reached its bound with a part done ends with what it has (pure on cur): each part
+    still to do is recorded as not run (state 'not_run', its reason the bound), so the next decide finishes it and
+    the report judges its rows; the measurement ends incomplete instead of abandoned. Returns whether it closed.
+    Abandoning threw the whole measurement away: from 2026-11-15 08:03Z the cron finished none for 165 h while each
+    one ran 8 to 20 of its 27 parts and was dropped at ABANDON_HOURS. A bisect step still abandons (its verdict needs
+    its parts), and so does a measurement with no part done (nothing to judge). cur['closed_at'] holds the close: the
+    finish gets CLOSE_GRACE_HOURS before the abandon applies again."""
+    if cur.get("kind") != "tip" or not cur.get("parts_todo") or cur.get("closed_at"):
+        return False
+    if not any(isinstance(p, dict) and p.get("state") == "done" for p in (cur.get("parts") or {}).values()):
+        return False
+    reason = (f"not run: the measurement reached its bound ({ABANDON_HOURS} h active or {ABANDON_WALL_HOURS} h in "
+              "all) and ended with the parts it had")
+    for name in cur["parts_todo"]:
+        cur["parts"][name] = {"state": "not_run", "reason": reason}
+    cur["parts_todo"] = []
+    cur["closed_at"] = iso(t)
+    return True
+
+
 def commit_failed(cur):
     """A part of the measurement failed on its commit (pure): its build failed, or a part ran and failed. A part
     refused for its host (it carries a reason: another host, or no host on record) is the fleet's, not the commit's."""
     return any(isinstance(p, dict) and (p.get("state") == "build_failed" or (p.get("state") == "failed" and not p.get("reason")))
                for p in (cur.get("parts") or {}).values())
+
+
+def batch_parts(state, cur, first, t):
+    """The Mac parts a controller request lists after first, in part_order (pure): [first] and the measurement's
+    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other."""
+    rest = [p for p in part_order(state, cur["parts_todo"], t) if p != first and not is_linux_part(p)]
+    return [first, *rest][:BATCH_MAX]
+
+
+def host_wait_hours(cur):
+    """How long the measurement's host may stay silent before give_up_host and no_host_for_tip (pure): HOST_WAIT_HOURS,
+    plus the deadline of the batch asked for (cur['batch']), whose results all come when its last part ends."""
+    batch = cur.get("batch") if isinstance(cur.get("batch"), dict) else {}
+    parts = [p for p in batch.get("parts") or [] if p in PART_BY_NAME]
+    if len(parts) < 2:
+        return HOST_WAIT_HOURS
+    run = sum(PART_BY_NAME[p].get("run_seconds", PART_RUN_SECONDS) for p in parts)
+    return HOST_WAIT_HOURS + BATCH_SLACK_HOURS + run / 3600
 
 
 def give_up_host(state, t):
@@ -1375,12 +1458,14 @@ def give_up_host(state, t):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
     offline = host_unreachable(state, host, t)
-    if not offline and not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    wait = host_wait_hours(cur)
+    if not offline and not (asked and hours_between(asked, t) > wait):
         return None
-    why = f"{host} is offline" if offline else f"{host} took no part for {HOST_WAIT_HOURS} h"
+    why = f"{host} is offline" if offline else f"{host} took no part for {round(wait, 1):g} h"
     if not offline:
         mark_host(state, host, waited_at=iso(t))
     cur.pop("host_asked_since", None)
+    cur.pop("batch", None)
     if cur["kind"] == "bisect":
         state.setdefault("history", []).append({"sha": cur["sha"], "kind": "bisect", "status": "waited", "at": iso(t),
                                                 "parts": sorted(cur.get("parts", {})), "note": why})
@@ -1407,13 +1492,14 @@ def no_host_for_tip(state, t):
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return None
     asked = parse_iso(cur.get("host_asked_since") or None)
-    if not (asked and hours_between(asked, t) > HOST_WAIT_HOURS):
+    wait = host_wait_hours(cur)
+    if not (asked and hours_between(asked, t) > wait):
         return None
     host = cur.get("host")
     if host and not cur.get("gave_up"):
         return None
     tried = sorted({g.get("host") for g in cur.get("gave_up") or [] if isinstance(g, dict) and g.get("host")} | {host} - {None})
-    why = f"no measure host took a Mac part for {HOST_WAIT_HOURS} h" + (f" (gave up {', '.join(tried)})" if tried else "")
+    why = f"no measure host took a Mac part for {round(wait, 1):g} h" + (f" (gave up {', '.join(tried)})" if tried else "")
     if host:
         mark_host(state, host, waited_at=iso(t))
         cur.pop("host")
@@ -1421,6 +1507,7 @@ def no_host_for_tip(state, t):
         cur["parts"][name] = {"state": "no_host", "reason": why}
         cur["parts_todo"].remove(name)
     cur.pop("host_asked_since", None)
+    cur.pop("batch", None)
     end_yield(cur, t)
     cur["no_host"] = {"at": iso(t), "why": why}
     return why
@@ -2089,6 +2176,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-scroll":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_FAST_SCROLL_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-typing":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COMPOSER_TYPING_ROWS}"], capture_output=True).returncode == 0
         elif need == "web-ui-million":
@@ -2134,6 +2223,10 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
+        elif need == "tabs":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/perf-budgets.py"],
+                                  capture_output=True, text=True).stdout
+            ok = '"surfaces_scale":' in text
         elif need == "idle-budget":
             # Its report's perf-cron rows (cron_report): an older idle-budget.py writes none.
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/idle-budget.py"],
@@ -2179,6 +2272,7 @@ MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
+CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
@@ -3354,12 +3448,18 @@ def plan(o):
             cur["linux_wait_yield"] = True
     elif cur and cur.pop("linux_wait_yield", None):
         end_yield(cur, t)
-    for requested in (d.get("part"), d.get("linux_part"), linux_request):
+    mac_parts = []
+    if d.get("part") and cur and getattr(o, "controller", False) and not no_mac:
+        # The controller runs these back to back (BATCH_PREFIX); the request job prints them.
+        mac_parts = batch_parts(state, cur, d["part"], t)
+        if len(mac_parts) > 1 and not (cur.get("batch") or {}).get("parts"):
+            cur["batch"] = {"parts": mac_parts, "asked_at": iso(t)}
+    for requested in (*mac_parts, d.get("part"), d.get("linux_part"), linux_request):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
-           "linux_request": linux_request,
+           "linux_request": linux_request, "mac_parts": " ".join(mac_parts) if len(mac_parts) > 1 else "",
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("linux_part"):
@@ -3908,6 +4008,7 @@ def record_part(cur, part, result, run_url, t=None):
         asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
+        cur.pop("batch", None)  # ...and the batch asked for ended (or never started): the next request lists again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
     entry.update({"state": result["state"], "step_id": result.get("step_id"), "run_url": run_url,
                   "seconds": result.get("seconds")})
@@ -4363,6 +4464,23 @@ def controller_result(raw):
     return value
 
 
+def controller_results(raw):
+    """The controller's perf_result as a list of results (pure): one result (controller_result), or a batch's
+    {"results": [...]} (perfCronDispatchBatch), each kept only when it is a result. Empty when none is."""
+    one = controller_result(raw)
+    if one is not None:
+        return [one]
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    listed = value.get("results") if isinstance(value, dict) else None
+    if not isinstance(listed, list):
+        return []
+    out = [controller_result(json.dumps(v)) for v in listed[:BATCH_MAX + 1]]  # the parts and the one pre-empted
+    return [v for v in out if v is not None]
+
+
 def result_refusal(state, value):
     """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
     measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
@@ -4384,17 +4502,29 @@ def result_refusal(state, value):
 
 
 def result_plan(o, state, t):
-    """A run the controller started with a part's result: plan nothing new; the report job stores the part
-    (result_refusal says which results it drops)."""
-    value = controller_result(o.perf_result)
-    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "frame_pacing": "false", "stale_hours": round(stale_hours(state, t), 1)}
-    why = result_refusal(state, value)
-    if why:
-        out["reason"] = why
+    """A run the controller started with a part's result, or a batch's results: plan nothing new; the report job
+    stores the parts (result_refusal says which results it drops). result_parts: the parts it stores, in the order
+    they ran; part: the first of them."""
+    values = controller_results(o.perf_result) or [None]
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "result_parts": "", "frame_pacing": "false",
+           "stale_hours": round(stale_hours(state, t), 1)}
+    kept, refused = [], []
+    for value in values:
+        why = result_refusal(state, value)
+        if not why and value["part"] in {v["part"] for v in kept}:
+            why = f"the controller's batch has a second result of part {value['part']}; dropped"
+        (refused.append(why) if why else kept.append(value))
+    for why in refused:
+        print(f"perf-cron plan: {why}")
+    if not kept:
+        out["reason"] = "; ".join(refused)
     else:
-        out.update({"action": "result", "sha": value["sha"], "part": value["part"],
-                    "reason": f"the controller's {value['state']} result of part {value['part']} at {value['sha'][:12]}"
-                              f" (step {value.get('step_id') or '?'})"})
+        first = kept[0]
+        what = (f"the controller's {first['state']} result of part {first['part']} at {first['sha'][:12]}"
+                f" (step {first.get('step_id') or '?'})") if len(kept) == 1 else \
+            (f"the controller's batch at {first['sha'][:12]}: " + ", ".join(f"{v['part']} {v['state']}" for v in kept))
+        out.update({"action": "result", "sha": first["sha"], "part": first["part"],
+                    "result_parts": " ".join(v["part"] for v in kept), "reason": what})
     json.dump(state, open(os.path.join(o.dir, "state.json"), "w"), indent=1)
     print(f"perf-cron plan: {json.dumps(out)}")
     write_outputs(o.output, out)
@@ -4413,12 +4543,28 @@ def result_files(value):
 
 def cmd_fetch_result(o):
     """The report job's side of the controller route: result.json, and report.json from the step's signed artifact
-    URL. A done step whose artifact cannot be read is a failed part (its rows would be missing)."""
+    URL, in --out, or for each part in --out/PART with --each (a batch's results; the first of a part is kept). A
+    done step whose artifact cannot be read is a failed part (its rows would be missing)."""
+    if getattr(o, "each", False):
+        values = controller_results(o.result)
+        if not values:
+            print("perf-cron fetch-result: no result; nothing written")
+        for value in values:
+            out = os.path.join(o.out, value["part"])  # an allowlisted name (controller_result), never a path
+            if not os.path.exists(out):
+                write_result(value, out)
+        return
     value = controller_result(o.result)
-    os.makedirs(o.out, exist_ok=True)
     if value is None:
+        os.makedirs(o.out, exist_ok=True)
         print("perf-cron fetch-result: not a result; nothing written")
         return
+    write_result(value, o.out)
+
+
+def write_result(value, out):
+    """cmd_fetch_result's files for one result in the directory out."""
+    os.makedirs(out, exist_ok=True)
     result = result_files(value)
     if value["state"] == "done":
         url = str(value.get("artifact_url") or "")
@@ -4430,11 +4576,11 @@ def cmd_fetch_result(o):
             if is_linux_part(value["part"]):
                 report, result = linux_step_files(report, result)
             if report is not None:
-                with open(os.path.join(o.out, "report.json"), "w") as f:
+                with open(os.path.join(out, "report.json"), "w") as f:
                     json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
-    with open(os.path.join(o.out, "result.json"), "w") as f:
+    with open(os.path.join(out, "result.json"), "w") as f:
         json.dump(result, f)
     print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
 
@@ -4581,6 +4727,7 @@ def main(argv=None):
     s = sub.add_parser("fetch-result", help="write a controller result's result.json and report.json (report job)")
     s.add_argument("--result", required=True, help="the perf_result JSON")
     s.add_argument("--out", required=True)
+    s.add_argument("--each", action="store_true", help="each result's files in OUT/PART (a batch's results)")
     s = sub.add_parser("replay-results", help="store the controller's done results into a reader's copy of the state")
     s.add_argument("--dir", required=True, help="fetch-state's directory")
     s.add_argument("--url", default=CONTROLLER_RESULTS_URL)
