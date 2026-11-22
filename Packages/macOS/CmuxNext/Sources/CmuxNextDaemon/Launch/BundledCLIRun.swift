@@ -40,4 +40,17 @@ public struct BundledCLIRun {
         guard result.status != 0 else { return nil }
         return lastLine(result.stderr) ?? "cmux customize library expire exited \(result.status)"
     }
+
+    /// Runs `cmux customize library refresh --if-app-changed`: every code layer against this app,
+    /// only when the app's commit is not the one refresh last ran on (the CLI keeps it in
+    /// library.json and decides), so it runs once after an update and is quiet on every other
+    /// start. Nil when it ran or had nothing to do; else why not.
+    public static func refreshIfAppChanged(_ bundled: BundledExecutable) async -> String? {
+        guard let cli = await bundled.resolve() else { return "this build has no cmux CLI" }
+        guard let result = await run(cli, ["customize", "library", "refresh", "--if-app-changed"], timeout: .seconds(120)) else {
+            return "cmux customize library refresh did not finish"
+        }
+        guard result.status != 0 else { return nil }
+        return lastLine(result.stderr) ?? "cmux customize library refresh exited \(result.status)"
+    }
 }
