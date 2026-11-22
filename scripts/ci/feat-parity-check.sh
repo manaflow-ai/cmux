@@ -350,37 +350,6 @@ sys.exit(1)' "$file")" || { echo "error: go.dev lists no $file" >&2; return 3; }
   export PATH="$dir/go/bin:$PATH" GOROOT="$dir/go"
   echo "go: $(command -v go) ($(go version | awk '{print $3}'))"
 }
-# A kept cargo target for clippy-changed on a fleet worker. The step's checkout is new every run
-# (steps/<id>/src), so cmux-tui/target started empty and every run checked about 1,070 crates from
-# nothing: 52% of the PR checks' fleet minutes (2026-11-21 21-00Z). Third-party crates sit in the
-# shared CARGO_HOME at one path, so cargo reuses their units from a kept target; workspace crates
-# still rebuild (new path, new mtimes), which is the part a change can affect. One step per slot
-# (a non-blocking flock held until the step exits); no free slot, no shared cache, or a caller's
-# own CARGO_TARGET_DIR: the step-private target as before. A slot over its cap is emptied first.
-clippy_target_slot() {
-  local cache="${CI_SHARED_CACHE_DIR:-}" dir n kb cap_kb=$(( ${CMUX_CLIPPY_TARGET_CAP_GIB:-30} * 1024 * 1024 ))
-  if [[ -n "${CARGO_TARGET_DIR:-}" || -z "$cache" || ! -d "$cache" || ! -w "$cache" ]] || ! command -v flock >/dev/null; then
-    echo "clippy target: step-private (no writable shared cache, no flock, or CARGO_TARGET_DIR set)"
-    return 0
-  fi
-  for n in 0 1 2; do
-    dir="$cache/rust-targets/clippy-changed/slot-$n"
-    mkdir -p "$dir" 2>/dev/null || continue
-    exec {clippy_slot_fd}>"$dir.lock" || continue
-    if flock -n "$clippy_slot_fd"; then
-      kb="$(du -sk "$dir" 2>/dev/null | cut -f1)"
-      if [[ "${kb:-0}" -gt "$cap_kb" ]]; then
-        echo "clippy target: slot-$n holds ${kb} KiB, over the cap; emptying it"
-        find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true
-      fi
-      export CARGO_TARGET_DIR="$dir"
-      echo "clippy target: kept slot $dir ($(( ${kb:-0} / 1024 )) MiB)"
-      return 0
-    fi
-    exec {clippy_slot_fd}>&-
-  done
-  echo "clippy target: every kept slot is busy; step-private"
-}
 if [[ "$mode" == clippy-changed ]]; then
   # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
   base="$(required_base "$workspace")"
@@ -395,7 +364,13 @@ if [[ "$mode" == clippy-changed ]]; then
   fi
   step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
   step "pinned go" use_pinned_go "$root"
-  clippy_target_slot
+  # The target lives in the checkout's .build, which a fleet worker's warm cargo slot keeps between steps at one
+  # path (HQ build-fleet step_warm.go; the worker measures the slot, counts it against its disk floor and wipes it
+  # over its cap), so the next step rechecks only what changed. Before, it was cmux-tui/target in a fresh checkout:
+  # every step checked about 1,067 crates from nothing, three times when the panic ratchet linted the base too.
+  # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
+  [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
+  echo "cargo target: $CARGO_TARGET_DIR"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
   host_identity() {
     local changed log rc=0
