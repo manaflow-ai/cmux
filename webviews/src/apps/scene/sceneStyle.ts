@@ -13,7 +13,9 @@ const COLORS: Record<string, string> = {
   // The theme's accent: its text color by default (the no-blue rule), its own hue with appearance.accent.
   accent: "var(--cmux-accent, var(--agent-text))",
   secondary: "var(--agent-muted)",
-  tertiary: "color-mix(in srgb, var(--agent-text) 38%, transparent)",
+  // The theme's tertiary ink (WebTheme --cmux-text-tertiary, 3:1 on every fill). The fixed 38% wash read a widget's
+  // icons at 2.71:1 on Catppuccin Mocha's card (control-contrast-2, apps.widgets).
+  tertiary: "var(--cmux-text-tertiary, color-mix(in srgb, var(--agent-text) 38%, transparent))",
   separator: "var(--agent-border)",
   success: "var(--agent-status-success)",
   warning: "var(--agent-status-warning)",

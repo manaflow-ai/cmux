@@ -53,6 +53,7 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemon_key_unavailable: &'static str,
     pub(super) carrier_daemon_requires_carrier: &'static str,
     pub upgrade_requires_ssh: &'static str,
+    pub(super) route_is_link_socket: &'static str,
     pub(super) relay_route_not_candidate: &'static str,
     pub(super) daemon_key_changed: &'static str,
     pub known_daemon_refresh_missing: &'static str,
@@ -275,6 +276,10 @@ impl RemoteClientMessages {
         self.daemon_no_routes.replace("{fingerprint}", fingerprint)
     }
 
+    pub(crate) fn route_is_link_socket(&self, path: &str) -> String {
+        self.route_is_link_socket.replace("{path}", path)
+    }
+
     pub(crate) fn carrier_daemon_requires_carrier(&self, fingerprint: &str) -> String {
         self.carrier_daemon_requires_carrier.replace("{fingerprint}", fingerprint)
     }
@@ -474,6 +479,7 @@ for up to two relay fallbacks
     known_daemon_key_unavailable: "known daemon key disappeared",
     carrier_daemon_requires_carrier: "daemon {fingerprint} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
     upgrade_requires_ssh: "--upgrade requires SSH to be the initial route",
+    route_is_link_socket: "unix://{path} is the local socket of a running `cmux remote connect`, not a daemon route; pass the route that connect dialed (with the same --state-dir) instead",
     relay_route_not_candidate: "relay credential route {route} is not one of this connection's route candidates",
     daemon_key_changed: "daemon key changed for {name}",
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
@@ -754,6 +760,7 @@ ID とセッション:
     known_daemon_key_unavailable: "登録済みデーモンの鍵が見つかりません",
     carrier_daemon_requires_carrier: "デーモン {fingerprint} は信頼済みの SSH または Unix 搬送路でのみ登録されています。その搬送路を使用するか、ネットワーク接続用にこのデバイスを登録してください",
     upgrade_requires_ssh: "--upgrade を使用するには最初のルートを SSH にしてください",
+    route_is_link_socket: "unix://{path} は実行中の `cmux remote connect` のローカルソケットで、デーモンのルートではありません。その connect が接続したルートを (同じ --state-dir で) 指定してください",
     relay_route_not_candidate: "リレー認証情報のルート {route} はこの接続のルート候補に含まれていません",
     daemon_key_changed: "デーモン {name} の鍵が変更されています",
     known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",
