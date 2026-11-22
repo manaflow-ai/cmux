@@ -23,6 +23,7 @@ final class MacScreenInputSink: RemoteViewInputSink {
 /// first) tells the pane, which updates the stats and the picture state.
 /// It also keeps the stream's frame timings (`mac_screen.state`), bounded.
 nonisolated final class MacScreenFrameCounter: Sendable {
+    // carve-out: counted from the decode/present callbacks, off any actor, once per frame.
     private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
 
     /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at

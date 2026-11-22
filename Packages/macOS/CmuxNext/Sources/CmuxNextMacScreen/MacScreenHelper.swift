@@ -209,6 +209,7 @@ private nonisolated extension Result where Failure == MacScreenHelper.NoAnswerEr
 /// ``close()`` ran (before the reap), so it never reaches a pid the system has handed on.
 private nonisolated final class ReapGate: Sendable {
     private let pid: pid_t
+    // carve-out: a deadline thread and the reaper read these synchronously; an actor hop would race the reap.
     private let reaped = Mutex(false)
     private let ended = Mutex(false)
 
