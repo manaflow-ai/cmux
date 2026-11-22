@@ -157,8 +157,8 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 # Every Linux job here, the ~10-second ones included, takes the shared Linux set:
 # Blacksmith 32 vCPU, Blacksmith 16 vCPU while the overflow switch has failed over
@@ -1582,6 +1582,8 @@ jobs:
       # scripts/cmux-next/cmux-tui-build-profiles.json shipped (a tree-key input).
       target_set: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/')) && github.event_name != 'pull_request' && fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set_main || fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.target_set }}
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.lto }}
+      # cmux-rd for the files.cmux.com channel, on the Linux legs (the join line installs it).
+      build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       # A pull request's cmux-tui-pin-<merge sha> push publishes the tree that
       # its same-tree checks wait for, so these macOS legs are on the PR critical
       # path and use the PR pool, never the background lane. See
@@ -2345,7 +2347,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("rd-notices-").removeprefix("rd-").removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -2353,7 +2355,8 @@ jobs:
               return {
                   "os": "linux",
                   "architecture": "arm64" if target.startswith("aarch64") else "x86_64",
-                  "libc": "musl",
+                  # cmux-rd (build_cmux_rd: the gnu-named cmux-tui-rd-*) links glibc: it loads Cisco's OpenH264 with dlopen.
+                  "libc": "glibc" if filename.removeprefix(sys.argv[2]).startswith("rd-") else "musl",
               }
 
           server_url, repository, run_id, release_url = sys.argv[5:9]
@@ -3870,6 +3873,13 @@ jobs:
       - name: Fetch the Mac-built references of this commit
         run: ./scripts/ci/macos-cross.sh fetch-refs "$GITHUB_SHA"
 
+      # cmux-tailnet's build.rs builds libtailscale with this Go (cmux-tui-build-package.yml pins the same).
+      - name: Install Go for the embedded tailnet archive
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
+
       - name: Build on Linux (no Apple SDK)
         env:
           # Public keys compiled into cmux-tui, as in the build job.
@@ -4642,11 +4652,14 @@ jobs:
   # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
   # which only ref nightly-next can hold, so this asks for a run there. It holds nothing: no job
   # needs it, it never fails the run, and a missing workflow on nightly-next (before a promotion
-  # carries it) is a warning.
+  # carries it) is a warning. A feat-cmux-next dispatch asks too: the windowed tree build
+  # (request-nightly-next.sh, publish-bot-head-tree.sh) is a dispatch, and the pushes of its key
+  # deferred before it published, so a push-only request left that tree unsigned for good and its
+  # daemon never hot-applied into a NIGHTLY (05817a1d2d3a, run 44978301534, 2026-11-22).
   request-team-signed-tree:
     name: request the Team-signed tree
     needs: [tree-preflight, publish-tree-tested]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     continue-on-error: true

@@ -5,13 +5,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -28,7 +29,7 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
+  type KnownPaths,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -187,6 +188,9 @@ import {
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 import { focusRoute } from "../../ui/focusRoute";
+import { outcomeAsk } from "./outcomeAsk.experiment";
+import { withOutcomeAsk } from "./outcomeAsk";
+import type { ComposerEditCommand } from "./composerEditCommand";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -221,7 +225,7 @@ const NOT_AN_EDIT_KEY = new Set([
   "CapsLock",
 ]);
 
-export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
+export type { ComposerEditCommand };
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -436,7 +440,7 @@ type Props = {
   ): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
-  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  localPaths?(kind: DroppedKind, files: File[], gestureAt?: number): Promise<KnownPaths | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   /// A new chat's machine was picked where no folder of it is known: the chat starts there.
@@ -652,6 +656,14 @@ function ComposerFrame({
   // arrive in the same render; preferring the host value keeps it visible through initialization.
   const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
+  const [doneWhen, setDoneWhen] = useState("");
+  const outcomeFieldId = useId();
+  const doneWhenRef = useRef(doneWhen);
+  const outcomeAskEnabled = experimentArm(outcomeAsk) === "on";
+  useEffect(() => {
+    doneWhenRef.current = "";
+    setDoneWhen("");
+  }, [sessionId]);
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
@@ -1788,6 +1800,8 @@ function ComposerFrame({
     // Each paste still in the text as pasted goes as a pasted block, never as typed words
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
+    const sentDoneWhen = outcomeAskEnabled && !isCommand ? doneWhen : undefined;
+    if (sentDoneWhen !== undefined) marked.text = withOutcomeAsk(marked.text, sentDoneWhen);
     const sent = marked.attachments;
     // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
     // sent message from there (conversation/sendMorph.ts).
@@ -1814,6 +1828,7 @@ function ComposerFrame({
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
       else edit(rest, rest.length);
+      if (sentDoneWhen !== undefined && doneWhenRef.current === sentDoneWhen) setDoneWhen("");
       // The sent text is no draft any more: a read still on its way never brings it back.
       noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
@@ -2873,6 +2888,22 @@ function ComposerFrame({
       {context}
       {dropHost && (
         <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
+      )}
+      {outcomeAskEnabled && !shell && (
+        <div className="acpmux-outcome-ask" data-outcome-ask="on">
+          <label htmlFor={outcomeFieldId}>{t("composer.outcomeAskLabel")}</label>
+          <textarea
+            id={outcomeFieldId}
+            rows={1}
+            value={doneWhen}
+            aria-label={t("composer.outcomeAskLabel")}
+            placeholder={t("composer.outcomeAskPlaceholder")}
+            onChange={(event) => {
+              doneWhenRef.current = event.target.value;
+              setDoneWhen(event.target.value);
+            }}
+          />
+        </div>
       )}
       <ComposerBox
         handle={box}

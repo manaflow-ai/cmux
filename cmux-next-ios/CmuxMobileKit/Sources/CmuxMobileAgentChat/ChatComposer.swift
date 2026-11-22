@@ -50,6 +50,8 @@ struct ChatComposer: View {
     @State private var expandRequested = false
     /// The slash-command list's bottom edge, window y (its height bound's floor).
     @State private var suggestionsBottom: CGFloat?
+    /// The session's files for `@` mentions, scanned once per transcript change, not per key.
+    @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
@@ -514,12 +516,12 @@ struct ChatComposer: View {
                 .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
                 .symbolEffect(.variableColor.iterative, isActive: active)
                 .frame(width: 36, height: 36)
-                .background(style.fillColor, in: .circle)
+                .cmuxMobilePressBackground(style.fillColor, in: .circle)
                 .padding(4)
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
         .accessibilityIdentifier("agentChat.composer.voice")
     }
@@ -540,7 +542,7 @@ struct ChatComposer: View {
                 .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnAccent)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 36, height: 36)
-                .background(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
+                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
                 .overlay {
                     if state == .queue {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)
@@ -551,7 +553,7 @@ struct ChatComposer: View {
                 .contentShape(.circle)
                 .padding(-4)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillInLabel)
         .disabled(state == .empty)
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
@@ -668,8 +670,7 @@ struct ChatComposer: View {
     }
 
     private func mentionMatches(_ mention: ComposerMention) -> [TerminalArtifact] {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
-        return ComposerMention.candidates(mention.query, in: collected.artifacts)
+        mentionIndex.matches(mention.query, store: store)
     }
 
     /// `@` file picker (acpmux `MentionMenu`): files this session referenced.
@@ -909,12 +910,12 @@ struct AttachmentThumb: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 22, height: 22)
-                        .background(Color(white: 0.18), in: .circle)
+                        .cmuxMobilePressBackground(Color(white: 0.18), in: .circle)
                         .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressFillInLabel)
                 .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }
@@ -963,3 +964,29 @@ extension ComposerVoiceStyle {
     }
 }
 #endif
+
+/// `@` mention candidates, memoized: `SessionArtifacts.collect` walks the whole transcript,
+/// and the composer's body asked for it twice on every key while a mention was typed.
+/// The scan reruns only when the transcript changes (`AgentChatStore.revision`); the
+/// candidates only when the query does too. Not observed: it is a cache, read in `body`.
+@MainActor
+final class MentionIndex {
+    private var key: (Int, Int, Int, String)?
+    private var artifacts: [TerminalArtifact] = []
+    private var lastQuery: String?
+    private var lastMatches: [TerminalArtifact] = []
+
+    func matches(_ query: String, store: AgentChatStore) -> [TerminalArtifact] {
+        let key = (store.revision, store.turns.count, store.subagents.count, store.summary.cwd)
+        if self.key.map({ $0 != key }) ?? true {
+            self.key = key
+            artifacts = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd).artifacts
+            lastQuery = nil
+        }
+        if lastQuery != query {
+            lastQuery = query
+            lastMatches = ComposerMention.candidates(query, in: artifacts)
+        }
+        return lastMatches
+    }
+}
