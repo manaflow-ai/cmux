@@ -69,8 +69,7 @@ on:
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "docs/cmux-next/customize-recipes.md"
-      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
-      - "examples/looks/hairline/**"
+      - "examples/looks/**"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
@@ -92,6 +91,7 @@ on:
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
       - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/transcript-look/transcript-look.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
@@ -133,8 +133,7 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
-      - "examples/looks/claude-code/notification-levels/cmux-setup.json"
-      - "examples/looks/hairline/**"
+      - "examples/looks/**"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
