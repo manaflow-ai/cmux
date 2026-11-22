@@ -59,6 +59,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
+from pair_e2e_connect import connect_leg  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
@@ -538,6 +539,14 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if proof is None:
+                # Evidence only (never the verdict): launch-to-usable and foreground-to-link samples.
+                # Unpaired, the signed-in phone's live rows still come over the Cloud from the
+                # account's other Macs, so the leg runs either way and says which it measured.
+                try:
+                    note(f"- connect leg ({'paired rig Mac' if paired else 'NOT paired: the account Macs'}): {connect_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.out, note)}")
+                except Exception as error:  # noqa: BLE001
+                    note(f"- connect leg: no samples ({type(error).__name__}: {redact(str(error))[:200]})")
             if a.theme and paired:
                 note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
             if paired and probe:
