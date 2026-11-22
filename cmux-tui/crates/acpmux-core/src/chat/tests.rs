@@ -1140,3 +1140,24 @@ fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
     let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
     assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }
+
+/// The bench's row-store stand-in (webviews/bench/first-load-after-restart.bench.ts, `ROWS=1`):
+/// the first window a reload's `chat.rows.open` gets for a recorded chat, as the store makes it.
+/// Run by hand: `ACPMUX_BENCH_SOURCE=chat.ndjson ACPMUX_BENCH_WINDOW=out.json cargo test -p
+/// acpmux-core bench_first_window -- --ignored`.
+#[test]
+#[ignore = "bench helper, run by hand"]
+fn bench_first_window() {
+    let source = PathBuf::from(std::env::var_os("ACPMUX_BENCH_SOURCE").unwrap());
+    let out = PathBuf::from(std::env::var_os("ACPMUX_BENCH_WINDOW").unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::copy(&source, book.join("source.ndjson")).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "bench", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    fs::write(&out, frame.payload()).unwrap();
+}
