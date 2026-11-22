@@ -957,9 +957,16 @@ struct PipeFixture {
     carrier_b: Arc<HubCarrier>,
     _serving: acpmux::hub_carrier::HubServe,
     _dirs: (tempfile::TempDir, tempfile::TempDir),
+    /// Between both carriers and the relay.
+    proxy: Proxy,
 }
 
 async fn pipe_fixture() -> PipeFixture {
+    pipe_fixture_with(Timings::default().spare_ttl).await
+}
+
+/// [`pipe_fixture`] whose carriers keep a warm spare `spare_ttl` (zero: none).
+async fn pipe_fixture_with(spare_ttl: Duration) -> PipeFixture {
     use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
     use cmux_remote::identity::AuthDatabase;
     use cmux_remote::session::SessionLimits;
@@ -977,7 +984,8 @@ async fn pipe_fixture() -> PipeFixture {
     tokio::spawn(async move {
         let _ = axum::serve(relay_listener, router).await;
     });
-    let route = format!("relay+ws://{relay_address}");
+    let proxy = Proxy::start(relay_address).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
 
     let state = tempfile::tempdir().unwrap();
     let auth = AuthDatabase::load_or_create(state.path(), "machine-b", false).unwrap();
@@ -992,6 +1000,7 @@ async fn pipe_fixture() -> PipeFixture {
     let fast = Timings {
         control: Duration::from_secs(5),
         handshake: Duration::from_secs(5),
+        spare_ttl,
         ..Timings::default()
     };
     let carrier_b = HubCarrier::new(
@@ -1058,7 +1067,102 @@ async fn pipe_fixture() -> PipeFixture {
         carrier_b,
         _serving: serving,
         _dirs: (state, home),
+        proxy,
     }
+}
+
+/// Waits until `carrier` has a parked spare and has opened at least `opened` in all.
+async fn until_spare(carrier: &HubCarrier, opened: u64) {
+    within("a warm spare", async {
+        while carrier.warm_spares() == 0 || carrier.stats().spares.load(Ordering::SeqCst) < opened {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+}
+
+/// A dial after a dial takes the machine's warm spare (one round trip: the hello and its answer)
+/// and a new spare opens behind it. A refusal comes over the spare too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_dial_takes_the_warm_spare_and_a_new_one_opens_behind_it() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    let (a, b) = (&fixture.carrier_a, fixture.carrier_b.public_key());
+    let service = CircuitService::CmuxTui { port: fixture.daemon.port() };
+    // The fixture's dials (refused, no consent yet) left a spare.
+    until_spare(a, 1).await;
+    let hits = a.stats().spare_hits.load(Ordering::SeqCst);
+    let refused = a.dial_service(&b, service).await.unwrap_err();
+    assert!(refused.contains("consent_required"), "{refused}");
+    assert_eq!(a.stats().spare_hits.load(Ordering::SeqCst), hits + 1, "the refusal took no spare");
+
+    let opened = a.stats().spares.load(Ordering::SeqCst);
+    until_spare(a, opened + 1).await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let stream = a.dial_service(&b, service).await.expect("the spare reached the daemon");
+    let took = started.elapsed();
+    assert_eq!(a.stats().spare_hits.load(Ordering::SeqCst), hits + 2);
+    eprintln!("SPARE-NUMBERS a dial on a warm spare took {:.1} ms", took.as_secs_f64() * 1e3);
+    until_spare(a, opened + 2).await;
+    assert_eq!(a.warm_spares(), 1, "one spare a machine");
+    drop(stream);
+}
+
+/// A spare past its TTL is closed and the next dial opens a fresh circuit, with no error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_expired_spare_is_closed_and_the_dial_opens_afresh() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture_with(Duration::from_millis(400)).await;
+    let (a, b) = (&fixture.carrier_a, fixture.carrier_b.public_key());
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    until_spare(a, 1).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(a.warm_spares(), 0, "a spare outlived its TTL");
+    let hits = a.stats().spare_hits.load(Ordering::SeqCst);
+    let service = CircuitService::CmuxTui { port: fixture.daemon.port() };
+    within("a dial after the spare expired", a.dial_service(&b, service)).await.unwrap();
+    assert_eq!(a.stats().spare_hits.load(Ordering::SeqCst), hits);
+}
+
+/// A spare whose relay connection ends is dropped, and the next dial opens a fresh circuit with
+/// no error. A zero TTL keeps no spare at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_dead_spare_is_dropped_and_the_dial_opens_afresh() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    let (a, b) = (&fixture.carrier_a, fixture.carrier_b.public_key());
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    until_spare(a, 1).await;
+    let hits = a.stats().spare_hits.load(Ordering::SeqCst);
+    fixture.proxy.cut_and_pause();
+    fixture.proxy.resume();
+    within("the dead spare to drop", async {
+        while a.warm_spares() > 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    // B registers again behind the cut; dial until it serves.
+    let service = CircuitService::CmuxTui { port: fixture.daemon.port() };
+    let mut last = String::new();
+    let mut reached = false;
+    for _ in 0..80 {
+        match a.dial_service(&b, service).await {
+            Ok(_) => {
+                reached = true;
+                break;
+            }
+            Err(e) => last = e,
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(reached, "no dial after the cut: {last}");
+    assert_eq!(a.stats().spare_hits.load(Ordering::SeqCst), hits, "a dead spare answered");
+
+    let off = pipe_fixture_with(Duration::ZERO).await;
+    assert_eq!(off.carrier_a.stats().spares.load(Ordering::SeqCst), 0);
+    assert_eq!(off.carrier_a.warm_spares(), 0);
 }
 
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new

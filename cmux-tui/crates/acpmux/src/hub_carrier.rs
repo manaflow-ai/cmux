@@ -62,10 +62,12 @@
 //! stops the carrier, as any replaced key does (condition 3).
 //!
 //! Load: per machine one relay control socket (the registration, pinged a third of its lease);
-//! per live pair one relay circuit (two sockets) and one ticket call per dial. The dialer closes
-//! its allocation socket once the circuit is open.
+//! per live pair one relay circuit (two sockets), and one ticket call per dial unless the last
+//! Connect ticket for that machine is still good. The dialer closes its allocation socket once the
+//! circuit is open. A machine dialed for a named service also keeps one warm spare circuit for
+//! the next dial, up to 8 minutes (`hub_carrier_spare.rs`).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -75,17 +77,15 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use cmux_remote::crypto::{
-    AuthGrant, AuthKind, AuthRequest, ClientAuthMode, ClientHandshake, ConnectionAttemptId,
-    CryptoError, InboundAuthEvidence, NetworkPeer, ServerAuthenticator, ServiceAuthority,
-    StaticIdentity, accept_secure_link, initiate_secure_link, public_key_fingerprint,
+    AuthGrant, AuthKind, AuthRequest, CryptoError, InboundAuthEvidence, NetworkPeer,
+    ServerAuthenticator, ServiceAuthority, StaticIdentity, accept_secure_link,
+    public_key_fingerprint,
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
-    ConnectRequest, LinkRequest, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
+    RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming,
     spawn_relay_daemon_registration,
 };
-use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
 
 use crate::protocol::peer_state::OfflineReason;
 use serde::Deserialize;
@@ -302,6 +302,12 @@ pub struct Timings {
     /// that serves answers in well under a second; past this the machine's carrier is taken as
     /// not serving, and the dial says so rather than leave the caller on its own timeout.
     pub peer_join: Duration,
+    /// How long a warm spare circuit waits unused before it is closed (`hub_carrier_spare.rs`):
+    /// under the relay's 10 min idle bound on a circuit. Zero opens no spares.
+    pub spare_ttl: Duration,
+    /// How long a dial on a spare waits for its service answer before it takes the spare as lost
+    /// and opens a fresh circuit. The far machine answers in one relay round trip.
+    pub spare_answer: Duration,
 }
 
 impl Default for Timings {
@@ -311,6 +317,8 @@ impl Default for Timings {
             handshake: Duration::from_secs(10),
             key_check: Duration::from_secs(30),
             peer_join: Duration::from_secs(6),
+            spare_ttl: Duration::from_secs(8 * 60),
+            spare_answer: Duration::from_secs(3),
         }
     }
 }
@@ -328,6 +336,9 @@ pub struct Stats {
     pub received: AtomicU64,
     /// Relay records (one Noise record each) both ways.
     pub records: AtomicU64,
+    /// Warm spare circuits opened, and dials a spare answered (reached or refused).
+    pub spares: AtomicU64,
+    pub spare_hits: AtomicU64,
 }
 
 /// One machine's hub carrier: its key, its ticket source and its peer routes.
@@ -352,6 +363,8 @@ pub struct HubCarrier {
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
     /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
     serve_reason: RwLock<Option<OfflineReason>>,
+    /// Warm spare circuits and kept Connect tickets ([`spare`]).
+    warm: Arc<spare::Warm>,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -379,6 +392,7 @@ impl HubCarrier {
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
             serve_reason: RwLock::new(None),
+            warm: Arc::default(),
         })
     }
 
@@ -404,6 +418,7 @@ impl HubCarrier {
             cmux_tui: RwLock::new(None),
             session: RwLock::new(None),
             serve_reason: RwLock::new(None),
+            warm: Arc::default(),
         })
     }
 
@@ -434,6 +449,8 @@ impl HubCarrier {
         *identity = StaticIdentity::from_private(private);
         drop(identity);
         self.generation.fetch_add(1, Ordering::SeqCst);
+        // Each spare was opened under the old key.
+        self.warm.drop_spares();
         self.rekeyed.notify_one();
         Ok(())
     }
@@ -502,98 +519,52 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`), unless
-        // the hub has no carrier for it at all ([`ticket_refusal`]).
-        let answer = self.tickets.connect(daemon).await.map_err(|e| {
-            if e.contains("machine.not_found") {
-                ticket_refusal(e)
-            } else {
-                format!(
-                    "{} no relay ticket: {e}",
-                    crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE
-                )
+        let generation = self.generation.load(Ordering::SeqCst);
+        let hello = service_hello(service);
+        // A named service takes the machine's warm spare when it has one: only the hello and
+        // its answer, one relay round trip. A spare that does not answer is dropped and the dial
+        // opens a fresh circuit, as if there had been none.
+        let mut reached = None;
+        if let Some(hello) = &hello
+            && let Some(spare) = self.take_spare(daemon, generation).await
+        {
+            let asked = spare::ask_service(&spare, hello.clone(), self.timings.spare_answer).await;
+            if !matches!(asked, Err(spare::Asked::Lost(_))) {
+                self.stats.spare_hits.fetch_add(1, Ordering::Relaxed);
             }
-        })?;
-        let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
-            .ok_or("the hub's peer key is not 32 bytes of base64")?;
-        if pinned != key_bytes(daemon).unwrap_or(pinned) {
-            return Err("the hub's peer key is not the one asked for".into());
-        }
-        let endpoint = relay_url(&answer.relay)?;
-        // The ticket in hand first; a later relay authentication asks the platform again.
-        let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
-        let tickets = self.tickets.clone();
-        let peer = daemon.to_owned();
-        let credentials = RelayCredentialSource::callback(move || {
-            let first = first.lock().unwrap_or_else(|e| e.into_inner()).take();
-            let tickets = tickets.clone();
-            let peer = peer.clone();
-            async move {
-                match first {
-                    Some(ticket) => Ok(ticket.to_string()),
-                    None => tickets.connect(&peer).await.map(|a| a.ticket),
+            match asked {
+                Ok(()) => reached = Some(spare),
+                Err(spare::Asked::Refused(refusal)) => {
+                    spare::close_soon(spare);
+                    self.refill_spare(daemon);
+                    return Err(refusal.to_string());
+                }
+                Err(spare::Asked::Lost(why)) => {
+                    tracing::debug!("hub carrier: a spare circuit was lost, dialing afresh: {why}");
+                    spare::close_soon(spare);
                 }
             }
-        });
-        let provider = RelayProvider::with_credentials(
-            RelayClientConfig {
-                slot: answer.slot.clone(),
-                ticket: String::new(),
-                maximum_frame_bytes: MAX_FRAME_BYTES,
-                control_timeout: self.timings.control,
-            },
-            credentials,
-        )
-        .map_err(|e| e.to_string())?;
-        let session = SessionId(random_16()?);
-        let group = provider
-            .connect(ConnectRequest {
-                endpoint,
-                session,
-                lane_policy: LanePolicy::Single,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
-        let opened = tokio::time::timeout(
-            self.timings.peer_join,
-            group.open(LinkRequest { lane: Lane::Control, generation: 0 }),
-        )
-        .await;
-        // The circuit is its own socket: the allocation socket is not needed past this.
-        let _ = group.close().await;
-        let link = opened
-            .map_err(|_| carrier_not_serving(self.timings.peer_join))?
-            .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
-        let secure = initiate_secure_link(
-            link,
-            ClientHandshake {
-                identity: self.identity(),
-                expected_daemon: Some(pinned),
-                auth: ClientAuthMode::Enrolled,
-                device_name: DEVICE_NAME.into(),
-                session,
-                lane: Lane::Control,
-                lanes: vec![Lane::Control],
-                generation: 0,
-                connection_attempt: ConnectionAttemptId(random_16()?),
-                resume: BTreeMap::new(),
-                handshake_timeout: self.timings.handshake,
-            },
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        if let Some(hello) = service_hello(service) {
-            secure.send(hello).await.map_err(|e| e.to_string())?;
-            let answer = tokio::time::timeout(self.timings.handshake, secure.receive())
-                .await
-                .map_err(|_| "the machine did not answer the service hello in time".to_owned())?
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| "the machine closed the circuit before answering".to_owned())?;
-            if let Err(refusal) = read_service_answer(&answer) {
-                let _ = secure.close().await;
-                return Err(refusal.to_string());
+        }
+        let secure = match reached {
+            Some(secure) => secure,
+            None => {
+                let secure = self.opener().open(daemon).await?;
+                if let Some(hello) = &hello {
+                    match spare::ask_service(&secure, hello.clone(), self.timings.handshake).await {
+                        Ok(()) => {}
+                        Err(spare::Asked::Refused(refusal)) => {
+                            let _ = secure.close().await;
+                            self.refill_spare(daemon);
+                            return Err(refusal.to_string());
+                        }
+                        Err(spare::Asked::Lost(why)) => return Err(why),
+                    }
+                }
+                secure
             }
+        };
+        if hello.is_some() {
+            self.refill_spare(daemon);
         }
         self.stats.dials.fetch_add(1, Ordering::Relaxed);
         let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
@@ -1423,6 +1394,9 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
 
 #[path = "hub_carrier_serve_reason.rs"]
 mod serve_reason;
+
+#[path = "hub_carrier_spare.rs"]
+mod spare;
 
 #[cfg(test)]
 #[path = "hub_carrier_register_log_tests.rs"]
