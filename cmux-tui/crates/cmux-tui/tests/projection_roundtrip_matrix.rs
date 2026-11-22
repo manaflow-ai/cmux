@@ -1106,8 +1106,11 @@ mod repositories {
     fn files(side: &Side, dir: &Path) -> Vec<String> {
         let listed =
             side.git(dir, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+        // A checked-out submodule's files are compared too, not only its folder.
+        let inside = side.git(dir, &["ls-files", "-z", "--cached", "--recurse-submodules"]);
         let mut files: Vec<String> = listed
             .split('\0')
+            .chain(inside.split('\0'))
             .filter(|name| !name.is_empty())
             .filter(|name| dir.join(name).symlink_metadata().is_ok_and(|meta| !meta.is_dir()))
             .map(str::to_owned)
@@ -1332,6 +1335,9 @@ mod repositories {
         repo(side, &inner);
         side.git(at, &["init", "-q"]);
         plain(side, at);
+        // Enough files of the outer repository's own for the machine's edits.
+        write(&at.join("src/d.txt"), "delta\n");
+        write(&at.join("src/e.txt"), "echo\n");
         side.git(at, &["add", "-A"]);
         side.git(at, &["commit", "-qm", "outer"]);
         let mut add =
