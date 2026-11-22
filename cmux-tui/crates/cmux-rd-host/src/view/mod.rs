@@ -392,14 +392,6 @@ fn view_session(
             std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(std::net::SocketAddr::is_ipv4)
         })
         .collect();
-    let turn: Vec<crate::carrier::TurnSetup> = turn
-        .into_iter()
-        .map(|t| crate::carrier::TurnSetup {
-            addr: t.addr,
-            username: t.username,
-            password: t.password,
-        })
-        .collect();
     let net = cmux_rd_link::net::Net::start(NetConfig {
         role: Role::Initiator,
         session: ticket.session_id.clone().into_bytes(),
