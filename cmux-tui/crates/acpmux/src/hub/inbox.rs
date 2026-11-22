@@ -79,7 +79,12 @@
 //!   FYIs alone steer in no sooner than [`FLUSH_MS`] after the oldest came: a message that is no
 //!   FYI brings them sooner, in its notice, and a Stop's [`Inbox::due_now`] still lets them in
 //!   at once. A coordinator, busy most of the day, took 204 of its 305 notices in 24 h as
-//!   steers, most of them tool FYIs (2026-11-08);
+//!   steers, most of them tool FYIs (2026-11-08). Results steer in no sooner than
+//!   [`STEER_COALESCE_MS`] after the oldest of them came, so a burst is one steer; a block, a
+//!   question or a message from the chat's parent or delegator ([`steers_at_once`]) brings
+//!   every new message at once. Each steer re-ran the harness's prompt hooks (1-3 KB each), and
+//!   3 results in 3 minutes went into one turn as 3 steers (2026-11-21). A turn that ends first
+//!   leaves them to the idle chat's rules below;
 //! - into the next such turn that starts, as a steer at its start, on the same terms;
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
@@ -149,6 +154,13 @@ pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// interval at fifteen minutes bounds a quiet coordinator to at most four
 /// notice turns per hour while urgent classes still wake immediately.
 pub const FLUSH_MS: u64 = 15 * 60 * 1000;
+/// How long results wait to steer into a running turn after the oldest new one came, so a burst
+/// goes in as ONE steer at a tool step instead of one each: every steer is a new user message,
+/// which re-runs the harness's prompt hooks (1-3 KB of injected context each, measured
+/// 2026-11-21: 3 results in 3 minutes interrupted one turn singly). A block, a
+/// question, a message from the chat's parent or delegator ([`steers_at_once`]) and a Stop's
+/// `due_now` bring the batch at once.
+pub const STEER_COALESCE_MS: u64 = 2 * 60 * 1000;
 /// A notice line shows this much of the newest message's first line, in characters.
 const PREVIEW_CHARS: usize = 120;
 /// A notice holds its messages whole when their text is this many bytes or less ([`render`]).
@@ -941,6 +953,18 @@ fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&
     }
 }
 
+/// Whether `item` steers into a running turn at once, bringing every new message with it: a
+/// blocker (a block or a question), or a message from the chat's parent or delegator, which
+/// directs the work the turn does, or a fire notice. Any other result waits [`STEER_COALESCE_MS`]
+/// for others to join it; an ordinary FYI waits for its flush.
+fn steers_at_once(meta: &SessionMeta, item: &Item) -> bool {
+    match item.class {
+        PromptClass::Block | PromptClass::Question => true,
+        PromptClass::Fyi => item.fire,
+        PromptClass::Result => controls(meta, item.from_session.as_deref()),
+    }
+}
+
 /// Whether session `from` started the chat of `meta` (its lineage parent) or first gave it work
 /// (its delegator): its message is the next step of that work.
 fn controls(meta: &SessionMeta, from: Option<&str>) -> bool {
@@ -1589,6 +1613,15 @@ impl Hub {
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i));
+                // Read before a Stop's `due_now` below takes the inbox mutably.
+                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                let coalesced = new
+                    .iter()
+                    .filter(|i| !ordinary_fyi(i))
+                    .map(|i| i.at)
+                    .min()
+                    .unwrap_or(oldest)
+                    .saturating_add(STEER_COALESCE_MS);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1627,10 +1660,14 @@ impl Hub {
                                 // loop of refusals within a turn. An FYI-only batch steers in at
                                 // its flush, unless a message that is no FYI brings it sooner; a
                                 // Stop's `due_now` still lets it in at once.
-                                let flush = if fyi_only && !inbox.due_now {
+                                // Results alone wait [`STEER_COALESCE_MS`] after the oldest that
+                                // is no FYI, so a burst is one steer (module docs).
+                                let flush = if inbox.due_now || urgent {
+                                    0
+                                } else if fyi_only {
                                     oldest.saturating_add(FLUSH_MS)
                                 } else {
-                                    0
+                                    coalesced
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
