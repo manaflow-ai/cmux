@@ -7,7 +7,7 @@ import Foundation
 /// `ControlError.code`, not on the message.
 enum ControlStrings {
     /// The bundle holding the compiled string table.
-    static var bundle: Bundle { .module }
+    static var bundle: Bundle { .localizedModule }
 
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: bundle)

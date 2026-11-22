@@ -122,7 +122,12 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
 /// Each session's status comes from this hub, never from a connection to this daemon's own
 /// socket. The process and lock reads block (every process's environment, each host's lock), so
 /// they run on the blocking pool. `callerSession` names the asker's session, whose processes read
-/// `yours` instead of `live`; it is a label only and changes no state.
+/// `yours` instead of `live` and are never `orphaned` or a gc candidate, as `acpmux ps` run in
+/// that session reads them; it changes no state. Any local client may name any session, as any
+/// local process may run `acpmux ps` with that session's environment.
+///
+/// A census too large for one reply has its longest command lines cut (`fit_census`); one that
+/// still does not fit is refused with a pointer to `acpmux ps --json`, never sent over the cap.
 async fn census(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     use crate::cli::process_census::{self, SessionInfo, Sessions};
     let caller = match params.get("callerSession").filter(|v| !v.is_null()) {
@@ -147,9 +152,17 @@ async fn census(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             });
         }
     }
-    tokio::task::spawn_blocking(move || process_census::build(&gathered, &sessions, true))
-        .await
-        .map_err(blocking_failed)
+    let mut census =
+        tokio::task::spawn_blocking(move || process_census::build(&gathered, &sessions, true))
+            .await
+            .map_err(blocking_failed)?;
+    if !process_census::fit_census(&mut census, crate::hub::reply_fit::REPLY_BYTES) {
+        return Err(RpcError::internal(
+            "census too large for one reply even with command lines cut; run `acpmux ps --json`",
+        )
+        .with_data(json!({"reason": "census.too_large"})));
+    }
+    Ok(census)
 }
 
 /// An opt-in process page. A bare cursor must never silently fall back to a full
