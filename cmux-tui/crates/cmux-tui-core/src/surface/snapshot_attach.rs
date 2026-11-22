@@ -32,7 +32,7 @@ pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
     /// The bytes behind `offset`, for `terminal-resume-v1`.
-    pub(super) ring: super::resume_ring::ResumeRing,
+    pub(super) ring: resume_ring::ResumeRing,
 }
 
 impl SnapshotStreamPosition {
