@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224";
+pub const ir_sha256 = "2312023f63aa795d757d98f53312d8f9387cfa5055c36c0b52e03ca3e5086544";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -10107,6 +10107,7 @@ pub const ShutdownDaemonRequest = struct {
     end_terminals: ?bool = null,
     force: ?bool = null,
     generation: []const u8,
+    if_idle: ?bool = null,
     keep_layout: ?bool = null,
     pid: u32,
     restart: wire.Field(bool) = .absent,
@@ -10114,6 +10115,7 @@ pub const ShutdownDaemonRequest = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
         "force",
+        "if_idle",
         "keep_layout",
     };
 };
@@ -10129,6 +10131,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
             .fields = &.{
                 .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
+                .{ .name = "if_idle", .since = 12, .capability = "daemon-stop-if-idle-v1" },
                 .{ .name = "keep_layout", .since = 12, .capability = "end-terminals-keep-layout-v1" },
                 .{ .name = "restart", .since = 12, .capability = null },
             },

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'f4f264fe91b09fe69bd77b53b3d3cc09cbdfcd932f472b8cf0ceaf53a3c3c224'
+IR_SHA256 = '2312023f63aa795d757d98f53312d8f9387cfa5055c36c0b52e03ca3e5086544'
 
 
 @dataclass(frozen=True)
@@ -3653,6 +3653,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'if_idle': CommandFieldMetadata(12, 'daemon-stop-if-idle-v1'),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
             'restart': CommandFieldMetadata(12, None),
