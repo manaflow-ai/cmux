@@ -210,11 +210,9 @@ const ChatRow = memo(function ChatRow({
         <span className="nt-all-glyph">
           <AgentMark harness={harness} />
         </span>
-        <span className="nt-all-title" title={title}>
-          {title}
-        </span>
+        <span className="nt-all-title">{title}</span>
         {project && showProject && (
-          <span className="nt-all-project" title={cwd}>
+          <span className="nt-all-project" aria-description={cwd}>
             {project}
           </span>
         )}
@@ -303,9 +301,7 @@ const LiveChatRow = memo(function LiveChatRow({
           <span className="nt-all-glyph">
             <AgentMark harness={harness} />
           </span>
-          <span className="nt-all-title" title={title}>
-            {title}
-          </span>
+          <span className="nt-all-title">{title}</span>
           <span className="nt-all-state">{label}</span>
         </button>
       </ContextMenu>

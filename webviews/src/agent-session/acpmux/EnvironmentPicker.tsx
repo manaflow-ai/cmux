@@ -758,7 +758,7 @@ export function EnvironmentPicker({
           data-kind="cloud"
           data-mode="cloud"
           data-current={checked ? "" : undefined}
-          title={t("composer.cloudRunDetail")}
+          aria-description={t("composer.cloudRunDetail")}
         >
           <EnvironmentIcon kind="cloud" />
           <span className="acpmux-menu-text acpmux-location-name">
@@ -811,7 +811,6 @@ export function EnvironmentPicker({
           data-current={checked ? "" : undefined}
           data-ready={action.reason ? "false" : undefined}
           aria-disabled={action.reason ? true : undefined}
-          title={action.reason}
         >
           {action.icon ? (
             action.icon
@@ -884,7 +883,9 @@ export function EnvironmentPicker({
         data-ready={greyed ? "false" : undefined}
         aria-disabled={greyed ? true : undefined}
         // This Mac's row says "This Mac"; its own name is the row's tooltip.
-        title={isLocal(environment) && environment.label !== t("composer.thisMac") ? environment.label : undefined}
+        aria-description={
+          isLocal(environment) && environment.label !== t("composer.thisMac") ? environment.label : undefined
+        }
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">

@@ -11,6 +11,12 @@ extension CmuxConfigSnapshot {
     /// `experiments.hoverLook`: Taste prototype: one restyled look for every tooltip and hover card in the web UI (Base UI tooltips, title tooltips, toolbar hints, hover cards): a frostier glass with a crisp hairline ring and a soft two-layer shadow, painted by the page instead of the App's glass (webviews useExperimentSwitch("hoverLook"), ui/hoverLook.css; arms in ui/hoverLook.experiment.ts). Paint only: sizes, padding and type do not change. Off by default; off keeps today's tooltips.
     public nonisolated static let hoverLookPath = ["experiments", "hoverLook"]
     public nonisolated static let hoverLookDefault = false
+    /// `experiments.agentBadges`: Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as "99+", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.
+    public nonisolated static let agentBadgesPath = ["experiments", "agentBadges"]
+    public nonisolated static let agentBadgesDefault = false
+    /// `experiments.agentBadgesBeam`: Taste build 5's variant: with Agent Badges on, a running sidebar row's edge carries a thin light that laps it (Core Animation, Motion.indicators; still under Reduce Motion), removed when the row stops running or leaves the screen. No effect while Agent Badges is off.
+    public nonisolated static let agentBadgesBeamPath = ["experiments", "agentBadgesBeam"]
+    public nonisolated static let agentBadgesBeamDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -48,6 +54,26 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.hoverLookDefault),
                 keywords: ["experiments", "experimental", "prototype", "tooltip", "tooltips", "hover", "card", "glass"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.agentBadgesPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.agentBadges", "Agent Badges"),
+                help: SettingsText.keyed("settings.experiments.agentBadges.help", "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.agentBadgesDefault),
+                keywords: ["experiments", "experimental", "prototype", "agent", "badge", "badges", "count", "unread", "approval", "status", "pill", "running", "done"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.agentBadgesBeamPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.agentBadgesBeam", "Agent Badges: Running Beam"),
+                help: SettingsText.keyed("settings.experiments.agentBadgesBeam.help", "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.agentBadgesBeamDefault),
+                keywords: ["experiments", "experimental", "prototype", "agent", "badges", "beam", "light", "running", "border", "edge"]
             ),
         ]
     }
