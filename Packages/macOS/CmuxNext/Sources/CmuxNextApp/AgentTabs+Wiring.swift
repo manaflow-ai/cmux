@@ -319,6 +319,10 @@ extension AgentTabStore {
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
+        tabs.holdSplitSizing = { [weak services] pane, daemon, direction in
+            guard let controller = daemon.store.pane(pane).flatMap({ services?.paneController(for: $0) }), let layout = controller.workspace?.layoutModel else { return nil }
+            return layout.showSplitSizing(splitting: controller.layoutPaneID, axis: direction == .right ? .horizontal : .vertical).map { shown -> @MainActor (Bool) -> Void in { [weak layout] landed in layout?.settleSplitSizing(shown, landed: landed) } }
+        }
         tabs.showSplitScoped = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
             guard let services, let (_, pane) = services.locateTab(chat.key, onMachine: chat.machine), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
             let intent = focus ? content.beginFocusIntent() : nil
