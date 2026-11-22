@@ -13,11 +13,19 @@ public enum CmuxMobilePreferences {
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
+        /// Settings → Terminal → Terminal and Chat Toggle (off by default; Leo, 2026-11-17: "the
+        /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
+        /// page menu offers Show Chat / Show Terminal where both faces work.
+        public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
         /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
         public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
+        /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
+        /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
+        public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         public static let followUp = "cmuxMobile.settings.followUp"
         /// Workspaces → one line per workspace (the Mac's Compact Workspace List).
@@ -34,6 +42,7 @@ public enum CmuxMobilePreferences {
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
     public static let defaultTerminalJumpToBottom = true
+    public static let defaultTerminalChatToggle = false
     public static let defaultDismissKeyboardAfterSend = true
     /// `FollowUpBehavior.steer.rawValue`: a message sent while the agent works
     /// interrupts it instead of waiting for the turn to end.
@@ -56,6 +65,13 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalJumpToBottom) == nil
             ? defaultTerminalJumpToBottom : defaults.bool(forKey: Key.terminalJumpToBottom)
+    }
+
+    /// Whether a Claude Code or Codex tab offers Show Chat / Show Terminal (off by default).
+    public static func terminalChatToggle(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalChatToggle) == nil
+            ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

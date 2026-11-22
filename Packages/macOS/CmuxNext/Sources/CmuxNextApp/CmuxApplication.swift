@@ -40,8 +40,8 @@ import os
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
-    private var handlingSendEvent = false
-    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    private var handlingSendEvent = false, sawKeyDown = false
+    /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
@@ -110,6 +110,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
             KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            if !sawKeyDown { sawKeyDown = true; DebugTimings.markLaunch("first_key_down") } // startup-tti: the first key AppKit gave the app
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
@@ -118,8 +119,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
-        let previous = handlingSendEvent
-        handlingSendEvent = true
+        let previous = handlingSendEvent; handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
@@ -163,16 +163,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         return actionTargetOverride(action, found as AnyObject?) ?? found
     }
 
-    /// An exception AppKit caught on the main thread. With
-    /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
-    /// here and the uncaught-exception handler never runs, so the record is
-    /// written first; the next launch's notice and report then name it.
-    ///
-    /// With crashing on, the crash has begun here: the crash deadline then
-    /// ends the process even if a crash handler after this blocks.
-    override func reportException(_ exception: NSException) {
+    /// An exception AppKit caught on the main thread. With `NSApplicationCrashOnExceptions` AppKit traps
+    /// here (no uncaught-exception handler runs), so the record is written first and the crash has begun.
+    /// Nonisolated, no executor check: the exception unwound a Swift job, whose dead executor record the
+    /// main-actor entry check read and segfaulted on at 0x1e before anything was recorded (#44899).
+    nonisolated override func reportException(_ exception: NSException) {
+        SwiftExecutorFrames.recoverDeadRecord(in: "reportException")
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
-                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
+                                      record: UncaughtExceptionRecorder.handle) { appKitReportException(exception) }
     }
 
     // MARK: Accessibility windows

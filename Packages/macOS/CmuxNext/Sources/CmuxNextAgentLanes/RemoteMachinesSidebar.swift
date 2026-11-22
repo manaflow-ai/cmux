@@ -421,35 +421,35 @@ public final class RemoteMachinesSidebar {
 enum RemoteMachinesStrings {
     /// A machine's group header while this Mac's acpmux cannot reach it.
     static func offline(_ name: String) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .module), name)
+        String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .localizedModule), name)
     }
     /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
     /// when its own budget says it is over, and ending with its free disk only when that is low.
     /// "CPU n/m" names no counted noun, so it reads right for any count.
     static func resources(_ r: AcpmuxPeerList.Resources) -> String {
         var parts = [ramFree(r.ramFreeGB),
-                     String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .module),
+                     String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .localizedModule),
                             r.coresBusy, r.cores)]
         if let disk = r.diskFreeGB, disk < lowDiskGB {
-            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), disk))
+            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .localizedModule), disk))
         }
-        if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
+        if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .localizedModule), at: 0) }
         return parts.joined(separator: " · ")
     }
     /// What VoiceOver reads for a machine's room row: the machine, then its room.
     static func resourcesLabel(_ name: String, _ r: AcpmuxPeerList.Resources) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .module),
+        String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .localizedModule),
                name, resources(r))
     }
     /// Free disk under this many GB shows on the row (lane hosts' usual floor in fleet-registry.json).
     static let lowDiskGB = 20
     static func ramFree(_ gb: Int) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.ramFree", defaultValue: "%lld GB free", bundle: .module), gb)
+        String(format: String(localized: "sidebar.remoteMachines.ramFree", defaultValue: "%lld GB free", bundle: .localizedModule), gb)
     }
     /// A header with something after the machine's name.
     static func named(_ name: String, _ detail: String) -> String { name + " · " + detail }
     /// The row under an unfolded group's live chats that opens its closed ones.
-    static var older: String { String(localized: "sidebar.remoteMachines.older", defaultValue: "Older", bundle: .module) }
+    static var older: String { String(localized: "sidebar.remoteMachines.older", defaultValue: "Older", bundle: .localizedModule) }
     /// The row under an unfolded group's last shown chat when it has more.
-    static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .module) }
+    static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .localizedModule) }
 }

@@ -520,8 +520,67 @@ def helper_rust(repo: Path, paths: list[str]) -> list[str]:
     """The changed Rust paths the app's other bundled helpers build from (the mobile host, the diff
     sidecar): those helpers keep the app's build."""
     import cmux_next_route as route
-    inputs = [i for i in route.scheme_phase_rust_inputs(repo) if not i.endswith(("Cargo.lock", "Cargo.toml"))]
+    # Manifests and lockfiles are helper inputs too.  A helper can keep an old binary when its
+    # source is unchanged but its dependency graph moves, so every named Cargo input must floor
+    # the signed app list just like the source directories do.
+    inputs = route.scheme_phase_rust_inputs(repo)
+    # The route helper intentionally narrows its Xcode scan to cmux-tui inputs for CI routing. The
+    # app also builds the separately bundled diff sidecar from Native/DiffSidecar and cmux-git;
+    # collect those explicit manifests here without treating the whole daemon tree as a helper.
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    inputs.extend(path for path in re.findall(r'"\$\(SRCROOT\)/([^"]+Cargo\.(?:toml|lock))"', project)
+                  if path not in inputs)
     return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+
+
+# $(SRCROOT) inputs of the app's Xcode project that name a whole tree another layer carries: cmux-tui's daemon is the
+# bin/ swap itself (its helper crates are helper_rust's), webviews/ is the web layer, and cmux-next-ios/ is the iPhone
+# app, whose one Mac-bundled part, cmux-mobile-host, is read from its build script instead.
+CARRIED_ROOTS = ("cmux-tui", "webviews", "cmux-next-ios")
+MOBILE_HOST_BUILD = "scripts/cmux-next/build-mobile-host.sh"
+
+
+def under(path: str, roots: list[str]) -> bool:
+    return any(path == r or path.startswith(r + "/") for r in roots)
+
+
+def bundled_inputs(repo: Path) -> list[str]:
+    """The source paths the app bundle builds or copies that `cmux app try`'s bin swap does not replace: every
+    $(SRCROOT) input of the app's Xcode project (scripts it copies, Native/DiffSidecar, resources) but the
+    CARRIED_ROOTS, plus cmux-mobile-host's own build inputs (build-mobile-host.sh `inputs=(...)`). A change under
+    one keeps an older app's copy, so it floors the signed live list like Swift does."""
+    import cmux_next_route as route
+    try:
+        project = (repo / route.APP_PROJECT).read_text(encoding="utf-8")
+    except OSError:
+        project = ""
+    refs = {p.strip("/") for p in re.findall(r'\$\(SRCROOT\)/([A-Za-z0-9_.@+/-]+)', project)}
+    out = sorted(p for p in refs if p and p.split("/")[0] not in CARRIED_ROOTS)
+    try:
+        script = (repo / MOBILE_HOST_BUILD).read_text(encoding="utf-8")
+    except OSError:
+        script = ""
+    if m := re.search(r"^inputs=\(([^)]*)\)", script, re.M):
+        out.extend(p.strip("/") for p in m.group(1).split() if p.strip("/"))
+    return out
+
+
+BASE_REF = "refs/remotes/origin/feat-cmux-next"
+
+
+def pin_on_base(repo: Path, sha: str) -> bool:
+    """A branch head SHA pins the app FFI release feat-cmux-next pinned where SHA forked from it: the branch did
+    not move the pin itself, so its release is one app-ffi-release.yml published for that merge (fetch_library
+    still checks). False when REPO has no feat-cmux-next or the pin is the branch's own."""
+    fork = git(repo, "merge-base", sha, BASE_REF, check=False)
+    if not SHA.fullmatch(fork):
+        return False
+    have = git(repo, "rev-parse", "--verify", "--quiet", f"{sha}:{ffi_part.PIN_FILE}", check=False)
+    return bool(have) and have == git(repo, "rev-parse", "--verify", "--quiet", f"{fork}:{ffi_part.PIN_FILE}",
+                                      check=False)
 
 
 def set_digest(blobs: dict[str, str], paths: list[str]) -> str:
@@ -563,7 +622,7 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
-    shell = files.get("rebuild", []) + files.get("swift-live", [])
+    shell = files.get("rebuild", []) + files.get("swift-live", []) + files.get("strings", [])
     daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
@@ -690,36 +749,53 @@ def plan(repo: Path, app: Path, sha: str, branch: bool = False, base: str | None
 LIVE_FROM_MAX = 400  # a NIGHTLY is at most a day of merges behind feat-cmux-next
 
 
-def pins_daemon(repo: Path, commit: str) -> list[str]:
+def pins_daemon(repo: Path, commit: str, *, whole_app: bool = False) -> list[str]:
     """The paths of COMMIT's own change that alter what the app links.
 
     The app links the release named by app-ffi-pin.json, so FFI source edits alone do not pin the daemon to
     a new app. A repin does, as does Rust the Swift build reads outside the FFI release. A root commit pins it.
+    For app try's signed list, whole_app also includes every layer its bin-only update cannot carry.
     """
     parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
     if not SHA.fullmatch(parent or ""):
         return [f"{commit} has no parent here"]
     files = live_apply.classify_range(str(repo), parent, commit)["files"]
     daemon = sorted(set(files.get("daemon", [])))
+    uncarried = []
+    if whole_app:
+        uncarried = [path for kind in ("swift-live", "rebuild", "web-live") for path in files.get(kind, [])]
+        # Cargo.lock can classify as no-app even though a helper build consumes it. Include the
+        # complete diff for matching explicit helper inputs, while leaving unrelated no-app files
+        # out of the floor.
+        uncarried.extend(helper_rust(repo, daemon + files.get("no-app", [])))
+        # The separately bundled helpers share the workspace dependency graph.
+        uncarried.extend(path for path in daemon if path in ("cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"))
+        # What the bundle copies or builds beside bin/ (the code-mode runner and other bundled scripts, the diff
+        # sidecar's sources, cmux-mobile-host and the crates it links) classifies as no-app, ios-only or daemon,
+        # yet an older app keeps its own copy of it.
+        bundled = bundled_inputs(repo)
+        uncarried.extend(path for kind in ("no-app", "ios-only", "daemon") for path in files.get(kind, [])
+                         if under(path, bundled))
     before, after = pinned_ffi_source(repo, parent), pinned_ffi_source(repo, commit)
     if before is None and after is None:
-        return linked_rust(repo, daemon)
-    paths = swift_read_rust(repo, daemon)
+        return sorted(set(uncarried + linked_rust(repo, daemon)))
+    paths = uncarried + swift_read_rust(repo, daemon)
     if before != after:
         paths.append(ffi_part.PIN_FILE)
-    return paths
+    return sorted(set(paths))
 
 
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
-    """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
-    back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
-    built there links that change).
+    """Every app commit that app try can bring to SHA with only its published bin files, newest first.
+    Stop at the newest commit changing a layer those files do not carry, or daemon ABI compatibility.
+    Include that floor: an app built there already contains that change. Standalone hot-apply's daemon
+    compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
     out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
         out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit):
+        if paths := pins_daemon(repo, commit, whole_app=True):
             out["floor"], out["floor_paths"] = commit, paths[:20]
             break
     return out
@@ -764,7 +840,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    for kind in ("swift-live", "rebuild"):
+    for kind in ("swift-live", "rebuild", "strings"):
         if files.get(kind):
             out["left"][kind] = files[kind]
     web = files.get("web-live", [])
@@ -793,7 +869,7 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
                 if pinned_ffi_source(repo, base) is None or pinned_ffi_source(repo, sha) is None:
                     raise ffi_part.Left("no app FFI pin to establish the linked release: it needs a new app")
                 if pinned_ffi_source(repo, base) != pinned_ffi_source(repo, sha):
-                    if branch:
+                    if branch and not pin_on_base(repo, sha):
                         raise ffi_part.Left("a branch's app FFI is not published (app-ffi-release.yml publishes merges)")
                     moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
                     if moved:
@@ -811,9 +887,12 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
             if helpers:
                 # The daemon part still applies; the helpers built from these files keep the app's build.
                 out["left"]["bundled helpers (cmux-mobile-host, ...)"] = helpers
-    if not branch and "ffi" not in out["parts"] and "Rust the app links (FFI)" not in out["left"]:
+    if ((not branch or pin_on_base(repo, sha)) and "ffi" not in out["parts"]
+            and "Rust the app links (FFI)" not in out["left"]):
         # No FFI source changed after the app's commit, but SHA may pin a newer release than the app runs (the
-        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry.
+        # pin lags the sources until app-ffi-repin lands): that release is what SHA's app would carry. A branch
+        # takes it when the pin is feat-cmux-next's (a NIGHTLY older than the repin the branch forked after: 7 of
+        # the 8 Rust looks that ended `exit 3` on 2026-11-17).
         try:
             moved = ffi_part.pin_plan(repo, None if given_base else app, sha, base)
             if moved:
@@ -1719,6 +1798,14 @@ def command_apply(args) -> int:
     receipt = {"action": args.command if args.dry_run and args.command == "prefetch" else
                "dry-run" if args.dry_run else "apply", **planned, "applied": [], "rolled_back": False,
                "steps": {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if ("rust" in parts and "ffi" in planned["parts"] and "ffi" not in parts and not args.ffi_in
+            and planned["ffi"]["source"] != planned["ffi"]["app_pin_source"]):
+        # The daemon rides with the app FFI release the plan puts in (#44525): --parts rust alone would pair it with
+        # the app's old library. hot-verify's look puts the release in first and says so with --ffi-in.
+        planned["left"] = {**planned["left"], "Rust the app links (FFI)": [
+            f"the daemon needs the app FFI release {planned['ffi']['release']} in first: apply --parts ffi too"]}
+        receipt["left"] = planned["left"]
+        parts = [p for p in parts if p != "rust"]
     if not parts:
         receipt["seconds"] = round(time.monotonic() - t0, 3)
         record(state, receipt, last=False)  # nothing changed: `rollback` still puts back the last apply
@@ -1953,7 +2040,7 @@ def command_rollback(args) -> int:
 
 def command_prefetch(args) -> int:
     """`apply --dry-run` under its own name: fetch and check what SHA's apply needs, and keep it."""
-    args.dry_run, args.parts, args.binary = True, "web,rust,ffi", None
+    args.dry_run, args.parts, args.binary, args.ffi_in = True, "web,rust,ffi", None, False
     args.sign_identity, args.reseal = None, False
     args.socket, args.acpmux_home, args.restart_acpmux, args.restart_sessions = None, [], False, False
     return command_apply(args)
@@ -1994,6 +2081,9 @@ def main(argv=None) -> int:
                            help="ffi: a Developer ID app takes an ad hoc library by being signed ad hoc too "
                                 "(it starts signed out of its Keychain items; rollback puts the signature back)")
             p.add_argument("--binary", help="the cmux binary to swap in, instead of the one published for SHA")
+            p.add_argument("--ffi-in", action="store_true",
+                           help="the app FFI release the plan names is already in the app (an earlier --parts ffi): "
+                                "--parts rust alone may then put the daemon in")
             p.add_argument("--socket")
             p.add_argument("--acpmux-home", action="append", default=[])
             p.add_argument("--restart-acpmux", action="store_true",

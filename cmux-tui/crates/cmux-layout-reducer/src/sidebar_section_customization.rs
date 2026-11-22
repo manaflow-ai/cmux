@@ -17,13 +17,18 @@
 //! that has not moved yet keeps working; it no longer switches customization
 //! off when a section lists more than 256 rows.
 
+use crate::sidebar_row_layout::quote;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Settings entries (hidden ids, ordered ids, workspace overrides) and
-/// outline entries (sections, groups per section) read per level.
+/// Settings lists (hidden ids, ordered ids) and outline sections read per level.
 pub const MAX_ENTRIES: usize = 256;
+/// The most workspace rules, groups per section, and (legacy `input`) nodes per
+/// section and workspace ids per node the planner reads: the document's own item
+/// limit, so every sidebar the document can hold keeps its settings (at 256 every
+/// setting was dropped once one section held 257 workspaces).
+pub const MAX_NODES: usize = crate::sidebar_doc::model::MAX_ITEMS;
 const MAX_ID: usize = 128;
 const MAX_ORDER: i64 = 1_000_000;
 
@@ -119,6 +124,10 @@ pub struct Reply {
     /// True when a hide was skipped because it would hide the selection. A
     /// selection change away from it must project again.
     pub selection_overrides_hide: bool,
+    /// The settings hide the selected workspace or its section, and only the selection keeps it
+    /// shown: the next selection change must plan again. Any other selection change needs no plan.
+    /// The same fact as `selection_overrides_hide`, under the name the native planner reads.
+    pub selection_spared: bool,
     /// A stable digest of the plan: equal revisions project the same rows.
     pub revision: u64,
 }
@@ -224,22 +233,24 @@ fn config(
 
     let mut workspaces = BTreeMap::new();
     if let Some(entries) = request.workspaces.as_object() {
-        if entries.len() > MAX_ENTRIES {
+        if entries.len() > MAX_NODES {
             problems.push(Problem {
                 path: "sidebar.workspaces".into(),
-                why: format!("ignored object with more than {MAX_ENTRIES} entries"),
+                why: format!("ignored object with more than {MAX_NODES} entries"),
             });
             return (hidden, order, workspaces);
         }
         for (id, value) in entries {
-            let path = format!("sidebar.workspaces.{id}");
             if !valid_id(id) {
+                // An id past MAX_ID can be a pasted blob: say where, quoting it short.
+                let path = format!("sidebar.workspaces.{}", quote(id));
                 problems.push(Problem {
                     path,
                     why: "expected a non-empty workspace id of at most 128 characters".into(),
                 });
                 continue;
             }
+            let path = format!("sidebar.workspaces.{id}");
             let Some(fields) = value.as_object() else {
                 problems.push(Problem { path, why: "expected an object".into() });
                 continue;
@@ -548,14 +559,19 @@ pub fn respond(request: &Request) -> Reply {
         folded = fold_input(&request.input, &wanted, &mut problems);
         (folded.0.as_slice(), &folded.1)
     };
-    let too_large = outline.len() > MAX_ENTRIES
-        || outline.iter().any(|section| section.groups.len() > MAX_ENTRIES)
-        || locations.len() > 2 * MAX_ENTRIES + 1;
+    let input_too_large = request.input.iter().any(|section| {
+        section.nodes.len() > MAX_NODES
+            || section.nodes.iter().any(|node| node.workspace_ids.len() > MAX_NODES)
+    });
+    let too_large = input_too_large
+        || outline.len() > MAX_ENTRIES
+        || outline.iter().any(|section| section.groups.len() > MAX_NODES)
+        || locations.len() > MAX_NODES + 1;
     let plan = if too_large {
         problems.push(Problem {
             path: "sidebar.input".into(),
             why: format!(
-                "ignored sidebar outline with more than {MAX_ENTRIES} sections or groups per section"
+                "ignored sidebar document with more than {MAX_ENTRIES} sections or {MAX_NODES} entries per level"
             ),
         });
         Plan::default()
@@ -584,6 +600,7 @@ pub fn respond(request: &Request) -> Reply {
         workspace_orders: plan.workspace_orders,
         restorable: plan.restorable,
         selection_overrides_hide: plan.selection_overrides_hide,
+        selection_spared: plan.selection_overrides_hide,
         revision,
     }
 }
@@ -702,7 +719,7 @@ pub fn edit(request: &EditRequest) -> EditReply {
             set_hidden_list(&mut sections, list);
         }
         Edit::HideWorkspace { id } => {
-            if !workspaces.contains_key(id) && workspaces.len() >= MAX_ENTRIES {
+            if !workspaces.contains_key(id) && workspaces.len() >= MAX_NODES {
                 return refuse("sidebar.workspaces is full");
             }
             let entry = workspaces.entry(id.clone()).or_insert_with(|| Value::Object(Map::new()));
@@ -745,3 +762,7 @@ fn normalized(value: &Value) -> Value {
 #[cfg(test)]
 #[path = "sidebar_section_customization_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sidebar_section_customization_stress_tests.rs"]
+mod stress_tests;

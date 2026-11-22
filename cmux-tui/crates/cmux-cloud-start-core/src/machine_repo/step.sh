@@ -24,9 +24,12 @@ if [ "$github" = 1 ] && [ -x "$HOME/.local/bin/lane-gh-credential" ] &&
   git config --global --includes --get-all credential.https://github.com.helper 2>/dev/null | grep -qxF -- "$lane"; then
   creds="lane-gh"
 fi
-if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && cm=$(command -v cmux); then creds="$creds cmux-github"; fi
+# The machine's cmux: the PATH's, else the store's (the path the image's git config names). The
+# bootstrap runner's PATH is systemd's default, which has no store folder in it.
+cm=$(command -v cmux) || { [ -x /opt/cmux/current/bin/cmux ] && cm=/opt/cmux/current/bin/cmux; } || cm=""
+if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
 # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
-if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && cm=$(command -v cmux); then creds="cmux-gitlab"; fi
+if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && [ -n "$cm" ]; then creds="cmux-gitlab"; fi
 creds="$creds anonymous"
 # From here git reads no user or system config (a username that is a secret, an askpass, a
 # helper, a trace target): the chosen helper comes on the command line.
