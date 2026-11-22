@@ -22,6 +22,9 @@ const card = (page: Rendered) => page.container.querySelector<HTMLElement>('[dat
 const themeRow = (page: Rendered, kind: string) => card(page).querySelector<HTMLElement>(`[data-theme-row="${kind}"]`);
 const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
 
+/** The keys the page wrote (`cmux.settings.set`), in order. */
+const setKeys = (page: Rendered) => ops(page.provider, "cmux.settings.set").map((op) => (op as { key: string }).key);
+
 test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const titles = [...page.container.querySelectorAll(".group-title")].map((title) => title.textContent);
@@ -91,7 +94,7 @@ test("one Match System Appearance drives both themes; an app theme that follows 
   expect(page.container.textContent!.split(t("settingsPage.theme.matchSystem")).length).toBe(2);
   // The app theme follows the terminal theme: the switch writes the terminal pair only.
   await click(matchSwitch());
-  expect(ops(page.provider, "cmux.settings.set").map((op) => op.key)).toEqual(["appearance.theme"]);
+  expect(setKeys(page)).toEqual(["appearance.theme"]);
   expect(themeRow(page, "app")).not.toBeNull();
 });
 
@@ -103,11 +106,7 @@ test("Match System Appearance on sets both pairs; it reads on when either is a p
   const matchSwitch = () => themeRow(page!, "match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
   expect(matchSwitch().getAttribute("aria-checked")).toBe("false");
   await click(matchSwitch());
-  expect(
-    ops(page.provider, "cmux.settings.set")
-      .map((op) => op.key)
-      .sort(),
-  ).toEqual(["appearance.appTheme", "appearance.theme"]);
+  expect([...setKeys(page)].sort((x, y) => x.localeCompare(y))).toEqual(["appearance.appTheme", "appearance.theme"]);
   expect(themeRow(page, "light")).not.toBeNull();
   expect(themeRow(page, "app-light")).not.toBeNull();
   // Only the app theme a pair: the switch reads on; Off sets the app theme to one theme and leaves the terminal's.
