@@ -127,7 +127,10 @@ def g_browser_find(tag):
              step("A browser tab", cmux("tab", "create", "browser", "--url", "https://example.com", "--name", name), shot=False, wait=4),
              step("Select it", cmux("tab", name, "focus"), shot=False, wait=1.5), KEY(),
              step("The window is key (activation lands a beat later)", rpc("debug.text_field", {"key": True}), shot=False, wait=2),
-             step("Browser find bar opens", cmux("action", "run", "find", "--target", name), shot=False, wait=1)]
+             # Find goes to the key window's focused pane, and a capture's window is not key until cmux
+             # is the front app: a real Cmd-F through the front-app driver (hq#17594) brings it forward.
+             {"title": "Browser find bar opens (Cmd-F, cmux in front)", "key": "f", "modifiers": ["cmd"],
+              "front": True, "wait": 1.5, "display": True, "shot": False}]
     # The dark pass keeps the light pass's tab and its open bar (the appearance changes under it).
     if "dark" in tag: setup = [KEY()]
     return setup + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find in page"}), tag)
@@ -149,9 +152,25 @@ def g_settings(tag):
         + web_states("Settings search field (web)", "cmux.settings", None, tag,
                      focus=rpc("debug.page", {"page": "cmux.settings", "action": "command", "command": "focusSearch"}))
 
+def g_dialog(tag):
+    # A dialog's text field with a placeholder: the Cloud workspace fixture, its field cleared so the
+    # placeholder shows (a dialog field is a ThemedTextField in a ThemedFieldBox).
+    return [step("A dialog with a text field", rpc("debug.dialog", {"open": "cloudWorkspaceActions"}), shot=False, wait=1.5), KEY(),
+            step(f"{tag} Dialog field (native): empty, placeholder", rpc("debug.dialog", {"set": {"repository": ""}}), shot="empty"),
+            step(f"{tag} Dialog field (native): typed", rpc("debug.dialog", {"set": {"repository": TEXT}}), shot="typed"),
+            step("Dialog: close", rpc("debug.dialog", {"dismiss": True}), shot=False, wait=0.8)]
+
+def g_palette(tag):
+    # The command palette's search, opened with a real Cmd-Shift-P with cmux in front (hq#17594).
+    return [{"title": "Command palette opens (Cmd-Shift-P, cmux in front)", "key": "p", "modifiers": ["cmd", "shift"],
+             "front": True, "wait": 1.5, "display": True, "shot": False},
+            step(f"{tag} Palette search (native): empty, placeholder", None, shot="empty"),
+            step("Palette: close", rpc("debug.key", {"key": "escape"}), shot=False, wait=0.8)]
+
 GROUPS = {"chief": g_chief, "home-search": g_home_search, "chat": g_chat, "chat-find": g_chat_find,
           "newtab-web": g_newtab_web, "newtab-native": g_newtab_native, "omnibar": g_omnibar,
-          "browser-find": g_browser_find, "terminal-find": g_term_find, "rename": g_rename, "settings": g_settings}
+          "browser-find": g_browser_find, "terminal-find": g_term_find, "rename": g_rename, "settings": g_settings,
+          "dialog": g_dialog, "palette": g_palette}
 
 import os
 out = sys.argv[1]

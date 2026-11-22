@@ -57,3 +57,4 @@ area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
 # last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'
+area jobinputs '\.github/workflows/|scripts/ci/(fast-check-inputs|affected-jobs|job-inputs-always|pr_router)\.json$|scripts/ci/job_inputs\.py$'

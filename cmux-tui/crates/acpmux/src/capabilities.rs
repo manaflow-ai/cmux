@@ -111,6 +111,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
+    // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
+    // the list's pages with `usage: true`.
+    Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
     // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
     // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
     // id does a missing field mean false; the app's Update When Idle holds on any other (absent

@@ -170,5 +170,27 @@ class WeakenTests(unittest.TestCase):
             weaken.weaken(data)
 
 
+# Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
+# The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
+# link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.
+LOCKED_CRATE_IMPORTS = {
+    # chrono's clock (Local) reads the system zone through iana-time-zone's CoreFoundation calls.
+    "iana-time-zone": ("CoreFoundation", ("_CFTimeZoneCopySystem", "_CFTimeZoneGetName", "_CFTimeZoneResetSystem")),
+}
+
+
+class LockedCrateImportTests(unittest.TestCase):
+    def test_a_locked_crate_that_calls_a_framework_has_its_imports_in_the_stub(self) -> None:
+        lock = (ROOT / "cmux-tui" / "Cargo.lock").read_text()
+        missing = []
+        for crate, (framework, symbols) in LOCKED_CRATE_IMPORTS.items():
+            if f'name = "{crate}"' not in lock:
+                continue
+            stub = (ROOT / "scripts" / "ci" / "macos-stubs" / f"{framework}.tbd").read_text()
+            held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub))
+            missing += [f"{framework}.tbd lacks {symbol} ({crate})" for symbol in symbols if symbol not in held]
+        self.assertEqual(missing, [])
+
+
 if __name__ == "__main__":
     unittest.main()
