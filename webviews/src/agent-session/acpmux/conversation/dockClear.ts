@@ -23,8 +23,6 @@ export function dockClearSpans(dock: ParentNode, viewBottom: number): ClearSpan[
   return spans.sort((a, b) => b.top - a.top);
 }
 
-const INK = "#000"; // colour-allow: a mask's alpha stop (only its opacity counts), not a drawn colour
-
 /// The stops the view mask (conversation.css --acpmux-view-mask) adds past its foot for `spans`:
 /// full ink inside each, none between. Empty for none. Leads with a comma, so it follows the
 /// gradient's last stop.
@@ -32,8 +30,7 @@ export function dockClearStops(spans: readonly ClearSpan[]): string {
   const at = (px: number) => `calc(100% - ${Math.round(px * 10) / 10}px)`;
   return spans
     .map(
-      ({ top, bottom }) =>
-        `, transparent ${at(top)}, ${INK} ${at(top)}, ${INK} ${at(bottom)}, transparent ${at(bottom)}`,
+      ({ top, bottom }) => `, transparent ${at(top)}, #000 ${at(top)}, #000 ${at(bottom)}, transparent ${at(bottom)}`, // colour-allow: a mask stop, only its alpha counts
     )
     .join("");
 }
