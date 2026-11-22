@@ -43232,7 +43232,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.noDesktop": {
+    "macScreen.actions.refusal.noScreen.noDesktop": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -43363,7 +43363,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.notRegistered": {
+    "macScreen.actions.refusal.noScreen.notRegistered": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -43494,7 +43494,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.offline": {
+    "macScreen.actions.refusal.noScreen.offline": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -43625,7 +43625,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.phone": {
+    "macScreen.actions.refusal.noScreen.phone": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -43756,7 +43756,7 @@
         }
       }
     },
-    "macScreen.actions.noScreen.unknown": {
+    "macScreen.actions.refusal.noScreen.unknown": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
