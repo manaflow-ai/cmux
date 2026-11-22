@@ -1,7 +1,7 @@
 //! Two drivers over real UDP sockets on loopback: the handshake runs, a
 //! control record and datagrams cross, and the peer's close ends the session.
 
-use cmux_rd_link::net::{Candidate, CandidateKind, Net, NetConfig, NetEvent};
+use cmux_rd_link::net::{Candidate, CandidateKind, ConnectPhase, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use std::time::{Duration, Instant};
 
@@ -97,6 +97,70 @@ fn connect_waits_on_neither_stun_nor_a_dead_candidate() {
     assert!(wait(&host, &mut at_host, established));
     let took = t0.elapsed();
     assert!(took < Duration::from_millis(250), "host connected after {took:?}");
+}
+
+/// Each side reports where its connect time went, once per phase, in order:
+/// the lines `cmux rd serve` and `bench --link` print for a rig to time.
+#[test]
+fn each_side_reports_its_connect_phases_in_order() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&host, &mut at_host, established));
+    assert!(wait(&viewer, &mut at_viewer, established));
+    // The selector nominates on the first probe answer after the handshake.
+    let nominated = |e: &[NetEvent]| {
+        e.iter().any(|e| matches!(e, NetEvent::Phase { phase: ConnectPhase::Nominated, .. }))
+    };
+    assert!(wait(&host, &mut at_host, nominated));
+    assert!(wait(&viewer, &mut at_viewer, nominated));
+    for (side, seen) in [("viewer", &at_viewer), ("host", &at_host)] {
+        let phases: Vec<(ConnectPhase, u64)> = seen
+            .iter()
+            .filter_map(|e| match e {
+                NetEvent::Phase { phase, at_us, .. } => Some((*phase, *at_us)),
+                _ => None,
+            })
+            .collect();
+        let names: Vec<_> = phases.iter().map(|(p, _)| p.name()).collect();
+        for phase in [
+            ConnectPhase::GatherDone,
+            ConnectPhase::FirstCheckSent,
+            ConnectPhase::FirstCheckAnswered,
+            ConnectPhase::HandshakeStart,
+            ConnectPhase::HandshakeDone,
+            ConnectPhase::Nominated,
+        ] {
+            assert_eq!(
+                phases.iter().filter(|(p, _)| *p == phase).count(),
+                1,
+                "{side}: {} once in {names:?}",
+                phase.name()
+            );
+        }
+        let at = |want: ConnectPhase| phases.iter().find(|(p, _)| *p == want).unwrap().1;
+        assert!(at(ConnectPhase::HandshakeStart) <= at(ConnectPhase::HandshakeDone), "{side}");
+        assert!(at(ConnectPhase::FirstCheckAnswered) <= at(ConnectPhase::HandshakeDone), "{side}");
+        let line = seen.iter().find_map(|e| match e {
+            NetEvent::Phase { phase: ConnectPhase::FirstCheckAnswered, .. } => e.phase_line(),
+            _ => None,
+        });
+        let line = line.unwrap();
+        for e in seen.iter() {
+            if let Some(l) = e.phase_line() {
+                eprintln!("{side} {l}");
+            }
+        }
+        assert!(
+            line.starts_with(r#"{"phase":"first_check_answered","ms":"#)
+                && line.contains(r#","route":"127.0.0.1:"#),
+            "{side}: {line}"
+        );
+    }
 }
 
 #[test]

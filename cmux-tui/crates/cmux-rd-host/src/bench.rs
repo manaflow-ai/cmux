@@ -135,6 +135,9 @@ impl ViewerIo {
                 use cmux_rd_link::net::NetEvent;
                 use cmux_rd_link::{EndpointEvent, Event};
                 for event in net.events() {
+                    if let Some(line) = event.phase_line() {
+                        println!("{line}");
+                    }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                             out.push(Arrived::Datagram(d))
@@ -1331,6 +1334,9 @@ fn link_io() -> Res<ViewerIo> {
     }
     // This side's candidates go out through the test's stand-in hub.
     for event in net.events() {
+        if let Some(line) = event.phase_line() {
+            println!("{line}");
+        }
         if let NetEvent::Candidate(c) = event {
             println!("{}", json!({"candidate": c.to_wire()}));
         }
