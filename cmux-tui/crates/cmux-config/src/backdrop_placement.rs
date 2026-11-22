@@ -94,7 +94,7 @@ impl Placement {
     /// `"fill 0.3 0.7 2"`), the shortest that reads back the same.
     pub fn to_text(&self) -> String {
         let number = |v: f64| {
-            let text = format!("{:.3}", v);
+            let text = format!("{v:.3}");
             let text = text.trim_end_matches('0').trim_end_matches('.');
             if text == "-0" { "0".to_string() } else { text.to_string() }
         };

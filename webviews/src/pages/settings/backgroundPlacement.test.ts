@@ -27,7 +27,7 @@ type Case = {
 const near = (got: number, want: number) => expect(Math.abs(got - want)).toBeLessThan(1e-6);
 
 test("the mirror matches every case the Rust tests wrote", () => {
-  const cases = (fixture as { cases: Case[] }).cases;
+  const cases = (fixture as unknown as { cases: Case[] }).cases;
   expect(cases.length).toBeGreaterThan(10);
   for (const item of cases) {
     const read = parsePlacement(item.placement);
