@@ -1078,10 +1078,15 @@ try {
     warmContext = await browser.newContext({ viewport: VIEWPORT });
     const other = await warmContext.newPage();
     await other.goto(url);
-    await other.waitForFunction((text) => document.body.textContent?.includes(text) ?? false, LATEST, {
-      timeout: 120_000,
-      polling: 200,
-    });
+    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, which has no
+    // host of the bench's, so it may never draw it whole: a drawn row is enough to keep the renderer warm.
+    await other.waitForFunction(
+      ({ text, anyRow }) =>
+        (document.body.textContent?.includes(text) ?? false) ||
+        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
+      { text: LATEST, anyRow: !!ROWS_ENDED },
+      { timeout: 120_000, polling: 200 },
+    );
   }
 
   /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
