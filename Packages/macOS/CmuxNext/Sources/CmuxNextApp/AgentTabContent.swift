@@ -37,7 +37,7 @@ struct AgentTabContent {
             return nil
         }
         guard let view = services.agentTabs.view(for: chat, machine: machine, leaving: pane.stripModel.selectedID?.rawValue == key ? pane : nil) else { // the pane leaves the tab that it shows only for its selected tab (a hover load leaves nothing); for a Cloud chat in place `leaving` has no effect: only a New Tab tab of this Mac takes an idle page
-            return services.agentTabs.notice(for: chat, machine: machine).map { TabContent.notice($0) }
+            if let notice = services.agentTabs.notice(for: chat, machine: machine) { return .notice(notice) }; drawLastPage(key, until: nil); return nil // no view yet (the first frame, before the daemon's tree): its last page, which the view that comes keeps
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,

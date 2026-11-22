@@ -90,7 +90,11 @@ TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app 
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
-              PROBE_NO_KEY_WINDOW)
+              PROBE_NO_KEY_WINDOW,
+              # Where a chat's saved picture lands (AgentPaneLaunchImages): read, shown or missed, against the
+              # saved layout's window and the daemon's tree (ask-bb9c69b84e).
+              "agent_pane.launch_images_read", "agent_pane.launch_image_shown", "agent_pane.launch_image_missed",
+              "agent_pane.launch_image_cleared", "launch_snapshot_shown", "window.restore_wait_end")
 
 
 def log(message: str) -> None:
