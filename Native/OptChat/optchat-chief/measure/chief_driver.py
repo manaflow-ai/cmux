@@ -904,6 +904,55 @@ try:
                     lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
                     for l in [l for l in lines if "tool" in l.lower()][-40:]:
                         log(f"BRAIN diag agent.log: {l[:300]}")
+            # Why the brain refused or failed a session: Hermes names it at WARNING level
+            # ("receipt refused: storage_unavailable at restore_policy, caused by ...") in its own
+            # logs, and only "Internal error" reaches the Chief (cmux-ci step be2ad7da45a6).
+            bad = re.compile(r"refused|storage_unavailable|invalid polic|Traceback|ERROR|Exception|caused by", re.I)
+            for root, _dirs, files in os.walk(MUX):
+                if os.sep + "brains" + os.sep not in root + os.sep:
+                    continue
+                for name in sorted(f for f in files if f.endswith(".log")):
+                    try:
+                        lines = open(os.path.join(root, name), errors="replace").read().splitlines()
+                    except OSError:
+                        continue
+                    for l in [l for l in lines if bad.search(l)][-30:]:
+                        log(f"BRAIN diag brain {name}: {l[:400]}")
+            # The brain's own answer to a session start, outside acpmux: on an isolated fleet step
+            # every Hermes session/new returned "Internal error" (storage_unavailable) and Hermes
+            # wrote no log (cmux-ci step 299ab54c8170). Same brain home, same cwd folder.
+            if opts.engine_harness == "hermes" and not proof.get("turns_on_brain", True):
+                home = os.path.join(MUX, "optchat", "brains", "hermes")
+                exe = shutil.which("hermes", path=os.path.join(os.environ["HOME"], ".local", "bin") + os.pathsep + BINS) or "hermes"
+                listing = []
+                for root, dirs, files in os.walk(home):
+                    for n in dirs + files:
+                        q = os.path.join(root, n)
+                        try:
+                            st = os.lstat(q)
+                            listing.append(f"{oct(st.st_mode)[-4:]} {st.st_uid} {st.st_size} {os.path.relpath(q, home)}")
+                        except OSError as e:
+                            listing.append(f"? {os.path.relpath(q, home)}: {e}")
+                for l in listing[:60]:
+                    log(f"BRAIN diag brain home: {l}")
+                env = dict(os.environ, HERMES_HOME=home)
+                cwd = os.path.join(MUX, "optchat", "session")
+                try:
+                    p = subprocess.Popen([exe, "acp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, env=env, cwd=cwd if os.path.isdir(cwd) else None)
+                    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {}}},
+                            {"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": cwd, "mcpServers": []}}]
+                    try:
+                        out, err = p.communicate("".join(json.dumps(m) + "\n" for m in msgs), timeout=90)
+                    except subprocess.TimeoutExpired:
+                        p.kill()
+                        out, err = p.communicate()
+                    for l in [l for l in out.splitlines() if '"id": 2' in l or '"id":2' in l][:3]:
+                        log(f"BRAIN diag hermes probe reply: {l[:600]}")
+                    for l in err.splitlines()[-40:]:
+                        log(f"BRAIN diag hermes probe stderr: {l[:400]}")
+                except OSError as e:
+                    log(f"BRAIN diag hermes probe failed to start: {e}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 
