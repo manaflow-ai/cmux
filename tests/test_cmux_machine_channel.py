@@ -2,16 +2,16 @@
 """The Cloud machine channel payload is the same whether it comes from the published manifest or
 from this run's own Linux build.
 
-point-machine-channel-early (cmux-tui-artifacts.yml) points the channel as soon as build-linux is
+point-machine-channel-early (cmux-tui-artifacts.yml) points the channel as soon as build is
 done, before publish writes cmux-tui/<sha>/manifest.json, so scripts/ci/cmux-machine-channel.py
 takes each sha256 from the run's binaries (--binaries-dir) instead. Both ways it downloads every
 binary from its URL and refuses one whose bytes differ, and both give the same payload key, so
 the later point-machine-channel finds the channel current (web-ota-pointer.py newer) and keeps it.
 
-The early job uploads build-linux's thin-LTO copy (the Cloud machine channel's own) to
-cmux-tui/<sha>/machine/ and names it with --machine-path; publish uploads the shipped fat build to
+The early job uploads build's Linux binaries (the shipped fat bytes, built once: MUSL_BUILT_ONCE) to
+cmux-tui/<sha>/machine/ and names it with --machine-path; publish uploads the same build to
 cmux-tui/<sha>/. They never share an object, so whichever runs first, the shipped Linux binaries are
-publish's own (fat, #41963) and the channel's thin bytes stay under machine/. Each side is still
+publish's own (fat, #41963) and the channel's copy stays under machine/. Each side is still
 write-once against its own other runs and attempts (scripts/ci/cmux-machine-linux-bytes.sh): early
 attempts with other bytes skip on the claim, and publish adopts another publisher's served bytes.
 Those cases run the real publish steps against the fake R2 of test_cmux_tui_republish_same_commit.py.
@@ -54,7 +54,7 @@ class Payload(unittest.TestCase):
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.built = self.tmp / "built"   # this run's build-linux artifacts
+        self.built = self.tmp / "built"   # this run's build artifacts
         self.served = self.tmp / "served"  # what files.cmux.com/cmux-tui/<sha>/ serves
         self.built.mkdir()
         self.served.mkdir()
