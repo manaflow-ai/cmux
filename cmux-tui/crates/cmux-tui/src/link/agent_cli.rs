@@ -112,6 +112,10 @@
 //! receive), `copy` (every bundle page), `finish`, `commit`, or `resolve` (a
 //! rerun ending an earlier move). `frozen_ms`: the begin's start to the
 //! commit's end, how long the chat could not run (a fresh move that landed).
+//! `frozen_sync_phases` (a move that ran `--sync`): where `frozen_sync` went
+//! ([`super::spans`]): `spans`, each machine request, git run, fixed wait and
+//! sync step summed by name as `{"ms":N,"n":N}`, and `remote`, the machine
+//! jobs' own `timings`.
 
 use cmux_json::JsonSet as _;
 
@@ -252,6 +256,8 @@ struct Clock {
     frozen_at: Option<Instant>,
     frozen_ms: Option<u128>,
     pages: u64,
+    /// Where the frozen `--sync` went ([`super::spans::take`]).
+    frozen_sync: Option<Value>,
 }
 
 impl Clock {
@@ -264,6 +270,7 @@ impl Clock {
             frozen_at: None,
             frozen_ms: None,
             pages: 0,
+            frozen_sync: None,
         }
     }
 
@@ -293,6 +300,9 @@ impl Clock {
         line.set("phases", Value::Object(phases));
         if let Some(ms) = self.frozen_ms {
             line.set("frozen_ms", json!(ms));
+        }
+        if let Some(spans) = &self.frozen_sync {
+            line.set("frozen_sync_phases", spans.clone());
         }
         line.set("total_ms", json!(self.start.elapsed().as_millis()));
     }
@@ -593,8 +603,11 @@ fn fresh(args: &Args, records: &Records, clock: &mut Clock) -> Result<Moved, Fai
         && let Err(failed) = {
             // Recorded first: a run that dies while it copies is resolved by the next one.
             let _ = records.save(&record);
+            // Only the frozen pass's own requests and runs.
+            let _ = super::spans::take();
             let synced = args.syncs.iter().try_for_each(sync_frozen);
             clock.lap("frozen_sync");
+            clock.frozen_sync = Some(super::spans::take());
             synced
         }
     {
