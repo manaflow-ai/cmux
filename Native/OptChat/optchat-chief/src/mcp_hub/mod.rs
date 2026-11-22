@@ -777,9 +777,9 @@ impl McpHub {
                 }
             ));
             out.push_str(&format!(
-                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}.{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
+                "\nUse it in code mode: `mcp` action describe (server {0}) for the TypeScript API, then action run with code like `const r = await mcp.{0}{1}({{...}}); console.log(r)`. Declarations are also in {2}.",
                 s.name,
-                names.first().copied().unwrap_or("tool"),
+                codemode::member(names.first().copied().unwrap_or("tool")),
                 self.inner.dir.api_path(&s.name).display()
             ));
         }
@@ -1282,7 +1282,7 @@ impl McpHub {
             return Err(format!("mcp describe: {name} has no tool {t}"));
         }
         Ok(format!(
-            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);`",
+            "{}\n// Each call returns structuredContent, else the text (parsed when it is JSON); an error result throws.\n// Use: action run, code: `const r = await mcp.{name}.<tool>({{...}}); console.log(r);` (a tool name that is no identifier: `mcp.{name}[\"<tool>\"](...)`)",
             codemode::declarations(&name, &s.tools, &s.flagged, tool)
         ))
     }
