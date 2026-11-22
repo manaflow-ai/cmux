@@ -32,7 +32,13 @@ fi
 install -d -m 0755 "$ROOT" "$ROOT/store"
 tmp="$(mktemp -d "$ROOT/.update.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-curl -fsSL --retry 3 --max-time 60 -o "$tmp/manifest.json" "$MANIFEST"
+if ! curl -fsSL --retry 3 --max-time 60 -o "$tmp/manifest.json" "$MANIFEST"; then
+  # Nothing published yet, or the network is away: the next timer run tries again. With no build at all
+  # (--if-missing) the host cannot start, so that is a failure.
+  log "no manifest at $MANIFEST"
+  [ "${1:-}" = "--if-missing" ] && exit 1
+  exit 0
+fi
 fields="$(python3 -I -c '
 import json, re, sys
 m = json.load(open(sys.argv[1]))
