@@ -26,6 +26,7 @@ test("the compact summary exposes free and used capacity", () => {
       compact
       strings={strings}
       health={{
+        state: "healthy",
         free_mb: 8_192,
         used_mb: 57_344,
         total_mb: 65_536,
@@ -44,6 +45,7 @@ test("the full summary calls out a low floor and top users", () => {
     <DiskHealthSummary
       strings={strings}
       health={{
+        state: "warning",
         free_mb: 4_096,
         used_mb: 61_440,
         total_mb: 65_536,
