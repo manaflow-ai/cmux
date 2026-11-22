@@ -485,7 +485,9 @@ fn reply_row(
 /// ended first, all rows of one end together, so the split stays one end: every ended row kept
 /// ended at or after `endedBefore`, every one left out before it. A process still running is kept
 /// before any ended one (a long-lived server is the oldest row of all). `omitted`: OLDER plus what
-/// the budget left out; `endedBefore` is sent while an ended one is left out.
+/// the budget left out; `endedBefore` is sent while an ended one is left out. When the running rows
+/// alone cannot fit (or one cannot even as a stub), the recent read is refused (`too_large`), so the
+/// client falls back to bounded history pages rather than miss a running process.
 fn recent_values(
     processes: Vec<Process>,
     older: usize,
@@ -493,7 +495,7 @@ fn recent_values(
     recent: usize,
     budget: usize,
     length: impl Fn(&str) -> u64,
-) -> Value {
+) -> Result<Value, RpcError> {
     let total = processes.len();
     // (running, end, row, bytes)
     let mut rows: Vec<(bool, u64, Value, usize)> = Vec::with_capacity(total);
@@ -501,6 +503,9 @@ fn recent_values(
         let running = process.state == ProcessState::Running;
         let end = process_end(&process);
         let Some((row, bytes)) = reply_row(process, budget, &length) else { continue };
+        if running && bytes.saturating_add(97) > budget {
+            return Err(RpcError::too_large(bytes.saturating_add(97)));
+        }
         rows.push((running, end, row, bytes));
     }
     let mut keep = vec![true; rows.len()];
@@ -532,15 +537,9 @@ fn recent_values(
             cutoff = cutoff.max(end.saturating_add(1));
             cut_ended = true;
         }
-        // Running rows past the budget on their own: the oldest go first.
-        for (row, flag) in rows.iter().zip(keep.iter_mut()) {
-            if used <= budget {
-                break;
-            }
-            if row.0 {
-                *flag = false;
-                used = used.saturating_sub(row.3.saturating_add(1));
-            }
+        // Running rows past the budget on their own: refused, never cut.
+        if used > budget {
+            return Err(RpcError::too_large(used));
         }
     }
     let kept: Vec<Value> = rows
@@ -558,7 +557,7 @@ fn recent_values(
     if cut_ended {
         reply.insert("endedBefore".to_owned(), json!(cutoff));
     }
-    Value::Object(reply)
+    Ok(Value::Object(reply))
 }
 
 /// [`Hub::list_call_processes`]'s reply: the processes of the first calls of FOUND (one list per
@@ -952,7 +951,7 @@ impl Hub {
         session: &Session,
         recent: usize,
         ended_within: Option<u64>,
-    ) -> Value {
+    ) -> Result<Value, RpcError> {
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
         let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)

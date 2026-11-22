@@ -210,6 +210,55 @@ export function recentState(
   };
 }
 
+/// What a chat's page holds of `processes` while no list of the whole history shows: every running
+/// one and the newest `recent` ended, in their order (acpmux hub/processes.rs `recent_snapshot`).
+/// The same array while it holds no more, so an update to a short list copies nothing extra.
+export function recentProcesses(
+  processes: readonly SessionInfoProcess[],
+  recent: number = PROCESS_LIST_RECENT,
+): readonly SessionInfoProcess[] {
+  let ended = 0;
+  for (const process of processes) if (process.state !== "running") ended += 1;
+  if (ended <= recent) return processes;
+  let drop = ended - recent;
+  return processes.filter((process) => process.state === "running" || drop-- <= 0);
+}
+
+/// The whole list `state` cut to what a window holds, read again from nothing (a list of the whole
+/// history closed while the chat is idle, so no recent read follows): every running process, those
+/// in `keep` (what this view saw run), those the calls `calls` started, those that ended in the last
+/// `endedWithin` ms before `now`, and the `PROCESS_LIST_RECENT` that ended last (by end, then start
+/// order), with `omitted` counting the rest and `endedBefore` the end that splits them, as a recent
+/// reply would. The same state when it holds no whole list.
+function windowState(
+  state: RegistryState,
+  keep: ReadonlySet<string>,
+  calls: readonly string[],
+  endedWithin: number,
+  now: number,
+): RegistryState {
+  if (!state.listed || state.partial) return state;
+  const called = new Set(calls);
+  const held = (process: SessionInfoProcess) =>
+    process.state === "running" ||
+    keep.has(process.id) ||
+    (process.toolCallId !== undefined && called.has(process.toolCallId)) ||
+    (process.endedAt ?? 0) >= now - endedWithin;
+  const ended = state.processes.flatMap((process, at) => (held(process) ? [] : [{ process, at }]));
+  ended.sort((a, b) => (a.process.endedAt ?? 0) - (b.process.endedAt ?? 0) || a.at - b.at);
+  const dropped = ended.slice(0, Math.max(0, ended.length - PROCESS_LIST_RECENT));
+  if (dropped.length === 0) return { ...state, partial: true, omitted: 0 };
+  const gone = new Set(dropped.map(({ process }) => process.id));
+  const endedBefore = (ended[dropped.length]?.process.endedAt ?? 0) || undefined;
+  return {
+    ...state,
+    processes: state.processes.filter((process) => !gone.has(process.id)),
+    partial: true,
+    omitted: dropped.length,
+    ...(endedBefore === undefined ? {} : { endedBefore }),
+  };
+}
+
 /// Chat `sessionId`'s background processes while `live`, and while one it knows still runs (so its
 /// end arrives), kept current from the registry's updates. A listing that fails leaves what the
 /// updates said. Going quiet keeps the last records, and the next listing replaces them, so a
@@ -256,6 +305,16 @@ export function useProcessRegistry(
     }
   }, [windowCalls, sessionId, windowed, state]);
   useEffect(() => {
+    // Closing the history releases its older rows even when an idle chat needs no subscription;
+    // every process the window's calls started is held, so those calls need no read.
+    if (windowed && sessionId) {
+      setState((known) => {
+        if (known.sessionId !== sessionId) return known;
+        const cut = windowState(known, seenRunning.current.ids, calls.current, endedWithin ?? 0, Date.now());
+        if (cut !== known) for (const call of calls.current) asked.current.calls.add(call);
+        return cut;
+      });
+    }
     if (!source || !sessionId || !on) return;
     let current = true;
     // This subscription's updates: newer than the list's records.

