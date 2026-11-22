@@ -114,7 +114,7 @@ pub(crate) struct Seen {
     pub home: PathBuf,
     /// The shared `~/.acpmux`.
     pub shared: bool,
-    /// This process holds the home.
+    /// This process holds the home's lock (the daemon running the pass).
     pub this: bool,
     /// A process holds `daemon.lock` (the kernel lock).
     pub lock_held: bool,
@@ -295,6 +295,7 @@ fn is_socket(path: &Path) -> bool {
 #[cfg(unix)]
 fn look(home: &Path, shared: &Path) -> Seen {
     let lock = home.join("daemon.lock");
+    let lock_held = super::lock::lock_has_live_holder(&lock);
     let read_pid = |path: PathBuf| std::fs::read_to_string(path).ok().and_then(|t| parse_pid(&t));
     let holder = read_pid(lock.clone()).or_else(|| read_pid(home.join("daemon.pid")));
     let age =
@@ -306,8 +307,9 @@ fn look(home: &Path, shared: &Path) -> Seen {
     Seen {
         home: home.to_owned(),
         shared: home == shared,
-        this: home == crate::config::home(),
-        lock_held: super::lock::lock_has_live_holder(&lock),
+        // A command that runs the pass holds no lock: only a daemon's own home is `this`.
+        this: lock_held && holder == Some(std::process::id()),
+        lock_held,
         holder,
         holder_gone: holder.is_some_and(pid_gone),
         socket_exists: is_socket(&home.join("acpmux.sock")),
