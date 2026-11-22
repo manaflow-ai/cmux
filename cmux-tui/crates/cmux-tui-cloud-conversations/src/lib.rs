@@ -16,6 +16,7 @@ mod contract;
 mod environments;
 mod error;
 mod host_replica;
+mod inbox_cache;
 pub mod platform;
 mod service;
 mod session;

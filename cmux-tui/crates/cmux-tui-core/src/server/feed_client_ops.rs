@@ -318,8 +318,11 @@ impl Mux {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
                 }),
-                place: Arc::new(move || match place_mux.upgrade() {
-                    Some(mux) => mux.feed_places(),
+                place: Arc::new(move |items| match place_mux.upgrade() {
+                    Some(mux) => match items {
+                        Some(items) => mux.feed_places_of(items),
+                        None => mux.feed_places(),
+                    },
                     None => Box::new(|_| None),
                 }),
             });

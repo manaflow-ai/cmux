@@ -23,10 +23,10 @@ use std::sync::Arc;
 use cmux_feed_core::client::{FeedItem, Place};
 
 use super::Mux;
-use crate::Surface;
 use crate::feed_client::Places;
-use crate::resource::ContentPublicId;
+use crate::resource::{BrowserPublicId, ContentPublicId, TabPublicId, TerminalPublicId};
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::{Surface, SurfaceId};
 
 /// One tab as a row names it.
 struct TabPlace {
@@ -81,6 +81,10 @@ fn tab_title(surface: &Surface) -> String {
     surface.name().filter(|name| !name.is_empty()).unwrap_or_else(|| surface.title())
 }
 
+/// Where one item's tab is, as the whole index would order it: the first by
+/// workspace position, then by surface id.
+type TabHit = (Option<usize>, SurfaceId);
+
 impl Mux {
     /// The feed client's per-read place lookup (module docs).
     pub(super) fn feed_places(&self) -> Places {
@@ -88,7 +92,130 @@ impl Mux {
         Box::new(move |item| index.place(item))
     }
 
+    /// The place lookup of a read that names only `items` (a delta
+    /// `feed.view.read`, a `feed.item.get`): each item's ids are looked up
+    /// in the store's own id maps, so the read costs a few lookups per item
+    /// and never the pass over every tab (~1,600 on Leo's Mac) that
+    /// [`Self::place_index`] makes. It names the same tab and workspace as
+    /// the index (feed_places_tests.rs `point_lookups_name_what_the_index_names`).
+    pub(super) fn feed_places_of(&self, items: &[FeedItem]) -> Places {
+        let presentation = self.presentation_snapshot();
+        // The agent chat tabs bound to each session an item names, from the
+        // presentation snapshot (no store lock).
+        let bound = |session: &str| -> Vec<BrowserPublicId> {
+            presentation
+                .conversation_tabs
+                .iter()
+                .filter(|(_, record)| {
+                    matches!(record, ConversationTabRecord::AgentSession { session: Some(of), .. } if of == session)
+                })
+                .filter_map(|(browser, _)| BrowserPublicId::parse(browser.as_str()).ok())
+                .collect()
+        };
+        let sessions: Vec<Vec<BrowserPublicId>> = items
+            .iter()
+            .map(|item| item.context_str("acp_session").map(bound).unwrap_or_default())
+            .collect();
+        // Ids only under `state`, as in `place_index`; names after it.
+        type Found = (Option<(Arc<Surface>, Option<usize>)>, Option<(usize, String)>);
+        let found: Vec<Found> = self.with_state(|state| {
+            let tabbed = |surface: SurfaceId| -> Option<TabHit> {
+                state.resource_indexes.tab_ids.get(&surface)?;
+                state.surfaces.get(&surface)?;
+                let workspace = state
+                    .pane_of(surface)
+                    .and_then(|pane| state.screen_of(pane))
+                    .map(|(workspace, _)| workspace);
+                Some((workspace, surface))
+            };
+            let first = |surfaces: &[SurfaceId]| -> Option<TabHit> {
+                surfaces.iter().filter_map(|surface| tabbed(*surface)).min()
+            };
+            let placements = |content: ContentPublicId| -> Option<TabHit> {
+                first(state.resource_indexes.content_placements.get(&content)?)
+            };
+            let display = |position: usize| -> Option<(usize, String)> {
+                let workspace = state.workspaces.get(position)?;
+                let name = presentation
+                    .workspaces
+                    .get(&workspace.key)
+                    .and_then(|record| record.title.clone())
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| workspace.name.clone());
+                Some((position, name))
+            };
+            items
+                .iter()
+                .zip(&sessions)
+                .map(|(item, browsers)| {
+                    let by_tab = item.context_str("tab").and_then(|id| {
+                        let surface = match TabPublicId::parse(id) {
+                            Ok(tab) => state.resource_indexes.tabs.get(&tab).copied(),
+                            Err(_) => id.parse::<SurfaceId>().ok(),
+                        };
+                        tabbed(surface?)
+                    });
+                    let by_terminal = || {
+                        let terminal =
+                            TerminalPublicId::parse(item.context_str("terminal")?).ok()?;
+                        placements(ContentPublicId::Terminal(terminal))
+                    };
+                    let by_session = || {
+                        browsers
+                            .iter()
+                            .filter_map(|browser| {
+                                placements(ContentPublicId::Browser(browser.clone()))
+                            })
+                            .min()
+                    };
+                    let tab = by_tab.or_else(by_terminal).or_else(by_session);
+                    let workspace = tab.and_then(|(workspace, _)| workspace).or_else(|| {
+                        let id = item.context_str("workspace")?;
+                        state.workspaces.iter().position(|workspace| {
+                            workspace.public_id.as_str() == id || workspace.id.to_string() == id
+                        })
+                    });
+                    let surface = tab.and_then(|(workspace, surface)| {
+                        Some((Arc::clone(state.surfaces.get(&surface)?), workspace))
+                    });
+                    (surface, workspace.and_then(display))
+                })
+                .collect()
+        });
+        let places: HashMap<String, Place> = items
+            .iter()
+            .zip(found)
+            .filter_map(|(item, (tab, workspace))| {
+                if tab.is_none() && workspace.is_none() {
+                    return None;
+                }
+                let harness = tab.as_ref().and_then(|(surface, _)| {
+                    let Some(ContentPublicId::Browser(browser)) =
+                        surface.resource_identity().map(|identity| &identity.content_id)
+                    else {
+                        return None;
+                    };
+                    match presentation.conversation_tabs.get(browser.as_str()) {
+                        Some(ConversationTabRecord::AgentSession { harness, .. }) => {
+                            harness.clone()
+                        }
+                        _ => None,
+                    }
+                });
+                let place = Place::with_harness(
+                    harness.as_deref(),
+                    workspace.map(|(_, name)| name),
+                    tab.map(|(surface, _)| tab_title(&surface)),
+                );
+                Some((item.id.clone(), place))
+            })
+            .collect();
+        Box::new(move |item| places.get(&item.id).cloned())
+    }
+
     pub(crate) fn place_index(&self) -> PlaceIndex {
+        #[cfg(test)]
+        INDEX_BUILDS.with(|builds| builds.set(builds.get() + 1));
         let presentation = self.presentation_snapshot();
         let mut index = PlaceIndex::default();
         // Ids only under `state`; surface names and titles take their own
@@ -154,6 +281,12 @@ impl Mux {
         }
         index
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Whole place indexes this thread built ([`Mux::place_index`]).
+    static INDEX_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

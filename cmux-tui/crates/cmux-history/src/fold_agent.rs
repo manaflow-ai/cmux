@@ -119,14 +119,19 @@ impl AgentSessionFold {
 
     /// Applies records in journal order. A record the Swift decoder would
     /// reject (no sequence or kind) is skipped without moving the cursor.
-    pub fn apply(&mut self, records: &[Value]) {
+    /// True when a History row changed: a session came or went, or a field
+    /// its entry shows moved. A record that changes none (a turn of the same
+    /// time, a new terminal or tab subject) is folded and reports false, so
+    /// the host does not tell open History pages to re-read.
+    pub fn apply(&mut self, records: &[Value]) -> bool {
+        let mut changed = false;
         for envelope in records.iter().filter_map(Envelope::parse) {
             if envelope.sequence > self.cursor {
-                self.apply_one(&envelope);
+                changed |= self.apply_one(&envelope);
                 self.cursor = envelope.sequence;
             }
         }
-        self.trim();
+        self.trim() || changed
     }
 
     /// Newest activity first; ties by session id, descending.
@@ -184,45 +189,53 @@ impl AgentSessionFold {
     /// One stamp of a coalesced activity row: a known session's last
     /// activity moves forward. It never makes a session and never changes
     /// when one started or ended.
-    fn apply_activity_stamp(&mut self, stamp: &Value) {
+    /// True when it moved the session's last activity.
+    fn apply_activity_stamp(&mut self, stamp: &Value) -> bool {
         let provider = string_at(Some(stamp), &["adapter"]);
         let session_id = string_at(Some(stamp), &["agent_session_id"]);
         let time =
             string_at(Some(stamp), &["observed_at_ms"]).and_then(|text| text.parse::<i64>().ok());
         let (Some(provider), Some(session_id), Some(time)) = (provider, session_id, time) else {
-            return;
+            return false;
         };
-        if let Some(session) = self.sessions.get_mut(&format!("{provider}/{session_id}")) {
-            session.last_activity_ms = session.last_activity_ms.max(time);
+        match self.sessions.get_mut(&format!("{provider}/{session_id}")) {
+            Some(session) if time > session.last_activity_ms => {
+                session.last_activity_ms = time;
+                true
+            }
+            _ => false,
         }
     }
 
-    fn apply_one(&mut self, record: &Envelope<'_>) {
+    /// True when the record changed what the session's History row shows.
+    fn apply_one(&mut self, record: &Envelope<'_>) -> bool {
         if !record.kind.starts_with("agent.") {
-            return;
+            return false;
         }
         let Some(normalized) = record.payload.and_then(|payload| payload.get("normalized")) else {
-            return;
+            return false;
         };
         if !normalized.is_object() {
-            return;
+            return false;
         }
         // The daemon's coalesced activity row: report times of many
         // sessions, no session of its own.
         if let Some(stamps) = normalized.get("activity").and_then(Value::as_array) {
+            let mut changed = false;
             for stamp in stamps {
-                self.apply_activity_stamp(stamp);
+                changed |= self.apply_activity_stamp(stamp);
             }
-            return;
+            return changed;
         }
         let session_id = string_at(Some(normalized), &["agent_session_id"])
             .or_else(|| string_at(Some(normalized), &["root_agent_session_id"]));
         let Some(session_id) = session_id.filter(|id| !id.is_empty()) else {
-            return;
+            return false;
         };
         let provider = string_at(record.payload, &["adapter", "id"]).unwrap_or("agent");
         let time = time_of(record, normalized);
         let key = format!("{provider}/{session_id}");
+        let before = self.sessions.get(&key).map(Shown::of);
         let session = self.sessions.entry(key).or_insert_with(|| AgentSession {
             machine: self.machine.clone(),
             provider: provider.to_owned(),
@@ -261,11 +274,13 @@ impl AgentSessionFold {
         if let Some(workspace) = record.subject("workspace") {
             session.workspace = Some(workspace.to_owned());
         }
+        before.as_ref() != Some(&Shown::of(session))
     }
 
-    fn trim(&mut self) {
+    /// True when it dropped a session.
+    fn trim(&mut self) -> bool {
         if self.sessions.len() <= self.capacity {
-            return;
+            return false;
         }
         let drop: Vec<String> = self
             .ordered()
@@ -275,6 +290,30 @@ impl AgentSessionFold {
             .collect();
         for key in drop {
             self.sessions.remove(&key);
+        }
+        true
+    }
+}
+
+/// What a session's History row shows of it ([`AgentSession::entry`]): its
+/// time, folder, workspace and whether it runs. The terminal, tab and start
+/// time are folded but shown nowhere, so a record that moves only those
+/// changes no row.
+#[derive(PartialEq, Eq)]
+struct Shown {
+    last_activity_ms: i64,
+    cwd: Option<String>,
+    workspace: Option<String>,
+    running: bool,
+}
+
+impl Shown {
+    fn of(session: &AgentSession) -> Self {
+        Self {
+            last_activity_ms: session.last_activity_ms,
+            cwd: session.cwd.clone(),
+            workspace: session.workspace.clone(),
+            running: session.ended_at_ms.is_none(),
         }
     }
 }
