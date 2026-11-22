@@ -64,10 +64,18 @@ pub(super) fn parse(rest: &[&str]) -> Result<RecordRequest, String> {
             "--id" => id = Some(value.to_owned()),
             "--machine" => machine = Some(value.to_owned()),
             "--seconds" => seconds = Some(number(word, value)?),
-            "--max-seconds" => options.set("max_seconds", json!(number(word, value)?)),
-            "--display" => options.set("display", json!(value)),
-            "--fps" => options.set("fps", json!(whole(word, value)?)),
-            _ => options.set("max_edge", json!(whole(word, value)?)),
+            "--max-seconds" => {
+                options.set("max_seconds", json!(number(word, value)?));
+            }
+            "--display" => {
+                options.set("display", json!(value));
+            }
+            "--fps" => {
+                options.set("fps", json!(whole(word, value)?));
+            }
+            _ => {
+                options.set("max_edge", json!(whole(word, value)?));
+            }
         }
     }
     match verb {
