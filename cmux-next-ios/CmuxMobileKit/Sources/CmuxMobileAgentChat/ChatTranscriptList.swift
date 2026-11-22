@@ -581,6 +581,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private(set) var snapshotApplies = 0
     /// Native layouts made on the main thread (tests: none for a streaming row off screen).
     var layoutsMadeNow: Int { lookup.layouts.madeNow }
+    /// Native layouts made off the main thread (tests: a changed kill switch answer lays rows out again).
+    var layoutsMadeOffMain: Int { lookup.layouts.madeOffMain }
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store

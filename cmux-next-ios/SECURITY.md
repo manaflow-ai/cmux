@@ -1425,9 +1425,14 @@ the phone). It is not a link service and no Mac is involved: the phone fetches
   knows switches nothing and is logged.
 - **Never in the way.** The read happens after launch and on each return to the
   foreground (at most one GET every 15 minutes, 10 s, no redirect, no cookie, token or
-  device id). Its answer takes effect as the app next leaves or enters the foreground.
-  At launch the last file taken is read from the disk before a piece first shows. No
-  failure reaches the person or stops the app.
+  device id). Its answer takes effect as the app next leaves or enters the foreground,
+  in screens already open too (`MobilePieces.didChangeNotification`): an open terminal
+  turns predictive echo off or on again, a terminal attached in the other Agent CLI
+  Screen Changes mode attaches again at once (as after a frame it could not draw), and
+  an open chat lays its rows out again. A markdown view outside the chat already on
+  screen keeps its renderer until it is drawn again. At launch the last file taken is
+  read from the disk before a piece first shows. No failure reaches the person or stops
+  the app.
 - **Which builds.** Only cmux INTERNAL (TestFlight, `dev.cmux.app.internal`) reads a
   file. The App Store app (`com.cmux.app`), Beta, Demo and DEBUG builds make no request
   and keep no state (`phone::channel`); turning it on for the App Store app is Leo's.
@@ -1453,7 +1458,9 @@ the phone). It is not a link service and no Mac is involved: the phone fetches
 - Tests: `cmux-web-pieces` `phone_tests` (every refusal, the off and on round trip),
   `cmux-mobile-link` `pieces_tests` (the state, the log, the GET), `cmux-mobile-link-ffi`
   `pieces` (a build that reads none touches nothing), `MobilePiecesTests` (the Swift
-  host), `tests/test_web_pieces_file.sh` (publishing, kind `ios`).
+  host: a change is posted, a slow first load blocks no reader), `PiecesChangeLayoutTests`
+  (the chat lays its rows out again), `tests/test_web_pieces_file.sh` (publishing, kind
+  `ios`).
 
 ## Decisions for the person
 
