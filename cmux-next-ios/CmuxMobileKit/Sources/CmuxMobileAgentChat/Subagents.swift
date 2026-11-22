@@ -74,7 +74,9 @@ final class SubagentRowsMemo {
     private(set) var rowsMade = 0
 
     func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
-        if let last = self.agent, let turn, last == agent { return (turn, rows) }
+        // MUTANT (do not merge): keyed only on the items' ids and count, not their content, so
+        // streamed text inside an existing answer never reaches its row.
+        if let last = self.agent, let turn, last.items.map(\.id) == agent.items.map(\.id), last.state == agent.state { return (turn, rows) }
         builds += 1
         let turn = agent.asTurn
         let items = agent.items
