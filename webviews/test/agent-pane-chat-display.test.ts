@@ -138,6 +138,19 @@ describe("chat display drawing", () => {
     expect(style.has("--cv-font-size")).toBe(false);
   });
 
+  test("named transcript widths resolve to the same layout as their numeric caps", () => {
+    for (const [name, points] of [
+      ["narrow", 640],
+      ["medium", 800],
+      ["wide", 960],
+    ] as const) {
+      const preset = resolveChatDisplay({ "agentPane.display.width": name });
+      expect(preset.width).toBe(points);
+      expect(preset).toEqual(resolveChatDisplay({ "agentPane.display.width": points }));
+    }
+    expect(resolveChatDisplay({ "agentPane.display.width": "unknown" }).width).toBe(800);
+  });
+
   test("Chat Text Width sets every chat's column, the default too; Full Width fills the pane", () => {
     const wide = resolveChatDisplay({ "agentPane.display.width": 1200 });
     expect(chatColumnOf(wide, 1.25).max).toBe(960);

@@ -1,5 +1,6 @@
 // Relative times for the recent lists ("5 minutes ago", "yesterday"), localized by Intl in the
 // page's language, so no table string is needed.
+import { intl } from "../ui/intl";
 
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["year", 365 * 24 * 3600],
@@ -12,7 +13,7 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
 
 /** `then` relative to `now` (both milliseconds) in `language`; under a minute is "now". */
 export function relativeTime(then: number, now: number, language: string): string {
-  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto", style: "short" });
+  const format = intl.RelativeTimeFormat(language, { numeric: "auto", style: "short" });
   const seconds = Math.round((then - now) / 1000);
   const magnitude = Math.abs(seconds);
   for (const [unit, size] of UNITS) {
