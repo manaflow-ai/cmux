@@ -201,7 +201,7 @@ function Row({
       <div className="gh-ci-line">
         <span className="gh-dot" aria-hidden="true" />
         {first.url ? (
-          <button type="button" className="gh-row-link" title={first.name} onClick={() => open(first.url!)}>
+          <button type="button" className="gh-row-link" aria-description={first.name} onClick={() => open(first.url!)}>
             {row.name}
           </button>
         ) : (
