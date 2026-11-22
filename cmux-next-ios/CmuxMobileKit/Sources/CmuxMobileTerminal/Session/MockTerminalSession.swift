@@ -1,5 +1,6 @@
 // DEBUG and Demo builds only: mock content is never compiled into Production.
 #if DEBUG
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 
@@ -13,6 +14,8 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var isAlternateScreen = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+    /// `HostLoadSim`'s observers (DEBUG host load: a busy Mac's output, a dropped link).
+    private var hostLoad: [NSObjectProtocol] = []
     private let clock: any Clock<Duration>
     private let playsIntro: Bool
     private var columns = 50
@@ -86,6 +89,7 @@ public final class MockTerminalSession: TerminalSession {
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         self.handler = handler
         handler(.title("zsh — cmux-next"))
+        observeHostLoad()
         let intro = playsIntro
         run { session in
             session.write("Last login: Mon Oct 12 09:41:07 on ttys004\r\n")
@@ -207,6 +211,8 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        hostLoad.forEach(NotificationCenter.default.removeObserver)
+        hostLoad.removeAll()
         resizeAnswer?.cancel()
         resizeAnswer = nil
         answers.removeAll()
@@ -216,6 +222,29 @@ public final class MockTerminalSession: TerminalSession {
         delivery = nil
         inFlight.removeAll()
         handler = nil
+    }
+
+    // MARK: Host load
+
+    /// `HostLoadSim`: a heavy tick writes a build's status line over the top
+    /// row (cursor saved and restored), as a streaming Mac does; a cut takes
+    /// the link offline.
+    private func observeHostLoad() {
+        guard hostLoad.isEmpty else { return }
+        let center = NotificationCenter.default
+        if HostLoadSim.mode == .cut { handler?(.connection(.offline(mac: nil))) }
+        hostLoad.append(center.addObserver(forName: HostLoadSim.tick, object: nil, queue: .main) { [weak self] note in
+            let tick = note.object as? Int ?? 0
+            MainActor.assumeIsolated { self?.hostLoadTick(tick) }
+        })
+        hostLoad.append(center.addObserver(forName: HostLoadSim.cut, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handler?(.connection(.offline(mac: nil))) }
+        })
+    }
+
+    private func hostLoadTick(_ tick: Int) {
+        guard case .shell = program else { return }
+        write("\u{1B}7\u{1B}[1;1H\u{1B}[2K   Compiling cmux-mobile-host step \(tick) of 4000\u{1B}8")
     }
 
     // MARK: Output

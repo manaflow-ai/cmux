@@ -152,15 +152,27 @@ open class ComposerReturnTextView: UITextView {
         if contentOffset.y != top { contentOffset.y = top }
     }
 
-    #if DEBUG
-    /// A typed key to the frame that draws it (`InputLatencyTrace`: `<field id>_key_frame`).
-    override open func insertText(_ text: String) {
-        guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
-        let start = CACurrentMediaTime()
-        super.insertText(text)
-        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+    /// Key-to-glyph stamps (`ComposerKeyStamp`): signposts in every build, samples under `InputLatencyTrace`.
+    private lazy var keyStamp = ComposerKeyStamp { [weak self] in self?.accessibilityIdentifier ?? "composer" }
+
+    override open func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let event, presses.contains(where: { $0.key != nil }) { keyStamp.pressed(at: event.timestamp) }
+        super.pressesBegan(presses, with: event)
     }
-    #endif
+
+    /// A typed key to the frame that draws it (`ComposerKeyStamp`; DEBUG `InputLatencyTrace` also
+    /// keeps `<field id>_key_frame`, insertion to the next display-link callback).
+    override open func insertText(_ text: String) {
+        #if DEBUG
+        if let trace = InputLatencyTrace.shared {
+            let start = CACurrentMediaTime()
+            keyStamp.insert { super.insertText(text) }
+            trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+            return
+        }
+        #endif
+        keyStamp.insert { super.insertText(text) }
+    }
 
     override open func layoutSubviews() {
         super.layoutSubviews()
