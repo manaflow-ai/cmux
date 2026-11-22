@@ -13,8 +13,8 @@ public import Observation
 @MainActor
 @Observable
 public final class MacScreenRecording {
-    /// The file being written; nil when not recording.
-    public private(set) var file: URL?
+    /// The file being written; nil when not recording (internal set: the viewer gallery draws a recording).
+    public internal(set) var file: URL?
     /// The newest finished file (Show in Finder).
     public private(set) var lastFile: URL?
     /// The last recording could not be created or written.
