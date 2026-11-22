@@ -3030,17 +3030,24 @@ button.menu-disclosure {
 }
 
 .customize-progress__bar {
-  height: 4px;
+  display: block;
+  width: 100%;
+  height: var(--ds-space-1);
   overflow: hidden;
-  border-radius: 2px;
+  border: 0;
+  border-radius: var(--grid-half-step);
+  appearance: none;
   background: var(--border);
 }
 
-.customize-progress__fill {
-  height: 100%;
-  border-radius: inherit;
+.customize-progress__bar::-webkit-progress-bar {
+  background: var(--border);
+}
+
+.customize-progress__bar::-webkit-progress-value {
+  border-radius: var(--grid-half-step);
   background: var(--ds-color-accent);
-  transition: width 200ms ease;
+  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 
 .customize-progress__steps {
@@ -3059,12 +3066,13 @@ button.menu-disclosure {
 }
 
 .customize-progress__check {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
@@ -3077,8 +3085,21 @@ button.menu-disclosure {
   background: var(--ds-color-accent);
 }
 
-.customize-progress__check:disabled {
+.customize-progress__check input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.customize-progress__check input:disabled {
   cursor: default;
+}
+
+.customize-progress__check:has(input:focus-visible) {
+  outline: 2px solid var(--ds-color-accent);
+  outline-offset: 1px;
 }
 
 .customize-progress__check .icon {

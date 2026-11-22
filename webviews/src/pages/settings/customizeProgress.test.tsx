@@ -56,7 +56,7 @@ test("a step's Open goes to where it is done", async () => {
 
 test("checking a step off writes it to customize.checklist.done and counts it", async () => {
   await open();
-  await click(card()!.querySelector('[data-step="theme"] [role="checkbox"]')!);
+  await click(card()!.querySelector('[data-step="theme"] input[type="checkbox"]')!);
   await settle();
   const writes = ops(page!.provider, "cmux.settings.set").map((params) => params as { key?: string; value?: unknown });
   expect(writes.some((write) => write.key === "customize.checklist.done")).toBe(true);

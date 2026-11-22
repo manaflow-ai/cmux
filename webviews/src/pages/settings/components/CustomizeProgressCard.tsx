@@ -175,17 +175,16 @@ function StepRow({ step, actions }: { step: ChecklistStep; actions: ProgressActi
   const title = text(step.title);
   return (
     <li className="customize-progress__step" data-step={step.id} data-done={step.done ? "" : undefined}>
-      <button
-        type="button"
-        className="customize-progress__check"
-        role="checkbox"
-        aria-checked={step.done}
-        aria-label={title}
-        disabled={derived}
-        onClick={() => actions.onCheck(step.id, !step.done)}
-      >
+      <label className="customize-progress__check">
+        <input
+          type="checkbox"
+          checked={step.done}
+          aria-label={title}
+          disabled={derived}
+          onChange={(event) => actions.onCheck(step.id, event.currentTarget.checked)}
+        />
         {step.done ? <Icon name="check" /> : null}
-      </button>
+      </label>
       <div className="customize-progress__words">
         <span className="customize-progress__step-title">{title}</span>
         <span className="row-help">{text(step.detail)}</span>
@@ -204,17 +203,7 @@ function StepRow({ step, actions }: { step: ChecklistStep; actions: ProgressActi
 }
 
 function Bar({ done, total }: { done: number; total: number }) {
-  return (
-    <div
-      className="customize-progress__bar"
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={total}
-      aria-valuenow={done}
-    >
-      <div className="customize-progress__fill" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
-    </div>
-  );
+  return <progress className="customize-progress__bar" max={total || 1} value={done} />;
 }
 
 function Ring({ done, total }: { done: number; total: number }) {
