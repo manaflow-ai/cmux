@@ -174,10 +174,7 @@ fn a_started_task_forgets_its_key_and_a_failed_one_lets_the_repeat_run() {
 #[test]
 fn the_read_call_follows_the_chats_route() {
     assert_eq!(read_call(Some(&Route::Direct), "t1"), r#"mcp__acpmux__bg_output {"id":"t1"}"#);
-    assert_eq!(
-        read_call(Some(&Route::Listed), "t1"),
-        r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#
-    );
+    assert_eq!(read_call(Some(&Route::Listed), "t1"), r#"mcp__cmux__acpmux_bg_output {"id":"t1"}"#);
     assert!(read_call(Some(&Route::CodeMode), "t1").contains("cmux.acpmux_bg_output("));
     for route in [Route::Direct, Route::Listed, Route::CodeMode] {
         assert_eq!(route_of_word(route_word(&route)), Some(route));
@@ -318,10 +315,7 @@ mod agent_messaging {
             out["updatedInput"]["command"],
             "export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7af3df5967e\nacpmux send beta --wait 'hi'"
         );
-        assert_eq!(
-            out["updatedInput"]["description"], "ask beta",
-            "the rest of the call stays"
-        );
+        assert_eq!(out["updatedInput"]["description"], "ask beta", "the rest of the call stays");
         assert_eq!(out["updatedInput"]["timeout"], 5000);
         // The lead's own call, another command, a marked one, an odd id: unchanged.
         assert_eq!(subagent_mark(&call("acpmux send beta hi", None)), None);
@@ -332,10 +326,7 @@ mod agent_messaging {
         // A type that is no plain word is named `subagent`.
         let odd = subagent_mark(&call("acpmux ls", Some(("my agent", "a1")))).unwrap();
         let command = odd["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
-        assert!(
-            command.starts_with("export ACPMUX_CALLER_SUBAGENT=subagent:a1\n"),
-            "{command}"
-        );
+        assert!(command.starts_with("export ACPMUX_CALLER_SUBAGENT=subagent:a1\n"), "{command}");
     }
 }
 
@@ -453,10 +444,7 @@ fn the_bash_hook_starts_the_binary_only_for_a_call_it_may_answer() {
     );
     for command in &slow {
         assert!(slow_reason(command).is_some(), "{command}");
-        assert!(
-            starts(&foreground(command)),
-            "a slow command did not start the hook: {command}"
-        );
+        assert!(starts(&foreground(command)), "a slow command did not start the hook: {command}");
     }
     let quick =
         ["git status --short | head -20", "ls -la", "rg -n TODO src", "echo run_in_background"];
