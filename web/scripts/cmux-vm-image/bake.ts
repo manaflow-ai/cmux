@@ -78,6 +78,7 @@ import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
+  devboxClaudeSettingsDefaultsCommand,
   devboxFileBytes,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -114,6 +115,7 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
+import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
 import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
 import {
   argValue,
@@ -965,6 +967,16 @@ async function installMachineHealth(ctx: Ctx): Promise<void> {
   ctx.result.machineHealth = JSON.parse(out.slice(out.lastIndexOf('{"schema"')));
 }
 
+/**
+ * The Cloud Chief host units (chief-host.ts), disabled: after the store and the work user. Rerun by the app
+ * layer, whose store swap may bring a new optchat-chief.
+ */
+async function installChiefHost(ctx: Ctx): Promise<void> {
+  const { vm, L, lock } = ctx;
+  for (const file of chiefHostFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  ctx.result.chiefHost = (await L.step(vm, "chief-host", chiefHostInstallCommand(chiefBinary(lock)))).trim().split("\n").at(-1);
+}
+
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
@@ -1034,6 +1046,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
+  // After wireCmuxTui, whose hook install wrote the work user's ~/.claude/settings.json; this only adds keys it lacks.
+  await L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
@@ -1180,6 +1194,7 @@ async function baseSteps(ctx: Ctx): Promise<void> {
   if (!options.layered) await prefillDepCaches(ctx);
   if (options.devTree) await installDevTree(ctx);
   await installMachineHealth(ctx);
+  await installChiefHost(ctx);
   await installHostConfig(ctx);
   await startDaemon(ctx);
   await writeModelPlane(ctx);
@@ -1207,6 +1222,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
     return;
   }
   await wireCmuxTui(ctx);
+  await installChiefHost(ctx);
   await installHostConfig(ctx);
   await startDaemon(ctx);
   await writeModelPlane(ctx);

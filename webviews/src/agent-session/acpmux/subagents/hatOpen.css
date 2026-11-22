@@ -1,0 +1,139 @@
+/* How a hat line opens what it stands for (hatOpen.experiment.ts, SubagentTray.tsx `line`,
+   AgentLine.tsx). Lawrence, 2026-11-20: "ui for opening subagents is very confusing". Every arm keeps
+   the hat's columns (subagents.css): the time, Stop and chevron tracks never move. */
+
+/* ---------- `row`: the line opens; its details are the chevron's own button ---------- */
+/* The details' button lies over the line's chevron track, as Stop lies over its own (subagents.css
+   `.acpmux-agent-line__stop-slot`): outside the line's button, on the row's centre line. */
+.acpmux-running-tray .acpmux-agent-line__disclose-slot {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  right: var(--acpmux-tray-inset-end, var(--acpmux-tray-inset));
+  width: var(--acpmux-tray-chevron-width);
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.acpmux-running-tray .acpmux-agent-line__disclose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--acpmux-tray-chevron-width);
+  height: var(--ui-row-height, 28px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  pointer-events: auto;
+  cursor: default;
+}
+/* Its own highlight, never the line's (Leo, 2026-10-27: a highlight covers only its control). */
+.acpmux-running-tray .acpmux-agent-line__disclose:hover {
+  background: var(--ds-surface-hover);
+  color: var(--agent-text);
+}
+.acpmux-running-tray .acpmux-agent-line__disclose:active {
+  background: var(--ds-color-pressed);
+}
+.acpmux-running-tray .acpmux-agent-line__disclose:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* It turns down while the details show, on the move token, as every hat expansion does. */
+.acpmux-running-tray .acpmux-agent-line__disclose > svg {
+  transition: rotate var(--agent-motion-move, 180ms) var(--agent-ease-out);
+}
+.acpmux-running-tray .acpmux-agent-line__disclose[aria-expanded="true"] > svg {
+  rotate: 90deg;
+}
+/* A narrow line takes two rows: the button sits on the controls row with Stop. A line with a second
+   line of progress does so from 400px, as subagents.css moves its other controls; every line from
+   260px. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__disclose-slot {
+    top: auto;
+    bottom: 0;
+    height: var(--ui-row-height, 28px);
+  }
+}
+@container running-tray (max-width: 260px) {
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__disclose-slot {
+    top: auto;
+    bottom: 0;
+    height: var(--ui-row-height, 28px);
+  }
+}
+/* The details button lights itself, never the line around it, as Resume does (subagents.css). */
+.acpmux-running-tray
+  .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):has(
+    .acpmux-agent-line__disclose-slot > .acpmux-agent-line__disclose:hover
+  ):hover {
+  background: transparent;
+}
+
+/* ---------- `rolodex`: a card flips up over the line under the pointer ---------- */
+/* The shared hover card (ui/Tooltip.tsx `ui-card`, its glass and warm group): the first waits the
+   hover delay, then running the pointer down the list moves from card to card at once. Like every
+   hover card it shows and goes in one frame, with no flip, fade or rise
+   (test/popover-instant-open.test.ts). */
+
+/* ---------- `hide`: the hide control in the header, not on the top edge ---------- */
+/* Its room, in the header's trailing run one column before the panel button's (or the lines' Stop
+   column when there is none), so the header's chevron stays the only thing that expands. */
+.acpmux-running-tray__head > .acpmux-running-tray__hide-slot {
+  flex: 0 0 var(--acpmux-tray-stop-width);
+  width: var(--acpmux-tray-stop-width);
+  margin-inline: calc(var(--acpmux-tray-gap) - var(--ds-space-2));
+}
+.acpmux-running-tray__hide {
+  position: absolute;
+  /* On the header's centre line, as the panel button (subagents.css `--acpmux-tray-head-control-top`). */
+  top: var(--acpmux-tray-head-control-top);
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
+  box-sizing: border-box;
+  width: var(--acpmux-tray-stop-width);
+  height: var(--ui-row-height, 28px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+  opacity: 0;
+  pointer-events: none;
+  /* The transcript's shared hover-reveal fade, as the top-edge tuck uses. */
+  transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+}
+.acpmux-running-tray__hide[data-with-panel] {
+  right: calc(
+    var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + 2 * var(--acpmux-tray-gap) +
+      var(--acpmux-tray-stop-width)
+  );
+}
+.acpmux-running-tray:hover > .acpmux-running-tray__hide,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__hide,
+.acpmux-running-tray__hide:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+}
+.acpmux-running-tray__hide:hover {
+  background: var(--ds-surface-hover);
+  color: var(--agent-text);
+}
+.acpmux-running-tray__hide:active {
+  background: var(--ds-color-pressed);
+}
+.acpmux-running-tray__hide:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}

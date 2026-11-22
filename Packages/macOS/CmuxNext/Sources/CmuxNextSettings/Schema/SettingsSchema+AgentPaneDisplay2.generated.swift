@@ -11,7 +11,11 @@ extension AgentPaneDisplaySettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.width", "Chat Text Width"),
                 help: SettingsText.keyed("settings.agentPane.display.width.help", "The widest the chat's column gets. On a wider pane the chat stays centered."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
+                kind: .choiceOrNumber([
+                    SettingChoice("narrow", SettingsText.keyed("settings.choice.width.narrow", "Narrow")),
+                    SettingChoice("medium", SettingsText.keyed("settings.choice.editor.medium", "Medium")),
+                    SettingChoice("wide", SettingsText.keyed("settings.choice.width.wide", "Wide")),
+                ], SettingNumber(AgentPaneDisplaySettingsSchema.widthRange, step: 10, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.widthPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.widthDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "width", "max width", "column", "measure", "wide"]
             ),
@@ -171,6 +175,36 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.uiFontDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.uiFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.uiFamily", "Chat Interface Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.uiFamily.help", "A font family or a comma list of them. When set, it replaces the Chat Interface Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "font", "interface", "ui", "family", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.proseFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.proseFamily", "Chat Reply Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.proseFamily.help", "The font of the agent's replies. When set, it replaces the Chat Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "reply", "prose", "family", "serif", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.facesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.fontFaces", "Chat Font Files"),
+                help: SettingsText.keyed("settings.agentPane.display.fontFaces.help", "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["agent", "chat", "display", "font", "file", "woff2", "ttf", "otf", "face", "typeface", "custom"]
             ),
             SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,
@@ -333,52 +367,19 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "transcript", "trajectory", "steps", "tool calls", "timeline", "hide", "filter", "reads", "searches", "commands", "thinking"]
             ),
             SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.promptCoachPath,
+                AgentPaneDisplaySettingsSchema.transcriptLookPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
-                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat with many corrections, shows a better first prompt."),
-                kind: .toggle,
-                default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
-                keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.statusVerbsModePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
-                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help", "Choose whether the live status line rotates through verbs or stays on Thinking."),
+                title: SettingsText.keyed("settings.agentPane.display.transcriptLook", "Transcript Look"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptLook.help", "How messages, cards and spacing look."),
                 kind: .choice([
-                    SettingChoice("thinking", SettingsText.keyed("settings.choice.agentChatStatusVerbsThinking", "Thinking only")),
-                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
-                    SettingChoice("custom", SettingsText.keyed("settings.choice.agentChatStatusVerbsCustom", "Custom")),
+                    SettingChoice("cmux", "cmux"),
+                    SettingChoice("claude", "Claude"),
+                    SettingChoice("codex", "Codex"),
+                    SettingChoice("studio", "Studio"),
                 ]),
-                default: .string(AgentPaneDisplaySettingsSchema.statusVerbsModeDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.statusVerbsCustomPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
-                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help", "Comma-separated -ing verbs for the live status line."),
-                kind: .text,
-                default: nil,
-                keywords: ["agent", "chat", "acp", "display", "reading", "status", "working", "verbs", "custom", "comma", "thinking"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.harnessPlacementPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
-                kind: .choice([
-                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
-                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
-                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
+                default: .string(AgentPaneDisplaySettingsSchema.transcriptLookDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "look", "style", "preset", "claude", "codex", "studio", "bubble", "density", "spacing"]
             ),
         ]
     }
