@@ -40,6 +40,8 @@ mod apps_run;
 #[cfg(unix)]
 mod attention;
 #[cfg(unix)]
+mod auth_handoff;
+#[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
 mod automation;
@@ -66,6 +68,8 @@ mod chief_target;
 #[cfg(unix)]
 mod cloud_api;
 #[cfg(unix)]
+mod cloud_auth_handoff_relay;
+#[cfg(unix)]
 mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
@@ -82,6 +86,8 @@ mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
@@ -113,6 +119,8 @@ pub(crate) use completion::refuse_in_help_reader;
 mod community;
 #[cfg(unix)]
 mod customize;
+#[cfg(unix)]
+mod debug_perf;
 #[cfg(unix)]
 mod dev;
 mod docs;
@@ -155,6 +163,8 @@ mod sandbox_run;
 mod start_stages;
 #[cfg(unix)]
 mod vm;
+#[cfg(unix)]
+mod vm_cleanup;
 #[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
@@ -815,6 +825,12 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `vm rm NAME --confirm --wait --with-snapshots`, `vm snapshots [--orphaned]` and
+    // `vm snapshot rm ID --confirm`: cleanup in one command (vm_cleanup.rs).
+    #[cfg(unix)]
+    if let Some(code) = vm_cleanup::run_if_requested(args) {
+        return code;
+    }
     // `vm pause dev`: the short Cloud VM verbs, through the app when it is here.
     #[cfg(unix)]
     if let Some(code) = vm_short::run_if_requested(args) {
@@ -959,6 +975,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_run_account::run_if_requested(args))
         .or_else(|| cloud_retention::run_if_requested(args))
+        .or_else(|| cloud_pause_all::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_auth::run_if_requested(args))
@@ -966,6 +983,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
+        .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
@@ -980,6 +998,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
+        .or_else(|| debug_perf::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
