@@ -9,10 +9,15 @@ import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The composer row (classic cmux iOS's terminal composer): a paperclip
-/// menu (Photo Library, Choose Files, Paste, Camera) and voice mode in 40 pt
-/// glass circles, then the growing field in a rounded glass container with the send
-/// circle inside it, riding the last line. Send delivers the draft as one
+/// The composer row: a + menu (Photo Library, Choose Files, Paste, Camera)
+/// in a 40 pt glass circle, then the growing field in a rounded glass
+/// container with the send circle inside it, riding the last line. Picked
+/// attachments sit inside the field, above the text and starting where it
+/// starts (Messages, ChatGPT, Claude). Voice mode has no button unless the
+/// user turns one on (Settings → Chief Calls; Leo, 2026-11-22: "im hiding
+/// this by default"); then it is the send circle while the draft is empty, or
+/// a circle left of the field. Why each control is here, with sources:
+/// cmuxterm-hq docs/design/ios-composer-controls.md. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
 /// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
@@ -42,14 +47,10 @@ struct TerminalComposer: View {
                     .padding(.leading, TerminalDockMetrics.control + 8)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
-            if !model.attachments.isEmpty {
-                AttachmentStrip(model: model)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
+                    if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
                     fieldContainer
                 }
             }
@@ -100,8 +101,16 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Classic's order: Photo Library, Choose Files, Paste; then Camera,
-    /// which cmux NEXT offers as well.
+    /// The terminal's agent, when voice mode can run on it.
+    private var voiceSource: (any AgentVoiceSource)? {
+        guard let source = model.voiceSource, source.voiceAvailable else { return nil }
+        return source
+    }
+
+    /// + as in Messages, Slack, ChatGPT, Claude and Discord: the menu adds
+    /// photos, files, a paste and the camera, not only files (a paperclip
+    /// reads as "attach a file", Mail's meaning). Classic's order: Photo
+    /// Library, Choose Files, Paste; then Camera.
     private var attachMenu: some View {
         Menu {
             Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
@@ -119,7 +128,7 @@ struct TerminalComposer: View {
                 }
             }
         } label: {
-            ComposerCircleLabel(systemImage: "paperclip")
+            ComposerCircleLabel(systemImage: "plus")
         }
         .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("Add Attachment")
@@ -147,6 +156,34 @@ struct TerminalComposer: View {
     /// The field and its send circle share one rounded glass container; the
     /// circle rides the last line as the field grows (classic, iMessage).
     private var fieldContainer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Inside the field, where the text starts: one attachment sits
+            // over the draft's first letter, never in the far corner from send.
+            if !model.attachments.isEmpty {
+                AttachmentStrip(model: model)
+                    .padding(.leading, -AttachmentStrip.edgeInset)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            fieldRow
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, TerminalDockMetrics.fieldPadding)
+        // No vertical padding around the text: the text view runs from the
+        // field's top edge to its bottom edge (`textVerticalInset` keeps the
+        // text off them), so a scrolled draft is cut exactly at the edge. The
+        // rounded shape clips the cut lines at the corners too.
+        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        // Clear glass, not regular: regular glass changes its material with
+        // the shape's size, so the field turned a lighter gray once a draft
+        // passed three lines (Leo, 2026-11-21: "the composer brightening up
+        // when you have >3 lines"). Clear glass looks the same at every
+        // height, the look a one-line draft always had
+        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
+        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+    }
+
+    private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             ComposerTextView(
                 text: $model.composerText,
@@ -164,24 +201,38 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
-            sendButton
+            primaryButton
                 .padding(.vertical, TerminalDockMetrics.fieldPadding)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        // No vertical padding around the text: the text view runs from the
-        // field's top edge to its bottom edge (`textVerticalInset` keeps the
-        // text off them), so a scrolled draft is cut exactly at the edge. The
-        // rounded shape clips the cut lines at the corners too.
-        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
-        .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        // Clear glass, not regular: regular glass changes its material with
-        // the shape's size, so the field turned a lighter gray once a draft
-        // passed three lines (Leo, 2026-11-21: "the composer brightening up
-        // when you have >3 lines"). Clear glass looks the same at every
-        // height, the look a one-line draft always had
-        // (TerminalComposerLookUITests: 1, 3, 4 and 8 lines).
-        .glassEffect(.clear.interactive(), in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+    }
+
+    /// Send, or with "In Send Button" and nothing to send, voice mode (the
+    /// ChatGPT composer): one circle, never a disabled send beside a mic.
+    @ViewBuilder private var primaryButton: some View {
+        let empty = model.composerText.isEmpty && model.attachments.isEmpty
+        if voice.placement == .sendButton, let source = voiceSource,
+           (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
+            sendCircleVoiceButton(source)
+        } else {
+            sendButton
+        }
+    }
+
+    private func sendCircleVoiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color.cmuxMobileOnAccent)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
+                .glassEffect(.regular.tint(Color.cmuxMobileAccent).interactive(), in: .circle)
+        }
+        .buttonStyle(.cmuxPressGlass)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     private var sendButton: some View {
@@ -324,7 +375,7 @@ struct TerminalComposer: View {
     }
 }
 
-/// A 40 pt glass circle with an icon: the composer's paperclip and mic (classic).
+/// A 40 pt glass circle with an icon: the composer's + and, when turned on, voice.
 struct ComposerCircleLabel: View {
     let systemImage: String
     var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
@@ -370,6 +421,8 @@ struct MovieFile: Transferable {
 /// chips for files, each with a 20 pt remove badge.
 struct AttachmentStrip: View {
     let model: TerminalModel
+    /// The strip's own inset around its tiles (room for the remove badges).
+    static let edgeInset: CGFloat = 8
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -402,8 +455,8 @@ struct AttachmentStrip: View {
                         }
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, 8)
+            .padding(.top, Self.edgeInset + 4)
+            .padding(.horizontal, Self.edgeInset)
         }
         .scrollIndicators(.hidden)
     }
