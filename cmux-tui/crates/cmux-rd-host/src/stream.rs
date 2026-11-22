@@ -85,6 +85,10 @@ pub struct MediaSession {
     /// Upstream media the viewer opened (rd change C4).
     upstreams: Upstreams<Box<dyn UpstreamSink>>,
     stats_frames_sent: u64,
+    /// The profile the last encoded frame ran with, as the encoder applied it (None until one
+    /// is encoded, and always from an encoder without an ultra mode): the stats line's
+    /// `encode_profile`.
+    encoded_profile: Option<cmux_rd_core::profile::EncodeProfile>,
     /// Departure receipts drained from the carrier each pump (a reused buffer) and their
     /// running totals for the stats line: what left the socket, not what was queued.
     departures: Vec<DatagramDeparture>,
@@ -310,6 +314,7 @@ impl MediaSession {
             engine,
             upstreams: Upstreams::new(sink, negotiated_caps),
             stats_frames_sent: 0,
+            encoded_profile: None,
             departures: Vec::new(),
             departed_datagrams: 0,
             departed_bytes: 0,
@@ -618,6 +623,7 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
         });
+        self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();
@@ -881,6 +887,7 @@ impl MediaSession {
             departed_datagrams: Some(self.departed_datagrams),
             departed_bytes: Some(self.departed_bytes),
             departure_overflows: Some(carrier.departure_overflows()),
+            encode_profile: self.encoded_profile.map(|profile| profile.as_str().to_owned()),
         };
         let _ = carrier.send_control(&stats);
     }

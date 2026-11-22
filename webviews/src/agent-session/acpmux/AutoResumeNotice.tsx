@@ -5,19 +5,18 @@ import { Notice } from "./NoticeSlot";
 import { retryLabel } from "./subagents/retryState";
 
 /// One quiet line in the existing composer notice slot, shared by local and Cloud chats: only while
-/// the daemon waits to retry, and only once that wait has lasted the shared bound
-/// (`useConnectionQuiet`, schemas/notice-timing): acpmux retries on its own and a retry that runs
-/// within it says nothing (Leo, 2026-11-14, asked connectivity to stay quiet). A turn it already
-/// resumed shows nothing; the reply says so itself.
+/// the daemon waits to retry, and only once that has lasted the shared 10 s (a capacity or transport
+/// retry usually runs under it, and the person can do nothing about the wait). A turn it already
+/// resumed shows nothing; the reply says so itself. The slot's line lies over the transcript's foot
+/// (noticeSlotModel.ts `DOCK_NOTICE`), so showing it moves no row.
 export function AutoResumeNotice({ state }: { state: AutoResumeStatus | undefined }) {
   const t = useT();
   const retry = state?.retry;
-  const said = useConnectionQuiet(retry !== undefined);
-  const shown = said ? retry : undefined;
+  const lasting = useConnectionQuiet(Boolean(retry));
   return (
-    <Notice id="auto-resume" tier="status" when={shown}>
+    <Notice id="auto-resume" tier="status" when={lasting && retry}>
       <output className="acpmux-switch-notice" data-auto-resume="waiting">
-        {shown ? retryLabel(t, shown) : null}
+        {retry ? retryLabel(t, retry) : null}
       </output>
     </Notice>
   );

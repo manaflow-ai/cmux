@@ -8,16 +8,30 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import { NoticeSlot } from "../src/agent-session/acpmux/NoticeSlot";
-import { AutoResumeNotice } from "../src/agent-session/acpmux/AutoResumeNotice";
-import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
-import { ConnectorsSection } from "../src/agent-session/acpmux/session-info/ConnectorsSection";
-import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import { CONNECTION_QUIET_MS, useConnectionQuietKeys } from "../src/ui/lasting";
+import { importWithDom } from "./support/importWithDom";
 import { settleReact } from "./support/domTeardown";
+
+const [
+  { setPaneLanguage },
+  { NoticeSlot },
+  { AutoResumeNotice },
+  { SubsessionCallCard },
+  { ConnectorsSection },
+  { SubsessionContext, SubsessionStore },
+  { CONNECTION_QUIET_MS, useConnectionQuietKeys },
+] = await importWithDom(() =>
+  Promise.all([
+    import("../src/agent-session/acpmux/i18n"),
+    import("../src/agent-session/acpmux/NoticeSlot"),
+    import("../src/agent-session/acpmux/AutoResumeNotice"),
+    import("../src/agent-session/acpmux/conversation/SubsessionCallCard"),
+    import("../src/agent-session/acpmux/session-info/ConnectorsSection"),
+    import("../src/agent-session/acpmux/subagents/subsessions"),
+    import("../src/ui/lasting"),
+  ]),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -127,7 +141,7 @@ const WAIT_TOOL = {
   output: "",
 } as never;
 
-async function renderCard(container: HTMLElement, store: SubsessionStore) {
+async function renderCard(container: HTMLElement, store: InstanceType<typeof SubsessionStore>) {
   root = createRoot(container);
   await act(async () =>
     root!.render(

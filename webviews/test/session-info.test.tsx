@@ -941,7 +941,9 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  // A server still starting draws its name only until that lasts CONNECTION_QUIET_MS
+  // (connection-quiet-agent-session.test.tsx says Connecting past it).
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentry"]);
 
   // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
