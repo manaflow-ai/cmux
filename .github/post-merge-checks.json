@@ -22,42 +22,42 @@
       "rust-workspaces.yml": {
         "workflow": "rust workspaces",
         "after_merge": "the post-merge batch (.github/post-merge-batch.json suite rust-workspaces)",
-        "why": "done p90 408 min after the push, queue p90 181 min; last check on 12 of 163 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "a suite of .github/post-merge-batch.json; done p90 196 min after the push, over 30 min on 45 of 161 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "cmux-tui-windows-check.yml": {
         "workflow": "cmux-tui Windows check",
         "after_merge": "the post-merge batch (.github/post-merge-batch.json suite cmux-tui-windows-check)",
-        "why": "done p90 285 min after the push on scarce Windows runners; over 30 min on 9 of 35 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "a suite of .github/post-merge-batch.json; runs on scarce Windows runners (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "cmux-tui-sdks.yml": {
         "workflow": "cmux-tui SDKs",
         "after_merge": "push to feat-cmux-next, same paths",
-        "why": "done p90 143 min after the push; over 30 min on 17 of 65 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "runs again on the push to feat-cmux-next for the same paths (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "test-ios.yml": {
         "workflow": "iOS simulator tests",
         "after_merge": "push to feat-cmux-next",
-        "why": "done p90 164 min after the push on simulator Macs; over 30 min on 13 of 44 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "runs again on the push to feat-cmux-next, on simulator Macs (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "signing-keychain-macos.yml": {
         "workflow": "Signing keychain (macOS)",
         "after_merge": "push to feat-cmux-next, same paths",
-        "why": "done p90 227 min after the push on an owned Mac; over 30 min on 6 of 22 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "runs again on the push to feat-cmux-next for the same paths, on an owned Mac (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "cmux-next-react-doctor.yml": {
         "workflow": "cmux-next React Doctor",
         "after_merge": "push to feat-cmux-next",
-        "why": "done p90 55 min after the push for a one-minute job; over 30 min on 42 of 237 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "runs again on the push to feat-cmux-next; done p90 52 min after the push for a one-minute job, over 30 min on 38 of 236 pull requests (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "cmux-next-tab-switch.yml": {
         "workflow": "cmux-next tab switch (advisory)",
         "after_merge": "push to feat-cmux-next, same paths",
-        "why": "advisory timing on display Macs, done p90 205 min; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "advisory timing on display Macs; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "gallery-advisory.yml": {
         "workflow": "gallery visual evidence (advisory)",
         "after_merge": "push to feat-cmux-next, same paths",
-        "why": "advisory renders, done p90 215 min; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md, 291 merged PRs 2026-11-19 to 11-22)"
+        "why": "advisory renders; merge_hold already skips it by its (advisory) name, listed so the tier is the whole answer (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       }
     }
   },
