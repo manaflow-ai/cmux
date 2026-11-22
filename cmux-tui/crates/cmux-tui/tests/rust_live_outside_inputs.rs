@@ -103,7 +103,11 @@ fn cargo_recorded_reads(workspace: &Path) -> Vec<(PathBuf, PathBuf)> {
     });
     for (_, file) in newest(dep_infos) {
         let text = std::fs::read_to_string(&file).unwrap_or_default();
-        reads.extend(dep_info_paths(&text).into_iter().map(|path| (path, file.clone())));
+        // Cargo runs rustc in the workspace root with workspace paths relative to it, so the
+        // dep-info names `crates/x/src/../../../../schemas/y.json`: relative to the workspace.
+        reads.extend(
+            dep_info_paths(&text).into_iter().map(|path| (workspace.join(path), file.clone())),
+        );
     }
 
     let outputs =
@@ -167,11 +171,11 @@ fn rust_live_sends_every_outside_input() {
         let rel = path.strip_prefix(&root).unwrap().to_string_lossy().into_owned();
         outside.entry(rel).or_insert(record);
     }
-    // The build of this test reads the settings schema (cmux-config) at least: an empty record means
-    // the dep-info was not found, not that nothing is read.
+    // The build of this test embeds the settings schema (cmux-config's include_str!) at least: without
+    // it the dep-info was not read, not that nothing is included.
     assert!(
         outside.keys().any(|rel| rel.starts_with("schemas/")),
-        "cargo's dep-info names no file outside cmux-tui/; found {outside:?}"
+        "cargo's dep-info names no schemas/ file outside cmux-tui/; found {outside:?}"
     );
 
     let inputs = computed_inputs(&root);
