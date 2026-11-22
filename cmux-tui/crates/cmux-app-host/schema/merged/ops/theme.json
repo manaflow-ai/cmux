@@ -1,0 +1,20 @@
+{
+  "family": "theme",
+  "ops": {
+    "theme.scheme.convert": {
+      "source": "local",
+      "class": "read",
+      "digest": "d3594cabbddbfcf6"
+    },
+    "theme.scheme.export": {
+      "source": "local",
+      "class": "read",
+      "digest": "f05f636b35670b19"
+    },
+    "theme.scheme.from_image": {
+      "source": "local",
+      "class": "read",
+      "digest": "1c96b9dceb4c52fa"
+    }
+  }
+}
