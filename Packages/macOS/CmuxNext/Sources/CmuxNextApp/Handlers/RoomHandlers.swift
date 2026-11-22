@@ -169,6 +169,7 @@ enum RoomHandlers {
             context.services.windows.switchProfile(room.id, in: window.state)
         }
         RoomMoveHandlers.bind(bind, context: context)
+        registry.installSpacesGate(reason: RoomStrings.spacesOff) { context.services.windows.spacesOn } // #48355: off by default
     }
 
     /// A new space with the next free color and its own first workspace.

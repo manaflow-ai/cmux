@@ -179,6 +179,30 @@ import Testing
         #expect(AgentChatDetail.of(summary: ["model": "m"])?.archived == false)
     }
 
+    /// A released idle chat that kept only its scroll place opens again in the prewarmed spare page, with that
+    /// place on the adopt event; one that kept chips, shell text or folds gets a page of its own, which its
+    /// handshake hands them to.
+    @Test func aReleasedChatHoldingOnlyItsPlaceTakesTheSpare() {
+        let anchor = AgentPaneScrollAnchor(rowId: "row-3", offset: 9)
+        let placeOnly = AgentPaneWakeState(scrollAnchor: anchor)
+        #expect(placeOnly.holdsOnlyPlace)
+        #expect(placeOnly.place == .some(anchor))
+        #expect(AgentPaneWakeState(atLatest: true).holdsOnlyPlace)
+        #expect(AgentPaneWakeState(atLatest: true).place == .some(nil), "a chat left at its latest message reopens there")
+        #expect(AgentPaneWakeState().place == nil)
+        #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).holdsOnlyPlace)
+        #expect(!AgentPaneWakeState(atLatest: true, folds: .init(session: "s", expanded: ["t1"])).holdsOnlyPlace)
+
+        let adoption = { (wake: AgentPaneWakeState?) in
+            AgentPaneSpareAdoption(thisMac: true, session: "s-1", newTabPage: false, seeded: false,
+                                   wake: wake.map { !$0.holdsOnlyPlace } ?? false).adopted(chiefKeeps: { _ in false })
+        }
+        #expect(adoption(placeOnly) == "s-1", "a released chat with only its place built a page from nothing")
+        #expect(adoption(AgentPaneWakeState(shell: true, shellText: "make", scrollAnchor: anchor)) == nil)
+        let detail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: placeOnly.place)
+        #expect(detail.contains("row-3"), "the adopt event lost the released chat's place: \(detail)")
+    }
+
     /// Hidden chats cost only their cursor and kept tail (Leo, 2026-11-16: "the dream is infinite chats of
     /// infinite length with flat or no growth in cpu/memory/even disk"): only the ``HiddenChatPages/warmHidden``
     /// most recently hidden idle chats keep their page for the idle wait, so a look at another tab and back stays
@@ -227,30 +251,6 @@ import Testing
         Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
         #expect(Set(host.released) == ["tab_old", "tab_archived"], "released: \(host.released)")
         #expect(Set(host.pages.keys) == ["tab_warm_a", "tab_warm_b"], "an archived chat took a warm place: \(host.pages.keys.sorted())")
-    }
-
-    /// A released idle chat that kept only its scroll place opens again in the prewarmed spare page, with that
-    /// place on the adopt event; one that kept chips, shell text or folds gets a page of its own, which its
-    /// handshake hands them to.
-    @Test func aReleasedChatHoldingOnlyItsPlaceTakesTheSpare() {
-        let anchor = AgentPaneScrollAnchor(rowId: "row-3", offset: 9)
-        let placeOnly = AgentPaneWakeState(scrollAnchor: anchor)
-        #expect(placeOnly.holdsOnlyPlace)
-        #expect(placeOnly.place == .some(anchor))
-        #expect(AgentPaneWakeState(atLatest: true).holdsOnlyPlace)
-        #expect(AgentPaneWakeState(atLatest: true).place == .some(nil), "a chat left at its latest message reopens there")
-        #expect(AgentPaneWakeState().place == nil)
-        #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).holdsOnlyPlace)
-        #expect(!AgentPaneWakeState(atLatest: true, folds: .init(session: "s", expanded: ["t1"])).holdsOnlyPlace)
-
-        let adoption = { (wake: AgentPaneWakeState?) in
-            AgentPaneSpareAdoption(thisMac: true, session: "s-1", newTabPage: false, seeded: false,
-                                   wake: wake.map { !$0.holdsOnlyPlace } ?? false).adopted(chiefKeeps: { _ in false })
-        }
-        #expect(adoption(placeOnly) == "s-1", "a released chat with only its place built a page from nothing")
-        #expect(adoption(AgentPaneWakeState(shell: true, shellText: "make", scrollAnchor: anchor)) == nil)
-        let detail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: placeOnly.place)
-        #expect(detail.contains("row-3"), "the adopt event lost the released chat's place: \(detail)")
     }
 
     @Test func theLeastRecentlySeenChatGoesFirst() {

@@ -33,6 +33,7 @@ Every parity agent (cmux next Swift app, GPUI, the Chrome port, cmux-browser) mu
 | K17 | Gaps in the legacy bridge (not crashes) | Sites that need these fail or degrade. | No PRF, `largeBlob`, `credProps`, `getClientCapabilities`, `signal*` methods, `parseCreationOptionsFromJSON`; cross-origin iframes refused even with `allow="publickey-credentials-get"`; parent-domain RP IDs native only for `google.com` (`main:.../BrowserWebAuthnSecurityOrigin.swift:112`); U2F `appid` falls back to WebKit. | n/a | Feature matrix test (section 7) on every engine. |
 | K18 | Process | Each fix was "verified" on a tagged build that cannot run a real ceremony. | Tagged DEV bundle ids have no profile that grants the entitlement (stated in #6718 and #15525). | n/a | Every passkey change lists its signed-build manual checks as UNVERIFIED until a signed nightly passes them. |
 | **K19** | **2026-11-20, Cloudflare dash 2FA "Verify with a security key" (a1237's escalate_auth)** | **"Security key verification did not finish" on every try, the person's own "try again" too.** | **Since 8eb6a24f (agent tabs refuse WebAuthn, 3.5) a tab any cmux control call touched (even `browser state`) stayed in `CMUX_WEBAUTHN_MODE_REFUSE` for its whole life; the fork's `ShouldDisallowCredentialRequest` answered NotAllowedError in 6 ms in a visible tab, before any key was asked. Chrome refuses only while its own agent acts on the tab (`IsActorActingOnWebContents`).** | **Fixed (section 12): the person's own HID click or key in the page takes the tab back; each agent call refuses again; the passkey hand-off runs its trigger handed over.** | **`CEFAgentWebAuthnTests` (person click allows, posted click does not, agent call refuses again, hand-off trigger), `BrowserPasskeyRequestsTests` (hand over before the trigger).** |
+| **K20** | **2026-11-20, Google passkey sign-in in the Chief's Home tab (Circleback, Continue with Google, lawrence@manaflow.ai)** | **"try google passkey too it broken, and didnt even go to try the QR code version from chrome": the page failed without Chromium's sheet (iCloud Keychain, "Use a phone or tablet" QR code, security key).** | **On the person's nightly (233 commits behind K19's fix) the tab was refused for good (K19). After K19 every agent call still refused again, the reads too: the Chief's watch of a handed-over sign-in (`cmux browser right state` / `snapshot` every 5 s, chief-auth-escalation step 6) took the page back between the person's click and a request the page started on its own (Google's challenge page after "Try again", a page that fetches before its `get`). Chrome refuses only while its agent is in control (`IsActorActingOnWebContents`: kActing, kReflecting, kWaitingOnUser); the hand-off to the person ends it, and observing does not resume it.** | **Fixed (section 13): `BrowserPageIntent` tells the engine a call only reads (state, snapshot, screenshot, tabs, text, value, a wait without `function`, cookie and storage reads); a read marks the tab (no password fill) and refuses nothing; an action refuses again.** | **`CEFAgentWebAuthnTests` (a read after the person's click or a hand-off keeps the page theirs; a first read refuses nothing), `BrowserPageIntentTests` (each verb's intent).** |
 
 Related, not passkey bugs (do not confuse): [#2154](https://github.com/manaflow-ai/cmux/issues/2154) Apple Passwords autofill (no public API for third-party WKWebView browsers), [#10528](https://github.com/manaflow-ai/cmux/issues/10528) Extensible SSO (misattributed; closed by reporter), [#4033](https://github.com/manaflow-ai/cmux/issues/4033) mTLS client certificates (keychain access group), [#1491](https://github.com/manaflow-ai/cmux/issues/1491) and [#7513](https://github.com/manaflow-ai/cmux/issues/7513) Google/Duo user-agent checks.
 
@@ -355,3 +356,35 @@ Not verified by automation: a real HID click and a real key touch (only the HID 
 no script can play the person). The person's retry on Cloudflare, after a nightly with the fix, is the
 check.
 
+
+## 13. Google passkey sign-in watched by the Chief, 2026-11-20 (K20)
+
+The person: "try google passkey too it broken, and didnt even go to try the QR code version from chrome".
+The Chief drove Circleback's "Continue with Google" to Google's passkey challenge for lawrence@manaflow.ai in
+its Home tab and ran `cmux browser right passkey` (requests F49A6614 and 04A859F5): no Chromium sheet came up,
+so neither iCloud Keychain nor "Use a phone or tablet" (the hybrid QR code) nor a security key was offered.
+
+Two causes, in order:
+
+1. The person's nightly (1.0.0-nightly.4475022227601) is older than K19's fix (27ceb607..a232b7cb): the tab
+   an agent touched stayed refused for its whole life, so every `get`, the person's included, got
+   NotAllowedError in milliseconds, before Chromium's request delegate built the sheet. The QR code is one of
+   that sheet's mechanisms; it never had a chance.
+2. With K19, the person's click hands the page over, but every later agent call took it back, the reads too
+   (`AppBrowserPage.run` marked each call agent-driven). The Chief watches a handed-over sign-in with `state` /
+   `snapshot` every 5 s (chief-auth-escalation step 6). Google's challenge page starts requests on its own
+   after the person's click ("Try again" reloads the challenge, the page fetches before its `get`), so a read
+   between the click and the page's `get` refused it.
+
+| Step | Chrome 157 | cmux before | cmux after |
+| --- | --- | --- | --- |
+| Who refuses | `IsActorActingOnWebContents` while the task is kCreated, kActing, kReflecting or kWaitingOnUser; paused or handed to the person: allowed | any control call on the tab, reads included | actions only (``BrowserPageIntent/acts``): input, navigation, `eval`, a `wait` with the agent's own `function` |
+| An observer of the page | does not resume the actor | refused again | marks the tab (no saved password fills) and leaves WebAuthn as it is |
+| A read as the first touch | n/a | refused | refuses nothing; the first action refuses |
+
+Edge kept on purpose: a read whose first touch rebuilds a person's live tab (`TabContentCache` installs the
+rebuilt page with `markAgentDriven()`) still refuses, because the rebuilt page is the agent's page.
+
+Proof: unit tests (red d2501463, then the fix) and a fleet capture of Google's passkey page on a dev build
+with the fix (QR sheet offered). The platform passkey (Touch ID with iCloud Keychain) and a phone scan need
+the signed nightly and the person: their retry is the check.

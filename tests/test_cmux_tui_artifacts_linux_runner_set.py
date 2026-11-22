@@ -184,6 +184,10 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
         for name, runs_on in linux_routes():
+            # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
+            # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
+            if "CI_CLOUD_OVERFLOW_SAVED" not in runs_on and runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+                continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)

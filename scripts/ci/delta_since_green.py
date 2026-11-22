@@ -133,12 +133,22 @@ class Git:
         fail the delta does not apply, and the reason carries git's stderr.
         """
         attempts = ((object_filter, *args), args)
+        # A filtered fetch marks the remote a promisor before it transfers
+        # anything. When it then fails (git 2.56.1 in a shallow, non-partial
+        # clone: "BUG: builtin/pack-objects.c: should_include_obj"), that mark
+        # stays and the plain retry fails the same way, so drop what the
+        # attempt added before retrying.
+        keys = [f"remote.{self.remote}.promisor", f"remote.{self.remote}.partialclonefilter"]
+        added = [key for key in keys if not self.succeeds("config", "--local", "--get", key)]
         for index, attempt in enumerate(attempts):
             try:
                 self.run("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *attempt)
                 return
             except subprocess.CalledProcessError as error:
                 stderr = " ".join((error.stderr or "").split())[-300:] or f"exit {error.returncode}"
+                if index == 0:
+                    for key in added:
+                        self.succeeds("config", "--local", "--unset-all", key)
                 if index + 1 < len(attempts):
                     self.notes.append(f"fetch {' '.join(args[:1])} with {object_filter} failed ({stderr}); retried without it")
                 else:

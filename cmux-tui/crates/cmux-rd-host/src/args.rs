@@ -49,6 +49,15 @@ impl Opts {
         self.map.get(key).map(String::as_str)
     }
 
+    /// `--encode-profile standard|ultra` (default standard): the one switch for ultra.
+    pub fn encode_profile(&self) -> Result<cmux_rd_core::profile::EncodeProfile, String> {
+        match self.map.get("encode-profile") {
+            None => Ok(cmux_rd_core::profile::EncodeProfile::Standard),
+            Some(v) => cmux_rd_core::profile::EncodeProfile::parse(v)
+                .ok_or_else(|| format!("invalid value for --encode-profile: {v} (standard|ultra)")),
+        }
+    }
+
     pub fn num_or<T: std::str::FromStr>(&self, key: &str, default: T) -> Result<T, String> {
         match self.map.get(key) {
             None => Ok(default),

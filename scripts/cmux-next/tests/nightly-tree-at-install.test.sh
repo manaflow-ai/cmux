@@ -9,7 +9,10 @@
 #   once the build commit's marker names the build's tree and the installed
 #   client's commit as its publisher.
 #   scripts/ci/nightly-steps/resolve-tree-pending.sh reports tree_pending and the
-#   candidates only for a clean 404.
+#   candidates only for a clean 404, and the newest published tree as fallback=.
+#   scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh installs the build
+#   commit's tree when one look finds it, else the fallback tree right away
+#   (RFD 0021 row 1), and the marker gate accepts that fallback tree's publisher.
 # No network: a curl shim serves the CDN from files, the GitHub API is file://.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -272,6 +275,23 @@ rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed key is a usage error"
 
+# 7. CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0 looks once and never waits or reads a runs list.
+client_once() { # <candidates...> -> out, status, took
+  local started; started=$(date +%s); status=0
+  out=$(cd "$TMP/src" && env "${env_common[@]}" GITHUB_API_URL="file://$TMP/no-api" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0 \
+    bash scripts/cmux-next/await-tree-client.sh "$key" "$@" 2>"$TMP/err") || status=$?
+  took=$(( $(date +%s) - started ))
+}
+reset_cdn; set_runs "$active_run"
+client_once "$own" "$app"
+check '[[ $status == 1 && $took -lt 20 ]] && grep -q "looked once" "$TMP/err"' "one look at an unpublished tree misses at once (took $took s)"
+reset_cdn; publish_manifest "$app"
+client_once "$own" "$app"
+check '[[ $status == 0 && $out == "$app" ]]' "one look takes an uploaded candidate manifest"
+reset_cdn; publish_tree "$own"; publish_manifest "$own"
+client_once "$own" "$app"
+check '[[ $status == 0 && $out == "$own" ]]' "one look takes a published tree's publisher"
+
 # The marker gate.
 marker() { # <commit> <key> <publishedBy>
   mkdir -p "$TMP/cdn/tree-commits"
@@ -296,6 +316,30 @@ check '[[ $status == 0 && $took -ge 60 && $took -lt 120 ]]' "the gate waits for 
 reset_cdn; gate "$own"
 check '[[ $status == 1 && $took -ge 300 ]] && grep -q "not written in time" "$TMP/out"' "no marker fails at the limit"
 
+# A build that bundled the newest published tree (base's) instead of its own.
+base_key=$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$base")
+# publish_tree_as <key> <publisher>: tree <key> published by <publisher>, with its manifest.
+publish_tree_as() {
+  mkdir -p "$TMP/cdn/tree/$1"
+  printf '%s  cmux-tui-aarch64-apple-darwin\n' "$(sha_of bin)" > "$TMP/cdn/tree/$1/cmux-tui-aarch64-apple-darwin.sha256"
+  printf '{"commit":"%s","key":"%s"}\n' "$2" "$1" > "$TMP/cdn/tree/$1/source.json"
+  publish_manifest "$2"
+}
+gate_fallback() { # <installed> <installed key> -> status, took
+  local started; started=$(date +%s); status=0
+  (cd "$TMP/src" && env "${env_common[@]}" BUILD_SHA="$app" KEY="$key" INSTALLED="$1" INSTALLED_KEY="$2" \
+    CMUX_TREE_MARKER_WAIT_SECONDS=300 bash scripts/ci/nightly-steps/await-tree-marker.sh >"$TMP/out" 2>&1) || status=$?
+  took=$(( $(date +%s) - started ))
+}
+reset_cdn; publish_tree_as "$base_key" "$base"; gate_fallback "$base" "$base_key"
+check '[[ $status == 0 && $took -lt 20 ]] && grep -q "fallback tree" "$TMP/out"' "a fallback tree published by the installed commit passes at once, with no build-commit marker"
+reset_cdn; publish_tree_as "$base_key" "$own"; gate_fallback "$base" "$base_key"
+check '[[ $status == 1 ]] && grep -q "installed the client of" "$TMP/out"' "a fallback tree published by another commit refuses"
+reset_cdn; gate_fallback "$base" "$base_key"
+check '[[ $status == 1 && $took -lt 20 ]] && grep -q "is not published" "$TMP/out"' "an unpublished fallback tree refuses"
+reset_cdn; marker "$app" "$key" "$own"; gate_fallback "$own" "$key"
+check '[[ $status == 0 ]]' "INSTALLED_KEY equal to the build's tree keeps the marker gate"
+
 # The resolver's pending step.
 pending() { # -> status, output file
   : > "$TMP/gh-output"; : > "$TMP/summary"; status=0
@@ -305,6 +349,10 @@ pending() { # -> status, output file
 reset_cdn; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "candidates=$own $app" "$TMP/gh-output" && grep -qx "key=$key" "$TMP/gh-output"' \
   "an unpublished tip is built with its same-key candidates, oldest first"
+check 'grep -qx "fallback=" "$TMP/gh-output"' "with no published tree in the history there is no fallback"
+reset_cdn; publish_tree_as "$base_key" "$base"; pending
+check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=$base $base_key" "$TMP/gh-output" && grep -q "fallback client" "$TMP/summary"' \
+  "an unpublished tip names the newest published tree as its fallback"
 reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending
@@ -339,5 +387,67 @@ for mode in ok skipped none failed running unreadable; do
     *) check '[[ $status == 1 && -n $why ]]' "recovery refuses a run whose marker check is $mode ($why)" ;;
   esac
 done
+
+# The bundle step's choice (app-bundle-cmux-tui-client.sh), with the installer and the wait stubbed:
+# STUB_EXACT is what one look (WAIT_SECONDS=0) or the bounded wait finds; STUB_WAIT_EXACT what only the
+# bounded wait finds; STUB_INSTALL_FAIL a commit the installer refuses.
+B="$TMP/bundle"; mkdir -p "$B/scripts/ci/nightly-steps" "$B/scripts/cmux-next" "$B/build-universal/Build/Products/Release/cmux.app"
+cp "$ROOT/scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh" "$B/scripts/ci/nightly-steps/"
+cat > "$B/scripts/cmux-next/await-tree-client.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "await wait=${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-default} $*" >> "$STUB_LOG"
+if [[ "${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-}" == 0 ]]; then [[ -n "${STUB_EXACT:-}" ]] && { echo "$STUB_EXACT"; exit 0; }; exit 1; fi
+[[ -n "${STUB_EXACT:-${STUB_WAIT_EXACT:-}}" ]] && { echo "${STUB_EXACT:-$STUB_WAIT_EXACT}"; exit 0; }; exit 1
+STUB
+cat > "$B/scripts/install-cmux-tui-client.sh" <<'STUB'
+#!/usr/bin/env bash
+while (( $# )); do [[ "$1" == --expected-commit ]] && c="$2"; shift; done
+echo "install $c" >> "$STUB_LOG"; [[ "$c" != "${STUB_INSTALL_FAIL:-none}" ]]
+STUB
+printf '#!/usr/bin/env bash\necho "version $*" >> "$STUB_LOG"\n' > "$B/scripts/cmux-next/write-cmux-tui-version.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$B/scripts/strip-release-bundle.sh"
+# STUB_CAPS_FAIL: a commit whose client lacks a capability the app needs (the last install is checked).
+cat > "$B/scripts/cmux-next/check-daemon-capabilities.sh" <<'STUB'
+#!/usr/bin/env bash
+c=$(grep '^install ' "$STUB_LOG" | tail -1); echo "caps ${c#install }" >> "$STUB_LOG"; [[ "${c#install }" != "${STUB_CAPS_FAIL:-none}" ]]
+STUB
+chmod +x "$B/scripts/cmux-next/"*.sh "$B/scripts/"*.sh
+bundle() { # [VAR=value...] -> status; outputs in $TMP/bundle-out, calls in $TMP/bundle-log
+  : > "$TMP/bundle-out"; : > "$TMP/bundle-log"; status=0
+  (cd "$B" && env -u STUB_EXACT RUNNER_TEMP="$TMP/rt" GITHUB_OUTPUT="$TMP/bundle-out" GITHUB_STEP_SUMMARY="$TMP/bundle-summary" \
+    STUB_LOG="$TMP/bundle-log" CMUX_TUI_CLIENT_COMMIT="" CMUX_TUI_CLIENT_KEY="$key" CMUX_TUI_CLIENT_CACHE="$TMP/rt/cache" \
+    TREE_PENDING=true TREE_CANDIDATES="$own $app" TREE_FALLBACK="$base $base_key" "$@" \
+    bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh >"$TMP/bundle-stdout" 2>&1) || status=$?
+}
+bundle STUB_EXACT="$own"
+check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=0 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
+  "the bundle installs the build commit's tree when one look finds it"
+bundle
+check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
+  "an unpublished tree bundles the fallback tree at once, and says which"
+bundle TREE_FALLBACK="" STUB_WAIT_EXACT="$app"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "await wait=default" "$TMP/bundle-log"' \
+  "with no fallback tree the bundle waits for the build commit's tree as before"
+bundle CMUX_TUI_TREE_CLIENT_FALLBACK=off STUB_WAIT_EXACT="$app"
+check '[[ $status == 0 ]] && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "await wait=0 " "$TMP/bundle-log"' "CMUX_TUI_TREE_CLIENT_FALLBACK=off keeps the wait"
+bundle STUB_WAIT_EXACT="$app" STUB_INSTALL_FAIL="$base"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "install $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log"' \
+  "a fallback tree the installer refuses falls back to waiting for the build commit's tree"
+bundle STUB_WAIT_EXACT="$app" STUB_CAPS_FAIL="$base"
+check '[[ $status == 0 ]] && grep -qx "commit=$app" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -qx "caps $base" "$TMP/bundle-log" && grep -qx "install $app" "$TMP/bundle-log" && grep -qx "caps $app" "$TMP/bundle-log"' \
+  "a fallback tree missing a capability the app needs (run 44975559258) falls back to waiting for the build commit's tree"
+bundle TREE_PENDING=false CMUX_TUI_CLIENT_COMMIT="$own"
+check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && ! grep -q "^await" "$TMP/bundle-log"' "a resolved tree installs without any wait"
+
+# A fallback stops only the pending client prefetch; other background helpers (webview-checks) live on.
+state="$TMP/rt/nightly-helper-builds"; rm -rf "$state"
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" cmux-tui-client -- python3 -c "import time; time.sleep(300)" >/dev/null
+python3 "$ROOT/scripts/ci/background_build.py" start --state "$state" webview-checks -- python3 -c "import time; time.sleep(300)" >/dev/null
+cp "$ROOT/scripts/ci/background_build.py" "$B/scripts/ci/"
+bundle
+other=$(cat "$state/webview-checks.pid")
+check '[[ $status == 0 ]] && grep -qx "tree=fallback" "$TMP/bundle-out" && kill -0 "$other" 2>/dev/null && grep -q "cmux-tui-client" "$TMP/bundle-stdout" && ! grep -q "to webview-checks" "$TMP/bundle-stdout"' \
+  "a fallback stops only the client prefetch, not other helpers"
+python3 "$ROOT/scripts/ci/background_build.py" stop --state "$state" >/dev/null
 
 (( fail == 0 )) && echo "PASS: nightly tree at install" || { echo "FAIL: nightly tree at install"; exit 1; }

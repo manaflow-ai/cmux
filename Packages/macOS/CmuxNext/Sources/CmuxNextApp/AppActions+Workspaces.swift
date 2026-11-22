@@ -67,7 +67,7 @@ extension AppActions {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
         #endif
-        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
+        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }; services.onboarding.chief.bindMeetChief(into: registry)
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
@@ -244,6 +244,7 @@ extension AppActions {
         // The unpinned group this close may empty (cx-rcby), read before the workspace leaves; `deleteIfEmpty` rechecks.
         let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault, selected = WorkspaceCloseSelection()
+        let undo = WorkspaceGroupClose.singleCloseUndo(workspace, invocation, services)
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -273,11 +274,13 @@ extension AppActions {
             send: { hidden in
                 // Told only once the close goes ahead: a cancelled question keeps the workspace's remote terminals.
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
+                if !offline || hidden { undo?.offer() } // toasts v2: the close goes ahead, so its Undo shows
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
+                    if failure != nil { undo?.withdraw() }
                     // Wait for the close event before deciding whether its personal group is empty.
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     if failure == nil, let personalGroup {

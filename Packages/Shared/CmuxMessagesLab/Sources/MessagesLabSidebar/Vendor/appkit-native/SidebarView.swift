@@ -225,7 +225,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         filterButton.bezelStyle = .accessoryBarAction
         (filterButton.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
         filterButton.setAccessibilityLabel(SidebarStrings.filter)
-        filterButton.toolTip = SidebarStrings.filter
+        filterButton.setSidebarToolTip(SidebarStrings.filter)  // cmux: the host's themed tooltip (SidebarToolTip.swift)
         updateFilterButton()
         root.addSubview(filterButton)
 

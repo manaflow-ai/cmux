@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
-# webviews app (diff, markdown and editor pages) and the Chief memory inspector.
+# webviews app (diff, markdown and editor pages) and the Chief memory inspector,
+# and writes the App Store packages (sync-app-runtime.sh --store).
 # Every app build path runs it
 # before it compiles (scripts/reload.sh, scripts/cmux-next/check-release-compile.sh,
 # the macOS jobs of cmux-next.yml, the nightly-next build, nx-remote Swift test
@@ -105,13 +106,30 @@ verified() {
   [ "$(python3 "$KEY" "$ROOT" --verify-stamp)" = "$(cut -d' ' -f1-2 "$STAMP")" ]
 }
 
+# The App Store packages the app bundles (AppPlatform/store: samples/apps and first-party-apps with
+# a STORE marker) are build output too (Leo, 2026-10-21: "don't commit generatable files"): plain
+# copies of committed packages, no bun, so every in-tree run writes them, and --verify checks them.
+# Every checkout has the script; a scratch tree holding only the bundle scripts (the tests of
+# --from, ensure-web-bundles and the report run) has no app platform to write, so it is skipped there.
+STORE_SYNC="$ROOT/scripts/cmux-next/sync-app-runtime.sh"
+[ -f "$STORE_SYNC" ] || STORE_SYNC=""
+
 if [ "$MODE" = verify ]; then
+  if [ -n "$STORE_SYNC" ] && ! "$STORE_SYNC" --store --check; then
+    echo "error: the App Store packages are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
+    exit 1
+  fi
   if verified; then
     echo "web bundles are current"
     exit 0
   fi
   echo "error: the cmux-next web bundles are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
   exit 1
+fi
+
+# In-tree runs only: an --out-root build hands over web bundles, and --from writes the packages here.
+if [ -z "$OUT_ROOT" ] && [ -n "$STORE_SYNC" ]; then
+  "$STORE_SYNC" --store
 fi
 
 # A tree built elsewhere for this source key (cmux-next.yml's Linux web-bundles job caches

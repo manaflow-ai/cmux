@@ -174,13 +174,19 @@ await requireBrowserLane("new-tab-now-playing-look.test.ts", async () => {
   });
 
   test("once the host clears the track the page lays out as if it never had the card", async () => {
-    // Where each of the screen's blocks sits, and how tall the screen is.
+    // Where each of the screen's blocks sits, and how tall the screen is. A `display: contents` host
+    // (the card's right-click host) draws no box: its children are the blocks. The card is the
+    // screen's last block (New Tab lists no starter rows under it), so it moves no other block.
     const layout = (page: Page) =>
       page.evaluate(() => {
         const screen = document.querySelector<HTMLElement>(".nt-screen")!;
+        const blocks = (parent: Element): HTMLElement[] =>
+          [...parent.children].flatMap((element) =>
+            getComputedStyle(element).display === "contents" ? blocks(element) : [element as HTMLElement],
+          );
         return {
           height: Math.round(screen.scrollHeight),
-          blocks: [...screen.querySelectorAll<HTMLElement>(":scope > *")]
+          blocks: blocks(screen)
             .filter((element) => element.getBoundingClientRect().height > 0)
             .map((element) => `${element.className.split(" ")[0]}@${Math.round(element.getBoundingClientRect().top)}`),
         };

@@ -15,6 +15,8 @@ import CmuxNextDaemonService
 ///   the person fires a style as real toasts and picks the style of every toast and prompt.
 /// - `debug.keycapPlayground` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-16): the Keycap Playground
 ///   (``CmuxKeycapPlaygroundWindow``), every dialog keycap style on a real dialog card's buttons, light and dark.
+/// - `debug.tooltipGallery` (DEV and NIGHTLY, `isDebugOnly`; Lawrence 2026-11-20): the Tooltip Gallery
+///   (``TooltipGalleryWindow``), every tooltip state on the real tooltip surface in light, dark and an accent theme.
 ///
 /// The app injects how Debug Settings opens and which window is active:
 ///
@@ -52,17 +54,24 @@ package struct ToastActions {
     package func bind(into registry: ActionRegistry) {
         let center = center, openTuning = openTuning, window = window, themeColors = themeColors
         let keycaps = CmuxKeycapPlaygroundWindow()
-        // The Toast Playground opens the Keycap Playground too: its button works before the pinned app FFI has
-        // `debug.keycapPlayground` (the palette shows that action after the re-pin).
-        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards) {
+        let tooltips = TooltipGalleryWindow()
+        // The Toast Playground opens the Keycap Playground and the Tooltip Gallery too: its buttons work before the
+        // pinned app FFI has `debug.keycapPlayground` and `debug.tooltipGallery` (the palette shows them after a re-pin).
+        let playground = CmuxToastPlaygroundWindow(center: center, window: window, cards: cards, openKeycaps: {
             keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
-        }
+        }, openTooltips: {
+            tooltips.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+        })
         registry.bindEffect("debug.toastPlayground", effect: { _ in
             playground.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
             return .done
         })
         registry.bindEffect("debug.keycapPlayground", effect: { _ in
             keycaps.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
+            return .done
+        })
+        registry.bindEffect("debug.tooltipGallery", effect: { _ in
+            tooltips.show(themes: CmuxToastPlaygroundThemes(colors: themeColors()))
             return .done
         })
         registry.bindEffect("toasts.showHidden", effect: { _ in

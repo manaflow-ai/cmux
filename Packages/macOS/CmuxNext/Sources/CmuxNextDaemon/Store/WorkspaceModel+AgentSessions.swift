@@ -1,4 +1,10 @@
 extension WorkspaceModel {
+    /// Every tab of every screen, in screen, pane and tab order (this workspace's only).
+    public var allTabs: [TabModel] { screens.flatMap(\.panes).flatMap(\.tabs) }
+
+    /// How many agent chat tabs it holds (a chat header's "N chats").
+    public var agentChatCount: Int { allTabs.count(where: { $0.agentSession != nil }) }
+
     /// Every live tab whose agent runs a harness session (``AgentStatus/harnessSessionID``), in
     /// order: the tab id, the agent (`claude`, `codex`) when known, and the session. An exited
     /// terminal keeps its last report but no longer runs it, and an ended session (`done`, a

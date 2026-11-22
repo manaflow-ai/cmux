@@ -104,7 +104,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override class var cellClass: AnyClass? {
-        get { TitleCell.self }
+        get { OwnInkButtonCell.self }
         set {}
     }
 
@@ -190,16 +190,6 @@ public final class CmuxDialogButtonView: ClickableButton {
         }
     }
 
-    /// The overlay surface (the dialog's card) this button draws on, if any.
-    private var enclosingSurface: OverlaySurfaceView? {
-        var view = superview
-        while let current = view {
-            if let surface = current as? OverlaySurfaceView { return surface }
-            view = current.superview
-        }
-        return nil
-    }
-
     /// How far outside the button the focus ring reaches: the gap (``focusGap``, on a solid fill)
     /// then the ring's line. Dialog button rows are `Metrics.space2` (4 pt) apart, and a ring
     /// reaching 4 pt ran into the next button; 2.5 pt leaves 1.5 pt to it. On a translucent fill
@@ -224,12 +214,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
-            let lift = ChromeTunables.opaqueOverlayLift.value
             // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
-            let card = enclosingSurface?.tintLevel == .menu ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
-                : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            // Outside any card the button sits on the window, see-through or not.
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: card)
+                                        isEnabled: isEnabled, card: buttonGround(tokens))
         }
     }
 
@@ -245,10 +233,9 @@ public final class CmuxDialogButtonView: ClickableButton {
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
             // The card's own color: the opaque surface under Reduce Transparency, else the glass.
-            let onOpaqueCard = enclosingSurface?.material == .opaque
+            let onOpaqueCard = enclosingOverlaySurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
@@ -269,20 +256,6 @@ public final class CmuxDialogButtonView: ClickableButton {
 }
 
 extension CmuxDialogButtonView {
-    /// Draws a disabled button's title in its own ink: AppKit repaints it in the system's disabled ink, which on the
-    /// button's fill read as no title at all. The button dims as a whole instead (its `alphaValue`).
-    final class TitleCell: NSButtonCell {
-        override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
-            guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
-            // The title as AppKit laid it out (centered), in the button's own inks.
-            let own = NSMutableAttributedString(attributedString: title)
-            attributedTitle.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: own.length)) { ink, range, _ in
-                if let ink { own.addAttribute(.foregroundColor, value: ink, range: range) }
-            }
-            return super.drawTitle(own, withFrame: frame, in: controlView)
-        }
-    }
-
     /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
     /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
     fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {
