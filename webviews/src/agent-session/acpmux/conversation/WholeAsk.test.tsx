@@ -171,3 +171,15 @@ test("the hat offers no More when nothing of the ask is cut", async () => {
   expect(band.querySelector(".acpmux-hat-questions__more")).toBeNull();
   expect(hasCutText(band.querySelector<HTMLElement>(".acpmux-hat-questions__question")!)).toBe(false);
 });
+
+test("an opened hat shrinks and scrolls in a short pane so its answers are never cut off", async () => {
+  const band = await renderHat(".acpmux-hat-questions__prompt");
+  const root = band.closest(".acpmux-hat-questions") ?? band;
+  expect(root.hasAttribute("data-whole")).toBe(false);
+  await act(async () => band.querySelector<HTMLElement>(".acpmux-hat-questions__more")!.click());
+  expect(root.hasAttribute("data-whole")).toBe(true);
+  const css = await Bun.file(new URL("../question/hatQuestions.css", import.meta.url)).text();
+  const rule = css.match(/\.acpmux-hat-questions\[data-whole\]\s*\{([^}]*)\}/)?.[1] ?? "";
+  expect(rule).toContain("flex: 0 1 auto");
+  expect(rule).toContain("overflow-y: auto");
+});

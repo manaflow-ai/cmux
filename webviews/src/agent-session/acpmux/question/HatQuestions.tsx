@@ -417,6 +417,7 @@ export function HatQuestions({
       ref={outerRef}
       className="acpmux-hat-questions"
       data-look={look}
+      data-whole={whole || undefined}
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
       data-dismiss={dismissLook}
