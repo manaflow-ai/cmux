@@ -14,6 +14,10 @@ Prints one word on stdout and exits 0:
   fail   that record failed (a compile verdict, not a fault)
   none   no usable verdict: no record within --no-record seconds, the service down, a record that
          does not match, unavailable, or the --wait deadline passed. The caller compiles as before.
+  superseded  a feat-cmux-next push tip (no --pr) the controller will not check because a newer push
+         tip is checked instead (its check covers this push's commits, and a red there names them).
+         The caller confirms the branch head moved before it skips; a caller that does not know the
+         word compiles as before.
 Reasons go to stderr. Usage:
   fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--wait 1500] [--no-record 600]
 """
@@ -43,6 +47,8 @@ def judge(record, sha, repo):
         return state, f"tip check {state}: {record.get('log_url') or ''}".strip()
     if state == "unavailable":
         return "none", "the tip check gave no verdict (unavailable)"
+    if state == "superseded":
+        return "superseded", f"a newer push tip is checked instead: {record.get('superseded_by') or 'unnamed'}"
     return "pending", f"tip check {state or 'queued'}"
 
 
