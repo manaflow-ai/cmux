@@ -1,6 +1,6 @@
 # Screen-share viewer (Mac first, then iPhone)
 
-Leo, 2026-11-21 07:02Z: "hey speaking of this screen sharing, we need far better ui/ux for our shit! our screen shared
+Leo, 2026-11-21 07:02Z: "hey speaking of this screen sharing, we need far better ui/ux for our s***! our screen shared
 scren look slike ass... plus most of our vms (if we even have any lanes on freestyle vms yet!?) dont have screns..."
 
 Lane `screen-share-ux` (ask cluster c-9430e81024). The virtual screens on VMs are not covered here. They belong to
@@ -30,14 +30,14 @@ Lane `screen-share-ux` (ask cluster c-9430e81024). The virtual screens on VMs ar
 
 ## References
 
-The patterns below are from public product material. Screenshots go on the PR beside the gallery.
+Patterns from the remote-desktop clients people already use. Screenshots of each stay in the lane notes, not here.
 
 | Product | What we take |
 | --- | --- |
-| Apple Screen Sharing (macOS 15+) | Window chrome only: no header over the picture, and a scaling/control toggle in the toolbar. Its quality picker names two modes, not bitrates. |
-| Parsec | A stats overlay you turn on (bitrate, decode, encode, network latency, loss) in a corner of the picture. It stays out of the way until asked for, then shows exact numbers. |
-| Jump Desktop | An auto-hiding floating toolbar and a connection-quality glyph whose bars follow measured throughput. |
-| Screens 5 | A floating pill toolbar that hides, and a big calm full-window "Connecting to NAME" state. |
+| The built-in OS screen-sharing app | Window chrome only: no header over the picture, and a scaling/control toggle in the toolbar. Its quality picker names two modes, not bitrates. |
+| A game-streaming client | A stats overlay you turn on (bitrate, decode, encode, network latency, loss) in a corner of the picture. It stays out of the way until asked for, then shows exact numbers. |
+| A pro remote-desktop client | An auto-hiding floating toolbar and a connection-quality glyph whose bars follow measured throughput. |
+| A VNC client for Mac and iPhone | A floating pill toolbar that hides, and a big calm full-window "Connecting to NAME" state. |
 
 ## The three readout variants (gallery, `macScreen.qualityReadout`)
 
@@ -49,7 +49,7 @@ encode time added). They differ only in where the numbers go.
 - **R2, quality chip.** The toolbar shows one chip: `Ultra · 148 Mbps`, or `Balanced · 12 Mbps`. Its menu (the current
   Quality menu) starts with a readout section: rate, fps of target, round trip, loss, encode p50, codec, size. The
   chip's tint goes from neutral to attention when loss passes 5% or fps falls under half its target.
-- **R3, stats HUD.** A Parsec-style glass panel in the picture's bottom-left corner, with one number per line. You
+- **R3, stats HUD.** A glass panel in the picture's bottom-left corner, with one number per line. You
   turn it on from the Quality menu or with ⌥⌘I, and it stays on per device. The toolbar keeps today's short line.
 
 The pick is made from the gallery images and written here with its reason. The other two stay as choices of the
