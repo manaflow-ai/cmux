@@ -68,6 +68,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -259,15 +261,18 @@ public final class MessagesLabHomeView: NSView {
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         let box = PaletteScope.box(for: theme)
+        // The new palette first: the appearance change below redraws every row, and in the old palette it drew each
+        // row once more in the old colours, a bitmap that could land after the new one (the light welcome in dark).
+        controller.demo?.setPalette(box)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
         if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
-        controller.demo?.setPalette(box)
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                                    fill: theme.active.fieldFill)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).
@@ -658,6 +663,12 @@ public final class MessagesLabHomeView: NSView {
     public var onDraftTextChange: () -> Void {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
+    }
+    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
     }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {

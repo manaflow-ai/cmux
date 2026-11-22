@@ -40,8 +40,8 @@ extension SettingsSchema {
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.look", "sidebar.style", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",
@@ -82,13 +82,15 @@ extension SettingsSchema {
         "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
         "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
         "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
+        "appearance.backgroundMemory",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.experimentalControls", "app.uiScale",
-        "appearance.glassTransparency", "appearance.hue", "appearance.saturation", "appearance.density",
-        "appearance.customDensity", "appearance.customDensities", "appearance.metrics.chromeFontSize",
-        "appearance.fontSmoothing", "appearance.interfaceScale", "appearance.borders", "appearance.sidebarSurface",
-        "appearance.chromeStyle", "appearance.titleAreaTone", "appearance.titleAreaContrast",
+        "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.agentGlow",
+        "appearance.experimentalControls", "app.uiScale", "appearance.glassTransparency", "appearance.hue",
+        "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
+        "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
+        "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.cornerFlush",
         "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab",
         "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs",
         "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home",
@@ -127,24 +129,29 @@ extension SettingsSchema {
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs", "browser.keepNeighborTabsAwake", "browser.wakeTabsOnHover",
         "notifications.dismissal", "notifications.timeoutSeconds", "notifications.sources.agent.dismissal",
-        "notifications.sources.terminal.dismissal", "notifications.sources.cli.dismissal", "notifications.desktop",
-        "notifications.sound", "notifications.quietHours", "notifications.suppressWhileTypingSeconds",
-        "status.runNotifyMinimumSeconds", "status.runNotifyWhenVisible", "notifications.dockBadge",
-        "notifications.attention.style", "notifications.attention.color", "notifications.attention.terminals",
-        "notifications.attention.agentChats", "notifications.attention.agentChatBlinkCount",
-        "notifications.attention.width", "notifications.attention.blinkCount", "notifications.attention.duration",
-        "notifications.attention.persist", "notifications.attention.flash", "notifications.attention.flashOnTyping",
-        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar",
-        "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
+        "notifications.sources.terminal.dismissal", "notifications.sources.cli.dismissal",
+        "notifications.delivery.permissionRequest", "notifications.delivery.question",
+        "notifications.delivery.taskComplete", "notifications.desktop", "notifications.sound",
+        "notifications.quietHours", "notifications.suppressWhileTypingSeconds", "status.runNotifyMinimumSeconds",
+        "status.runNotifyWhenVisible", "notifications.dockBadge", "notifications.attention.style",
+        "notifications.attention.color", "notifications.attention.terminals", "notifications.attention.agentChats",
+        "notifications.attention.agentChatBlinkCount", "notifications.attention.width",
+        "notifications.attention.blinkCount", "notifications.attention.duration", "notifications.attention.persist",
+        "notifications.attention.flash", "notifications.attention.flashOnTyping", "notifications.attention.showOnTab",
+        "notifications.attention.showOnSidebar", "notifications.attention.mark", "notifications.attention.moveToTop",
+        "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
+        // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
+        "experiments.glassToolbarGroups", "experiments.composerV2", "experiments.agentBadges",
+        "experiments.agentBadgesBeam",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
         "home.chiefPetEnabled", "home.chiefPetMascot",
-        // Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
-        "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
+        // Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).
+        "home.chiefDock.sidePanel", "home.chiefDock.edge", "home.chiefPanel.style", "home.chiefDock.openBeside",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
@@ -230,11 +237,14 @@ extension SettingsSchema {
         "agentPane.display.pinnedPlan", "agentPane.display.finishSound", "agentPane.display.trayTucked",
         "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead",
         "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.font.preset",
-        "agentPane.display.font.ui", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
+        "agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.proseFamily",
+        "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
         "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
-        "agentPane.display.statusVerbs.custom", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.custom", "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton", "agentPane.display.harnessPlacement", "agentPane.display.rail.side",
         "agentPane.display.commandLabels",
         // The code editor's looks and editing behavior (diff-host S7); editor.importFrom is the person's.
         "editor.fontFamily", "editor.fontSize", "editor.fontWeight", "editor.fontLigatures", "editor.lineHeight",
@@ -275,6 +285,8 @@ extension SettingsSchema {
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
         // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
+        // Whether inactive chats are archived on their own, and after how long: reversible (Unarchive brings a chat back), it only moves chats off the lists.
+        "agents.chats.archiveInactive",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
         // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.

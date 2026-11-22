@@ -474,10 +474,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
-    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep` (key, listing machine), the first it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (_ key: String, _ machine: String) -> Bool = { _, _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key) }?.key
+        return listTabsScoped().first { $0.record.host == host && (sessions[AgentTabKey(machine: $0.machine, key: $0.key)] ?? $0.record.session) == session && keep($0.key, $0.machine) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
