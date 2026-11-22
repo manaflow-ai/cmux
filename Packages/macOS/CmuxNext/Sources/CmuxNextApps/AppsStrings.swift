@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the App Store window and app surfaces (Resources/Localizable.xcstrings).
 nonisolated enum AppsStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
