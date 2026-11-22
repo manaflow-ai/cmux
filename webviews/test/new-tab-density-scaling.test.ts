@@ -1,12 +1,19 @@
 // cmux-web-test-timeout: 300
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
   setDefaultTimeout(300_000);
+  const engines: [string, BrowserType][] = [];
+  for (const engine of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("new-tab-density-scaling.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   const browsers = new Map<string, Browser>();
@@ -17,16 +24,15 @@ await requireBrowserLane("new-tab-density-scaling.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    browsers.set("chromium", await chromium.launch({ headless: true }));
-    browsers.set("webkit", await webkit.launch({ headless: true }));
-    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser: browsers.get("chromium")! });
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser: [...browsers.values()][0] });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
   });
 
-  for (const engine of ["chromium", "webkit"]) {
+  for (const [engine] of engines) {
     test(`${engine}: the whole composer area scales from Default, including searchable create rows`, async () => {
       const page = await browsers.get(engine)!.newPage({ viewport: { width: 1600, height: 1000 } });
       const port = (vite.httpServer!.address() as { port: number }).port;
