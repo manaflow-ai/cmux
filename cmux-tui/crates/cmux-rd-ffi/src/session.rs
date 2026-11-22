@@ -9,10 +9,11 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::clock::ClockEstimator;
+use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{
-    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, STREAM_BULK, STREAM_CONTROL,
-    STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+    ClockEstimate, ClockPong, DatagramHeader, DatagramKind, FrameTimes, STREAM_BULK,
+    STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
 };
 
 use crate::receiver::{
@@ -53,6 +54,10 @@ pub struct Session {
     ready: VecDeque<u16>,
     /// The session clock (rd change C8), once the host accepted the `clock` cap.
     clock: Option<ClockEstimator>,
+    /// Every frame's stage times (D8): the host's from its `FrameTimes`
+    /// datagrams (cap `ledger`), this viewer's from reassembly and the
+    /// caller's decode and present notes. Bounded.
+    ledger: StageLedger,
     failed: bool,
 }
 
@@ -69,6 +74,7 @@ impl Session {
             message_bytes: 0,
             ready: VecDeque::new(),
             clock: None,
+            ledger: StageLedger::new(),
             failed: false,
         };
         let _ = s.open_stream(0);
@@ -159,6 +165,12 @@ impl Session {
     pub fn pop_frame(&mut self) -> Option<(u16, CompleteFrame)> {
         while let Some(stream) = self.ready.pop_front() {
             if let Some(frame) = self.streams.get_mut(&stream).and_then(Receiver::pop_frame) {
+                self.ledger.on_released(
+                    stream,
+                    frame.frame,
+                    frame.last_shard_us,
+                    frame.released_us,
+                );
                 return Some((stream, frame));
             }
         }
@@ -181,6 +193,41 @@ impl Session {
     pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
         self.receiver(stream)?.note_decode(decode_us);
         Ok(())
+    }
+
+    /// Frame `frame` of `stream` finished decoding at `decoded_at_us` (the
+    /// session's clock, as passed to `push_*`) after `decode_us`: feeds the
+    /// feedback median and the stage ledger.
+    pub fn note_decoded(
+        &mut self,
+        stream: u16,
+        frame: u32,
+        decode_us: u32,
+        decoded_at_us: u64,
+    ) -> Result<(), SessionError> {
+        self.receiver(stream)?.note_decode(decode_us);
+        self.ledger.on_decoded(stream, frame, decoded_at_us);
+        Ok(())
+    }
+
+    /// Frame `frame` of `stream` reached the glass at `presented_at_us` (the
+    /// session's clock: the drawable's presented time).
+    pub fn note_presented(
+        &mut self,
+        stream: u16,
+        frame: u32,
+        presented_at_us: u64,
+    ) -> Result<(), SessionError> {
+        self.receiver(stream)?;
+        self.ledger.on_presented(stream, frame, presented_at_us);
+        Ok(())
+    }
+
+    /// The stage ledger of the frames kept so far, as one JSON object
+    /// (`cmux.rd-stage-ledger/1`), on the host's clock.
+    pub fn stage_ledger_json(&self) -> String {
+        let offset = self.clock().map(|c| c.offset_us);
+        self.ledger.summary(offset, &[]).to_json()
     }
 
     /// Asks the host for a keyframe on `stream` until one is released there.
@@ -261,7 +308,17 @@ impl Session {
     fn on_datagram(&mut self, datagram: &[u8], now_us: u64) -> Result<(), SessionError> {
         let (header, _) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
         match header.kind {
+            DatagramKind::FrameTimes => {
+                let (_, payload) =
+                    DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
+                let times = FrameTimes::decode(payload).map_err(ReceiverError::Invalid)?;
+                self.ledger.on_host(header.stream, header.frame, times);
+                Ok(())
+            }
             DatagramKind::Video | DatagramKind::Fec => {
+                if self.streams.contains_key(&header.stream) {
+                    self.ledger.on_shard(header.stream, header.frame, datagram.len(), now_us);
+                }
                 let r = self.receiver(header.stream)?;
                 let before = r.ready_frames();
                 let pushed = r.push_datagram(datagram, now_us);
@@ -269,6 +326,12 @@ impl Session {
                 self.track(header.stream, before, after);
                 pushed.map_err(SessionError::from)
             }
+            // An ultra capacity probe: its stream's receiver reports the arrival in that
+            // stream's feedback. A probe for a stream that is not open is dropped.
+            DatagramKind::Probe => match self.streams.get_mut(&header.stream) {
+                Some(r) => r.push_datagram(datagram, now_us).map_err(SessionError::from),
+                None => Ok(()),
+            },
             DatagramKind::ClockPong if self.clock.is_some() => {
                 let (_, payload) =
                     DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;

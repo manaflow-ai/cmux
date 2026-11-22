@@ -2895,43 +2895,43 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "جرّبه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Isprobaj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Ausprobieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Pruébalo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Essayer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prova"
           }
         },
         "ja": {
@@ -2943,73 +2943,73 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "សាកល្បង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "사용해 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Wypróbuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Experimentar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Попробовать"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "ลองใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dene"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Спробувати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dùng thử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "试一试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "試試看"
           }
         }
       }

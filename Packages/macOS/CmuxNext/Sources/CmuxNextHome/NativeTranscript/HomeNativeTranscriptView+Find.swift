@@ -88,19 +88,19 @@ extension HomeNativeTranscriptView {
         if pill.query.isEmpty {
             pill.showCount("", noMatches: false)
         } else if position.total == 0 {
-            pill.showCount(String(localized: "home.find.noMatches", defaultValue: "No matches", bundle: .module), noMatches: true)
+            pill.showCount(String(localized: "home.find.noMatches", defaultValue: "No matches", bundle: .localizedModule), noMatches: true)
         } else {
-            pill.showCount(String(localized: "home.find.position", defaultValue: "\(position.current) of \(position.total)", bundle: .module),
+            pill.showCount(String(localized: "home.find.position", defaultValue: "\(position.current) of \(position.total)", bundle: .localizedModule),
                            noMatches: false)
         }
         layoutFind()
     }
 
     private static var findLabels: FindPillLabels {
-        FindPillLabels(placeholder: String(localized: "home.find.placeholder", defaultValue: "Find", bundle: .module),
-                       previous: String(localized: "home.find.previous", defaultValue: "Previous Match", bundle: .module),
-                       next: String(localized: "home.find.next", defaultValue: "Next Match", bundle: .module),
-                       close: String(localized: "home.find.close", defaultValue: "Close", bundle: .module))
+        FindPillLabels(placeholder: String(localized: "home.find.placeholder", defaultValue: "Find", bundle: .localizedModule),
+                       previous: String(localized: "home.find.previous", defaultValue: "Previous Match", bundle: .localizedModule),
+                       next: String(localized: "home.find.next", defaultValue: "Next Match", bundle: .localizedModule),
+                       close: String(localized: "home.find.close", defaultValue: "Close", bundle: .localizedModule))
     }
 
     /// The icons every find pill draws.

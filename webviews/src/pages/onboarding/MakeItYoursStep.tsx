@@ -104,6 +104,7 @@ export function MakeItYoursStep({
                 key={background.id || "none"}
                 className="onb-make-tile"
                 data-checked={checked || undefined}
+                // tooltip-allow: a picture tile, with its name beside it only in the cards look.
                 title={label}
               >
                 <input
