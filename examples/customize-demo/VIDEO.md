@@ -2,109 +2,113 @@
 
 Leo asked for one clip per look. Each clip below was recorded in the published cmux NEXT nightly
 (1.0.0-nightly.4500914846101, commit `8815f4c8e527`) on a fresh home on a fleet display worker, from the
-profile files at `6f41f2bd26e` (#50138, which adds the gallery, showcase and starter looks to the demo).
+profile files at `319385c65a2` (#50138: the demo, gallery, showcase, glass, widgets and last-demo looks).
 A clip is the window before the look, then three frames 4 s apart after `customize use` and a New Tab;
 the screenshot is its last frame. The window is the whole frame: the capture shoots only the cmux window.
+A fresh home has no agent sessions, so a sidebar that lists sessions or threads shows its empty state.
 
-Only three looks are recorded so far. From 10:15Z to 12:45Z on 2026-11-22 the controller refused every
-nightly capture with `invalid ci-step: source depot disk reserve unavailable`: the capture depot on the
-controller is full (41 GiB free against a 40 GiB reserve plus one bundle) and its retention runs after that
-check. The rest wait on the depot fix (hq handbook `cleaner-starved-on-a-full-disk.md`).
+2 of 75 looks are recorded.
 
 ## Recorded
+
+| Look | Clip | Screenshot | Reproduce on your Mac | Fleet step | What it shows |
+| --- | --- | --- | --- | --- | --- |
+| looks/codex.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.mp4) | ![looks-codex](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-codex-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/codex.json` | `b60ef3fe96af35b91e54d69b` (17/17 steps ok) | Applied: the dark default turns into the light Codex theme, with a Priority/Chief/Threads sidebar (empty Threads on a fresh home) and the Unii New Tab composer. |
+| looks/studio.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.mp4) | ![looks-studio](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/looks-studio-319385c.png) | `examples/customize-demo/demo.sh --nightly --only looks/studio.json` | `5a6df49cba6226fd80caf5e8` (17/17 steps ok) | Applied: the light default turns into the dark Studio theme with a plum accent, a Chief/Threads sidebar (empty Threads on a fresh home) and the New Tab composer. |
+
+## Not recorded yet
+
+Generate the states, then run the row's command once and keep its receipt (`CMUX_AGENT_ID` names the
+lease owner):
+
+```sh
+python3 examples/customize-demo/record-steps.py --ref 319385c65a2bc76306f283591d6b43355bb2edcf \
+  --frames 3 --hold 12 --output-dir /tmp/demo-states-319385c65a2b
+```
+
+| Look | Capture command |
+| --- | --- |
+| looks/claude.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/looks-claude.json` |
+| looks/hosts.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/looks-hosts.json` |
+| last-demo/cockpit.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-cockpit.json` |
+| last-demo/collection.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-collection.json` |
+| last-demo/focus.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-focus.json` |
+| last-demo/tiling.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/last-demo-tiling.json` |
+| glass/chrome.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-chrome.json` |
+| glass/liquid.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-liquid.json` |
+| glass/mica.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-mica.json` |
+| glass/tinted.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/glass-tinted.json` |
+| widgets/widgets.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/widgets-widgets.json` |
+| gallery/material.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-material.json` |
+| gallery/codex-sidebar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-codex-sidebar.json` |
+| gallery/claude-code-session-recents.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-session-recents.json` |
+| gallery/rex-whole.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-whole.json` |
+| gallery/shadcn.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-shadcn.json` |
+| gallery/apple.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-apple.json` |
+| gallery/hairline.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-hairline.json` |
+| gallery/codex-threads.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-codex-threads.json` |
+| gallery/claude-code-sidebar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-sidebar.json` |
+| gallery/claude-code-project-picker.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-project-picker.json` |
+| gallery/claude-code-transcript.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-transcript.json` |
+| gallery/claude-code-composer.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-composer.json` |
+| gallery/claude-code-session-worktree.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-session-worktree.json` |
+| gallery/claude-code-whole.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-whole.json` |
+| gallery/basalt.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-basalt.json` |
+| gallery/claude-code-agents.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-agents.json` |
+| gallery/claude-code-cli.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-cli.json` |
+| gallery/claude-code-cloud.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-cloud.json` |
+| gallery/claude-code-composer-controls.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-composer-controls.json` |
+| gallery/claude-code-export.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-export.json` |
+| gallery/claude-code-inactive-archive.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-inactive-archive.json` |
+| gallery/claude-code-modes.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-modes.json` |
+| gallery/claude-code-notification-levels.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-notification-levels.json` |
+| gallery/claude-code-side-question.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-side-question.json` |
+| gallery/claude-code-transcript-width.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-claude-code-transcript-width.json` |
+| gallery/docket.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-docket.json` |
+| gallery/ember.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-ember.json` |
+| gallery/folio.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-folio.json` |
+| gallery/hush.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-hush.json` |
+| gallery/kerf.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-kerf.json` |
+| gallery/linen.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-linen.json` |
+| gallery/paper.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-paper.json` |
+| gallery/prism.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-prism.json` |
+| gallery/rex-activity.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-activity.json` |
+| gallery/rex-appearance.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-appearance.json` |
+| gallery/rex-hosts.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-hosts.json` |
+| gallery/rex-new-tab.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-new-tab.json` |
+| gallery/rex-palette.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-palette.json` |
+| gallery/rex-pane-operations.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-pane-operations.json` |
+| gallery/rex-panes.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-panes.json` |
+| gallery/rex-preferences.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-preferences.json` |
+| gallery/rex-session-operations.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-session-operations.json` |
+| gallery/rex-session-picker.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-session-picker.json` |
+| gallery/rex-tabs.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-tabs.json` |
+| gallery/rex-terminal.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-terminal.json` |
+| gallery/rex-toolbar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-rex-toolbar.json` |
+| gallery/starter-actions-and-keys.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-starter-actions-and-keys.json` |
+| gallery/starter-chat-style.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-starter-chat-style.json` |
+| gallery/starter-sidebar-view.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-starter-sidebar-view.json` |
+| gallery/starter-theme-file.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-starter-theme-file.json` |
+| gallery/studio.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-studio.json` |
+| gallery/tachyon.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-tachyon.json` |
+| gallery/tandem.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/gallery-tandem.json` |
+| showcase/cockpit.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-cockpit.json` |
+| showcase/collection.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-collection.json` |
+| showcase/focus.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-focus.json` |
+| showcase/ide.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-ide.json` |
+| showcase/leo-daylight.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-leo-daylight.json` |
+| showcase/leo-dusk.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-leo-dusk.json` |
+| showcase/leo-neon.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-leo-neon.json` |
+| showcase/right-handed.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-right-handed.json` |
+| showcase/tiling.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-319385c65a2b/showcase-tiling.json` |
+
+## Earlier recording (same nightly, profiles at `6f41f2bd26e`)
 
 | Look | Clip | Screenshot | Reproduce on your Mac | Fleet step | What it shows |
 | --- | --- | --- | --- | --- | --- |
 | gallery/claude-code-sidebar.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-claude-code-sidebar.mp4) | ![gallery-claude-code-sidebar](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-claude-code-sidebar.png) | `examples/customize-demo/demo.sh --nightly --only gallery/claude-code-sidebar.json` | `35b3230420febc3d3233c185` (17/17 steps ok) | The sidebar widens to 284 pt; the profile applied (`customize use` ok, the New Tab action ok). A fresh home has no sessions or project folders, so the folder groups and nested sessions this pack sets up have nothing to show: the sidebar holds only Chief. The New Tab page is the default one (this pack sets no page). |
 | gallery/codex-sidebar.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-codex-sidebar.mp4) | ![gallery-codex-sidebar](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-codex-sidebar.png) | `examples/customize-demo/demo.sh --nightly --only gallery/codex-sidebar.json` | `6889f9be1b028f989267d9fa` (16/17 steps ok) | **Not applied.** `customize use` refused the profile: `customize/cmux-app.json:16:44: /implements/cmux.section~11/options/maxRows: 60 is greater than the maximum of 50`. The dark window is the preview that stays live; the Codex threads sidebar never appears. Bug in the profile at `6f41f2bd26e` (#50138), not in the capture. |
 | gallery/material.json | [clip](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-material.mp4) | ![gallery-material](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/50424/gallery-material.png) | `examples/customize-demo/demo.sh --nightly --only gallery/material.json` | `327c07194e7786d2defa78f1` (15/17 steps ok, verdict fail) | **Not shown.** The lavender Material tint reached the sidebar, but the app's background service did not start ("cmux couldn't start its background service") and both New Tab actions were refused (`newTab.page unavailable: Click a tab first`), so no gooey tabs or page. Home did not render within 90 s. Run again once the depot is back. |
-
-## Not recorded yet
-
-Each row is blocked on the depot fix. Generate the states, then run the row's command once and keep its
-receipt (`CMUX_AGENT_ID` names the lease owner):
-
-```sh
-python3 examples/customize-demo/record-steps.py --ref 6f41f2bd26e136a17ff0bb0436b112fdf682acae \
-  --frames 3 --hold 12 --output-dir /tmp/demo-states-6f41f2bd26e1
-```
-
-`looks/hosts.json` waits on #47972 as well; record it from that PR's merged head.
-
-| Look | Capture command |
-| --- | --- |
-| looks/claude.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/looks-claude.json` |
-| looks/codex.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/looks-codex.json` |
-| looks/studio.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/looks-studio.json` |
-| looks/hosts.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/looks-hosts.json` |
-| gallery/claude-code-session-recents.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-session-recents.json` |
-| gallery/rex-whole.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-whole.json` |
-| gallery/shadcn.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-shadcn.json` |
-| gallery/apple.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-apple.json` |
-| gallery/hairline.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-hairline.json` |
-| last-demo/cockpit.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/last-demo-cockpit.json` |
-| last-demo/collection.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/last-demo-collection.json` |
-| last-demo/focus.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/last-demo-focus.json` |
-| last-demo/tiling.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/last-demo-tiling.json` |
-| glass/chrome.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/glass-chrome.json` |
-| glass/liquid.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/glass-liquid.json` |
-| glass/mica.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/glass-mica.json` |
-| glass/tinted.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/glass-tinted.json` |
-| widgets/widgets.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/widgets-widgets.json` |
-| gallery/basalt.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-basalt.json` |
-| gallery/claude-code-agents.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-agents.json` |
-| gallery/claude-code-cli.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-cli.json` |
-| gallery/claude-code-cloud.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-cloud.json` |
-| gallery/claude-code-composer-controls.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-composer-controls.json` |
-| gallery/claude-code-composer.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-composer.json` |
-| gallery/claude-code-export.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-export.json` |
-| gallery/claude-code-inactive-archive.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-inactive-archive.json` |
-| gallery/claude-code-modes.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-modes.json` |
-| gallery/claude-code-notification-levels.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-notification-levels.json` |
-| gallery/claude-code-open-in-editor.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-open-in-editor.json` |
-| gallery/claude-code-project-picker.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-project-picker.json` |
-| gallery/claude-code-session-worktree.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-session-worktree.json` |
-| gallery/claude-code-side-question.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-side-question.json` |
-| gallery/claude-code-transcript-width.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-transcript-width.json` |
-| gallery/claude-code-transcript.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-transcript.json` |
-| gallery/claude-code-whole.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-claude-code-whole.json` |
-| gallery/codex-threads.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-codex-threads.json` |
-| gallery/docket.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-docket.json` |
-| gallery/ember.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-ember.json` |
-| gallery/folio.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-folio.json` |
-| gallery/hush.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-hush.json` |
-| gallery/kerf.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-kerf.json` |
-| gallery/linen.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-linen.json` |
-| gallery/prism.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-prism.json` |
-| gallery/rex-activity.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-activity.json` |
-| gallery/rex-appearance.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-appearance.json` |
-| gallery/rex-hosts.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-hosts.json` |
-| gallery/rex-new-tab.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-new-tab.json` |
-| gallery/rex-palette.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-palette.json` |
-| gallery/rex-pane-operations.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-pane-operations.json` |
-| gallery/rex-panes.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-panes.json` |
-| gallery/rex-preferences.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-preferences.json` |
-| gallery/rex-session-operations.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-session-operations.json` |
-| gallery/rex-session-picker.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-session-picker.json` |
-| gallery/rex-tabs.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-tabs.json` |
-| gallery/rex-terminal.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-terminal.json` |
-| gallery/rex-toolbar.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-rex-toolbar.json` |
-| gallery/starter-actions-and-keys.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-starter-actions-and-keys.json` |
-| gallery/starter-chat-style.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-starter-chat-style.json` |
-| gallery/starter-sidebar-view.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-starter-sidebar-view.json` |
-| gallery/starter-theme-file.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-starter-theme-file.json` |
-| gallery/starter-thinking-dots.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-starter-thinking-dots.json` |
-| gallery/tachyon.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-tachyon.json` |
-| gallery/tandem.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/gallery-tandem.json` |
-| showcase/cockpit.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-cockpit.json` |
-| showcase/collection.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-collection.json` |
-| showcase/focus.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-focus.json` |
-| showcase/ide.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-ide.json` |
-| showcase/leo-daylight.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-leo-daylight.json` |
-| showcase/leo-dusk.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-leo-dusk.json` |
-| showcase/leo-neon.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-leo-neon.json` |
-| showcase/right-handed.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-right-handed.json` |
-| showcase/tiling.json | `cmux-ci capture --nightly latest --state /tmp/demo-states-6f41f2bd26e1/showcase-tiling.json` |
 
 ## Earlier recording (1.0.0-nightly.4489317235601, profiles at `b663e121155`)
 
