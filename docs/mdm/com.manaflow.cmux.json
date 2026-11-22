@@ -12,6 +12,16 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerLook" : {
+      "default" : "auto",
+      "description" : "Where the mode, model and effort sit: under the box or inside it.",
+      "enum" : [
+        "auto",
+        "studio"
+      ],
+      "title" : "Composer Look",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -325,6 +335,26 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -408,6 +438,16 @@
         "never"
       ],
       "title" : "Edited Files Card",
+      "type" : "string"
+    },
+    "agentPane.emptyChatComposerPosition" : {
+      "default" : "bottom",
+      "description" : "Where the message box sits in a chat with no messages yet.",
+      "enum" : [
+        "bottom",
+        "center"
+      ],
+      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
@@ -3942,6 +3982,12 @@
       "default" : false,
       "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
+    "labs.hostsSidebar" : {
+      "default" : false,
+      "description" : "Shows your machines in the sidebar, with Add Host. Click a machine to open a workspace on it.",
+      "title" : "Hosts Sidebar",
       "type" : "boolean"
     },
     "labs.liveCode" : {
