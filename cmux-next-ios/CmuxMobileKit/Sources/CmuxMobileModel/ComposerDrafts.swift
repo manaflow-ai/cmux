@@ -10,11 +10,14 @@ import UIKit
 /// connection f***ing lagged ... and my drafted message on ios in the f***ing round composer got
 /// lost"). The composer writes what it holds as it changes; an empty composer (a send) removes it.
 /// Writes wait a moment and go as one, and go at once when the app leaves the foreground.
+/// Encoding and the file write run on `writer`, never on the main thread: a write every 400 ms
+/// while typing held the main thread for the encode and an atomic, protected file write (Leo,
+/// 2026-11-22: "some weird hitch in the app at some strange intervals").
 @MainActor
 public final class ComposerDraftStore {
     public static let shared = ComposerDraftStore(url: ComposerDraftStore.defaultURL)
 
-    struct Entry: Codable, Equatable {
+    struct Entry: Codable, Equatable, Sendable {
         var text: String
         var savedAt: Date
     }
@@ -81,13 +84,19 @@ public final class ComposerDraftStore {
     /// A closed tab's draft goes with it.
     public func clear(_ key: String) { save("", for: key) }
 
-    /// Writes now what waits to be written.
+    /// Writes now what waits to be written, and returns once it is on disk.
     public func flush() {
-        guard pendingWrite != nil else { return }
-        pendingWrite?.cancel()
-        pendingWrite = nil
-        write()
+        if pendingWrite != nil {
+            pendingWrite?.cancel()
+            pendingWrite = nil
+            write()
+        }
+        // The app is leaving the foreground (or a test reads the file back): wait for the writer.
+        Self.writer.sync {}
     }
+
+    /// One serial queue for every store's file: writes land in the order they were made.
+    private static let writer = DispatchQueue(label: "dev.cmux.mobile.composer-drafts", qos: .utility)
 
     private func scheduleWrite() {
         guard url != nil, pendingWrite == nil else { return }
@@ -106,10 +115,16 @@ public final class ComposerDraftStore {
     public static var mainThreadWrite: (@MainActor () -> Void)?
     #endif
 
+    /// Hands a snapshot of the drafts to `writer`: the main thread copies a dictionary, no more.
     private func write() {
         guard let url else { return }
+        let drafts = drafts
+        Self.writer.async { Self.persist(drafts, to: url) }
+    }
+
+    private nonisolated static func persist(_ drafts: [String: Entry], to url: URL) {
         #if DEBUG
-        if Thread.isMainThread { Self.mainThreadWrite?() }
+        if Thread.isMainThread { MainActor.assumeIsolated { mainThreadWrite?() } }
         #endif
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let data = try? JSONEncoder().encode(drafts) else { return }

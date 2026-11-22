@@ -1027,28 +1027,22 @@ extension ComposerVoiceStyle {
 
 /// `@` mention candidates, memoized: `SessionArtifacts.collect` walks the whole transcript,
 /// and the composer's body asked for it twice on every key while a mention was typed.
-/// The scan reruns only when the transcript changes (`AgentChatStore.revision`); the
-/// candidates only when the query does too. Not observed: it is a cache, read in `body`.
+/// The artifacts come from `AgentChatStore.mentionArtifacts`, which reads the transcript
+/// untracked (frames streaming in never re-render the composer) and rescans at most once a
+/// second; the candidates rerun only when the query or the artifacts change. Not observed:
+/// it is a cache, read in `body`.
 @MainActor
 final class MentionIndex {
-    private var key: (Int, Int, Int, String)?
-    private var artifacts: [TerminalArtifact] = []
+    private var generation: Int?
     private var lastQuery: String?
     private var lastMatches: [TerminalArtifact] = []
 
     func matches(_ query: String, store: AgentChatStore) -> [TerminalArtifact] {
-        let key = (store.revision, store.turns.count, store.subagents.count, store.summary.cwd)
-        if self.key.map({ $0 != key }) ?? true {
-            self.key = key
-            #if os(iOS) && DEBUG
-            InputLatencyTrace.shared?.note("mention_scan")
-            #endif
-            artifacts = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd).artifacts
-            lastQuery = nil
-        }
-        if lastQuery != query {
+        let current = store.mentionArtifacts()
+        if generation != current.generation || lastQuery != query {
+            generation = current.generation
             lastQuery = query
-            lastMatches = ComposerMention.candidates(query, in: artifacts)
+            lastMatches = ComposerMention.candidates(query, in: current.artifacts)
         }
         return lastMatches
     }
