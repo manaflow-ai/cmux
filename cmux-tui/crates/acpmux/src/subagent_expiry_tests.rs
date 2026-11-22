@@ -318,3 +318,25 @@ fn an_aged_out_end_carries_its_last_event_and_heard_status() {
     assert_eq!(ended[0].ended_at, Some(T0 + 7));
     assert_eq!(ended[1].ended_at, Some(T0 + 9));
 }
+
+/// Most of the helpers Leo's relaunch ended `disconnected` had a harness exit mid-run; Claude,
+/// resumed, finished them and said so after the exit. The orphan ends as that notification said,
+/// when it said; one that starts again after it is lost when it last started.
+#[test]
+fn an_orphan_notified_after_the_harness_exit_ends_as_notified() {
+    let mut tree = tree();
+    background(&mut tree, T0, "a", "agent-a");
+    background(&mut tree, T0, "b", "agent-b");
+    tree.end_background();
+    tree.set_clock(T0 + 100);
+    tree.note_task_ended("agent-a", "completed");
+    tree.note_task_ended("agent-b", "completed");
+    tree.set_clock(T0 + 200);
+    tree.note_task_started("agent-b");
+    let orphans = tree.take_orphans();
+    assert_eq!(
+        triples(&orphans),
+        [("a", "completed", "harness_exit"), ("b", "disconnected", "harness_exit")]
+    );
+    assert_eq!((orphans[0].ended_at, orphans[1].ended_at), (Some(T0 + 100), Some(T0 + 200)));
+}

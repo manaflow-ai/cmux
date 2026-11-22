@@ -158,18 +158,29 @@ impl SubagentTree {
 
     /// Claude's `task_notification` for task `agent` said `status`: kept for the running subagent
     /// it is, so its end says how it ended even when the bridge could not tell (the module doc).
+    /// One a harness exit left an orphan is told too: Claude, resumed after the exit, often goes
+    /// on to finish the agent and says so, and the orphan then ends as it said, when it said.
     pub fn note_task_ended(&mut self, agent: &str, status: &str) {
         let Some(id) = self.expiry.by_agent.get(agent) else { return };
-        if self.running.iter().any(|(r, _)| r == id) {
-            self.expiry.heard_end.insert(id.clone(), (end_state(status), self.expiry.clock));
+        let at = self.expiry.clock;
+        if let Some(orphan) = self.expiry.orphans.get_mut(id) {
+            orphan.state = end_state(status);
+            orphan.ended_at = Some(at).filter(|at| *at > 0).or(orphan.ended_at);
+        } else if self.running.iter().any(|(r, _)| r == id) {
+            self.expiry.heard_end.insert(id.clone(), (end_state(status), at));
         }
     }
 
     /// Claude's `task_started` for task `agent`: it runs again (a SendMessage resume), so an
-    /// earlier notification no longer says how it ends.
+    /// earlier notification no longer says how it ends. An orphan that starts again and is never
+    /// heard of after is lost then, not at its last event before the exit.
     pub fn note_task_started(&mut self, agent: &str) {
-        if let Some(id) = self.expiry.by_agent.get(agent) {
-            self.expiry.heard_end.remove(id);
+        let Some(id) = self.expiry.by_agent.get(agent) else { return };
+        self.expiry.heard_end.remove(id);
+        let at = self.expiry.clock;
+        if let Some(orphan) = self.expiry.orphans.get_mut(id) {
+            orphan.state = "disconnected";
+            orphan.ended_at = Some(at).filter(|at| *at > 0).or(orphan.ended_at);
         }
     }
 
