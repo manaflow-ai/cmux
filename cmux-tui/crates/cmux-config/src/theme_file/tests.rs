@@ -453,6 +453,26 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+/// The transcript look rides in a theme file (docs/cmux-next/transcript-customization.md): the look
+/// and its tokens apply, and a tokens object with an unknown token is refused with its key.
+#[test]
+fn a_theme_file_carries_the_transcript_look_and_its_tokens() {
+    let file = overlay(
+        r#"{ "agentPane.display.transcriptLook": "studio",
+             "agentPane.display.transcriptTokens": { "userMessage.radius": 20, "timestamps": "always" } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "agentPane.display.transcriptLook"), Some(&json!("studio")));
+    assert_eq!(
+        at(&root, "agentPane.display.transcriptTokens"),
+        Some(&json!({"userMessage.radius": 20, "timestamps": "always"}))
+    );
+    let bad = overlay(r#"{ "agentPane.display.transcriptTokens": { "avatar": "on" } }"#);
+    assert!(bad.keys().is_empty());
+    assert!(bad.diagnostics.iter().any(|d| d.path == "agentPane.display.transcriptTokens"));
+}
+
 #[test]
 fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
