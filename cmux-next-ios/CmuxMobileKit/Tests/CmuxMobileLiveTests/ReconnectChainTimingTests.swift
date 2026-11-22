@@ -452,12 +452,27 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         try #require(done(), "timed out waiting for \(what)")
     }
 
-    @Test func reconnectChainAfterForeground() async throws {
+    /// One coordinator on the fake Mac: paired, chats ready, chat `s1` open with its first live record.
+    private struct Rig {
+        let live: LiveCoordinator
+        let mac: FakeMac
+        let clock: LinkTestClock
+        let session: MacSession
+        let chat: AgentChatStore
+        let pick: String
+
+        func stop() {
+            live.stop()
+            clock.stop()
+            UserDefaults.standard.removeObject(forKey: pick)
+        }
+    }
+
+    private func rig() async throws -> Rig {
         let userID = "user-\(UUID().uuidString)"
         let teamID = "t-chain-\(UUID().uuidString.prefix(8))"
         let macID = "mac-chain-\(UUID().uuidString.prefix(8).lowercased())"
         let pick = "cmuxMobile.live.mac.\(teamID)"
-        defer { UserDefaults.standard.removeObject(forKey: pick) }
         let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
         ServiceStub.install(host: host) { _ in nil }
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-chain-\(UUID().uuidString)")
@@ -483,10 +498,6 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json")),
             pins: MacPins(file: nil), clock: clock
         )
-        defer {
-            live.stop()
-            clock.stop()
-        }
         // No kept transcript: the chat's history comes from the Mac only.
         live.transcriptCache = nil
 
@@ -500,6 +511,46 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let source = session.acpmux.source(sessionID: "s1", summary: summary)
         let chat = AgentChatStore(source: source)
         try await waitFor("the chat's first live record") { chat.turns.contains { $0.id == "l0" } }
+
+        return Rig(live: live, mac: mac, clock: clock, session: session, chat: chat, pick: pick)
+    }
+
+    /// Leo, 2026-11-22: "shit shouldnt somehow instantly dissipate after i navigate away for like
+    /// one second". A 1 s app switch keeps the link: with the Mac's answers held (no round trip
+    /// yet), the same link, pairing, chats, daemon channel and chat are all still there, so the
+    /// first key and the first frame cost no round trip. The old `.resume` closed the link here
+    /// and every one of these waited for the chain `reconnectChainAfterForeground` measures.
+    @Test func shortResumeKeepsTheLinkWithNoRoundTrip() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let (live, mac, session, chat) = (rig.live, rig.mac, rig.session, rig.chat)
+        let kept = try #require(session.link.link) as AnyObject
+        let serial = session.workspaces.connectionSerial
+        var lines: [String] = []
+        for _ in 0..<20 {
+            mac.lockstep.hold()
+            live.background()
+            live.foreground(after: .seconds(1))
+            #expect((session.link.link as AnyObject?) === kept, "a 1 s resume replaced the link")
+            #expect(session.workspaces.connectionSerial == serial, "a 1 s resume unbound the workspaces")
+            #expect(session.workspaces.daemon != nil, "a key typed now would throw no-link")
+            #expect(session.pairingState == .paired)
+            #expect(session.acpmux.isReady)
+            #expect(chat.turns.contains { $0.id == "l0" })
+            // The quick probe's pong comes back in one round trip; the link stays.
+            mac.lockstep.roundTrip()
+            mac.lockstep.release()
+            #expect((session.link.link as AnyObject?) === kept)
+        }
+        lines.append(#"RESUME_KEEP {"away_s":1,"n":20,"round_trips_to_input":0,"round_trips_to_frame":0,"redials":0}"#)
+        print(lines[0])
+        Attachment.record(lines.joined(separator: "\n"), named: "resume-keep.txt")
+    }
+
+    @Test func reconnectChainAfterForeground() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let (live, mac, session, chat) = (rig.live, rig.mac, rig.session, rig.chat)
 
         // Adoption: the controller hands the coordinator a new link.
         let marks = mac.marks
