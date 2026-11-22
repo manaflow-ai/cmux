@@ -210,8 +210,10 @@ describe("the transcript motion detector", () => {
       ["move", "dock"],
       ["resize", "dock"],
     ]);
-    // The same scroll with no input is the page's: every row it moved is a move.
-    expect(transcriptMoves({ ...record, inputs: [] }).filter((f) => f.key === "row:a").length).toBe(1);
+    // The same scroll with no input is the page's: the view snapped, one scroll-step for the frame.
+    const page = transcriptMoves({ ...record, inputs: [] });
+    expect(page.filter((f) => f.key === "row:a")).toEqual([]);
+    expect(page.filter((f) => f.kind === "scroll-step").map((f) => [f.key, f.px])).toEqual([["scroller", 100]]);
   });
 });
 

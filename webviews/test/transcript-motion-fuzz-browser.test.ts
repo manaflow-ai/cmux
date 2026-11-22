@@ -5,7 +5,7 @@
 // THESE SHOULD BE FLAGGABLE".
 //
 // Each seed plays through the fold recorder's page at real speed with the shipped fold look; every
-// element's box is read every frame. A seed fails when the detector flags a kind (`move`, `resize`,
+// element's box is read every frame. A seed fails when the detector flags a kind (`move`, `scroll-step`, `resize`,
 // `off-curve`) that transcript-motion-baseline.json does not list for it, in two plays out of two (a play
 // is real time on a shared runner: a flag must repeat to count). The baseline lists the seeds that flag
 // today; it only shrinks: a listed seed that plays clean is printed so it comes out. Regenerate it from
@@ -16,7 +16,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-type Counts = { move: number; resize: number; "off-curve": number };
+type Counts = { move: number; "scroll-step": number; resize: number; "off-curve": number };
 type Baseline = { look: string; seeds: number; flagged: Record<string, Counts> };
 
 await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
@@ -42,7 +42,7 @@ await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
     await recorder?.close();
   });
 
-  const KINDS = ["move", "resize", "off-curve"] as const;
+  const KINDS = ["move", "scroll-step", "resize", "off-curve"] as const;
   /** Each seed's kinds that the baseline does not list for it. */
   const fresh = (flags: Record<string, Counts>) =>
     Object.entries(flags)
