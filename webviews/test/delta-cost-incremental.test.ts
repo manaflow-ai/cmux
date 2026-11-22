@@ -101,6 +101,22 @@ test("transcriptRepositoriesFrom gives what a whole pass gives, as the rows stre
   );
 });
 
+test("transcriptRepositoriesFrom keeps no cache entry for rows a chat shed", () => {
+  // A grown chat: each update appends two rows and sheds the oldest two, so its view holds 200 rows.
+  const cache: RepositoryCache = new Map();
+  let rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, i) =>
+    row(`r${i}`, { text: i === 0 ? "see a/b#1" : `r${i}` }),
+  );
+  let reading = transcriptRepositoriesFrom(rows, undefined, cache);
+  for (let next = 200; next < 20_200; next += 2) {
+    rows = [...rows.slice(2), row(`r${next}`), row(`r${next + 1}`, { text: next % 1000 === 0 ? "see c/d#2" : "x" })];
+    reading = transcriptRepositoriesFrom(rows, undefined, cache, reading);
+    expect(cache.size).toBeLessThanOrEqual(2 * rows.length + 256);
+  }
+  expect(rows.every((each) => cache.has(each.id))).toBe(true);
+  expect(Array.from({ length: rows.length }, (_, i) => reading.at(i))).toEqual(transcriptRepositories(rows));
+});
+
 test("withoutQuietThoughts gives the same rows read whole or after the last kept one", () => {
   const thought = (text: string) => ({ kind: "thought", text });
   const step = (id: string, ...items: { kind: string; text: string }[]) =>
