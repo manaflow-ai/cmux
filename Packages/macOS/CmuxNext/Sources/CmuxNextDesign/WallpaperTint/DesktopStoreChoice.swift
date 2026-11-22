@@ -212,11 +212,12 @@ nonisolated final class DesktopStoreCache: Sendable {
                 break search
             }
         }
+        let entry = (path: found, retry: date.addingTimeInterval(60))
         state.withLock { state in
             if state.aerials.count >= 8 { state.aerials.removeAll() }
-            state.aerials[key] = (found, date.addingTimeInterval(60))
+            state.aerials[key] = entry
         }
-        return found
+        return entry.path
     }
 
     private static func modified(_ url: URL) -> Date? {
