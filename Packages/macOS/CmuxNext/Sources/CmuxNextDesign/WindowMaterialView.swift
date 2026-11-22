@@ -64,6 +64,8 @@ public final class WindowMaterialView: NSView {
     var previewPlacement: BackdropPlacement? {
         didSet { if previewPlacement != oldValue { applyPlacement() } }
     }
+    /// The Adjust Background… overlay open over this backdrop; it is cancelled when the picture changes.
+    weak var adjusting: BackdropAdjustOverlay?
     /// The art's own gravity and placement while a placement draws it (nil: none does), put back
     /// when it ends.
     var unplacedArtLook: (gravity: CALayerContentsGravity, placement: NSView.LayerContentsPlacement)?
@@ -318,6 +320,7 @@ public final class WindowMaterialView: NSView {
             loadedTexture = backdrop.texture
             loadedDark = dark
             loadedDesktopGeneration = wallpaper.generation
+            cancelAdjustingAnotherPicture()
             if shown == .desktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
             artLoad?.cancel()
             artLoad = nil

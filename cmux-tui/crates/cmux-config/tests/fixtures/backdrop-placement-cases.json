@@ -1,5 +1,5 @@
 {
-  "about": "Written by cmux-config tests/background_placement.rs (CMUX_UPDATE_FIXTURES=1); Swift BackdropPlacementTests and web backgroundPlacement.test.ts check their mirrors against it. Rects: top-left origin, points; contents: unit rect of the picture.",
+  "about": "Written by cmux-config tests/background_placement.rs (CMUX_UPDATE_FIXTURES=1); Swift BackdropPlacementTests and web backgroundPlacement.test.ts check their mirrors against it. Rects: top-left origin, points; contents: unit rect of the picture; null: nothing drawn or shown. drags: the placement after the pointer moves by delta (right and down). keys: the appearance.backgroundPlacement entry a shown picture id reads (null: none).",
   "cases": [
     {
       "contents": [
@@ -2871,6 +2871,274 @@
         320.0,
         700.0
       ]
+    },
+    {
+      "contents": null,
+      "frame": null,
+      "image": [
+        0.0,
+        100.0
+      ],
+      "placement": "fill",
+      "rect": null,
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "contents": null,
+      "frame": null,
+      "image": [
+        0.0,
+        100.0
+      ],
+      "placement": "fit 0 1",
+      "rect": null,
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "contents": null,
+      "frame": null,
+      "image": [
+        300.0,
+        200.0
+      ],
+      "placement": "fill",
+      "rect": null,
+      "view": [
+        400.0,
+        0.0
+      ]
+    },
+    {
+      "contents": null,
+      "frame": null,
+      "image": [
+        300.0,
+        200.0
+      ],
+      "placement": "fit 0 1",
+      "rect": null,
+      "view": [
+        400.0,
+        0.0
+      ]
+    }
+  ],
+  "drags": [
+    {
+      "after": "fill 0.25 0.5",
+      "delta": [
+        100.0,
+        0.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fill",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fill 0.75 0.5",
+      "delta": [
+        -100.0,
+        30.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fill",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fill 0 0.5",
+      "delta": [
+        10000.0,
+        0.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fill",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fill 0.208 0.875 2",
+      "delta": [
+        50.0,
+        -50.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fill 0.25 0.75 2",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fit 0.5 0.75",
+      "delta": [
+        0.0,
+        50.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fit",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fit",
+      "delta": [
+        30.0,
+        0.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fit",
+      "view": [
+        400.0,
+        400.0
+      ]
+    },
+    {
+      "after": "fit 0.238 0.5",
+      "delta": [
+        200.0,
+        0.0
+      ],
+      "image": [
+        800.0,
+        1200.0
+      ],
+      "placement": "fit 0 0.5",
+      "view": [
+        1440.0,
+        900.0
+      ]
+    },
+    {
+      "after": "center 0.031 1",
+      "delta": [
+        -300.0,
+        -300.0
+      ],
+      "image": [
+        800.0,
+        1200.0
+      ],
+      "placement": "center",
+      "view": [
+        1440.0,
+        900.0
+      ]
+    },
+    {
+      "after": "fill",
+      "delta": [
+        100.0,
+        0.0
+      ],
+      "image": [
+        2000.0,
+        1000.0
+      ],
+      "placement": "fill",
+      "view": [
+        0.0,
+        400.0
+      ]
+    }
+  ],
+  "keys": [
+    {
+      "id": "munch-scream",
+      "key": "munch-scream"
+    },
+    {
+      "id": "  munch-scream ",
+      "key": "munch-scream"
+    },
+    {
+      "id": "file:/Users/me/Harbor.png",
+      "key": "file:/Users/me/Harbor.png"
+    },
+    {
+      "id": "system:/System/Library/Desktop Pictures/Sonoma.heic",
+      "key": "system:/System/Library/Desktop Pictures/Sonoma.heic"
+    },
+    {
+      "id": "system:/System/Library/Desktop Pictures/Sonoma.heic|frame:3|dark",
+      "key": "system:/System/Library/Desktop Pictures/Sonoma.heic"
+    },
+    {
+      "id": "system:/System/Library/Desktop Pictures/Sonoma.heic|frame:12|light",
+      "key": "system:/System/Library/Desktop Pictures/Sonoma.heic"
+    },
+    {
+      "id": "system:/odd|frame:x|dark",
+      "key": "system:/odd|frame:x|dark"
+    },
+    {
+      "id": "desktop",
+      "key": "desktop"
+    },
+    {
+      "id": "appearance:munch-scream|file:/Users/me/Harbor.png",
+      "key": null
+    },
+    {
+      "id": "appearance",
+      "key": null
+    },
+    {
+      "id": "schedule",
+      "key": null
+    },
+    {
+      "id": "daily",
+      "key": null
+    },
+    {
+      "id": "folder:/Users/me/Pictures",
+      "key": null
+    },
+    {
+      "id": "none",
+      "key": null
+    },
+    {
+      "id": "",
+      "key": null
+    },
+    {
+      "id": "\n",
+      "key": null
     }
   ]
 }

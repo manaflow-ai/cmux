@@ -21,8 +21,23 @@ struct BackdropPlacementMathTests {
         let contents: [Double]?
     }
 
+    struct Drag: Decodable {
+        let image: [Double]
+        let view: [Double]
+        let placement: String
+        let delta: [Double]
+        let after: String
+    }
+
+    struct Key: Decodable {
+        let id: String
+        let key: String?
+    }
+
     struct Fixture: Decodable {
         let cases: [Case]
+        let drags: [Drag]
+        let keys: [Key]
     }
 
     static func fixture() throws -> Fixture {
@@ -46,20 +61,53 @@ struct BackdropPlacementMathTests {
             let image = CGSize(width: item.image[0], height: item.image[1])
             let view = CGSize(width: item.view[0], height: item.view[1])
             let what = "\(item.placement) of \(image) in \(view)"
-            if let want = item.rect { Self.near(try #require(placement.rect(image: image, view: view)), want, what) }
+            if let want = item.rect {
+                Self.near(try #require(placement.rect(image: image, view: view)), want, what)
+            } else {
+                #expect(placement.rect(image: image, view: view) == nil, "\(what) draws")
+            }
             if let frame = item.frame, let contents = item.contents {
                 let shown = try #require(placement.visible(image: image, view: view))
                 Self.near(shown.frame, frame, what)
                 Self.near(shown.contents, contents, what)
+            } else {
+                #expect(item.frame == nil && item.contents == nil, "\(what): half a shown part")
+                #expect(placement.visible(image: image, view: view) == nil, "\(what) shows")
             }
         }
     }
 
+    /// The pointer moved by `delta` (right and down) gives the placement Rust gives.
+    @Test func theMirrorDragsLikeRust() throws {
+        let drags = try Self.fixture().drags
+        #expect(drags.count > 5)
+        for item in drags {
+            let placement = try #require(BackdropPlacement(text: item.placement))
+            let want = try #require(BackdropPlacement(text: item.after), "\(item.after) does not read")
+            let got = placement.dragged(image: CGSize(width: item.image[0], height: item.image[1]),
+                                        view: CGSize(width: item.view[0], height: item.view[1]),
+                                        dx: item.delta[0], dy: item.delta[1])
+            let what = "\(item.placement) by \(item.delta) in \(item.view): \(got.text) is not \(item.after)"
+            #expect(got.mode == want.mode, "\(what)")
+            #expect(abs(got.x - want.x) < 1e-6 && abs(got.y - want.y) < 1e-6 && abs(got.zoom - want.zoom) < 1e-6, "\(what)")
+        }
+    }
+
+    /// A dynamic wallpaper's moment keys its file; a Light & Dark pair, a folder or no picture keys nothing.
+    @Test func theMirrorKeysLikeRust() throws {
+        let keys = try Self.fixture().keys
+        #expect(keys.count > 10)
+        for item in keys {
+            #expect(BackdropPlacement.key(picture: item.id) == item.key, "\(item.id.debugDescription)")
+        }
+    }
+
     @Test func outOfRangeTextsAreRefused() {
-        for bad in ["", "cover", "fill 2 0.5", "fill 0.5", "fill 0.5 0.5 5", "fill 0.5 0.5 1 1", "fill x y"] {
+        for bad in ["", "\n", "cover", "fill 2 0.5", "fill 0.5", "fill 0.5 0.5 5", "fill 0.5 0.5 1 1", "fill x y",
+                    "fill 0x1 0.5", "fill 0.5 0x0.8p0"] {
             #expect(BackdropPlacement(text: bad) == nil, "\(bad) read")
         }
-        #expect(BackdropPlacement.map(["a": "fit", "b": "nope", " ": "fit"]) == ["a": BackdropPlacement(mode: .fit)])
+        #expect(BackdropPlacement.map(["a": "fit", "b": "nope", " ": "fit", "\n": "fit"]) == ["a": BackdropPlacement(mode: .fit)])
     }
 
     /// The overlay's drag is in bottom-left points: up on screen is up in the picture.
@@ -115,17 +163,30 @@ struct BackdropPlacementMathTests {
         return file
     }
 
-    @Test func aPlacementDrawsAndTheUnplacedLookComesBack() async throws {
+    /// A 1000x600 window whose backdrop shows a 400x100 picture file.
+    struct Shown {
+        let window: NSWindow
+        let root: NSView
+        let backdrop: WindowMaterialView
+        let folder: URL
+        let file: URL
+
+        func close() {
+            window.close()
+            try? FileManager.default.removeItem(at: folder)
+        }
+    }
+
+    static let size = CGSize(width: 1000, height: 600)
+
+    static func show() async throws -> Shown {
         _ = NSApplication.shared
         #expect(DesignSettings.shared.backgroundPlacements.isEmpty, "a test left a placement set")
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("placed-bg-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let file = try Self.writeImage(width: 400, height: 100, in: folder)
-        let size = CGSize(width: 1000, height: 600)
+        let file = try writeImage(width: 400, height: 100, in: folder)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         let root = NSView(frame: NSRect(origin: .zero, size: size))
         window.contentView = root
         let backdrop = WindowMaterialView(frame: root.bounds, images: BackdropImageStore(maxPixelSize: 1600),
@@ -135,6 +196,13 @@ struct BackdropPlacementMathTests {
         window.orderFrontRegardless()
         backdrop.apply(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault), selection: .file(path: file.path)), tint: .black)
         await backdrop.artLoad?.value
+        return Shown(window: window, root: root, backdrop: backdrop, folder: folder, file: file)
+    }
+
+    @Test func aPlacementDrawsAndTheUnplacedLookComesBack() async throws {
+        let shown = try await Self.show()
+        defer { shown.close() }
+        let (root, backdrop, size) = (shown.root, shown.backdrop, Self.size)
         // Unset: the art view's own look.
         #expect(backdrop.placement == nil)
         #expect(backdrop.artView.frame == backdrop.bounds)
@@ -149,12 +217,17 @@ struct BackdropPlacementMathTests {
         #expect(abs(fit.frame.width - size.width) < 0.5 && fit.frame.height < size.height)
         #expect(backdrop.artView.layer?.contentsGravity == .resize)
         #expect(backdrop.artView.layer?.contentsRect == fit.contentsRect)
-        #expect(backdrop.glassImageFrame != nil)
+        // The glass lens samples the picture where the art view draws it.
+        #expect(backdrop.glassImageFrame == backdrop.convert(backdrop.artView.frame, to: nil))
 
         // Moved to the picture's left edge: the left part of the picture shows.
         backdrop.previewPlacement = BackdropPlacement(mode: .fill, x: 0, y: 0.5)
         let left = try #require(backdrop.artView.layer?.contentsRect)
         #expect(left.minX == 0 && left.width < 1)
+        // Filled past the window, the lens gets the whole drawn picture, of which the art view shows a part.
+        let drawn = try #require(BackdropPlacement(mode: .fill, x: 0, y: 0.5).drawnFrame(image: image, in: backdrop.bounds))
+        #expect(backdrop.glassImageFrame == backdrop.convert(drawn, to: nil))
+        #expect(drawn.contains(backdrop.artView.frame))
         // It is laid out again on a resize.
         root.setFrameSize(CGSize(width: 700, height: 700))
         backdrop.layoutSubtreeIfNeeded()
@@ -167,5 +240,59 @@ struct BackdropPlacementMathTests {
         #expect(backdrop.artView.layer?.contentsRect == CGRect(x: 0, y: 0, width: 1, height: 1))
         root.setFrameSize(size)
         #expect(backdrop.artView.frame == backdrop.bounds)
+    }
+
+    /// Adjust Background… hands its placement on once, on Done or Return; Esc, a closed window and
+    /// another picture hand on nothing and put the picture back.
+    @Test func doneWritesOnceAndEscWritesNothing() async throws {
+        let shown = try await Self.show()
+        defer { shown.close() }
+        let backdrop = shown.backdrop
+        let key = try #require(backdrop.placementPictureID)
+        #expect(key == "file:\(shown.file.path)")
+        var saved: [(String, BackdropPlacement)] = []
+        func open() throws -> BackdropAdjustOverlay {
+            try #require(BackdropAdjustOverlay.begin(on: backdrop) { saved.append(($0, $1)) })
+        }
+        func press(_ keyCode: UInt16, on overlay: BackdropAdjustOverlay) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: shown.window.windowNumber, context: nil, characters: "",
+                                                      charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
+            overlay.keyDown(with: event)
+        }
+        let fit = BackdropPlacement(mode: .fit)
+
+        // Esc: nothing written, the preview gone, the overlay gone.
+        var overlay = try open()
+        overlay.show(fit)
+        #expect(backdrop.placement == fit)
+        try press(53, on: overlay)
+        #expect(saved.isEmpty)
+        #expect(backdrop.previewPlacement == nil && backdrop.placement == nil)
+        #expect(overlay.superview == nil)
+
+        // Return: written once, even pressed again.
+        overlay = try open()
+        overlay.show(fit)
+        try press(36, on: overlay)
+        try press(36, on: overlay)
+        overlay.finish()
+        #expect(saved.count == 1)
+        #expect(saved.first?.0 == key && saved.first?.1 == fit)
+        #expect(overlay.superview == nil && backdrop.previewPlacement == nil)
+
+        // Taken out of the window: cancelled.
+        overlay = try open()
+        overlay.show(fit)
+        overlay.removeFromSuperview()
+        #expect(saved.count == 1 && backdrop.previewPlacement == nil)
+
+        // Another picture mid-adjust: cancelled, and its placement is not written to the old one.
+        overlay = try open()
+        overlay.show(fit)
+        backdrop.apply(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault), selection: nil), tint: .black)
+        await backdrop.artLoad?.value
+        #expect(overlay.superview == nil)
+        #expect(saved.count == 1 && backdrop.previewPlacement == nil)
     }
 }

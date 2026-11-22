@@ -5,7 +5,9 @@
 //! is the table all three check, written from the Rust math here.
 
 use cmux_config::Domains;
-use cmux_config::backdrop_placement::{Placement, Size, placement_rect, visible};
+use cmux_config::backdrop_placement::{
+    Placement, Size, dragged, placement_key, placement_rect, visible,
+};
 use cmux_config::schema::{Kind, Schema, accepts};
 use cmux_config::theme_file::is_look;
 use serde_json::{Value, json};
@@ -68,8 +70,63 @@ fn cases() -> Vec<(Size, Size, &'static str)> {
             }
         }
     }
+    // No area on either side: nothing is drawn and nothing shows.
+    for (image, view) in
+        [(size(0.0, 100.0), size(400.0, 400.0)), (size(300.0, 200.0), size(400.0, 0.0))]
+    {
+        out.push((image, view, "fill"));
+        out.push((image, view, "fit 0 1"));
+    }
     out
 }
+
+/// The shared drags: picture size, view size, placement text, pointer delta (right and down).
+fn drags() -> Vec<(Size, Size, &'static str, f64, f64)> {
+    let size = |width, height| Size { width, height };
+    let wide = size(2000.0, 1000.0);
+    let tall = size(800.0, 1200.0);
+    let square = size(400.0, 400.0);
+    vec![
+        (wide, square, "fill", 100.0, 0.0),
+        (wide, square, "fill", -100.0, 30.0),
+        (wide, square, "fill", 10_000.0, 0.0),
+        (wide, square, "fill 0.25 0.75 2", 50.0, -50.0),
+        (wide, square, "fit", 0.0, 50.0),
+        (wide, square, "fit", 30.0, 0.0),
+        (tall, size(1440.0, 900.0), "fit 0 0.5", 200.0, 0.0),
+        (tall, size(1440.0, 900.0), "center", -300.0, -300.0),
+        (wide, size(0.0, 400.0), "fill", 100.0, 0.0),
+    ]
+}
+
+/// The shared keys: a shown picture's id and the entry it reads (`null`: none).
+const KEYS: &[(&str, Option<&str>)] = &[
+    ("munch-scream", Some("munch-scream")),
+    ("  munch-scream ", Some("munch-scream")),
+    ("file:/Users/me/Harbor.png", Some("file:/Users/me/Harbor.png")),
+    (
+        "system:/System/Library/Desktop Pictures/Sonoma.heic",
+        Some("system:/System/Library/Desktop Pictures/Sonoma.heic"),
+    ),
+    (
+        "system:/System/Library/Desktop Pictures/Sonoma.heic|frame:3|dark",
+        Some("system:/System/Library/Desktop Pictures/Sonoma.heic"),
+    ),
+    (
+        "system:/System/Library/Desktop Pictures/Sonoma.heic|frame:12|light",
+        Some("system:/System/Library/Desktop Pictures/Sonoma.heic"),
+    ),
+    ("system:/odd|frame:x|dark", Some("system:/odd|frame:x|dark")),
+    ("desktop", Some("desktop")),
+    ("appearance:munch-scream|file:/Users/me/Harbor.png", None),
+    ("appearance", None),
+    ("schedule", None),
+    ("daily", None),
+    ("folder:/Users/me/Pictures", None),
+    ("none", None),
+    ("", None),
+    ("\n", None),
+];
 
 fn round(v: f64) -> f64 {
     (v * 1e6).round() / 1e6
@@ -80,21 +137,32 @@ fn table() -> Value {
         .into_iter()
         .map(|(image, view, text)| {
             let placement = Placement::parse(text).expect("case parses");
-            let rect = placement_rect(image, view, &placement).expect("case has area");
+            let rect = placement_rect(image, view, &placement);
             let shown = visible(image, view, &placement);
             json!({
                 "image": [image.width, image.height],
                 "view": [view.width, view.height],
                 "placement": text,
-                "rect": [round(rect.x), round(rect.y), round(rect.width), round(rect.height)],
+                "rect": rect.map(|r| json!([round(r.x), round(r.y), round(r.width), round(r.height)])),
                 "frame": shown.map(|v| json!([round(v.frame.x), round(v.frame.y), round(v.frame.width), round(v.frame.height)])),
                 "contents": shown.map(|v| json!([round(v.contents.x), round(v.contents.y), round(v.contents.width), round(v.contents.height)])),
             })
         })
         .collect();
     json!({
-        "about": "Written by cmux-config tests/background_placement.rs (CMUX_UPDATE_FIXTURES=1); Swift BackdropPlacementTests and web backgroundPlacement.test.ts check their mirrors against it. Rects: top-left origin, points; contents: unit rect of the picture.",
+        "about": "Written by cmux-config tests/background_placement.rs (CMUX_UPDATE_FIXTURES=1); Swift BackdropPlacementTests and web backgroundPlacement.test.ts check their mirrors against it. Rects: top-left origin, points; contents: unit rect of the picture; null: nothing drawn or shown. drags: the placement after the pointer moves by delta (right and down). keys: the appearance.backgroundPlacement entry a shown picture id reads (null: none).",
         "cases": rows,
+        "drags": drags().into_iter().map(|(image, view, text, dx, dy)| {
+            let placement = Placement::parse(text).expect("drag parses");
+            json!({
+                "image": [image.width, image.height],
+                "view": [view.width, view.height],
+                "placement": text,
+                "delta": [dx, dy],
+                "after": dragged(image, view, &placement, dx, dy).to_text(),
+            })
+        }).collect::<Vec<_>>(),
+        "keys": KEYS.iter().map(|(id, key)| json!({ "id": id, "key": key })).collect::<Vec<_>>(),
     })
 }
 
@@ -111,4 +179,11 @@ fn the_shared_table_is_the_rust_math() {
         have, want,
         "run CMUX_UPDATE_FIXTURES=1 cargo test -p cmux-config --test background_placement"
     );
+}
+
+#[test]
+fn a_moment_keys_its_file_and_a_pair_keys_nothing() {
+    for (id, key) in KEYS {
+        assert_eq!(placement_key(id), *key, "{id:?}");
+    }
 }

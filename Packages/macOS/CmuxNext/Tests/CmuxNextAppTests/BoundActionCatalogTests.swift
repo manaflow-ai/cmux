@@ -31,6 +31,9 @@ struct BoundActionCatalogTests {
         // Meet Chief in the palette (c4736440) landed with its Rust row; the pinned app FFI ca616a68 predates it and
         // re-pin #48906 (cmux-app-ffi-1f8c4f28) carries it.
         "home.meetChief",
+        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
+        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
+        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

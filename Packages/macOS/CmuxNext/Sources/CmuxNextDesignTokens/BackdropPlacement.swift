@@ -50,9 +50,13 @@ public nonisolated struct BackdropPlacement: Equatable, Sendable {
     /// Reads one placement text (`fill`, `fit 0.25 0.5`, `fill 0.3 0.7 2`); out-of-range values
     /// are refused (Rust `Placement::parse`).
     public init?(text: String) {
-        let parts = text.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }).map(String.init)
+        let parts = text.split(whereSeparator: \.isWhitespace).map(String.init)
         guard let first = parts.first, let mode = Mode(rawValue: first) else { return nil }
-        func number(_ part: String) -> Double? { Double(part).flatMap { $0.isFinite ? $0 : nil } }
+        // Decimal only, as Rust's `f64` reads: Swift's `Double` also takes hex (`0x1p0`), which Rust refuses.
+        func number(_ part: String) -> Double? {
+            guard part.allSatisfy({ $0.isASCII && ($0.isNumber || "+-.eE".contains($0)) }) else { return nil }
+            return Double(part).flatMap { $0.isFinite ? $0 : nil }
+        }
         func unit(_ part: String) -> Double? { number(part).flatMap { (0...1).contains($0) ? $0 : nil } }
         switch parts.count {
         case 1: self.init(mode: mode)
@@ -149,9 +153,25 @@ public nonisolated struct BackdropPlacement: Equatable, Sendable {
     /// read are left out.
     public static func map(_ raw: [String: String]) -> [String: Self] {
         var out: [String: Self] = [:]
-        for (id, text) in raw where !id.trimmingCharacters(in: .whitespaces).isEmpty {
+        for (id, text) in raw where !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             if let placement = Self(text: text) { out[id] = placement }
         }
         return out
+    }
+
+    /// The id `appearance.backgroundPlacement` keys a shown picture by (Rust `placement_key`): a
+    /// dynamic wallpaper's moment (`system:PATH|frame:N|dark`) is its file, so a placement stays
+    /// as its frames change; a Light and Dark pair, a mode, a shuffle, `none` or an empty id is
+    /// no one picture (nil). Any other id is its own key.
+    public static func key(picture id: String) -> String? {
+        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, !["none", "daily", "appearance", "schedule"].contains(id),
+              !id.hasPrefix("folder:"), !id.hasPrefix("appearance:") else { return nil }
+        guard id.hasPrefix("system:"), let cut = id.range(of: "|frame:", options: .backwards),
+              cut.lowerBound >= id.index(id.startIndex, offsetBy: "system:".count) else { return id }
+        let moment = id[cut.upperBound...]
+        let frame = moment.hasSuffix("|light") ? moment.dropLast(6) : moment.hasSuffix("|dark") ? moment.dropLast(5) : nil
+        guard let frame, !frame.isEmpty, frame.allSatisfy({ $0.isASCII && $0.isNumber }) else { return id }
+        return String(id[..<cut.lowerBound])
     }
 }

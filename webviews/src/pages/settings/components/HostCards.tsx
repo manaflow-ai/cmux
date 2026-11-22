@@ -9,7 +9,8 @@ import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
-import { CENTERED_FILL, PLACEMENT_KEY, placementsValue, readPlacements } from "../backgroundPlacement";
+import { CENTERED_FILL, PLACEMENT_KEY, placementKey, placementsValue, readPlacements } from "../backgroundPlacement";
+import { useWindowColorScheme } from "../colorScheme";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
@@ -19,6 +20,7 @@ import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
 import {
   DARK_KEY,
+  FOLLOW_APPEARANCE,
   DYNAMIC_KEY,
   LIGHT_KEY,
   LOCATION_KEY,
@@ -162,6 +164,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // folder at all), from this page or anywhere else while it is open, the value it left is kept, so
   // switching modes never loses Rotate's folder or Off's picture, in a new Settings page or after a
   // restart too. Picture to picture writes nothing, nor does only opening the page.
+  const scheme = useWindowColorScheme();
   const background = rows.get(BACKGROUND_KEY);
   const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
   const memory = readMemory(rows.get(MEMORY_KEY)?.value);
@@ -183,8 +186,6 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // over Art to change. A workspace that follows may still show a picture the page does not see
   // (a window's own, `appearance.set scope=window`), so it keeps the slider.
   const ownPicture = own !== null && own.value !== "none";
-  // One picture that stays, so it has a place: not None, the desktop's own, a shuffle or a mode.
-  const placeable = isFixed(current) && current !== "none" && current !== DESKTOP_ID;
   const placementRow = rows.get(PLACEMENT_KEY)?.value;
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
@@ -209,6 +210,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
     memory,
   };
+  // The picture the window shows, so its place: Light & Dark previews and places the side drawn now
+  // (the window's light or dark), keyed as the app keys it (placementKey: a dynamic wallpaper's file).
+  // None: no picture, the desktop's own (not previewed here), a shuffle or a mode.
+  const shownPicture =
+    !own && current === FOLLOW_APPEARANCE
+      ? ((read(scheme === "dark" ? DARK_KEY : LIGHT_KEY) as string | null) ?? "none")
+      : current;
+  const placementID = isFixed(shownPicture) && shownPicture !== DESKTOP_ID ? placementKey(shownPicture) : null;
   // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
   const pictures = [
     { id: "none", title: t("settingsWindow.backdropPicker.none") },
@@ -414,13 +423,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       )}
       {/* Where the one picture shown lies (appearance.backgroundPlacement): for All Workspaces' own
         picture; a shuffle, a mode or a workspace's own background has none to place here. */}
-      {!own && placeable && (
+      {!own && placementID !== null && (
         <BackgroundPlacementPreview
-          src={`backdrop/${encodeURIComponent(encodeURIComponent(current))}`}
-          value={readPlacements(placementRow)[current] ?? CENTERED_FILL}
+          src={`backdrop/${encodeURIComponent(encodeURIComponent(shownPicture))}`}
+          value={readPlacements(placementRow)[placementID] ?? CENTERED_FILL}
           disabled={!state.readable}
           onPlace={(next) => {
-            const value = placementsValue(placementRow, current, next);
+            const value = placementsValue(placementRow, placementID, next);
             void (value === null ? store.reset(PLACEMENT_KEY) : store.set(PLACEMENT_KEY, value));
           }}
         />

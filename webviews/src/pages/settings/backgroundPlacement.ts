@@ -144,6 +144,29 @@ export function placementDragged(value: Placement, image: Size, view: Size, dx: 
   );
 }
 
+const NO_PICTURE = ["none", "daily", "appearance", "schedule"];
+
+/** The id `appearance.backgroundPlacement` keys a shown picture by (Rust `placement_key`): a dynamic
+ * wallpaper's moment (`system:PATH|frame:N|dark`) keys its file, so every frame shares one place;
+ * a Light & Dark pair, a mode, a folder shuffle or no picture keys nothing (null). */
+export function placementKey(pictureID: string): string | null {
+  const id = pictureID.trim();
+  if (id === "" || NO_PICTURE.includes(id) || id.startsWith("folder:") || id.startsWith("appearance:")) return null;
+  if (id.startsWith("system:")) {
+    const cut = id.lastIndexOf("|frame:");
+    if (cut > 0) {
+      const moment = id.slice(cut + "|frame:".length);
+      const frame = moment.endsWith("|light")
+        ? moment.slice(0, -6)
+        : moment.endsWith("|dark")
+          ? moment.slice(0, -5)
+          : null;
+      if (frame !== null && /^[0-9]+$/.test(frame)) return id.slice(0, cut);
+    }
+  }
+  return id;
+}
+
 /** The setting's map, read: entries that do not read are left out. */
 export function readPlacements(value: unknown): Record<string, Placement> {
   const out: Record<string, Placement> = {};

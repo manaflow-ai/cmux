@@ -222,6 +222,40 @@ pub fn dragged(image: Size, view: Size, placement: &Placement, dx: f64, dy: f64)
     )
 }
 
+/// The id `appearance.backgroundPlacement` keys a shown picture by, so the
+/// app (which knows the picture it draws) and Settings (which knows the
+/// stored choice) read and write the same entry:
+///
+/// - a dynamic macOS wallpaper pinned to a moment of its day
+///   (`system:PATH|frame:N|light` or `|dark`) is its file, `system:PATH`, so
+///   a placement stays as the frames change and adds no key per frame;
+/// - a Light and Dark pair (`appearance:A|B`) is not one picture: each side
+///   keys itself (callers resolve the pair to the side shown first);
+/// - a mode, a shuffle, `none` or an empty id has no picture: `None`.
+///
+/// Any other id is its own key.
+pub fn placement_key(picture_id: &str) -> Option<&str> {
+    let id = picture_id.trim();
+    let no_picture = ["none", "daily", "appearance", "schedule"];
+    if id.is_empty()
+        || no_picture.contains(&id)
+        || id.starts_with("folder:")
+        || id.starts_with("appearance:")
+    {
+        return None;
+    }
+    if let Some(path) = id.strip_prefix("system:")
+        && let Some(cut) = path.rfind("|frame:")
+    {
+        let moment = &path[cut + "|frame:".len()..];
+        let frame = moment.strip_suffix("|light").or_else(|| moment.strip_suffix("|dark"));
+        if frame.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+            return Some(&id[..("system:".len() + cut)]);
+        }
+    }
+    Some(id)
+}
+
 /// Whether `value` is a valid `appearance.backgroundPlacement`: an object of
 /// non-empty picture ids to placement texts ([`Placement::parse`]).
 pub fn is_placement_map(value: &Value) -> bool {

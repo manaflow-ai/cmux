@@ -5,9 +5,10 @@ public import CmuxNextDesignTokens
 /// to reposition the images easily. the fast-actions need to be most accessible."): a clear layer over
 /// the window where a drag moves the picture, a scroll or pinch zooms it, and a small bar offers Fill,
 /// Fit, Center, Reset and Done. The backdrop previews each step live (``WindowMaterialView/previewPlacement``);
-/// the setting is written once, on Done (Esc and Return are Done too).
+/// the setting is written once, on Done (Return too). Esc cancels: the picture goes back to where it
+/// was and nothing is written; so does closing the window or the picture changing underneath.
 public final class BackdropAdjustOverlay: NSView {
-    /// The picture the placement is for (`appearance.backgroundPlacement`'s key).
+    /// The picture the placement is for (`appearance.backgroundPlacement`'s key, ``BackdropPlacement/key(picture:)``).
     public let pictureID: String
     /// The placement shown now.
     public private(set) var placement: BackdropPlacement
@@ -25,10 +26,12 @@ public final class BackdropAdjustOverlay: NSView {
     @discardableResult
     public static func begin(on backdrop: WindowMaterialView,
                              onDone: @escaping @MainActor (_ pictureID: String, _ placement: BackdropPlacement) -> Void) -> BackdropAdjustOverlay? {
-        guard let image = backdrop.placementImageSize, image.width > 0, image.height > 0, !backdrop.shownPictureID.isEmpty,
+        guard let image = backdrop.placementImageSize, image.width > 0, image.height > 0,
+              let pictureID = backdrop.placementPictureID,
               let window = backdrop.window, let content = window.contentView else { return nil }
         if let open = content.subviews.lazy.compactMap({ $0 as? BackdropAdjustOverlay }).first { return open }
-        let overlay = BackdropAdjustOverlay(backdrop: backdrop, image: image, onDone: onDone)
+        let overlay = BackdropAdjustOverlay(backdrop: backdrop, pictureID: pictureID, image: image, onDone: onDone)
+        backdrop.adjusting = overlay
         overlay.frame = content.bounds
         overlay.autoresizingMask = [.width, .height]
         content.addSubview(overlay, positioned: .above, relativeTo: nil)
@@ -36,12 +39,12 @@ public final class BackdropAdjustOverlay: NSView {
         return overlay
     }
 
-    private init(backdrop: WindowMaterialView, image: CGSize,
+    private init(backdrop: WindowMaterialView, pictureID: String, image: CGSize,
                  onDone: @escaping @MainActor (_ pictureID: String, _ placement: BackdropPlacement) -> Void) {
         self.backdrop = backdrop
         self.image = image
         self.onDone = onDone
-        pictureID = backdrop.shownPictureID
+        self.pictureID = pictureID
         placement = backdrop.placement ?? .centeredFill
         super.init(frame: .zero)
         setAccessibilityRole(.group)
@@ -86,12 +89,19 @@ public final class BackdropAdjustOverlay: NSView {
     }
 
     override public func keyDown(with event: NSEvent) {
-        // Esc (53), Return (36) and Enter (76) are Done.
-        if [53, 36, 76].contains(event.keyCode) { return finish() }
+        // Return (36) and Enter (76) are Done; Esc (53) cancels.
+        if [36, 76].contains(event.keyCode) { return finish() }
+        if event.keyCode == 53 { return cancel() }
         super.keyDown(with: event)
     }
 
-    override public func cancelOperation(_ sender: Any?) { finish() }
+    override public func cancelOperation(_ sender: Any?) { cancel() }
+
+    /// Closing the window, or the overlay leaving it any other way, cancels.
+    override public func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil, !finished { end(saving: false) }
+    }
 
     /// The placement after the pointer moved `from` to `to` (this view's bottom-left points): the
     /// picture follows the pointer (``BackdropPlacement/dragged(image:view:dx:dy:)``, y flipped).
@@ -160,19 +170,27 @@ public final class BackdropAdjustOverlay: NSView {
         show(next)
     }
 
-    private func show(_ next: BackdropPlacement) {
+    func show(_ next: BackdropPlacement) {
+        guard !finished else { return }
         placement = next
         backdrop?.previewPlacement = next
     }
 
     /// Done: hands the placement on once, then the preview ends and the overlay goes.
-    private func finish() {
+    func finish() { end(saving: true) }
+
+    /// Esc, a closed window or another picture: the preview ends, the picture is back where it
+    /// was, and nothing is handed on.
+    func cancel() { end(saving: false) }
+
+    private func end(saving: Bool) {
         guard !finished else { return }
         finished = true
-        onDone(pictureID, placement)
+        if saving { onDone(pictureID, placement) }
+        if backdrop?.adjusting === self { backdrop?.adjusting = nil }
         backdrop?.previewPlacement = nil
-        FocusRoute(.person, "Adjust Background is done").moveKeyboard(in: window, to: nil)
-        removeFromSuperview()
+        if let window { FocusRoute(.person, "Adjust Background is done").moveKeyboard(in: window, to: nil) }
+        if superview != nil { removeFromSuperview() }
     }
 
     // MARK: Strings

@@ -96,3 +96,25 @@ test("a drag writes once, on pointer up, keeping other pictures' entries", async
   expect(writes(page, "cmux.settings.set").at(-1)).toMatchObject({ value: { starryNight: "fill 0.2 0.5" } });
   page.unmount?.();
 });
+
+test("Light & Dark previews and places the side the window shows now, as the app keys it", async () => {
+  // The test page's window is light (no prefers-color-scheme: dark), so the light side is drawn.
+  const page = await renderPage({
+    path: "/settings/appearance",
+    mock: {
+      values: {
+        "appearance.background": "appearance",
+        "appearance.backgroundLight": "starryNight",
+        "appearance.backgroundDark": "munch-scream",
+      },
+    },
+  });
+  const shown = preview(page)!;
+  expect(shown).not.toBeNull();
+  expect(shown.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
+  await act(async () => shown.querySelector<HTMLInputElement>('input[value="fit"]')!.click());
+  await settle();
+  // Keyed by the picture drawn, never by the mode.
+  expect(writes(page, "cmux.settings.set").at(-1)).toMatchObject({ value: { starryNight: "fit" } });
+  page.unmount?.();
+});

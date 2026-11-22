@@ -12,17 +12,16 @@ extension WindowMaterialView {
     /// setting's entry for it; nil when it has none.
     public var placement: BackdropPlacement? {
         if let previewPlacement { return previewPlacement }
-        let id = shownPictureID
-        return id.isEmpty ? nil : DesignSettings.shared.backgroundPlacements[id]
+        return BackdropPlacement.key(picture: shownPictureID).flatMap { DesignSettings.shared.backgroundPlacements[$0] }
     }
 
     /// The shown picture's size in points (nil without art), what Adjust Background… drags against.
     public var placementImageSize: CGSize? { artImage?.size }
 
-    /// The id `appearance.backgroundPlacement` keys the shown picture by; nil without a picture.
+    /// The id `appearance.backgroundPlacement` keys the shown picture by (``BackdropPlacement/key(picture:)``:
+    /// a dynamic wallpaper's file, not its frame); nil without a picture.
     public var placementPictureID: String? {
-        let id = shownPictureID
-        return id.isEmpty || artImage == nil ? nil : id
+        artImage == nil ? nil : BackdropPlacement.key(picture: shownPictureID)
     }
 
     /// Lays the art out again whenever `appearance.backgroundPlacement` changes
@@ -36,15 +35,24 @@ extension WindowMaterialView {
         }
     }
 
+    /// Another picture came while Adjust Background… was open (chosen, even before it decodes, or
+    /// shown): the overlay's placement is not this one's, so it is cancelled.
+    func cancelAdjustingAnotherPicture() {
+        guard let adjusting else { return }
+        let id = BackdropPlacement.key(picture: shownPictureID)
+        if adjusting.pictureID != id || artImage == nil { adjusting.cancel() }
+    }
+
     /// Lays the art (and a video over it) out for ``placement``; unplaced art gets its own look back.
     func applyPlacement() {
+        cancelAdjustingAnotherPicture()
         guard let layer = artView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let image = artImage?.size ?? .zero
         guard let placement, !placement.isCenteredFill, let shown = placement.layerFrame(image: image, in: bounds) else {
-            videoView.placedFrame = nil
+            videoView.place(nil, posterSize: nil)
             guard let look = unplacedArtLook else { return }
             unplacedArtLook = nil
             artView.autoresizingMask = [.width, .height]
@@ -61,7 +69,7 @@ extension WindowMaterialView {
             artView.layerContentsPlacement = .scaleAxesIndependently
             layer.contentsGravity = .resize
         }
-        videoView.placedFrame = placement.drawnFrame(image: image, in: videoView.bounds)
+        videoView.place(placement, posterSize: image)
         guard artView.frame != shown.frame || layer.contentsRect != shown.contentsRect else { return }
         artView.frame = shown.frame
         layer.contentsRect = shown.contentsRect

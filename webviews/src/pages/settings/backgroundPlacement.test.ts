@@ -5,6 +5,7 @@ import {
   parsePlacement,
   placement,
   placementDragged,
+  placementKey,
   placementRect,
   placementsValue,
   placementText,
@@ -45,6 +46,35 @@ test("the mirror matches every case the Rust tests wrote", () => {
       [contents.x, contents.y, contents.width, contents.height].forEach((got, at) => near(got, item.contents![at]!));
     }
   }
+});
+
+type Drag = {
+  image: [number, number];
+  view: [number, number];
+  placement: string;
+  delta: [number, number];
+  after: string;
+};
+
+test("a drag moves the picture as the Rust tests wrote", () => {
+  const drags = (fixture as unknown as { drags: Drag[] }).drags;
+  expect(drags.length).toBeGreaterThan(5);
+  for (const item of drags) {
+    const image = { width: item.image[0], height: item.image[1] };
+    const view = { width: item.view[0], height: item.view[1] };
+    const got = placementDragged(parsePlacement(item.placement)!, image, view, item.delta[0], item.delta[1]);
+    const want = parsePlacement(item.after)!;
+    expect(got.mode).toBe(want.mode);
+    near(got.x, want.x);
+    near(got.y, want.y);
+    near(got.zoom, want.zoom);
+  }
+});
+
+test("a shown picture keys its entry as the Rust tests wrote: a moment its file, a pair nothing", () => {
+  const keys = (fixture as unknown as { keys: { id: string; key: string | null }[] }).keys;
+  expect(keys.length).toBeGreaterThan(10);
+  for (const item of keys) expect([item.id, placementKey(item.id)]).toEqual([item.id, item.key]);
 });
 
 test("texts read back, and out-of-range ones are refused", () => {
