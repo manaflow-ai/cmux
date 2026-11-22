@@ -1312,7 +1312,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if draft || rowsUnchanged, compose.fieldRect == oldField, fieldTop == oldFieldTop {
             // cmux: a draft changes no thread row (an open thread rebuilt every row per key: RowBuilder.rows).
             if !draft { rebuildThread(state, at: t) }
-            updateThumb()
+            // cmux: a draft key moves no row and no scroll: the thumb stays where it is.
+            if !draft { updateThumb() }
             CATransaction.commit()
             phase("caCommit")
             return
@@ -2476,6 +2477,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     private func updateThumb() {
+        thumbPasses += 1  // cmux: tests (a draft key places no thumb)
         let st = store.state
         let n = max(1, st.conversation.messages.count)
         let rowFrac = model.count > 0 ? CGFloat(firstVisibleRow) / CGFloat(model.count) : 1
@@ -2912,6 +2914,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// `HostHooks.threadHeader` again.
     /// cmux: how many times an open thread view's rows were derived (``rebuildThread``): tests.
     private(set) var threadRowPasses = 0
+    /// cmux: how often the scroll thumb was placed (read by tests).
+    private(set) var thumbPasses = 0
 
     func threadHeaderDidChange() {
         guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }

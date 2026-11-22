@@ -29,6 +29,18 @@ public nonisolated struct Tunable<Value: TunableValueConvertible>: Sendable {
 
     public func value(in store: TunableStore) -> Value { override(in: store) ?? defaultValue }
     public func override(in store: TunableStore) -> Value? { store.override(key).flatMap(Value.init(tunableValue:)) }
+
+    /// The override, else the default, for a read at a launch step that cannot wait for the store's
+    /// main-actor load (`TunableStore.settledOverride`: Chromium's launch switches, `CEFRuntime`).
+    ///
+    /// `value` can race that load and answer the default, which for a launch-time switch is worse than
+    /// a wrong value: the app launches without the switch while the store later reports it on, so an A/B
+    /// labels an arm by what it stored rather than by what it launched with (the trap cmux#45709 shipped).
+    public var settledValue: Value { settledValue(in: .shared) }
+
+    public func settledValue(in store: TunableStore) -> Value {
+        store.settledOverride(key).flatMap(Value.init(tunableValue:)) ?? defaultValue
+    }
 }
 
 /// A tunable whose default code derives (a density metric): callers pass
