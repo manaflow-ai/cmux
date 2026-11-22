@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The row a ``GlassMenuStepperItem`` draws in a ``GlassMenu``: its title on the menu's text column,
 /// then, trailing, − · value · + and the reset arrow. The buttons run their items and leave the menu
@@ -18,9 +19,9 @@ final class GlassMenuStepperRowView: PopupRowView {
     init(_ item: GlassMenuStepperItem, leading: NSView?, layout: Layout) {
         self.item = item
         // Locals: no stored property is read before super.init.
-        let minus = GlassMenuStepperButton(symbol: "minus", label: item.decrement.title, toolTip: Self.hint(item.decrement))
-        let plus = GlassMenuStepperButton(symbol: "plus", label: item.increment.title, toolTip: Self.hint(item.increment))
-        let reset = GlassMenuStepperButton(symbol: "arrow.counterclockwise", label: item.reset.title, toolTip: Self.hint(item.reset))
+        let minus = GlassMenuStepperButton(symbol: "minus", label: item.decrement.title, shortcut: GlassMenuRow.shortcut(item.decrement))
+        let plus = GlassMenuStepperButton(symbol: "plus", label: item.increment.title, shortcut: GlassMenuRow.shortcut(item.increment))
+        let reset = GlassMenuStepperButton(symbol: "arrow.counterclockwise", label: item.reset.title, shortcut: GlassMenuRow.shortcut(item.reset))
         self.minus = minus
         self.plus = plus
         resetButton = reset
@@ -78,20 +79,24 @@ final class GlassMenuStepperRowView: PopupRowView {
     }
 
     /// The keys on the highlighted row: Left −, Right +, Return or Enter reset. False for any other key.
+    ///
+    /// The press runs on the next pass of the run loop, after the key, as every row of a
+    /// ``GlassMenu`` runs: a key in an open menu is a pick, like a click. Run inside the key, the
+    /// App's action rows validate as disabled (its key router already handled that key, so a row's
+    /// own shortcut may not fire for it): the zoom did not change and its buttons read dimmed.
     func handleKey(_ event: NSEvent) -> Bool {
+        let part: NSMenuItem
         switch event.keyCode {
-        case 123: run(item.decrement)
-        case 124: run(item.increment)
-        case 36, 76: run(item.reset)
+        case 123: part = item.decrement
+        case 124: part = item.increment
+        case 36, 76: part = item.reset
         default: return false
         }
+        MainRunLoopBlock.perform { [weak self] in self?.run(part) }
         return true
     }
 
     /// A row-wide click (not on a button) runs nothing: the menu stays open.
     override func activate() {}
 
-    private static func hint(_ part: NSMenuItem) -> String {
-        GlassMenuRow.shortcut(part).map { "\(part.title) (\($0))" } ?? part.title
-    }
 }

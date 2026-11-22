@@ -248,7 +248,7 @@ impl Brain {
 /// What an owner's reject code means for the Chief.
 fn refusal_meaning(reason: &str) -> &'static str {
     if reason.contains("agent_budget") {
-        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing; keep the news for your next answer to them"
+        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing: end the turn (stop). The host keeps what is owed (untold outcomes, unannounced starts) and puts it in your turn for the person's next message"
     } else if reason.contains("idempotency_conflict") {
         "this message's key was already used for other text (a host bug)"
     } else {

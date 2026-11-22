@@ -37,6 +37,7 @@ extension PageWebView {
         rendererRestartPending = false
         applyUIScale()
         applyTheme(force: true)
+        applyLanguage()
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
         onDocumentLoaded?()

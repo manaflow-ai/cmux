@@ -59,6 +59,8 @@ struct CmuxMobileApp: App {
         LiveFeedFixture.shared.startIfRequested()
         // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
         InputLatencyTrace.startIfRequested()
+        // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
+        TerminalFeedFixture.shared.startIfRequested()
         #endif
     }
 

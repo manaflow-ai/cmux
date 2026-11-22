@@ -192,33 +192,63 @@ class SelectTest(unittest.TestCase):
                 selected, _ = wa.Selector(self.root).select(["webviews/src/other.ts"])
                 self.assertIn("webviews/test/tools.test.ts", selected)
 
-    def test_generated_table_reader_is_not_an_input_of_an_isolated_test(self) -> None:
+    def test_reviewed_runtime_loads_are_not_untracked_until_edited(self) -> None:
         reader = "webviews/src/agent-session/acpmux/frameOwners.ts"
-        destination = self.root / reader
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes((ROOT / reader).read_bytes())
+        teardown = "webviews/test/support/domTeardown.ts"
+        for path in (reader, teardown):
+            destination = self.root / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((ROOT / path).read_bytes())
         (self.root / "webviews/test/frames.test.ts").write_text(
             'import { browserOwnersEnv } from "../src/agent-session/acpmux/frameOwners";\n')
+        (self.root / "webviews/test/settle.test.ts").write_text('import { settleReact } from "./support/domTeardown";\n')
         git(self.root, "add", "-A")
         selector = wa.Selector(self.root)
-        self.assertTrue(selector.generated, "review the generated reader after its content changes")
-        selected, _ = selector.select(["webviews/test/leaf.test.ts"])
-        self.assertNotIn("webviews/test/frames.test.ts", selected)
-        for changed in ("webviews/src/leaf.ts", "unrelated/tool.py", reader):
+        self.assertEqual(sorted(selector.always), ALWAYS, "review the runtime loads after their content changes")
+        for changed in ("webviews/test/leaf.test.ts", "webviews/src/leaf.ts", "unrelated/tool.py"):
             with self.subTest(changed=changed):
                 selected, _ = selector.select([changed])
-                self.assertIn("webviews/test/frames.test.ts", selected)
-        # A production import of the test makes it a possible bundle input.
-        (self.root / "webviews/src/leaf.ts").write_text('import "../test/leaf.test";\n')
-        selected, _ = wa.Selector(self.root).select(["webviews/test/leaf.test.ts"])
-        self.assertIn("webviews/test/frames.test.ts", selected)
-        # An unreviewed reader edit fails open, even for test-only changes.
-        destination.write_text(destination.read_text() + '\nimport(runtimePath);\n')
-        selected, _ = wa.Selector(self.root).select(["webviews/test/other.test.ts"])
-        self.assertIn("webviews/test/frames.test.ts", selected)
+                self.assertNotIn("webviews/test/frames.test.ts", selected)
+                self.assertNotIn("webviews/test/settle.test.ts", selected)
+        selected, _ = selector.select([reader])
+        self.assertIn("webviews/test/frames.test.ts", selected)  # an importer of a changed file, as any
+        # An unreviewed edit fails open: every test reaching it runs on every change.
+        for path, test in ((reader, "frames"), (teardown, "settle")):
+            with self.subTest(edited=path):
+                (self.root / path).write_text((self.root / path).read_text() + '\nimport(runtimePath);\n')
+                selected, _ = wa.Selector(self.root).select(["webviews/test/other.test.ts"])
+                self.assertIn(f"webviews/test/{test}.test.ts", selected)
 
-    def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
-        self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
+    def test_a_deleted_source_selects_the_tests_reaching_what_still_names_it(self) -> None:
+        self.assertEqual(self.change("webviews/src/dead.ts", delete=True), ALWAYS)
+        self.assertEqual(self.change("webviews/src/leaf.ts", delete=True), with_always("webviews/test/leaf.test.ts"))
+
+    def test_a_deleted_source_a_data_file_or_a_short_name_may_load_runs_everything(self) -> None:
+        (self.root / "webviews/src/listed.ts").write_text("export const listed = 1;\n")
+        (self.root / "webviews/src/list.json").write_text('{"module": "./src/listed"}\n')
+        (self.root / "webviews/src/abc.ts").write_text("export const abc = 1;\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture names")
+        self.assertIsNone(self.change("webviews/src/listed.ts", delete=True))
+        self.assertIsNone(self.change("webviews/src/abc.ts", delete=True))
+
+    def test_the_undo_variable_restores_the_wider_selection(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        (self.root / "webviews/scripts").mkdir(parents=True, exist_ok=True)
+        (self.root / "webviews/scripts/table-baseline.tsv").write_text("a\t1\n")
+        (self.root / "webviews/test/table.test.ts").write_text(
+            'import { readFileSync } from "node:fs";\nreadFileSync("scripts/table-baseline.tsv");\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture reader")
+        wa.NARROW = False
+        try:
+            self.assertIsNone(self.change("webviews/src/leaf.ts", delete=True))
+            found, _ = ps.touched(wa.Selector(self.root), ["webviews/scripts/table-baseline.tsv"])
+            self.assertIsNone(found)
+        finally:
+            wa.NARROW = True
+
+    def test_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
         self.assertIsNone(self.change("webviews/test/preload.ts"))
 
@@ -283,7 +313,7 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(self.touched("webviews/scripts/baseline.jsonl"), [])
         self.assertIsNone(self.touched("webviews/test/preload.ts"))
 
-    def test_a_script_a_build_input_loads_or_a_file_reads_runs_every_shard(self) -> None:
+    def test_a_script_a_build_input_loads_runs_every_shard_and_a_read_one_its_readers(self) -> None:
         (self.root / "webviews/scripts/lint").mkdir(parents=True, exist_ok=True)
         (self.root / "webviews/scripts/plugin.mjs").write_text('import { d } from "./dep.mjs";\nexport const p = d;\n')
         (self.root / "webviews/scripts/dep.mjs").write_text("export const d = 1;\n")
@@ -303,14 +333,22 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertIsNone(self.touched("webviews/scripts/plugin.mjs"))
         self.assertIsNone(self.touched("webviews/scripts/dep.mjs"))  # through the plugin
         self.assertIsNone(self.touched("webviews/scripts/lint/rule.mjs"))  # named, not imported
-        self.assertIsNone(self.touched("webviews/scripts/table-baseline.tsv"))  # read as data
-        self.assertIsNone(self.touched("webviews/scripts/other-baseline.tsv"))  # a file reader names its basename
+        # Read as data, or named by a file reader: the reader's tests, not every shard.
+        self.assertEqual(self.touched("webviews/scripts/table-baseline.tsv"), ["webviews/test/table.test.ts"])
+        self.assertEqual(self.touched("webviews/scripts/other-baseline.tsv"), ["webviews/test/table.test.ts"])
         self.assertEqual(self.touched("webviews/scripts/check-only.mjs"), [])  # only shard 1's checks run it
 
-    def test_build_and_runner_inputs_and_deleted_sources_run_every_shard(self) -> None:
+    def test_build_and_runner_inputs_run_every_shard(self) -> None:
         self.assertIsNone(self.touched("webviews/package.json"))
         self.assertIsNone(self.touched("scripts/ci/webviews_affected.py"))
-        self.assertIsNone(self.touched("webviews/src/leaf.ts", delete=True))
+
+    def test_a_deleted_source_touches_the_tests_that_still_name_it(self) -> None:
+        self.assertEqual(self.touched("webviews/src/leaf.ts", delete=True), ["webviews/test/leaf.test.ts"])
+        (self.root / "webviews/src/listed.ts").write_text("export const listed = 1;\n")
+        (self.root / "webviews/src/list.json").write_text('{"module": "./src/listed"}\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "fixture names")
+        self.assertIsNone(self.touched("webviews/src/listed.ts", delete=True))
 
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
