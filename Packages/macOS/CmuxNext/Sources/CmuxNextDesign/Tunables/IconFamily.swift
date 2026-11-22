@@ -3,23 +3,28 @@ import Foundation
 /// Which drawings the cmux icon pack shows (Debug Settings `icons.family`). `pack` is the shipped
 /// pack (design/icons/source). `custom` lays the cmux custom family over it (design/icons/source-custom,
 /// Lucas 2026-10-17): the same names, redrawn in the agent chat's recipe, native and web alike.
-/// `neko` reserves the optional theme identifier; its art is gallery-only until quality review.
+/// `neko` lays the optional cat family over it (design/icons/neko-candidates/round4, Leo: "we just want the
+/// GOOD ones"); people turn it on with Settings > Appearance > Icon Theme (`appearance.iconTheme`), off by default.
 /// Native icons read the family at launch; agent pages take it as a page attribute.
 public nonisolated enum IconFamily: String, Sendable, CaseIterable, Hashable, TunableChoice {
     case pack
     case custom
     case neko
 
-    /// The families with shipped artwork, which Debug Settings offers. `allCases` keeps every case,
-    /// `.neko` included, so code walking the cases sees it; a family joins this list when its art ships
-    /// (design/icons/neko-evaluation.md).
-    public static let shippedCases: [IconFamily] = [.pack, .custom]
+    /// The families with shipped artwork, which Debug Settings offers (design/icons/neko-evaluation.md).
+    public static let shippedCases: [IconFamily] = [.pack, .custom, .neko]
 
-    /// Unapproved artwork is not offered in Debug Settings either.
+    /// Debug Settings offers every family with shipped artwork.
     public static var tunableCases: [IconFamily] { shippedCases }
 
-    /// Whether this family's artwork ships (false for the gallery-only Neko candidates).
+    /// Whether this family's artwork ships.
     public var isShipped: Bool { Self.shippedCases.contains(self) }
+
+    /// The family icons draw with: the Debug Settings family when it is set, else the launch overlay
+    /// (Settings > Appearance > Icon Theme picks Neko there).
+    public static func effective(debug: IconFamily, overlay: String?) -> IconFamily {
+        debug == .pack ? IconFamily(rawValue: overlay ?? "") ?? .pack : debug
+    }
 
     public var tunableTitle: String {
         switch self {
@@ -34,6 +39,6 @@ public nonisolated enum IconFamily: String, Sendable, CaseIterable, Hashable, Tu
 
     public static let tunable = Tunable<IconFamily>.choice(
         "icons.family", .shape, "Icons: Family",
-        help: "The icon drawings: the shipped pack or cmux custom. Native icons change after a relaunch.",
+        help: "The icon drawings: the shipped pack, cmux custom or Neko. Native icons change after a relaunch.",
         default: .pack, code: "IconFamily.tunable")
 }

@@ -184,8 +184,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarBorder = SidebarBorder()
     /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
     public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
-    /// `appearance.iconTheme`: reserved for the optional Neko family. Neko
-    /// remains on the default drawings until reviewed artwork is enabled.
+    /// `appearance.iconTheme`: the optional Neko icon family (off by default).
     public var iconTheme: NekoIconTheme = NekoIconThemeSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()

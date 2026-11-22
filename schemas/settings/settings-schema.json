@@ -26472,7 +26472,7 @@
       },
       "help" : {
         "key" : "settings.appearance.iconTheme.help",
-        "text" : "The icon drawings used by cmux."
+        "text" : "The icon drawings used by cmux. Neko draws the action icons as cats. Native icons change after a relaunch."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.iconTheme",
@@ -26484,7 +26484,7 @@
         "cat"
       ],
       "kind" : "choice",
-      "page_hidden" : true,
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "iconTheme"

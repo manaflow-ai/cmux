@@ -4,7 +4,8 @@ import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
 import neko from "./nekoCandidate.json";
 import rounds from "./nekoRounds.json";
-import { customIconPack, overlaidIconPack } from "./iconPack";
+import nekoShipped from "./cmuxIconsNeko.json";
+import { bundledIconPack, customIconPack, familyIconPack, nekoIconPack, overlaidIconPack } from "./iconPack";
 import type { IconPack } from "./types";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
@@ -56,8 +57,18 @@ describe("icon pack", () => {
     const pack = bundled as IconPack;
     const six = ["action.copy", "action.retry", "media.audio", "bookmark", "action.pin", "action.more"];
     const directions = rounds as Record<string, IconPack>;
-    expect(Object.keys(directions).sort()).toEqual(["earfold", "r3mix", "r3tail", "tailterm", "whisker"]);
+    expect(Object.keys(directions).sort()).toEqual([
+      "earfold",
+      "r3mix",
+      "r3tail",
+      "r4head",
+      "r4pixel",
+      "r4sit",
+      "tailterm",
+      "whisker",
+    ]);
     for (const [direction, overlay] of Object.entries(directions)) {
+      if (direction.startsWith("r4")) continue; // round 4: the full action set, checked below
       const names = Object.keys(overlay.icons);
       for (const name of names) {
         expect(six).toContain(name);
@@ -69,5 +80,24 @@ describe("icon pack", () => {
       }
       expect(names.length).toBe(direction.startsWith("r3") ? 6 : 3);
     }
+  });
+
+  // Settings > Appearance > Icon Theme = Neko (Leo: "i also want optional neko icons"): the shipped family
+  // redraws the app's action icons, every one a pack name, in currentColor only.
+  test("the shipped Neko family covers the action icons and draws in the text color", () => {
+    const pack = bundled as IconPack;
+    const overlay = nekoShipped as IconPack;
+    const names = Object.keys(overlay.icons);
+    const actions = Object.keys(pack.icons).filter((name) => name.startsWith("action."));
+    for (const name of actions) expect(names).toContain(name);
+    for (const name of names) {
+      expect(Object.hasOwn(pack.icons, name)).toBe(true);
+      for (const layer of [...overlay.icons[name].line, ...overlay.icons[name].solid])
+        expect(layer.accent).toBeUndefined();
+    }
+    expect(nekoIconPack.icons["action.copy"]).toEqual(overlay.icons["action.copy"]);
+    expect(nekoIconPack.icons["status.error"]).toEqual(pack.icons["status.error"]);
+    expect(familyIconPack(bundledIconPack, "neko")).toBe(nekoIconPack);
+    expect(familyIconPack(bundledIconPack, undefined)).toBe(bundledIconPack);
   });
 });

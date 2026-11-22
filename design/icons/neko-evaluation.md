@@ -182,3 +182,32 @@ the setting stays hidden and resolves to the default family. What we learned: at
 a 1.5-unit line either vanishes or reads as a defect. A next round would need a different approach:
 for example one dedicated cat mark (a mascot spot, like Idlesse's footer cat) in place of cues on
 every action, or 2x-only art. That is a taste call for Leo, not more hill climbing on these cues.
+
+## Round 4: a load-bearing cat shape
+
+Leo, 2026-11-21: "i also want optional neko icons like SURELY there are good mit/apache 2 ones... i
+tried a little bit in teamledaerleo/idlesse and teamleaderleo/ourchival to get chatgpt back a couple
+months to draw some but they didn't quite come out right" and "well i guess it's a future hill
+climbing thing... but we just want the GOOD ones".
+
+No MIT or Apache-2.0 set draws action icons as cats (rounds 1 to 3 above), so round 4 is first-party.
+The prior attempts were read first: ourchival's `CatIcon.tsx` adds ear and tail accents to noun
+glyphs (the round 2 and 3 failure again), and idlesse uses one generated mascot plus the system
+`cat.fill`. Round 3's lesson set the brief: the cat must be the silhouette, not a cue on a line.
+Three directions drew all 40 names the app uses (every `action.*`, plus overflow, audio, bookmark,
+composer, search, settings, tab and nav marks), line and solid, from
+`design/icons/neko-candidates/round4/{head,sit,pixel}`. Each was judged on a contact sheet at 13, 16
+and 20 px, light and dark, 1x and 2x, next to the default glyphs, and in the gallery.
+
+| Direction | Coverage | Reads as a cat at 16 px | Action at 16 px | Decision |
+| --- | ---: | --- | --- | --- |
+| Head: a cat-head outline holds the mark; frames become the head | 40/40 | yes, every icon | big and centred; weakest attach, settings, sync | **Shipped** as `neko` |
+| Sit: a filled sitting cat inside or beside the mark | 40/40 | yes, but a 5 px blob at 13 px | full size inside loops and frames; shrunk to 80% elsewhere | Gallery only: a row of corner cats is busy |
+| Pixel: 1-bit cat heads on the 16 px grid | 40/40 | yes | marks capped at 9x9 cells, smaller than the default | Gallery only |
+
+- Head's best: More (the dots become the mouth), add, close, confirm, copy (two heads), stop, and
+  retry and reset as a curled cat whose tail is the arrowhead, counter-clockwise like the default.
+- Head's weakest, the next hill to climb: attach (paperclip crowds the head), settings (the gear
+  reads as a sun), sync (two arcs blur), and tab.new and add are near twins.
+- Neko is optional: `appearance.iconTheme` stays `default`; Debug Settings `icons.family` still wins
+  when set.

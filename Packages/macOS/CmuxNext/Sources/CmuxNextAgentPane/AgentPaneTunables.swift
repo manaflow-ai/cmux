@@ -1,6 +1,8 @@
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// How the chat header's top-right icons move (webviews header/headerMotion.ts), Thunderdome B
@@ -304,7 +306,13 @@ public nonisolated struct AgentPaneTunables {
         attributes(topStripStyle: topStripStyle.value, thoughtHeader: thoughtHeader.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
-                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.tunable.value)
+                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.effective(debug: IconFamily.tunable.value, overlay: IconPack.overlay))
+    }
+
+    /// Settings > Appearance > Icon Theme at launch: Neko lays its overlay before the first icon draws
+    /// (Debug Settings `icons.family`, when set, replaces it right after).
+    public static func useIconTheme(_ theme: NekoIconTheme) {
+        IconPack.useOverlay(theme == .neko ? IconFamily.neko.overlay : nil)
     }
 
     static func attributes(topStripStyle: AgentPaneTopStripStyle,
