@@ -39,7 +39,6 @@ use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
 use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
-use std::net::SocketAddr;
 use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
@@ -351,11 +350,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     io::stdin().lock().read_line(&mut first)?;
     let setup: Setup = serde_json::from_str(&first).map_err(|e| format!("setup line: {e}"))?;
     let peer_key = unhex32(&setup.peer_key).ok_or("peer_key must be 64 hex characters")?;
-    let stun: Vec<SocketAddr> = setup
-        .stun
-        .iter()
-        .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
-        .collect();
+    let (stun, stun_later) = crate::carrier::stun_servers(&setup.stun, setup.relay_only);
     // Linux: the X cookie (`--xauthority`, else the session's XAUTHORITY, which x11rb reads),
     // the capture backend and the display, before any X connection.
     #[cfg(target_os = "linux")]
@@ -407,6 +402,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         turn: crate::carrier::turn_servers(&setup.turn),
         relay_only: setup.relay_only,
     })?;
+    if let Some(later) = stun_later {
+        net.add_stun_later(later);
+    }
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
         libc::fcntl(
