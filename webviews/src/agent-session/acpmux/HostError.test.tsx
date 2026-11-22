@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
-import { hostErrorShows } from "./hostRetry";
+import { hostErrorShows, hostSelfRetrying } from "./hostRetry";
 import { translate } from "./i18n";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -178,7 +178,13 @@ function PaneHostLine({ error, failingForMs }: { error: unknown; failingForMs: n
   return (
     <NoticeSlot>
       <Notice id="host-error" tier="error" when={hostErrorShows(error, failingForMs)}>
-        <HostUnavailableLine message={hostLine.line} detail={hostLine.detail} onRetry={() => undefined} />
+        <HostUnavailableLine
+          message={hostLine.line}
+          detail={hostLine.detail}
+          diagnosis={hostLine.diagnosis}
+          selfRetrying={hostSelfRetrying(error, false)}
+          onRetry={() => undefined}
+        />
       </Notice>
     </NoticeSlot>
   );
@@ -298,4 +304,81 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
   });
   expect(container.textContent).toContain("Waiting for the agent service (0:40)");
   expect(buttons(container)).toEqual([]);
+});
+
+// acpmux's refusal for a chat whose machine is down, carrying its first failed step
+// (`peer_diagnosis.rs`) as `data.diagnosis`.
+const SECRET = "sk-live-SECRET123";
+function diagnosed(failedStep: string, action: string, needsPerson: boolean) {
+  const order = ["client", "account", "transport", "hostDaemon", "provider"];
+  const at = order.indexOf(failedStep);
+  const data = {
+    reason: "peer_unreachable",
+    retryable: true,
+    peer: "studio",
+    peerState: "reconnecting",
+    error: `403 Forbidden at wss://u:${SECRET}@private.example/peer`,
+    diagnosis: {
+      machine: "studio",
+      failedStep,
+      steps: order.map((step, i) => ({ step, status: i < at ? "ok" : i === at ? "failed" : "unknown" })),
+      action,
+      needsPerson,
+      detail: `machine: studio\nlink: reconnecting\nsteps: ${failedStep}=failed\nnext: ${action}`,
+    },
+  };
+  return Object.assign(new Error(`peer_unreachable: studio (reconnecting: ${data.error})`), {
+    reason: "peer_unreachable",
+    data,
+  });
+}
+
+// Competitor teardown row 8: a chat's machine that will not come back by itself names its first
+// failed step, one action on the right machine, and a detail that copies no secret or URL.
+test("a machine link a person must fix names its first failed step, one action and Copy Details", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<PaneHostLine error={diagnosed("account", "signIn", true)} failingForMs={5 * 60_000} />);
+  });
+  expect(container.querySelector(".acpmux-host-line-message")!.textContent).toBe(
+    "studio didn't accept this device's sign-in.",
+  );
+  expect(buttons(container)).toEqual(["Retry", "Details"]);
+  const details = [...container.querySelectorAll("button")].find((b) => b.textContent === "Details")!;
+  await act(async () => details.click());
+  const panel = container.querySelector(".acpmux-host-diagnosis")!;
+  expect(panel.getAttribute("data-failed-step")).toBe("account");
+  expect([...panel.querySelectorAll("li")].map((li) => li.getAttribute("data-status"))).toEqual([
+    "ok",
+    "failed",
+    "unknown",
+    "unknown",
+    "unknown",
+  ]);
+  expect(panel.querySelector(".acpmux-host-diagnosis-action")!.textContent).toBe("Sign in to studio again.");
+  expect(buttons(container)).toContain("Copy Details");
+  expect(container.textContent).not.toContain(SECRET);
+  expect(container.textContent).not.toContain("private.example");
+  expect(container.textContent).not.toContain("peer_unreachable");
+});
+
+test("a machine link that heals by itself stays Reconnecting…, diagnosis or not", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<PaneHostLine error={diagnosed("transport", "wakeMachine", false)} failingForMs={5 * 60_000} />);
+  });
+  expect(container.textContent).toBe("Reconnecting…");
+  expect(buttons(container)).toEqual([]);
+});
+
+test("each failed step has its own line", () => {
+  const lines = new Set(
+    ["client", "account", "transport", "hostDaemon", "provider"].map(
+      (step) => hostLineText(diagnosed(step, "startDaemon", true), "", translate).line,
+    ),
+  );
+  expect(lines.size).toBe(5);
+  for (const line of lines) expect(line).not.toContain("{machine}");
 });

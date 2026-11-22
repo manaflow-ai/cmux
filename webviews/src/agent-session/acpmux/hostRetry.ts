@@ -1,4 +1,4 @@
-import { peerLinkFailure, peerLinkFailureShows } from "./hostLine";
+import { linkDiagnosis, peerLinkFailure, peerLinkFailureShows } from "./hostLine";
 
 /// A refused handshake that offers Restart acpmux (`details.restartAcpmux`): another binary's
 /// daemon holds this app's acpmux socket, and the app may replace it with its own on a click.
@@ -46,6 +46,9 @@ export function hostRefusedTooLarge(error: unknown): boolean {
 /// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
 /// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff").
 export function hostSelfRetrying(error: unknown, restartOffered: boolean): boolean {
+  // A chat's machine whose first failed step needs a person (acpmux `diagnosis.needsPerson`: a
+  // refused sign-in or key, a stopped daemon) does not come back by itself: say the step.
+  if (linkDiagnosis(error)?.needsPerson) return false;
   return hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered;
 }
 
