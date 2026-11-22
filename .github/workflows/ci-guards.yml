@@ -803,10 +803,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
-      - name: Validate the nightly run of every iOS UI test
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_ios_ui_nightly.py
-
       - name: Validate main full-suite failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_attribution.py
@@ -874,6 +870,10 @@ jobs:
       - name: Validate simple live macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
+
+      - name: Validate the Mac pull request grant switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_mac_grants.py
 
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}

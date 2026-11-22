@@ -1,6 +1,7 @@
 name: CI hosted backlog rescue
 
-# Pull request runs bound to GitHub-hosted Ubuntu that never got a runner, at any age up to GitHub's 24 h queue limit.
+# Pull request runs bound to GitHub-hosted Ubuntu that never got a runner, at any age up to GitHub's 24 h queue limit,
+# and ones bound to Blacksmith Ubuntu whose re-run takes the owned LINUX_RUNNER (Blacksmith is overflow only).
 # GitHub never re-routes a queued job, so the jobs queued while LINUX_RUNNER and the x64 pools pointed at hosted
 # Ubuntu (2026-11-17 21:34Z to 2026-11-18 02:34Z, cmux#45710) stayed there for hours after the routes came back.
 # The minute pass (ci-owned-pool-rescue.yml) only covers declared light jobs under 90 minutes old; this pass covers
@@ -108,10 +109,15 @@ jobs:
           BACKLOG_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.actions || '' }}
           BACKLOG_RUN_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_ids || '' }}
           BACKLOG_RECOVER_SINCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_since || '' }}
+          # A job queued on Blacksmith Ubuntu is moved only when its re-run takes this owned label: its runs-on in
+          # its base branch's workflow reads LINUX_RUNNER first, and LINUX_RUNNER names neither Blacksmith nor hosted.
+          BACKLOG_LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
         run: >-
           python3 scripts/ci/hosted_light_rescue.py
           --backlog
           --policy .rescue-workflows/.github
+          --route-workflows main=.github/workflows
+          --route-workflows feat-cmux-next=.rescue-workflows/.github/workflows
 
       # This job's spend: the pool again and the difference from the reading above (an upper bound, since every job
       # holding a cmux-bot token spends the same pool).

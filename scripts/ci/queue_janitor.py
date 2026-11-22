@@ -245,7 +245,7 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import LANE_LABEL  # noqa: E402
-from pr_runner_pool import OWNED_EPHEMERAL_LINUX  # noqa: E402
+from pr_runner_pool import OWNED_POOL_LEAD_LINUX  # noqa: E402
 from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
@@ -746,11 +746,11 @@ def paid_portable_label(job: Mapping[str, Any]) -> str | None:
 
 
 def owned_linux_label(job: Mapping[str, Any]) -> str | None:
-    """The owned Mac fleet's Linux VM label (pr_runner_pool.OWNED_EPHEMERAL_LINUX) a job asked for, if any.
+    """The owned Linux label (pr_runner_pool.OWNED_POOL_LEAD_LINUX: the Mac fleet's VMs, the GCP pool) a job asked for.
 
     runner_pools.py may lead a pool with one; it reads this label's queue and starts from the snapshot to move the
     pool to Blacksmith once every VM is taken (runner_pools.label_evidence())."""
-    return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_EPHEMERAL_LINUX), None)
+    return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_POOL_LEAD_LINUX), None)
 
 
 def lane_label(job: Mapping[str, Any]) -> str | None:
@@ -927,6 +927,10 @@ POOL_SETTINGS_ENV = {
 # `gates_error`) as full for a job queued over 3 minutes. The snapshot itself can be a sweep interval old, so a
 # reading in it is often minutes old already; a workflow that can read ${{ vars.CI_FLEET_GATES }} gets it fresher.
 FLEET_GATES_VERSION = 1
+# The dashboard's reading versions this reader takes. Version 2 (cmuxterm-hq#16097, 2026-11-21) only adds a top-level
+# `disk` inventory beside `labels`, which this cut drops; refusing it left every glaeda label read as full from 05:00Z.
+# The cut below is still written as FLEET_GATES_VERSION, the shape the snapshot's readers know.
+FLEET_GATES_READ_VERSIONS = (1, 2)
 FLEET_GATES_STALE_S = 300
 FLEET_GATES_COUNTS = ("listening", "busy", "down", "unreported", "queued", "oldest_queued_s")
 FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
@@ -944,8 +948,9 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
         data = json.loads(raw or "")
     except ValueError as error:
         return None, f"CI_FLEET_GATES is not JSON ({error})"
-    if not isinstance(data, dict) or data.get("version") != FLEET_GATES_VERSION:
-        return None, f"CI_FLEET_GATES is not version {FLEET_GATES_VERSION}"
+    version = data.get("version") if isinstance(data, dict) else None
+    if isinstance(version, bool) or version not in FLEET_GATES_READ_VERSIONS:
+        return None, f"CI_FLEET_GATES is not a version this reader takes {FLEET_GATES_READ_VERSIONS}"
 
     def stamp(value: Any) -> str | None:
         when = parse_time(value) if isinstance(value, str) and value.endswith("Z") else None
@@ -1324,7 +1329,7 @@ def label_started(runs: Sequence[Mapping[str, Any]],
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
                 if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
-                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label) or label in OWNED_EPHEMERAL_LINUX):
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label) or label in OWNED_POOL_LEAD_LINUX):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started
