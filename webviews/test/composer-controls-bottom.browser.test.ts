@@ -249,7 +249,10 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
             scheme,
             boxHeight: m.box ? +(m.box.bottom - m.box.top).toFixed(2) : null,
             overBottom: Object.fromEntries(
-              Object.entries(m.controls).map(([name, b]) => [name, m.box ? +(m.box.bottom - b.bottom).toFixed(2) : null]),
+              Object.entries(m.controls).map(([name, b]) => [
+                name,
+                m.box ? +(m.box.bottom - b.bottom).toFixed(2) : null,
+              ]),
             ),
           })}`,
         );
