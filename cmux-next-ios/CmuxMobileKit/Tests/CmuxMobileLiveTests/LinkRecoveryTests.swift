@@ -124,10 +124,15 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
         defer { controller.send(.target(nil)); clock.stop() }
-        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: { _ in false })
+        // Probes answer until the link goes silent, a millisecond in.
+        let silentFrom = clock.now.advanced(by: .milliseconds(1))
+        let driver = LinkClockDriver(clock: clock, controller: controller, probeAnswers: { $0 < silentFrom })
         try await eventually { dialer.first.probeCount == 1 }
+        try await driver.settle()
         controller.send(.background)
+        try await driver.settle()
         dialer.first.dropSilently()
+        try await driver.advance(by: .milliseconds(1))
         controller.send(.resumed(after: .seconds(1)))
         #expect(controller.lastProbeTimeout == LinkController.presenceProbeTimeout)
         #expect(dialer.dials == 1)
