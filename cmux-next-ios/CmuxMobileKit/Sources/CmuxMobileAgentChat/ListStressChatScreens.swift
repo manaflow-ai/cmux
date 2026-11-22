@@ -35,14 +35,11 @@ enum ListStressChatScreens {
             // `late`: the stream starts after `edgeAfter` seconds (a reader at rest at the end first).
             if settings.streams, settings.edge != "late", settings.edge != "follow" { live = streamTranscript(store, source: source, hz: settings.liveHz) }
             let holder = RigStoreHolder(store: store)
-            // The tall answer's measurement shows in the probe (SubagentTranscriptEdgeUITests).
-            if settings.giant { holder.probe = FollowProbe() }
             switch settings.edge {
             case "follow":
                 // The reader rests on the end (set by the screen's position, not a gesture) and the
                 // stream starts at LIST_LIVE_HZ (default 50): the probe measures the follow.
                 holder.probe = FollowProbe()
-                holder.startsAtEnd = true
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(settings.edgeAfter))
                     holder.probe?.armed = true
@@ -329,7 +326,6 @@ enum ListStressChatScreens {
 final class RigStoreHolder {
     var store: AgentChatStore
     @ObservationIgnored var probe: FollowProbe?
-    @ObservationIgnored var startsAtEnd = false
     init(store: AgentChatStore) { self.store = store }
 }
 
@@ -338,7 +334,7 @@ private struct RigTranscript: View {
 
     var body: some View {
         SubagentTranscriptScreen(store: holder.store, surface: AgentChatSurface(), subagentID: ListStressChatScreens.transcriptID,
-                                 startsAtEnd: holder.startsAtEnd, probe: holder.probe)
+                                 probe: holder.probe)
     }
 }
 

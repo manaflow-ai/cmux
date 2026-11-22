@@ -99,7 +99,7 @@ import UIKit
 
     /// A host in a window, laid out.
     static func host(_ store: AgentChatStore) -> (SubagentTranscriptHost, UIWindow) {
-        let host = SubagentTranscriptHost(store: store, subagentID: "s", surface: AgentChatSurface())
+        let host = SubagentTranscriptHost(store: store, subagentID: "s")
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 500))
         window.rootViewController = host
         window.isHidden = false

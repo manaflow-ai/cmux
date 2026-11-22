@@ -212,8 +212,10 @@ struct SubagentsScreen: View {
     }
 }
 
-/// A subagent's own transcript: the "Subagent of" pill, its task, then its
-/// rows by the chat's rules (tool groups, edits, nested subagent groups).
+/// A subagent's own transcript: the "Subagent of" pill, its task, then its rows by the chat's
+/// rules (tool groups, edits, nested subagent groups), then its state. Drawn by the chat's
+/// transcript list (`SubagentTranscriptHost`), which measures its rows and holds the reader's
+/// place as rows above them change height.
 struct SubagentTranscriptScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
@@ -221,146 +223,35 @@ struct SubagentTranscriptScreen: View {
     /// DEBUG rig: measures how far from the end a following reader gets (`FollowProbe`).
     let probe: FollowProbe?
     @State private var nested: String?
-    @State private var memo = SubagentRowsMemo()
-    @State private var position: ScrollPosition
-    /// The reader is at the end: a running subagent's new rows scroll into view. Scrolled away,
-    /// rows added below move nothing (the list keeps its place from the top).
-    @State private var follow: SubagentFollow
-    @State private var phase = ScrollPhase.idle
-    @State private var heights = SubagentRowHeights()
-    /// Bumped when a tall answer's height is measured (its row is pinned on the next body).
-    @State private var measured = 0
-    @State private var contentWidth: CGFloat = 0
-    @Environment(\.dynamicTypeSize) private var textSize
 
-    /// `startsAtEnd`: opens on the transcript's end, following (the rig's follow measurement).
-    init(store: AgentChatStore, surface: AgentChatSurface, subagentID: String, startsAtEnd: Bool = false, probe: FollowProbe? = nil) {
+    init(store: AgentChatStore, surface: AgentChatSurface, subagentID: String, probe: FollowProbe? = nil) {
         self.store = store
         self.surface = surface
         self.subagentID = subagentID
         self.probe = probe
-        _position = State(initialValue: ScrollPosition(edge: startsAtEnd ? .bottom : .top))
-        _follow = State(initialValue: SubagentFollow(follows: startsAtEnd))
     }
 
     var body: some View {
         if let agent = store.subagent(subagentID) {
-            let (turn, rows) = memo.rows(for: agent)
-            let running = agent.state == .running
-            // Offline, a running subagent's footer stops: no spinner while nothing can come.
-            let offline = agent.state == .running && store.isOffline
-            let key = SubagentRowHeights.Key(width: contentWidth, size: textSize)
-            let live = running ? Self.answerID(rows.last) : nil
-            let _ = measured
-            ScrollView {
-                // Lazy: a long subagent run builds the rows on screen only.
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
-                        Text("Subagent of \(agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name)")
+            SubagentTranscriptRepresentable(store: store, subagentID: subagentID, probe: probe) { nested = $0 }
+                .ignoresSafeArea(.container, edges: .bottom)
+                .overlay(alignment: .topLeading) {
+                    if let probe {
+                        Text(probe.summary)
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.subagent.followprobe")
                     }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .frame(minHeight: 28)
-                    .background(Color.cmuxMobileFill, in: .capsule)
-                    if let task = agent.task {
-                        Text(task)
-                            .font(.body)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    ForEach(rows) { row in
-                        SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
-                            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
-                            // A tall answer's measured height: the lazy stack knows it before it builds the row.
-                            .frame(height: pinned(row, key: key), alignment: .top)
-                    }
-                    HStack(spacing: 8) {
-                        SubagentStateGlyph(state: offline ? .disconnected : agent.state)
-                        Text(offline ? String(localized: "mobile.agentChat.subagent.macOffline", defaultValue: "Mac offline", bundle: .module) : agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("chat.subagent.footer")
-                    }
-                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width - 40 } action: { contentWidth = $0 }
-            // When an answer's text arrives (the rows change) or the width or text size does:
-            // after the body, not in it.
-            .task(id: SubagentRowHeights.TaskID(rows: memo.builds, key: key, live: live)) {
-                if heights.measure(rows, key: key, live: live) {
-                    measured &+= 1
-                    probe?.tallMeasured(heights, scrolling: phase != .idle)
+                .background(Color.cmuxMobileBackground)
+                .chatDemoReceiver(store: store, surface: surface)
+                .navigationTitle(agent.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(item: $nested) { id in
+                    SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
                 }
-            }
-            .defaultScrollAnchor(.top)
-            // Following a running subagent, growth keeps the end in place in the same layout pass
-            // (no frame with the new row below the screen); otherwise it keeps the reader's row in
-            // place. A finished transcript never anchors at the bottom: a lazy row measured as the
-            // reader scrolls (a 15,000 pt log) would move everything above it.
-            .defaultScrollAnchor(follow.sizeChangeAnchor(running: running) == .bottom ? .bottom : .top, for: .sizeChanges)
-            .scrollPosition($position)
-            .onScrollPhaseChange { _, new in phase = new }
-            .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
-                // In content coordinates: the bottom inset counts as seen, as at rest on the end.
-                // Within 60 pt of the end counts as on it (a fling that stops just short while a row lands).
-                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 60, height: geometry.contentSize.height,
-                              gap: probe == nil ? 0 : geometry.contentSize.height - geometry.visibleRect.maxY)
-            } action: { old, new in
-                if let probe, follow.follows, running, phase == .idle { probe.sample(gap: new.gap, grew: new.height > old.height) }
-                if follow.changed(atEnd: new.atEnd, grew: new.height > old.height, scrolling: phase == .interacting || phase == .decelerating,
-                                  running: running) {
-                    position.scrollTo(edge: .bottom)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if let probe {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(probe.summary).accessibilityIdentifier("chat.subagent.followprobe")
-                        Text(probe.tallSummary).accessibilityIdentifier("chat.subagent.tallprobe")
-                    }
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                }
-            }
-            .background(Color.cmuxMobileBackground)
-            .chatDemoReceiver(store: store, surface: surface)
-            .navigationTitle(agent.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $nested) { id in
-                SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
-            }
         } else {
             ContentUnavailableView("Subagent not found", systemImage: "person.2.slash")
         }
-    }
-}
-
-extension SubagentTranscriptScreen {
-    /// The id of `row` when it is an answer.
-    static func answerID(_ row: TurnRow?) -> String? {
-        if case .message(let id, _)? = row { return id }
-        return nil
-    }
-
-    /// The pinned height of a tall, measured answer row; nil for any other row.
-    private func pinned(_ row: TurnRow, key: SubagentRowHeights.Key) -> CGFloat? {
-        guard case .message(let id, let markdown) = row, SubagentRowHeights.isTall(markdown) else { return nil }
-        return heights.height(id, markdown: markdown, key: key)
-    }
-}
-
-extension SubagentRowHeights {
-    struct TaskID: Hashable {
-        var rows: Int
-        var key: Key
-        var live: String?
     }
 }
 
@@ -401,14 +292,6 @@ struct SubagentFollow: Equatable {
     }
 }
 
-/// Where a subagent transcript's reader is: on its end or not, and how tall it is.
-private struct TranscriptEnd: Equatable {
-    var atEnd: Bool
-    var height: CGFloat
-    /// Content below the visible rect (measured only with a `FollowProbe`).
-    var gap: CGFloat
-}
-
 /// How far below the screen the end of a following subagent transcript got, over every layout
 /// pass while it grew (the list rig's `CMUX_MOBILE_LIST_EDGE=follow`).
 @MainActor @Observable
@@ -420,15 +303,6 @@ public final class FollowProbe {
     @ObservationIgnored private(set) var maxGap: CGFloat = 0
     /// Redrawn twice a second, not per sample (the overlay would add a redraw per frame).
     private(set) var summary = "follow probe: waiting"
-    /// Tall answers' measurements: how many, their main-thread time, and how many ran while
-    /// the transcript was scrolling (a measure must not land on a frame the reader sees move).
-    private(set) var tallSummary = "tall measures 0, 0 ms, 0 while scrolling"
-    @ObservationIgnored private var tallWhileScrolling = 0
-
-    func tallMeasured(_ heights: SubagentRowHeights, scrolling: Bool) {
-        if scrolling { tallWhileScrolling += 1 }
-        tallSummary = "tall measures \(heights.measures), \(Int((heights.measureSeconds * 1000).rounded())) ms, \(tallWhileScrolling) while scrolling"
-    }
     @ObservationIgnored private var shownAt = Date.distantPast
 
     public init() {}
@@ -463,53 +337,6 @@ struct SubagentOfPill: View {
     }
 }
 
-/// A transcript row inside a subagent (no permission or question cards: those reach the parent).
-struct SubagentRowView: View {
-    let row: TurnRow
-    let turn: AgentTurn
-    let store: AgentChatStore
-    /// Diffs computed once each off the main thread (not per body).
-    let diffs: ChatDiffCache
-    let isLast: Bool
-    let open: (String) -> Void
-
-    var body: some View {
-        switch row {
-        case .message(_, let markdown):
-            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLast)
-        case .thought(_, let text):
-            ThoughtRow(text: text, isLive: turn.status == .running && isLast)
-        case .tool(let call):
-            // One row (same id) as the run grows into a group: swap in
-            // place instead of crossfading two labels over each other.
-            ToolRowView(call: call).transition(.identity)
-        case .toolGroup(_, let calls):
-            ToolGroupView(calls: calls, turnRunning: turn.status == .running).transition(.identity)
-        case .edit(let call):
-            if call.isRunning {
-                ToolRowView(call: call)
-            } else {
-                DiffSnippet(call: call, previews: diffs.files(for: call)) {
-                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
-                }
-            }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
-        case .subagents(_, let ids):
-            SubagentGroupCard(ids: ids, store: store, open: open)
-        case .steer(let message):
-            if let incoming = message.incoming {
-                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
-            } else {
-                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
-                           editAndResend: {})
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        case .permission, .question:
-            EmptyView()
-        }
-    }
-}
 
 // MARK: Checkpoints
 

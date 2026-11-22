@@ -7,29 +7,40 @@ import UIKit
 /// SwiftUI lazy stack did not do (it reset the transcript to its top, and a 15,000 pt answer
 /// stalled its layout). This host does only what the chat's controller does that a subagent
 /// screen needs, without its composer and keyboard: where the transcript opens, and following
-/// its end while the subagent runs. Holding the reader stays in the list's layout.
+/// its end while the subagent runs (`SubagentFollow`). Holding the reader stays in the list's
+/// layout.
 @MainActor
 final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
     let list: ChatTranscriptList
-    private let surface: AgentChatSurface
     private let running: () -> Bool
+    /// Whether the end is followed (the reader on it, by their own scroll or at rest there).
+    private(set) var follow: SubagentFollow
     /// The first layout with rows placed the transcript (its top, or its end while running).
     private(set) var positioned = false
+    private var contentHeight: CGFloat = 0
+    let probe: FollowProbe?
     /// Within this of the end counts as on it (a fling that stops just short while a row lands).
     static let endBand: CGFloat = 60
 
-    init(store: AgentChatStore, subagentID: String, surface: AgentChatSurface) {
-        self.surface = surface
+    init(store: AgentChatStore, subagentID: String, probe: FollowProbe? = nil) {
         let source = ChatTranscriptSource.subagent(subagentID, store: store)
-        running = { source.runningTurn() != nil }
+        let running = { source.runningTurn() != nil }
+        self.running = running
+        self.probe = probe
+        // Its own surface: following and disclosures are this transcript's, not the chat's.
+        let surface = AgentChatSurface()
         list = ChatTranscriptList(store: store, surface: surface, source: source)
         list.foldsWork = false
-        // Open on the end of a running subagent (following it), on the top of a finished one.
-        surface.following = running()
+        // Opens on the end of a running subagent (following it), on the top of a finished one.
+        follow = SubagentFollow(follows: running())
         super.init(nibName: nil, bundle: nil)
         list.scrollDelegate = self
-        // Rows above a reader change height without moving them unless the end is followed.
-        list.layout.followsBottom = { [weak self] in self?.follows ?? false }
+        // A row above the reader that changes height moves nothing they see, unless the end of a
+        // running subagent is followed (then the end stays in place).
+        list.layout.followsBottom = { [weak self] in
+            guard let self else { return false }
+            return self.follow.sizeChangeAnchor(running: self.running()) == .bottom
+        }
         list.collectionView.didLayout = { [weak self] in self?.laidOut() }
     }
 
@@ -37,13 +48,14 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
 
     /// The end is kept in view: the reader is on it and the subagent runs.
-    var follows: Bool { surface.following && running() }
+    var follows: Bool { follow.follows && running() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         let collectionView = list.collectionView
         collectionView.frame = view.bounds
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        collectionView.contentInsetAdjustmentBehavior = .always
         collectionView.contentInset = UIEdgeInsets(top: 16, left: 0, bottom: 16, right: 0)
         collectionView.alwaysBounceVertical = true
         view.addSubview(collectionView)
@@ -62,15 +74,27 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
 
     private var topOffset: CGFloat { -list.collectionView.adjustedContentInset.top }
 
-    /// After each layout pass of the list: the opening place once, then the end while following.
+    private var onEnd: Bool { list.collectionView.contentOffset.y >= bottomOffset - Self.endBand }
+
+    /// After each layout pass of the list: the opening place once, then the end while followed.
     private func laidOut() {
         let scrollView = list.collectionView
-        guard scrollView.bounds.height > 0, scrollView.contentSize.height > 0, !scrollView.isTracking else { return }
+        guard scrollView.bounds.height > 0, scrollView.contentSize.height > 0 else { return }
+        let grew = scrollView.contentSize.height > contentHeight
+        contentHeight = scrollView.contentSize.height
+        guard !scrollView.isTracking else { return }
         if !positioned {
             positioned = true
-            scrollView.contentOffset.y = surface.following ? bottomOffset : topOffset
-        } else if follows, !scrollView.isDecelerating, abs(scrollView.contentOffset.y - bottomOffset) > 0.5 {
+            scrollView.contentOffset.y = follow.follows ? bottomOffset : topOffset
+            return
+        }
+        guard !scrollView.isDecelerating else { return }
+        if follow.changed(atEnd: onEnd, grew: grew, scrolling: false, running: running()) || (follows && !onEnd) {
             scrollView.contentOffset.y = bottomOffset
+        }
+        if let probe, follows {
+            probe.sample(gap: max(0, scrollView.contentSize.height + scrollView.adjustedContentInset.bottom
+                                      - (scrollView.contentOffset.y + scrollView.bounds.height)), grew: grew)
         }
     }
 
@@ -78,8 +102,7 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard positioned, scrollView.isTracking || scrollView.isDecelerating else { return }
-        let onEnd = scrollView.contentOffset.y >= bottomOffset - Self.endBand
-        if surface.following != onEnd { surface.following = onEnd }
+        _ = follow.changed(atEnd: onEnd, grew: false, scrolling: true, running: running())
     }
 }
 
@@ -87,12 +110,12 @@ final class SubagentTranscriptHost: UIViewController, UIScrollViewDelegate {
 struct SubagentTranscriptRepresentable: UIViewControllerRepresentable {
     let store: AgentChatStore
     let subagentID: String
-    let surface: AgentChatSurface
+    var probe: FollowProbe?
     /// A subagent row tapped in a nested-subagent card.
     let open: (String) -> Void
 
     func makeUIViewController(context: Context) -> SubagentTranscriptHost {
-        let host = SubagentTranscriptHost(store: store, subagentID: subagentID, surface: surface)
+        let host = SubagentTranscriptHost(store: store, subagentID: subagentID, probe: probe)
         host.list.context.openSubagent = open
         return host
     }

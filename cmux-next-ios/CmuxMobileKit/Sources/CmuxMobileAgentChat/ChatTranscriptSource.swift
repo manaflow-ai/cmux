@@ -16,6 +16,8 @@ struct ChatTranscriptSource {
     var mode: ChatTranscriptBuilder.Mode
     /// A subagent transcript's first and last rows (its parent, its state), or nil.
     var frame: () -> (parent: String, footer: SubagentFooter)? = { nil }
+    /// The turn's rows kept by what changed (nil: `AgentTurn.rows`).
+    var turnRows: ((AgentTurn) -> [TurnRow])?
 
     /// An agent chat: the store's turns.
     static func chat(_ store: AgentChatStore) -> ChatTranscriptSource {
@@ -27,7 +29,9 @@ struct ChatTranscriptSource {
     /// The subagent `id`'s transcript (`AgentSubagent.asTurn`); none once the store no longer
     /// has it.
     static func subagent(_ id: String, store: AgentChatStore) -> ChatTranscriptSource {
-        ChatTranscriptSource(turns: { [unowned store] in store.subagent(id).map { [turn(of: $0)] } ?? [] },
+        // An append makes the rows it changed, not the transcript's (SUB-6).
+        let memo = SubagentRowsMemo()
+        return ChatTranscriptSource(turns: { [unowned store] in store.subagent(id).map { [turn(of: $0)] } ?? [] },
                              runningTurn: { [unowned store] in
                                  store.subagent(id).flatMap { $0.state == .running ? turn(of: $0).id : nil }
                              },
@@ -36,6 +40,9 @@ struct ChatTranscriptSource {
                                  guard let agent = store.subagent(id) else { return nil }
                                  let parent = agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name
                                  return (parent, SubagentFooter(agent, offline: store.isOffline))
+                             },
+                             turnRows: { [unowned store] turn in
+                                 store.subagent(id).map { memo.rows(for: $0).rows } ?? turn.rows
                              })
     }
 

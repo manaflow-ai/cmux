@@ -590,6 +590,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let lookup = ChatRowLookup(context: ChatRowContext(store: store, surface: surface, turns: source.turns))
         self.lookup = lookup
         builder = ChatTranscriptBuilder(diffs: store.diffs, mode: source.mode)
+        builder.turnRows = source.turnRows
         let layout = ChatTranscriptLayout()
         self.layout = layout
         lookup.layout = layout

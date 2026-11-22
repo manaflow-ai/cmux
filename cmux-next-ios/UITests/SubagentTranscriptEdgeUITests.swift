@@ -150,16 +150,12 @@ final class SubagentTranscriptEdgeUITests: XCTestCase {
         }
         let line = "tall row: largest move of a still reader's row \(largest) pt over \(holds) holds; largest backward move in a swipe \(backward) pt. \(backwardNote)"
         print("CMUX_TALL_ROW_SHIFT \(line)")
-        let probe = app.staticTexts["chat.subagent.tallprobe"].firstMatch
-        let measures = probe.exists ? probe.label : "no tall probe"
-        print("CMUX_TALL_ROW_MEASURE \(measures)")
-        edgeNote(line + "\n" + measures, "sub11-tall-shift")
+        edgeNote(line, "sub11-tall-shift")
         XCTAssertLessThanOrEqual(backward, 4, "a downward swipe never moves the transcript back: \(line)")
         XCTAssertTrue(onScreen(app, done), "scrolled past the tall row to the footer\n\(app.debugDescription)")
         XCTAssertGreaterThan(holds, 3, "the reader held still on the way: \(line)")
         XCTAssertLessThanOrEqual(largest, 0.5, line)
         XCTAssertTrue(measures.hasPrefix("tall measures 1,"), "the tall answer was measured once: \(measures)")
-        XCTAssertTrue(measures.hasSuffix(" 0 while scrolling"), "no measure ran while the transcript scrolled: \(measures)")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeShot(app, "sub11-tall-2-footer")
     }

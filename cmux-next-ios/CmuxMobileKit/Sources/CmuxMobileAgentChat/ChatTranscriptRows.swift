@@ -130,6 +130,9 @@ final class ChatTranscriptBuilder {
 
     let diffs: ChatDiffCache
     let mode: Mode
+    /// A turn's row grouping (`AgentTurn.rows`) when the source keeps it by what changed (a
+    /// subagent's long transcript: an appended item makes its own rows, `SubagentRowsMemo`).
+    var turnRows: ((AgentTurn) -> [TurnRow])?
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     /// Each answer's block rows as last built, by its parse's key: the blocks its next parse leaves
@@ -282,7 +285,7 @@ final class ChatTranscriptBuilder {
                                     ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: chat && context.isLast),
                                 gap: gap))
         }
-        let turnRows = turn.rows
+        let turnRows = self.turnRows?(turn) ?? turn.rows
         let running = turn.status == .running
         // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
         // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
