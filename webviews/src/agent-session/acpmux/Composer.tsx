@@ -132,6 +132,7 @@ import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
+import { lookRowInBox } from "./composerLook";
 import { useComposerLookWithV2 } from "./composerV2";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
@@ -777,7 +778,7 @@ function ComposerFrame({
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLookWithV2();
-  const quietActions = plainFooter && look !== "codex";
+  const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
     snapshot.summary?.usageStats,
@@ -2836,8 +2837,10 @@ function ComposerFrame({
       // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="composer"
       data-shell={shell ? "" : undefined}
-      // Gallery previews can stage the former Codex layout.
-      data-composer-look={look === "codex" ? "codex" : undefined}
+      // Gallery previews can stage the former Codex layout. Studio's look (Settings, opt-in) is that
+      // in-box layout with its own sheet over it (composerLook.css data-composer-variant).
+      data-composer-look={lookRowInBox(look) ? "codex" : undefined}
+      data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
       data-shell-look={shellLook}
@@ -3115,6 +3118,8 @@ function ComposerFrame({
               leading
             ) : (
               <ComposerPlusMenu
+                // Studio's look draws it as the reference's attach paperclip, before Send (composerLook.css).
+                glyph={look === "studio" ? "paperclip" : "plus"}
                 planning={planning}
                 entries={plusEntries}
                 onCommand={(action, modeId) => {

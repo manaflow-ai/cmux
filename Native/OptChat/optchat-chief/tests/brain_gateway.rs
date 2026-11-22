@@ -47,18 +47,34 @@ fn a_brain_with_no_gateway_set_is_unavailable_and_names_no_team_host() {
     for f in files_under(dir.path()) {
         let text = std::fs::read_to_string(&f).unwrap_or_default();
         for host in TEAM_HOSTS {
-            assert!(!text.contains(host), "{} names the team host {host}", f.display());
+            assert!(
+                !text.contains(host),
+                "{} names the team host {host}",
+                f.display()
+            );
         }
     }
 
     // The person's own gateway: the brain is ready and its home names only that gateway.
-    let choice = EngineChoice { brain_base_url: Some("http://gateway.example:8080".into()), ..Default::default() };
+    let choice = EngineChoice {
+        brain_base_url: Some("http://gateway.example:8080".into()),
+        ..Default::default()
+    };
     let setup = BrainSetup::from_choice(&choice, &paths);
     let states = brain_home::prepare(&paths, &daemon_with_hermes(), &setup, &|_| {});
     assert_eq!(states["hermes"].state, "ready", "{:?}", states["hermes"]);
-    let config = std::fs::read_to_string(brain_home::dir(&paths, brain_home::brain("hermes").unwrap()).join("config.yaml")).unwrap();
-    assert!(config.contains("http://gateway.example:8080/v1"), "{config}");
+    let config = std::fs::read_to_string(
+        brain_home::dir(&paths, brain_home::brain("hermes").unwrap()).join("config.yaml"),
+    )
+    .unwrap();
+    assert!(
+        config.contains("http://gateway.example:8080/v1"),
+        "{config}"
+    );
     for host in TEAM_HOSTS {
-        assert!(!config.contains(host), "config.yaml names the team host {host}");
+        assert!(
+            !config.contains(host),
+            "config.yaml names the team host {host}"
+        );
     }
 }

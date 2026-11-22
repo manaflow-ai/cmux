@@ -139,21 +139,82 @@ enum KeyBarKey: Hashable, Sendable {
         }
     }
 
-    /// The scrolling keys, in classic cmux iOS's default order
-    /// (`TerminalInputAccessoryAction.defaultConfigurableOrder`), ending in Hide Toolbar.
-    static let row: [KeyBarKey] = [
-        .control, .alternate, .command, .shift, .paste,
-        .tab, .escape, .returnKey,
-        .chord("c"), .chord("d"),
-        .launcher(.claude), .launcher(.codex), .launcher(.ollama),
-        .up, .down, .left, .right,
-        .chord("l"),
-        .symbol("~"), .symbol("$"), .symbol("/"), .symbol("@"), .symbol("|"),
-        .chord("z"),
-        .home, .end, .pageUp, .pageDown,
-        .zoomOut, .zoomIn,
-        .hideChrome,
-    ]
+    /// The scrolling keys of the default layout.
+    static var row: [KeyBarKey] { KeyBarLayout.standard.scroller }
+
+    /// The arrow keys, in classic cmux iOS's order.
+    static let arrows: [KeyBarKey] = [.up, .down, .left, .right]
+}
+
+/// Where the scroller puts the arrows. Leo, 2026-11-21: "dont move the arrow
+/// keys all the way left per se ofc just... move them left of the weird
+/// claude/codex/ollama (why do we have ollama!?) buttons...". Classic cmux
+/// iOS's order put them after the agent launchers, 14 keys in.
+public enum KeyBarLayout: String, CaseIterable, Sendable {
+    /// A, the default: classic's order with the arrows moved to just before
+    /// the agent launchers (after ^C ^D).
+    case arrowsBeforeAgents
+    /// B: the arrows right after Esc, before Return, ^C and ^D.
+    case arrowsAfterEscape
+    /// C: as A, with the agent launchers moved to the end of the row (before
+    /// the zoom keys), so the terminal keys come first.
+    case agentsLast
+
+    /// The layout the app uses.
+    public static let standard: KeyBarLayout = .arrowsBeforeAgents
+
+    /// The layout the key row draws: `standard`, or in DEBUG builds the
+    /// `-cmuxMobile.keyBarLayout arrowsBeforeAgents|arrowsAfterEscape|agentsLast`
+    /// launch argument, to try each one in the app.
+    public static var current: KeyBarLayout {
+        #if DEBUG
+        if let name = UserDefaults.standard.string(forKey: "cmuxMobile.keyBarLayout"),
+           let layout = KeyBarLayout(rawValue: name) { return layout }
+        #endif
+        return standard
+    }
+
+    /// The gallery's caption.
+    public var title: String {
+        switch self {
+        case .arrowsBeforeAgents: "A: arrows before the agents (default)"
+        case .arrowsAfterEscape: "B: arrows after Esc"
+        case .agentsLast: "C: arrows before the agents, agents last"
+        }
+    }
+
+    /// The scrolling keys, ending in Hide Toolbar. Built once per layout: the
+    /// same array every time lets SwiftUI skip the scroller's keys on a
+    /// scroll frame (a new array each body would rebuild them all).
+    var scroller: [KeyBarKey] {
+        switch self {
+        case .arrowsBeforeAgents: Self.arrowsBeforeAgentsRow
+        case .arrowsAfterEscape: Self.arrowsAfterEscapeRow
+        case .agentsLast: Self.agentsLastRow
+        }
+    }
+
+    private static let arrowsBeforeAgentsRow = KeyBarLayout.arrowsBeforeAgents.makeScroller()
+    private static let arrowsAfterEscapeRow = KeyBarLayout.arrowsAfterEscape.makeScroller()
+    private static let agentsLastRow = KeyBarLayout.agentsLast.makeScroller()
+
+    private func makeScroller() -> [KeyBarKey] {
+        let agents: [KeyBarKey] = [.launcher(.claude), .launcher(.codex), .launcher(.ollama)]
+        let modifiers: [KeyBarKey] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
+        let chords: [KeyBarKey] = [.returnKey, .chord("c"), .chord("d")]
+        let tail: [KeyBarKey] = [
+            .chord("l"),
+            .symbol("~"), .symbol("$"), .symbol("/"), .symbol("@"), .symbol("|"),
+            .chord("z"),
+            .home, .end, .pageUp, .pageDown,
+        ]
+        let end: [KeyBarKey] = [.zoomOut, .zoomIn, .hideChrome]
+        return switch self {
+        case .arrowsBeforeAgents: modifiers + chords + KeyBarKey.arrows + agents + tail + end
+        case .arrowsAfterEscape: modifiers + KeyBarKey.arrows + chords + agents + tail + end
+        case .agentsLast: modifiers + chords + KeyBarKey.arrows + tail + agents + end
+        }
+    }
 }
 
 /// The key row's agent launchers (classic cmux iOS): each types its command line.
