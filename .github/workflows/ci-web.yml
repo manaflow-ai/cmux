@@ -728,11 +728,27 @@ jobs:
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
+      # The fixture copies the real webviews tree, so a finding already on the base fails it too: #48230's experiment
+      # id agent-pane.high-contrast-look made it red on feat-cmux-next, and every web-view pull request's shard 1 went
+      # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
+      # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
+      # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
         if: matrix.shard == 1
         continue-on-error: true
-        run: python3 scripts/tests/test_pr_scoped_webviews_checks.py
+        run: |
+          check=scripts/tests/test_pr_scoped_webviews_checks.py
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
+          python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json" && exit 0
+          base="$RUNNER_TEMP/pr-scoped-base"
+          git worktree add --detach "$base" HEAD^1
+          ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules"
+          if [ -f "$base/$check" ]; then
+            python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" || true
+          fi
+          python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
+            "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
