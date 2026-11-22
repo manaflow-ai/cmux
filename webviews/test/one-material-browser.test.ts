@@ -22,23 +22,23 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const source = (file: string) => readFileSync(path.join(import.meta.dir, "../src", file), "utf8");
-
-type Primitive = { name: string; classes: string; level: string; cover: boolean; role?: string; inner?: string };
-
-/** The class list and host-glass mark a component's source gives the element whose classes start `lead`. */
-function fromSource(file: string, lead: string): { classes: string; level: string | undefined; cover: boolean } {
-  const text = source(file);
-  const at = text.indexOf(`"${lead}`);
-  if (at < 0) throw new Error(`${file}: no class list starting "${lead}"`);
-  const classes = text.slice(at + 1, text.indexOf('"', at + 1));
-  // The element's own attributes: up to its tag's end.
-  const tag = text.slice(at, text.indexOf(">\n", at));
-  const level = tag.match(/data-host-glass(?:"\s*:\s*|=)"(menu|popover|chip)"/)?.[1];
-  return { classes, level, cover: /data-host-glass-cover/.test(tag) };
-}
-
 await requireBrowserLane("one-material-browser.test.ts", async () => {
+  const source = (file: string) => readFileSync(path.join(import.meta.dir, "../src", file), "utf8");
+
+  type Primitive = { name: string; classes: string; level: string; cover: boolean; role?: string; inner?: string };
+
+  /** The class list and host-glass mark a component's source gives the element whose classes start `lead`. */
+  function fromSource(file: string, lead: string): { classes: string; level: string | undefined; cover: boolean } {
+    const text = source(file);
+    const at = text.indexOf(`"${lead}`);
+    if (at < 0) throw new Error(`${file}: no class list starting "${lead}"`);
+    const classes = text.slice(at + 1, text.indexOf('"', at + 1));
+    // The element's own attributes: up to its tag's end.
+    const tag = text.slice(at, text.indexOf(">\n", at));
+    const level = tag.match(/data-host-glass(?:"\s*:\s*|=)"(menu|popover|chip)"/)?.[1];
+    return { classes, level, cover: /data-host-glass-cover/.test(tag) };
+  }
+
   const HARNESS = "/test/browser/one-material.html";
   setDefaultTimeout(120_000);
   try {
