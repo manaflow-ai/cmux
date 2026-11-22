@@ -250,14 +250,14 @@ pub fn run(
         next: AtomicU64::new(1),
         timeout: ask_timeout,
     });
-    let mut parts = EngineParts::new(platform.desktop);
-    parts.config = configure.config;
-    parts.state_dir = configure.state_dir;
     // `computerUse.showCursor`: the overlay draws only while it is on (config lines change it).
     let show_cursor = Arc::new(crate::cursor_draw::ShowCursor::new(
         platform.cursor,
         configure.config.show_cursor,
     ));
+    let mut parts = EngineParts::new(platform.desktop);
+    parts.config = configure.config;
+    parts.state_dir = configure.state_dir;
     parts.cursor = show_cursor.clone();
     parts.takeover = platform.takeover;
     parts.approver = approver.clone();
