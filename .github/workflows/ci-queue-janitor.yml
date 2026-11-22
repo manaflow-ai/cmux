@@ -240,9 +240,25 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The routing App's read-only runner token, as in ci-queue-janitor-watchdog.yml: the sweep counts the owned
+      # Linux labels' idle runners with it (queue_janitor.attach_owned_idle()), so runner_pools.py moves a pool off
+      # an owned label only when none is idle. Any failure leaves it empty and the queue-only rule in place.
+      - name: Mint the runner roster token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
           # Takes over when the App's token is refused (queue_janitor.GitHub).
           GH_FALLBACK_TOKEN: ${{ github.token }}
