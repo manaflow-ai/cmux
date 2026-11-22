@@ -69,9 +69,10 @@ public struct SidebarMapping {
         /// The page's sound (a browser tab playing sound or muted); the row
         /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
         public var audio: SidebarWorkspaceAudio?
-        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``): the row's cloud mark.
+        /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``), or a Cloud machine's
+        /// desktop: the row's trailing cloud mark.
         public var startsInCloud = false
-        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
+        /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the display icon), in place of a favicon:
         /// a cmux page is no site, so its row never wears the no-favicon globe.
         public var icon: IconName?
 

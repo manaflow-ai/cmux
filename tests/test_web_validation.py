@@ -253,7 +253,8 @@ class WebValidationTests(unittest.TestCase):
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
         long pole from ask to merge for a webview fix, so they were eight. At eight the split
         balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
-        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        they were twelve (about 690 s each). Twelve paid twelve setups and cold Vite warm-ups, about 9%
+        more runner-minutes than eight (2026-11-22), so they are eight again. The base replay (react-apps-base-check) is one
         job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
@@ -263,7 +264,7 @@ class WebValidationTests(unittest.TestCase):
         # and the shards holding a touched test on a pull request.
         self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
         scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
-        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 12)
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
         self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         base_start = workflow.index("  react-apps-base-check:")
