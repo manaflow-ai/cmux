@@ -53,6 +53,7 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemon_key_unavailable: &'static str,
     pub(super) carrier_daemon_requires_carrier: &'static str,
     pub upgrade_requires_ssh: &'static str,
+    pub(super) route_is_link_socket: &'static str,
     pub(super) relay_route_not_candidate: &'static str,
     pub(super) daemon_key_changed: &'static str,
     pub known_daemon_refresh_missing: &'static str,
@@ -84,6 +85,9 @@ pub(crate) struct RemoteClientMessages {
     pub wireguard_hub_conflict: &'static str,
     pub via_machine_conflict: &'static str,
     pub acpmux_socket_unknown: &'static str,
+    pub(super) machine_refused_consent: &'static str,
+    pub(super) machine_refused_service_off: &'static str,
+    pub(super) machine_refused: &'static str,
     pub wireguard_hub_token_needs_hub: &'static str,
     pub stdin_claimed_twice: &'static str,
     pub hub_token_invalid: &'static str,
@@ -114,6 +118,16 @@ pub(crate) struct RemoteClientMessages {
 }
 
 impl RemoteClientMessages {
+    /// What a far machine's refusal (`reason`, its `message`) means here, and what to do.
+    pub(crate) fn machine_refused(&self, reason: &str, message: &str) -> String {
+        let template = match reason {
+            "consent_required" | "consent_declined" => self.machine_refused_consent,
+            "service.off" => self.machine_refused_service_off,
+            _ => self.machine_refused,
+        };
+        template.replace("{message}", message).replace("{reason}", reason)
+    }
+
     pub(crate) fn exec_output_truncated(&self, reason: &str) -> String {
         self.exec_output_truncated.replace("{reason}", reason)
     }
@@ -260,6 +274,10 @@ impl RemoteClientMessages {
 
     pub(crate) fn daemon_no_routes(&self, fingerprint: &str) -> String {
         self.daemon_no_routes.replace("{fingerprint}", fingerprint)
+    }
+
+    pub(crate) fn route_is_link_socket(&self, path: &str) -> String {
+        self.route_is_link_socket.replace("{path}", path)
     }
 
     pub(crate) fn carrier_daemon_requires_carrier(&self, fingerprint: &str) -> String {
@@ -461,6 +479,7 @@ for up to two relay fallbacks
     known_daemon_key_unavailable: "known daemon key disappeared",
     carrier_daemon_requires_carrier: "daemon {fingerprint} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
     upgrade_requires_ssh: "--upgrade requires SSH to be the initial route",
+    route_is_link_socket: "unix://{path} is the local socket of a running `cmux remote connect`, not a daemon route; pass the route that connect dialed (with the same --state-dir) instead",
     relay_route_not_candidate: "relay credential route {route} is not one of this connection's route candidates",
     daemon_key_changed: "daemon key changed for {name}",
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
@@ -492,6 +511,9 @@ for up to two relay fallbacks
     wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
     via_machine_conflict: "--via-machine carries the route through another machine; it cannot be combined with --wireguard-config or --wireguard-hub",
     acpmux_socket_unknown: "--via-machine needs this machine's acpmux, and its socket could not be found (set ACPMUX_SOCKET)",
+    machine_refused_consent: "the owner of that machine has not allowed control from elsewhere: on that Mac, open Settings > Devices and turn on Control, then run this again ({reason})",
+    machine_refused_service_off: "that machine serves no cmux-tui remote daemon to its other machines: on it, run `acpmux config --set remote_daemon=127.0.0.1:PORT` ({reason})",
+    machine_refused: "that machine refused the connection, and retrying will not change it: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin needs --wireguard-hub",
     stdin_claimed_twice: "only one input can come from stdin: --wireguard-hub-token-stdin and --invite-file - cannot be combined",
     hub_token_invalid: "the WireGuard hub token on stdin must be one line of 1 to 255 bytes",
@@ -738,6 +760,7 @@ ID とセッション:
     known_daemon_key_unavailable: "登録済みデーモンの鍵が見つかりません",
     carrier_daemon_requires_carrier: "デーモン {fingerprint} は信頼済みの SSH または Unix 搬送路でのみ登録されています。その搬送路を使用するか、ネットワーク接続用にこのデバイスを登録してください",
     upgrade_requires_ssh: "--upgrade を使用するには最初のルートを SSH にしてください",
+    route_is_link_socket: "unix://{path} は実行中の `cmux remote connect` のローカルソケットで、デーモンのルートではありません。その connect が接続したルートを (同じ --state-dir で) 指定してください",
     relay_route_not_candidate: "リレー認証情報のルート {route} はこの接続のルート候補に含まれていません",
     daemon_key_changed: "デーモン {name} の鍵が変更されています",
     known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",
@@ -769,6 +792,9 @@ ID とセッション:
     wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
     via_machine_conflict: "--via-machine は別のマシン経由でルートを運びます。--wireguard-config や --wireguard-hub とは併用できません",
     acpmux_socket_unknown: "--via-machine にはこのマシンの acpmux が必要ですが、そのソケットが見つかりません (ACPMUX_SOCKET を設定してください)",
+    machine_refused_consent: "そのマシンの所有者が他のマシンからの操作を許可していません: その Mac で 設定 > デバイス を開いて「操作」をオンにしてから、もう一度実行してください ({reason})",
+    machine_refused_service_off: "そのマシンは他のマシンに cmux-tui リモートデーモンを提供していません: そのマシンで `acpmux config --set remote_daemon=127.0.0.1:PORT` を実行してください ({reason})",
+    machine_refused: "そのマシンが接続を拒否しました。再試行しても変わりません: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin には --wireguard-hub が必要です",
     stdin_claimed_twice: "標準入力から読めるのは 1 つだけです。--wireguard-hub-token-stdin と --invite-file - は併用できません",
     hub_token_invalid: "標準入力の WireGuard ハブトークンは 1 から 255 バイトの 1 行である必要があります",

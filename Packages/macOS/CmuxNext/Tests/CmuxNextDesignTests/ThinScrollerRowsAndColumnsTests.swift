@@ -98,7 +98,7 @@ struct ThinScrollerRowsAndColumnsTests {
             let inward: CGFloat = host.isFlipped ? -1 : 1
             scroller.pointerMoved(to: CGPoint(x: 120, y: 100)) // the middle of the view
             #expect(!scroller.isKnobShown)
-            scroller.pointerMoved(to: CGPoint(x: 120, y: bottom + inward * (ThinScroller.nearDistance - 4)))
+            scroller.pointerMoved(to: CGPoint(x: 120, y: bottom + inward * (ThinScroller.width - 4)))
             #expect(scroller.isKnobExpanded)
             #expect(scroller.restingKnobFrame?.height == ThinScroller.expandedKnobThickness)
             // Near the trailing edge but far from the bottom: not this bar's edge.

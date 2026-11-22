@@ -345,10 +345,9 @@ jobs:
           brew_bin="$(brew --prefix)/bin"
           export PATH="$brew_bin:$PATH"
           echo "$brew_bin" >> "$GITHUB_PATH"
-          if ! command -v axe >/dev/null 2>&1; then
-            brew install cameroncooke/axe/axe
-          fi
-          command -v axe >/dev/null 2>&1 || {
+          # Not the Homebrew tap: its formula's install DSL fails on the
+          # runners' Homebrew (job 132861077367).
+          ./scripts/install-axe-ci.sh || {
             echo "::error::[infra-preflight] axe is missing from the simulator runner"
             exit 1
           }

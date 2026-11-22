@@ -330,10 +330,9 @@
 2026-11-15T16:54:36.1331390Z [36;1mbrew_bin="$(brew --prefix)/bin"[0m
 2026-11-15T16:54:36.1331600Z [36;1mexport PATH="$brew_bin:$PATH"[0m
 2026-11-15T16:54:36.1331770Z [36;1mecho "$brew_bin" >> "$GITHUB_PATH"[0m
-2026-11-15T16:54:36.1332000Z [36;1mif ! command -v axe >/dev/null 2>&1; then[0m
-2026-11-15T16:54:36.1332180Z [36;1m  brew install cameroncooke/axe/axe[0m
-2026-11-15T16:54:36.1332800Z [36;1mfi[0m
-2026-11-15T16:54:36.1332990Z [36;1mcommand -v axe >/dev/null 2>&1 || {[0m
+2026-11-15T16:54:36.1332000Z [36;1m# Not the Homebrew tap: its formula's install DSL fails on the[0m
+2026-11-15T16:54:36.1332180Z [36;1m# runners' Homebrew (job 132861077367).[0m
+2026-11-15T16:54:36.1332800Z [36;1m./scripts/install-axe-ci.sh || {[0m
 2026-11-15T16:54:36.1333270Z [36;1m  echo "::error::[infra-preflight] axe is missing from the simulator runner"[0m
 2026-11-15T16:54:36.1333510Z [36;1m  exit 1[0m
 2026-11-15T16:54:36.1333650Z [36;1m}[0m
@@ -378,11 +377,9 @@
 2026-11-15T16:54:47.9419200Z  33  123M   33 41.5M    0     0  90.6M      0  0:00:01 --:--:--  0:00:01 90.6M
 2026-11-15T16:54:47.9419460Z 100  123M  100  123M    0     0   161M      0 --:--:-- --:--:-- --:--:--  265M
 2026-11-15T16:54:49.6732810Z Verified and extracted GhosttyKit.xcframework
-2026-11-15T16:54:50.9893230Z [34m==>[0m [1mTapping cameroncooke/axe[0m
-2026-11-15T16:54:51.0191070Z Cloning into '/opt/homebrew/Library/Taps/cameroncooke/homebrew-axe'...
-2026-11-15T16:54:51.7282720Z Tapped 1 formula (13 files, 27.4KB).
-2026-11-15T16:54:52.3374190Z [34m==>[0m [1mTrusted formula cameroncooke/axe/axe[0m
-2026-11-15T16:54:52.3428660Z ##[error]cameroncooke/axe/axe: undefined method 'run' for an instance of Homebrew::InstallSteps::DSL
+2026-11-15T16:54:51.0191070Z /Users/runner/_work/_temp/axe.Lw8pZc/axe.tar.gz: OK
+2026-11-15T16:54:52.3374190Z ##[error][infra-preflight] the AXe archive has no axe executable (https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz)
+2026-11-15T16:54:52.3428660Z ##[error][infra-preflight] axe is missing from the simulator runner
 2026-11-15T16:54:52.3453130Z ##[error]Process completed with exit code 1.
 2026-11-15T16:54:52.5790820Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
 2026-11-15T16:54:52.5791130Z with:

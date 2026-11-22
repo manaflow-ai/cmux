@@ -1,4 +1,5 @@
-//! Ordered syncs for terminal-host discovery files.
+//! Ordered syncs for terminal-host discovery files, and for the files that a
+//! worktree's setup writes by a rename.
 //!
 //! The host record, the publication lock, the host liveness lease and the
 //! deprecated workspace mirror do not need a drive-cache flush: a record
@@ -10,6 +11,13 @@
 //! F_BARRIERFSYNC gives at a fraction of F_FULLFSYNC's cost (0.5 ms against
 //! 3.9 ms on a Mac mini). The exit record, the SQLite registry and the
 //! session journal keep the full sync.
+//!
+//! The status file of a worktree's setup and the ports file of a repository
+//! (`git_ops/worktree_setup`) have this sync too, by a decision of
+//! 2026-11-16. They need the write order, so that the name does not get a
+//! file that is cut short. A power cut can take either file back to the one
+//! from before: the newest status, or the newest block of ports, is then
+//! not in it.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -37,7 +45,9 @@ pub(crate) fn barrier_sync(file: &File) -> io::Result<()> {
 /// Debug seam (`CMUX_TUI_DEBUG_SLOW_DISCOVERY_SYNC_MS=N`, off by default):
 /// every discovery-file sync takes N ms longer, as on a busy disk, so a test
 /// can see which of them a new terminal's first text waits for
-/// (new-terminal-100x). Terminal hosts inherit it from their daemon.
+/// (new-terminal-100x). Terminal hosts inherit it from their daemon. The
+/// files that a worktree's setup writes before a rename (its status, the
+/// repository's ports) have the same sync, so the delay is in them too.
 fn slow_discovery_sync_delay() -> Option<std::time::Duration> {
     static DELAY: std::sync::OnceLock<Option<std::time::Duration>> = std::sync::OnceLock::new();
     *DELAY.get_or_init(|| {

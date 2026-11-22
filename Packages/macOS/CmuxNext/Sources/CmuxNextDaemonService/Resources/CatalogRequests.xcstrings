@@ -271,131 +271,263 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       },
       "comment": "Refusal: a catalog request action that acts on a pane ran with no pane focused or named."
+    },
+    "catalogRequest.destructiveBody": {
+      "comment": "Body of the question a destructive palette action that sends one daemon request asks before it runs; the title is the action's own name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن التراجع عن هذا الإجراء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo se ne može poništiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette kan ikke fortrydes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dies kann nicht rückgängig gemacht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This can't be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esto no se puede deshacer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette action est irréversible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa operazione non può essere annullata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この操作は取り消せません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សកម្មភាពនេះមិនអាចត្រឡប់វិញបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업은 되돌릴 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette kan ikke angres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tej operacji nie można cofnąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ação não pode ser desfeita."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это действие нельзя отменить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้ไม่สามารถเลิกทำได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu işlem geri alınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю дію не можна скасувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể hoàn tác thao tác này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此操作無法復原。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

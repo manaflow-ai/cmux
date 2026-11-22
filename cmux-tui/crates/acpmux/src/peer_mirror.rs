@@ -217,6 +217,7 @@ impl<'a> Dial<'a> {
                 last_activity: row.last_activity,
                 chat_id: row.chat_id.clone(),
                 origin: PEER_LOCAL.to_owned(),
+                past: false,
             })
             .collect()
     }

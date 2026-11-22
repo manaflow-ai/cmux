@@ -1,0 +1,73 @@
+{
+  "$comment": "Every session/new the agent page sends (webviews direct.ts newSessionParams: a folder, extra folders, no project, a chat on another machine with its model, an adopted chat). webviews/test/agent-pane-session-new-params-contract.test.ts holds the page to this file; AcpmuxPaneSessionNewParamsContractTests runs each frame through the app relay's params rule (AcpmuxPaneMethods+Params.swift knownParams), which refuses an unknown key as transport.intent_invalid. A start refused that way fails every chat's start at once, as an attach key did on 2026-11-12 (cmux#42185, #42460, #44964).",
+  "new": [
+    {
+      "name": "local, folder",
+      "params": {
+        "cwd": "/work/project",
+        "mcpServers": [],
+        "_meta": {
+          "acpmux": {
+            "harness": "claude"
+          }
+        }
+      }
+    },
+    {
+      "name": "local, folder and extra folders",
+      "params": {
+        "cwd": "/work/project",
+        "mcpServers": [],
+        "additionalDirectories": [
+          "/work/shared"
+        ],
+        "_meta": {
+          "acpmux": {
+            "harness": "claude"
+          }
+        }
+      }
+    },
+    {
+      "name": "no project",
+      "params": {
+        "mcpServers": [],
+        "_meta": {
+          "acpmux": {
+            "harness": "claude",
+            "noProject": true
+          }
+        }
+      }
+    },
+    {
+      "name": "peer, model",
+      "params": {
+        "mcpServers": [],
+        "_meta": {
+          "acpmux": {
+            "harness": "codex",
+            "peer": "devbox",
+            "model": "gpt-5.5"
+          }
+        }
+      }
+    },
+    {
+      "name": "adopt",
+      "params": {
+        "mcpServers": [],
+        "_meta": {
+          "acpmux": {
+            "harness": "claude",
+            "adopt": {
+              "harness": "claude",
+              "sessionId": "native-1",
+              "cwd": "/work/project"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

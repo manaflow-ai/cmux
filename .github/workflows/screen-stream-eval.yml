@@ -3,9 +3,12 @@ name: screen stream eval
 # The screen stream eval (HQ#7146 G0; scripts/measure/screen-stream-eval/README.md): cmux.rd/1 and
 # WebRTC through the same fixed scenarios (key and pointer glass-to-glass, kbps idle, typing and
 # scrolling, 13 pt code OCR error, encode/network/decode split) on one console Mac, every day at the
-# feat-cmux-next tip. Report only, no gate: the run uploads results.json and a summary.md that
-# compares each number with the last successful daily run (artifacts keep 3 days, the repo's
-# limit, so a daily run always finds yesterday's). It goes through the build-fleet
+# feat-cmux-next tip. The run uploads results.json and a summary.md that compares each number with
+# the last daily run that left results (artifacts keep 3 days, the repo's limit, so a daily run
+# always finds yesterday's). Its one gate is the screen-share budget (budget_gate.py; cmuxterm-hq
+# docs/design/screen-share-under-100ms.md, piece 6): a stage whose p50 is over its budget fails the
+# run and is named in the job's error and in gate.json. It also publishes probe.json
+# (schema cmux.screen-share-fast/1) for the screen-share-fast goal board. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
@@ -25,6 +28,9 @@ on:
       worker:
         description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else any idle console measure worker)"
         default: ""
+      budget:
+        description: "budget overrides for this run, STAGE=MS separated by spaces (proving the gate; the daily run passes none)"
+        default: ""
 
 permissions:
   contents: read
@@ -33,6 +39,10 @@ permissions:
 concurrency:
   group: screen-stream-eval
   cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   eval:
@@ -50,7 +60,7 @@ jobs:
           filter: blob:none
           sparse-checkout: /scripts/measure/screen-stream-eval/
           sparse-checkout-cone-mode: false
-      - name: the last successful daily run
+      - name: the last daily run with results
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,15 +68,24 @@ jobs:
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os, urllib.request
           # The daily runs: main's screen-stream-eval-dispatch.yml starts them (scheduled workflows run only
-          # from the default branch), so they are workflow_dispatch runs by github-actions[bot].
-          url = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=success&per_page=1"
-          request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
+          # from the default branch), so they are workflow_dispatch runs by github-actions[bot]. A run the
+          # budget gate failed still measured, so the newest completed run whose results artifact is
+          # still kept counts, whatever its conclusion.
+          api = f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions"
+          def get(path):
+              request = urllib.request.Request(f"{api}/{path}", headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json"})
+              return json.load(urllib.request.urlopen(request, timeout=30))
+          found = ""
           try:
-              runs = json.load(urllib.request.urlopen(request, timeout=30)).get("workflow_runs") or []
+              runs = get("workflows/screen-stream-eval.yml/runs?event=workflow_dispatch&actor=github-actions%5Bbot%5D&status=completed&per_page=5").get("workflow_runs") or []
+              for run in runs:
+                  artifacts = get(f"runs/{run['id']}/artifacts?name=screen-stream-eval").get("artifacts") or []
+                  if any(not a.get("expired") for a in artifacts):
+                      found = str(run["id"])
+                      break
           except Exception as error:
               print(f"::warning::could not list earlier runs: {error}", file=__import__("sys").stderr)
-              runs = []
-          print(f"run={runs[0]['id'] if runs else ''}")
+          print(f"run={found}")
           EOF
       - name: earlier results
         if: steps.previous.outputs.run != ''
@@ -83,6 +102,7 @@ jobs:
           SAMPLES: ${{ inputs.samples || '200' }}
           REPEATS: ${{ inputs.repeats || '3' }}
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
+          BUDGET: ${{ inputs.budget || '' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -112,9 +132,22 @@ jobs:
             previous=()
             [[ -s "$RUNNER_TEMP/previous/results.json" ]] && previous=(--previous "$RUNNER_TEMP/previous/results.json")
             python3 scripts/measure/screen-stream-eval/eval.py summary "$out/results.json" "$out/summary.md" ${previous[@]+"${previous[@]}"}
+            python3 scripts/measure/screen-stream-eval/probe.py "$out/results.json" "$out/probe.json"
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            # The budget gate: every stage's p50 against its budget; one over fails the run and is named.
+            # It judges the rd target, so a dispatch without rd (targets=webrtc) stays a report.
+            if [[ ",${TARGETS// /}," == *",rd,"* ]]; then
+              overrides=()
+              for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+              gate=0
+              python3 scripts/measure/screen-stream-eval/budget_gate.py check "$out/results.json" \
+                --out "$out/gate.json" --summary "$GITHUB_STEP_SUMMARY" ${overrides[@]+"${overrides[@]}"} || gate=$?
+              [[ "$status" -eq 0 ]] && status=$gate
+            fi
           else
             echo "::error title=screen stream eval::no results.json came back (step ${step:-none}, exit $status)"
+            # Nothing measured is never a pass, also when the fleet step itself exited 0.
+            [[ "$status" -eq 0 ]] && status=2
           fi
           exit "$status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -124,5 +157,7 @@ jobs:
           path: |
             artifacts/screen-stream-eval/results.json
             artifacts/screen-stream-eval/summary.md
+            artifacts/screen-stream-eval/probe.json
+            artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
           retention-days: 3
