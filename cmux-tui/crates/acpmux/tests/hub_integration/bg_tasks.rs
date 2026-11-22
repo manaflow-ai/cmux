@@ -708,29 +708,44 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     assert_eq!(running.count(), TASKS, "{list}");
     std::fs::write(&go, "").unwrap();
     r.until("not every task ended", || ids.iter().all(|t| state(&r, &id, t) == "exited")).await;
-    // The ends that wait behind the first one's turn may go in together (one turn carries
-    // several agents' messages, `digest.rs`), so each task's id is counted, not each message.
-    let (notified, quiet): (Vec<_>, Vec<_>) = ids.iter().enumerate().partition(|(i, _)| i % 2 == 0);
+    // 32 ends at once outrun the chat's reply period, so the receiver's surge rate holds most
+    // of them in its inbox (`hub/inbox_surge.rs`) instead of running a turn each: an end has
+    // reached its chat when a turn or a held inbox message names its task.
+    let notified: Vec<&String> = ids.iter().step_by(2).collect();
+    r.until("not every notify task's end reached its chat", || {
+        let seen = reached(&r.hub, &id);
+        notified.iter().all(|t| seen.iter().any(|text| text.contains(t.as_str())))
+    })
+    .await;
+    let seen = reached(&r.hub, &id);
+    for quiet in ids.iter().skip(1).step_by(2) {
+        assert!(
+            !seen.iter().any(|t| t.contains(quiet.as_str())),
+            "{quiet} had no notify: {seen:?}"
+        );
+    }
     let bg = acpmux::config::home().join("bg").join(&id);
-    // A notice's body names its task once (`Task <id>: <command>`); a joined turn's heading
-    // names its prompt id (`bg-done-<id>`) too, which is not counted.
-    let carried = |task: &str| -> usize {
-        let body = format!("Task {task}:");
-        ends(&r.hub, &id).iter().map(|e| e.matches(&body).count()).sum()
-    };
-    let all_sent = || {
-        notified
-            .iter()
-            .all(|(_, t)| acpmux::bg_run::notified_path(&bg, t).exists() && carried(t.as_str()) > 0)
-    };
-    r.until("not every notify task's end reached its chat", all_sent).await;
-    // Time for a second send, or one for a task without `notify`, which must not come.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    for (_, task) in &notified {
-        assert_eq!(carried(task.as_str()), 1, "{task}'s end reached the chat more than once");
+    for (i, task) in ids.iter().enumerate() {
+        let marked = acpmux::bg_run::notified_path(&bg, task).exists();
+        assert_eq!(
+            marked,
+            i % 2 == 0,
+            "{task}: a notify task's end is marked sent, a quiet one's is not"
+        );
     }
-    for (_, task) in &quiet {
-        assert_eq!(carried(task.as_str()), 0, "{task} has no notify, yet its end was sent");
-        assert!(!acpmux::bg_run::notified_path(&bg, task).exists(), "{task}");
-    }
+}
+
+/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
+fn reached(hub: &Hub, id: &str) -> Vec<String> {
+    let events = hub.events(id, 0, 10_000).unwrap();
+    let held = |e: &&acpmux::store::EventRecord| {
+        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
+    };
+    events
+        .iter()
+        .filter(|e| e.kind == "user_message" || held(e))
+        .filter_map(|e| e.msg["text"].as_str())
+        .filter(|t| t.contains("Background command"))
+        .map(str::to_owned)
+        .collect()
 }
