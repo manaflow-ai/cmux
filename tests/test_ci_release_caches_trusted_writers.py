@@ -18,10 +18,18 @@ theft; SLSA, "Mini Shai-Hulud: Where SLSA's Boundaries Fall", 2026-05-15). So:
 
 The R2 store, which is not ref-scoped, is held by test_ci_pull_request_caches_are_read_only.py:
 its write credentials live in environments limited to main and feat-cmux-next.
+
+Report-only until Leo decides whether it blocks (coordinator interim-coord-2, 2026-11-22: new
+checks that fail PRs count as guards, which need his say-so). In report mode, findings on the real
+tree go to warning annotations and the step summary, and the run exits 0. The fixture tests of
+the detector always assert. To make it blocking, change MODE's default to "enforce".
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
+import os
 import re
 import sys
 import unittest
@@ -32,6 +40,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+
+# "report": findings on the repository warn and exit 0; "enforce": they fail.
+MODE = os.environ.get("CMUX_RELEASE_CACHE_TRUST_MODE", "report")
 
 # Triggers whose jobs run in the base branch's cache scope and can be started from outside it.
 BASE_CONTEXT = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review",
@@ -226,10 +237,14 @@ def _workflow(trigger: str, step: str, job_extra: str = "", env: str = "") -> st
 class ReleaseCachesTrustedWriters(unittest.TestCase):
     def test_repository_has_no_base_context_cache_save(self):
         failures = base_context_saves(ROOT)
+        if MODE != "enforce":
+            self.skipTest(f"report-only: {len(failures)} finding(s)")
         self.assertEqual(failures, [], "\n".join(failures))
 
     def test_repository_sccache_namespaces(self):
         failures, _ = sccache_namespace_failures(ROOT)
+        if MODE != "enforce":
+            self.skipTest(f"report-only: {len(failures)} finding(s)")
         self.assertEqual(failures, [], "\n".join(failures))
 
     def test_reads_the_real_tree(self):
@@ -240,6 +255,13 @@ class ReleaseCachesTrustedWriters(unittest.TestCase):
     def test_pull_request_target_save_fails(self):
         root = _tree({".github/workflows/w.yml": _workflow("pull_request_target", CACHE)})
         self.assertEqual(len(base_context_saves(root)), 1)
+
+    def test_report_lists_a_finding_without_raising(self):
+        root = _tree({".github/workflows/w.yml": _workflow("pull_request_target", CACHE)})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            findings = report(root)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("title=Release cache trust::", out.getvalue())
 
     def test_pull_request_target_restore_passes(self):
         root = _tree({".github/workflows/w.yml": _workflow("pull_request_target", RESTORE)})
@@ -290,8 +312,26 @@ class ReleaseCachesTrustedWriters(unittest.TestCase):
         self.assertEqual(sccache_namespace_failures(root)[0], [])
 
 
+def report(root: Path) -> list[str]:
+    """Print the counts, annotate each finding, and write the step summary."""
+    namespace_failures, enabled = sccache_namespace_failures(root)
+    findings = base_context_saves(root) + namespace_failures
+    print(f"release or secret-holding cache steps: {release_cache_steps(root)}; "
+          f"base-context cache saves: {len(base_context_saves(root))}; jobs with sccache on: {enabled}; "
+          f"mode: {MODE}")
+    level = "error" if MODE == "enforce" else "warning"
+    for finding in findings:
+        print(f"::{level} title=Release cache trust::{finding}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(f"### Release cache trust ({MODE})\n\n")
+            out.write("".join(f"- {f}\n" for f in findings) or "No findings.\n")
+    return findings
+
+
 if __name__ == "__main__":
-    failures, enabled = sccache_namespace_failures(ROOT)
-    print(f"release or secret-holding cache steps: {release_cache_steps(ROOT)}; "
-          f"base-context cache saves: {len(base_context_saves(ROOT))}; jobs with sccache on: {enabled}")
-    unittest.main()
+    findings = report(ROOT)
+    result = unittest.main(exit=False).result
+    if not result.wasSuccessful() or (findings and MODE == "enforce"):
+        sys.exit(1)
