@@ -285,9 +285,15 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts, the row inset
-        // (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence 2026-11-09, "home/pin icons not left aligned").
-        #expect(abs(pin.minX - content.minX) <= 0.5, "the pin's ink starts at \(pin.minX), the icon column at \(content.minX)")
+        // The pin is a narrow mark: its ink centers on the line an unpinned row's icon centers on, as every row
+        // glyph centers in the optical glyph square from the row inset (#42431, fa6dfb62; the pinned-row and Home
+        // suites check the same line). Its ink starting on the column edge was the rule before #42431: it read
+        // 3.25 to 3.5 pt off since, the narrow pin centered in a wider square.
+        // w3 draws no icon: its slot is empty at the row inset, so the line is the inset plus half the square.
+        let pixel = 1 / max(1, h.window.backingScaleFactor)
+        let line = content.minX + SidebarStyle.rowGlyphOpticalSide / 2
+        #expect(abs(pin.midX - line) <= max(0.5, pixel),
+                "the pin's ink centers at \(pin.midX), the glyph square's center line is \(line)")
         #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
                 "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's

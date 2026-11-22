@@ -4,16 +4,18 @@
   "settings": {"sidebar": {"groupByComputer": false}},
   "steps": [
     {"title": "Launch", "wait": 2},
+    {"title": "A workspace, so the sidebar lists Projects (a fresh launch shows only Home)", "cmux": ["workspace", "new", "--name", "Build"]},
+    {"title": "Show it (a new workspace takes no focus)", "cmux": ["workspace", "name:Build", "focus"], "wait": 1.5},
     {"title": "Share beside Projects", "wait": 1.5, "clip": true},
     {
       "title": "Share beside This Mac in the grouped layout",
-      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": true}},
+      "cmux": ["settings", "set", "sidebar.groupByComputer", "true"],
       "wait": 2,
       "clip": true
     },
     {
       "title": "Return to the flat layout",
-      "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.groupByComputer", "value": false}},
+      "cmux": ["settings", "set", "sidebar.groupByComputer", "false"],
       "wait": 1.5,
       "clip": true
     },

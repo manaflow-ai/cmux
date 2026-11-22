@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 
 use super::dev::{self, Phase};
-use super::{DevOptions, Request, exit, parse, scaffold, scene, shot};
+use super::source::{self, Source};
+use super::{DevOptions, Request, exit, parse, scaffold, scene, share, shot};
 use crate::cli::GlobalArgs;
 
 pub(super) fn words(text: &str) -> Vec<String> {
@@ -42,11 +43,16 @@ fn parses_new_dev_list_remove_and_help() {
     assert_eq!(parse(&words("dev --help")), Ok(Request::Help));
     assert_eq!(
         parse(&words("new my-prs")),
-        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None })
+        Ok(Request::New { name: "my-prs".into(), kind: "section".into(), dir: None, repo: None })
     );
     assert_eq!(
         parse(&words("new w --kind section --dir /tmp/w")),
-        Ok(Request::New { name: "w".into(), kind: "section".into(), dir: Some("/tmp/w".into()) })
+        Ok(Request::New {
+            name: "w".into(),
+            kind: "section".into(),
+            dir: Some("/tmp/w".into()),
+            repo: None
+        })
     );
     let Ok(Request::Dev(options)) = parse(&words("dev")) else { panic!("dev") };
     assert_eq!(options.dir, PathBuf::from("."));
@@ -81,7 +87,6 @@ fn parses_new_dev_list_remove_and_help() {
         "new Bad_Name",
         "new customize",
         "new a b",
-        "new a --kind widget",
         "dev a b",
         "dev --bogus",
         "dev --build",
@@ -290,14 +295,17 @@ fn an_invalid_manifest_names_its_file_and_field_and_exits_4() {
     assert_eq!(json["phase"], "manifest");
     assert_eq!(json["exitCode"], 4);
 
-    // A third-party id is refused: the local folder holds local/ apps only.
+    // A published id (with its repository) loads as local/NAME, the only publisher the local
+    // folder holds (publish_tests); a store id with no repository is refused by the validator.
     manifest["implements"]["cmux.section/1"]["options"]["defaultRegion"] = json!("bottom");
     manifest["id"] = json!("acme/broken");
     manifest["repository"] = json!("https://github.com/acme/broken");
     std::fs::write(&path, manifest.to_string()).unwrap();
+    assert_eq!(dev::load_package(&dir).unwrap().id, "local/broken");
+    manifest.as_object_mut().unwrap().remove("repository");
+    std::fs::write(&path, manifest.to_string()).unwrap();
     let errors = dev::load_package(&dir).unwrap_err();
-    assert_eq!(errors[0].field.as_deref(), Some("/id"));
-    assert!(errors[0].message.contains("local/broken"), "{errors:?}");
+    assert_eq!(errors[0].field.as_deref(), Some("/repository"), "{errors:?}");
 }
 
 /// A fresh clone: `src/main.ts` and no `dist/` (every example gitignores it). The build makes
@@ -587,6 +595,13 @@ fn serve(
                             Err(reason) => json!({"event": "apps-mount-failed", "mount_id": mount_id, "reason": reason}),
                         },
                     );
+                } else if script.contains("THROW_IN_WIDGET") {
+                    // A widget whose render throws: the daemon keeps it mounted, stale.
+                    out.push(
+                        json!({"event": "apps-widget-health", "mount_id": mount_id, "stale": true,
+                        "reason": "render: dist/main.js:3:7 TypeError: ctx.nope is not a function",
+                        "failures": 1, "retry_ms": 1000}),
+                    );
                 } else if script.contains("THROW_AT_INIT") {
                     out.push(json!({"event": "apps-mount-failed", "mount_id": mount_id,
                         "reason": "init: dist/main.js:2:12 SyntaxError: unexpected token"}));
@@ -762,6 +777,14 @@ fn once_loads_a_new_extension_then_reports_a_load_error_with_its_position() {
         (Some("dist/main.js"), Some(2), Some(12))
     );
     assert!(broken.line().contains("the last good version stays live"), "{}", broken.line());
+
+    // A widget whose render throws stays mounted and goes stale (let it crash): the probe
+    // reports the render error at once, not a timeout.
+    std::fs::write(dir.join("dist/main.js"), "// THROW_IN_WIDGET\n").unwrap();
+    let stale = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(stale.phase, Phase::Load, "{:?}", stale.errors);
+    assert_eq!(stale.exit_code(), exit::LOAD_FAILED);
+    assert!(stale.errors[0].message.contains("TypeError"), "{:?}", stale.errors);
 
     // `ext remove` drops the copy it made, and only that.
     assert_eq!(dev::remove_made_folder(&copy), Ok(true));
@@ -1020,6 +1043,354 @@ fn shot_outlines_what_rendered_and_takes_no_picture_of_a_preview() {
     assert_eq!(code, exit::LOAD_FAILED);
 }
 
+// --- ext add / share / search ---------------------------------------------------------------
+
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let mut all =
+        vec!["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"];
+    all.extend_from_slice(args);
+    source::git(Some(dir), &all).unwrap_or_else(|said| panic!("git {args:?}: {said}"))
+}
+
+/// A repository holding a built extension in `widgets/hello` (its `dist/main.js` committed), on
+/// `main`, with a branch `feature/x` one commit ahead.
+fn extension_repo(root: &Path) -> PathBuf {
+    let repo = root.join("upstream");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_in(&repo, &["init", "--quiet", "-b", "main"]);
+    std::fs::create_dir_all(repo.join("widgets")).unwrap();
+    scaffold::scaffold(&repo.join("widgets/hello"), "hello", "section").unwrap();
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "--quiet", "-m", "hello"]);
+    git_in(&repo, &["checkout", "--quiet", "-b", "feature/x"]);
+    std::fs::write(repo.join("widgets/hello/NOTE"), "x").unwrap();
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "--quiet", "-m", "x"]);
+    git_in(&repo, &["checkout", "--quiet", "main"]);
+    repo
+}
+
+#[test]
+fn parses_add_share_and_search() {
+    assert_eq!(
+        parse(&words("add acme/widgets")),
+        Ok(Request::Add(share::AddOptions { source: "acme/widgets".into(), install: true }))
+    );
+    assert_eq!(
+        parse(&words("add ./x --no-install")),
+        Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
+    );
+    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
+    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
+    assert_eq!(
+        parse(&words("search pull requests")),
+        Ok(Request::Search { query: Some("pull requests".into()) })
+    );
+    for bad in ["add", "add a b", "add a --bogus", "share a b", "share --bogus", "search --bogus"] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn sources_name_folders_repositories_and_folders_inside_them() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path();
+    std::fs::create_dir_all(cwd.join("mine")).unwrap();
+    assert_eq!(source::parse("./mine", cwd), Ok(Source::Folder(cwd.join("./mine"))));
+    assert_eq!(source::parse("mine", cwd), Ok(Source::Folder(cwd.join("mine"))));
+    let git = |raw: &str| match source::parse(raw, cwd) {
+        Ok(Source::Git { repo, tail, subdir }) => (repo.url(), tail, subdir),
+        other => panic!("{raw}: {other:?}"),
+    };
+    assert_eq!(git("acme/widgets"), ("https://github.com/acme/widgets.git".into(), vec![], None));
+    assert_eq!(
+        git("acme/widgets@v1"),
+        ("https://github.com/acme/widgets.git".into(), vec!["v1".into()], None)
+    );
+    assert_eq!(
+        git("https://github.com/acme/widgets/tree/feature/x/widgets/hello"),
+        (
+            "https://github.com/acme/widgets.git".into(),
+            ["feature", "x", "widgets", "hello"].map(String::from).to_vec(),
+            None
+        )
+    );
+    assert_eq!(
+        git("https://gitlab.example.com/g/sub/widgets#clock"),
+        ("https://gitlab.example.com/g/sub/widgets.git".into(), vec![], Some("clock".into()))
+    );
+    for bad in [
+        "file:///tmp/x",
+        "ext::sh -c touch% /tmp/pwned",
+        "https://user:token@github.com/acme/widgets",
+        "acme/widgets#../escape",
+        "https://github.com/acme/widgets/tree/main/../x",
+        "https://github.com/acme/widgets/tree/--upload-pack=x/y",
+        "not a source",
+    ] {
+        assert!(source::parse(bad, cwd).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn a_tree_path_splits_at_the_shortest_ref_that_exists() {
+    let refs = |name: &str| match name {
+        "refs/remotes/origin/HEAD" => Some("c-main".to_string()),
+        "refs/remotes/origin/feature/x" => Some("c-x".to_string()),
+        "refs/tags/v1" => Some("c-v1".to_string()),
+        "0123abcd" => Some("0123abcd-full".to_string()),
+        _ => None,
+    };
+    let tail = |text: &str| text.split('/').map(String::from).collect::<Vec<_>>();
+    assert_eq!(source::resolve(&[], refs), Some(("c-main".into(), None, None)));
+    assert_eq!(
+        source::resolve(&tail("feature/x/widgets/hello"), refs),
+        Some(("c-x".into(), Some("feature/x".into()), Some("widgets/hello".into())))
+    );
+    assert_eq!(source::resolve(&tail("v1"), refs), Some(("c-v1".into(), Some("v1".into()), None)));
+    assert_eq!(
+        source::resolve(&tail("0123abcd/clock"), refs),
+        Some(("0123abcd-full".into(), Some("0123abcd".into()), Some("clock".into())))
+    );
+    assert_eq!(source::resolve(&tail("nope/x"), refs), None);
+}
+
+#[test]
+fn full_commit_pins_require_the_requested_object() {
+    for len in [40, 64] {
+        let pin = "a".repeat(len);
+        let other = "b".repeat(len);
+        let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+        assert_eq!(
+            source::resolve(&tail, |name| {
+                Some(if name == pin { pin.clone() } else { other.clone() })
+            }),
+            Some((pin.clone(), Some(pin.clone()), Some("widgets/hello".into())))
+        );
+        // A missing object must not fall back to a branch/tag, even a longer ref.
+        assert_eq!(source::resolve(&tail, |name| (name != pin).then(|| other.clone())), None);
+        assert_eq!(source::resolve(&tail, |_| Some(other.clone())), None);
+    }
+}
+
+#[test]
+fn fetch_commit_pins_ignore_shadowing_remote_branches_and_tags() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let pin = git_in(&upstream, &["rev-parse", "HEAD"]);
+    let url = upstream.to_string_lossy().into_owned();
+    let clone = root.path().join("clone");
+    let tail = vec![pin.clone(), "widgets".into(), "hello".into()];
+    let first = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(first.commit, pin);
+    assert!(!first.dir.join("NOTE").exists());
+
+    // The publisher later adds refs named after the shared commit, at different code.
+    git_in(&upstream, &["branch", &pin, "feature/x"]);
+    git_in(&upstream, &["tag", &pin, "feature/x"]);
+    let again = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(again.commit, pin);
+    assert!(!again.dir.join("NOTE").exists());
+
+    // A pin that is not an object cannot be supplied by either ref namespace.
+    let missing = "f".repeat(40);
+    git_in(&upstream, &["branch", &missing, "feature/x"]);
+    git_in(&upstream, &["tag", &missing, "feature/x"]);
+    assert!(source::fetch(&url, &[missing], Some("widgets/hello"), &clone).is_err());
+}
+
+#[test]
+fn fetch_clones_checks_out_the_named_folder_and_updates_on_a_second_add() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let url = upstream.to_string_lossy().into_owned();
+    let clone = root.path().join("cache/cmux/extensions/example/acme/widgets");
+    let tail: Vec<String> = ["feature", "x", "widgets", "hello"].map(String::from).to_vec();
+
+    let fetched = source::fetch(&url, &tail, None, &clone).unwrap();
+    assert_eq!(fetched.reference.as_deref(), Some("feature/x"));
+    assert_eq!(fetched.subdir.as_deref(), Some("widgets/hello"));
+    assert_eq!(fetched.dir, clone.join("widgets/hello"));
+    assert!(fetched.dir.join("NOTE").is_file() && fetched.dir.join("dist/main.js").is_file());
+
+    // The default branch, with the folder as `#PATH`: no NOTE there.
+    let main = source::fetch(&url, &[], Some("widgets/hello"), &clone).unwrap();
+    assert_eq!(main.reference, None);
+    assert!(!main.dir.join("NOTE").exists());
+    assert_ne!(main.commit, fetched.commit);
+
+    // A new upstream commit: adding again fetches it.
+    std::fs::write(upstream.join("widgets/hello/README.md"), "new").unwrap();
+    git_in(&upstream, &["add", "-A"]);
+    git_in(&upstream, &["commit", "--quiet", "-m", "readme"]);
+    let again = source::fetch(&url, &[], Some("widgets/hello"), &clone).unwrap();
+    assert_ne!(again.commit, main.commit);
+    assert_eq!(std::fs::read_to_string(again.dir.join("README.md")).unwrap(), "new");
+
+    // A folder the commit does not have, a ref that is not there, and a clone of another repository.
+    assert!(
+        source::fetch(&url, &[], Some("widgets/none"), &clone)
+            .unwrap_err()
+            .contains("has no folder")
+    );
+    assert!(
+        source::fetch(&url, &["nope".into()], None, &clone)
+            .unwrap_err()
+            .contains("no branch, tag or commit")
+    );
+    assert!(
+        source::fetch("https://github.com/other/repo.git", &[], None, &clone)
+            .unwrap_err()
+            .contains("is a clone of")
+    );
+}
+
+#[test]
+fn an_added_extension_loads_records_its_origin_and_is_never_built() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let clone = root.path().join("cache/acme/widgets");
+    let fetched =
+        source::fetch(&upstream.to_string_lossy(), &[], Some("widgets/hello"), &clone).unwrap();
+    let local = root.path().join("state/apps/local");
+    let fake = FakeDaemon::start(&local, "local/hello", false);
+    let options = dev_options(&fetched.dir);
+    let outcome = dev::once(&global(&fake.socket), &options, false);
+    assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
+    let folder = outcome.folder.clone().unwrap();
+    assert!(folder.join("dist/main.js").is_file());
+
+    let repo = cmux_cloud_start_core::machine_repo::parse("acme/widgets").unwrap();
+    let origin = json!({ "url": repo.url(), "commit": fetched.commit, "path": "widgets/hello",
+                          "link": share::share_link(&repo, &fetched.commit, Some("widgets/hello")) });
+    share::record_origin(&folder, &origin).unwrap();
+    assert_eq!(share::recorded_origin(&folder), Some(origin.clone()));
+    // The marker still names its source, so `ext remove` and the next add keep working.
+    let marker: Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join(dev::MARKER)).unwrap()).unwrap();
+    assert!(marker["source"].is_string() && marker["app"] == "local/hello");
+    let row = dev::list_rows(&json!({"apps": [{"id": "local/hello", "bundle_dir": folder}]}));
+    assert_eq!(row[0]["from"], origin["link"]);
+
+    let (text, code) = share::report(&outcome, &fetched.dir, Some(&origin), false);
+    assert_eq!(code, exit::OK);
+    assert!(
+        text.contains("added local/hello from https://github.com/acme/widgets.git at"),
+        "{text}"
+    );
+    assert!(
+        text.contains("add it again to update it; cmux ext remove local/hello removes it"),
+        "{text}"
+    );
+    let (json_text, _) = share::report(&outcome, &fetched.dir, Some(&origin), true);
+    let json: Value = serde_json::from_str(&json_text).unwrap();
+    assert_eq!(json["from"]["path"], "widgets/hello");
+    assert_eq!(json["ok"], true);
+}
+
+#[test]
+fn share_prints_a_pinned_link_only_for_a_pushed_commit_with_its_script() {
+    let root = tempfile::tempdir().unwrap();
+    let upstream = extension_repo(root.path());
+    let work = root.path().join("work");
+    source::git(None, ["clone", "--quiet", upstream.to_str().unwrap(), work.to_str().unwrap()])
+        .unwrap();
+    let dir = work.join("widgets/hello");
+
+    // A local path origin is not something `ext add` reads.
+    let check = share::check_share(&dir).unwrap();
+    assert!(check.blocking.iter().any(|b| b.contains("not a GitHub repository")), "{check:?}");
+
+    // A credentialed origin is refused without its login or token in the message.
+    git_in(
+        &work,
+        &["remote", "set-url", "origin", "https://user:s3cret-token@github.com/acme/widgets"],
+    );
+    let check = share::check_share(&dir).unwrap();
+    let said = check.blocking.join("\n");
+    assert!(said.contains("origin https://github.com/acme/widgets is not"), "{said}");
+    assert!(!said.contains("s3cret-token") && !said.contains("user:"), "{said}");
+
+    git_in(&work, &["remote", "set-url", "origin", "git@github.com:acme/widgets.git"]);
+    let check = share::check_share(&dir).unwrap();
+    let head = git_in(&work, &["rev-parse", "HEAD"]);
+    assert_eq!(check.blocking, Vec::<String>::new());
+    assert_eq!(
+        check.link,
+        Some(format!("https://github.com/acme/widgets/tree/{head}/widgets/hello"))
+    );
+    assert!(check.notes.iter().any(|n| n.contains(share::TOPIC)));
+
+    // A new commit not pushed yet, and a script that is not committed.
+    std::fs::write(dir.join("dist/extra.js"), "x").unwrap();
+    git_in(&work, &["rm", "--quiet", "--cached", "widgets/hello/dist/main.js"]);
+    git_in(&work, &["commit", "--quiet", "-m", "drop the build"]);
+    let check = share::check_share(&dir).unwrap();
+    assert!(check.blocking.iter().any(|b| b.contains("not pushed")), "{check:?}");
+    assert!(
+        check.blocking.iter().any(|b| b.contains("dist/main.js is not committed")),
+        "{check:?}"
+    );
+    assert!(check.notes.iter().any(|n| n.contains("uncommitted")), "{check:?}");
+
+    // Another host's link is URL@COMMIT#PATH, which `ext add` reads back.
+    let gitlab =
+        cmux_cloud_start_core::machine_repo::parse("https://gitlab.example.com/g/widgets").unwrap();
+    let link = share::share_link(&gitlab, "abc123", Some("clock"));
+    assert_eq!(link, "https://gitlab.example.com/g/widgets@abc123#clock");
+    match source::parse(&link, root.path()) {
+        Ok(Source::Git { tail, subdir, .. }) => {
+            assert_eq!((tail, subdir), (vec!["abc123".to_string()], Some("clock".to_string())));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn messages_never_echo_a_login_or_token() {
+    assert_eq!(
+        source::redact_login("https://user:token@gitlab.com/acme/widget.git"),
+        "https://gitlab.com/acme/widget.git"
+    );
+    assert_eq!(source::redact_login("https://tok@github.com"), "https://github.com");
+    assert_eq!(source::redact_login("https://a:b@host?x=1"), "https://host?x=1");
+    assert_eq!(source::redact_login("git@github.com:acme/w.git"), "git@github.com:acme/w.git");
+    assert_eq!(source::redact_login("https://github.com/acme/w"), "https://github.com/acme/w");
+    let err =
+        source::parse("https://user:s3cret@github.com/acme/widgets", Path::new("/nonexistent"))
+            .unwrap_err();
+    assert!(!err.contains("s3cret") && err.contains("https://github.com/acme/widgets"), "{err}");
+}
+
+#[test]
+fn the_search_client_builds_with_tls() {
+    // reqwest uses rustls-no-provider: without an installed provider this fails or panics.
+    assert!(share::search_client().is_ok());
+}
+
+#[test]
+fn search_lists_tagged_repositories_with_the_command_that_adds_each() {
+    assert_eq!(
+        share::search_url(Some(" pull requests ")),
+        "https://api.github.com/search/repositories?q=topic%3Acmux-extension+pull+requests&sort=stars&order=desc&per_page=30"
+    );
+    assert!(share::search_url(None).contains("q=topic%3Acmux-extension&"));
+    let answer = json!({"items": [
+        {"full_name": "acme/my-prs", "description": "PRs in the sidebar", "stargazers_count": 12,
+         "html_url": "https://github.com/acme/my-prs"},
+        {"full_name": "bob/clock", "description": null, "stargazers_count": 0, "html_url": "https://github.com/bob/clock"},
+        {"description": "no name: skipped"},
+    ]});
+    let rows = share::search_rows(&answer);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["add"], "cmux ext add acme/my-prs");
+    assert_eq!(
+        share::search_table(&rows),
+        "acme/my-prs  (12 stars)  PRs in the sidebar\n    cmux ext add acme/my-prs\nbob/clock  (0 stars)  \n    cmux ext add bob/clock\n"
+    );
+}
+
 /// `ext dev` reports the web panes (`render: web`) the daemon hosts, and
 /// fails the load when the daemon does not host one the manifest declares.
 #[test]
@@ -1114,6 +1485,13 @@ fn a_reload_does_not_wait_for_the_file_watch() {
     assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
     let cmds = fake.cmds();
     assert!(cmds.contains(&"apps-reload-local".to_string()), "{cmds:?}");
+    // It names the folder it copied to, so the daemon's pass reads that
+    // folder only, not every local app.
+    let requests = fake.requests.lock().unwrap();
+    let asked = requests.iter().find(|r| r["cmd"] == "apps-reload-local").unwrap();
+    let folders = asked["folders"].as_array().unwrap();
+    assert_eq!(folders.len(), 1, "{asked}");
+    assert_eq!(Path::new(folders[0].as_str().unwrap()).parent(), Some(local.as_path()), "{asked}");
 }
 
 /// A daemon older than `apps-reload-local` refuses it and still reloads on

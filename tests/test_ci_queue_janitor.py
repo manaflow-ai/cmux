@@ -715,7 +715,9 @@ class WorkflowShapeTests(unittest.TestCase):
         # The ci-bot environment holds the sweep's dispatch credentials (118e52e14907).
         self.assertIn("  sweep:\n    environment:\n      name: ci-bot\n      deployment: false\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", text)
-        self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
+        # Every sweep that may cancel shares one group; only a dispatched dry run, which cancels
+        # nothing, gets its own, so the next cron sweep cannot replace it while it waits.
+        self.assertIn("concurrency:\n  group: ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('-dry-run-{0}', github.run_id) || '' }}\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
         self.assertIn("run: python3 scripts/ci/queue_janitor.py", text)
@@ -757,6 +759,148 @@ def find(runs, jobs, *, minutes=120):
 
 def orphan_plan(orphans, prs=None, *, max_cancels=5, exclude=()):
     return janitor.build_orphan_plan(orphans, prs or {}, max_cancels=max_cancels, exclude_ids=set(exclude), now=NOW)
+
+
+class LinuxOrphanTests(unittest.TestCase):
+    """2026-11-18: ubuntu-24.04 held 2,399 queued jobs, the oldest 20 h, while newer jobs there started; the jobs of
+    a Linux-only workflow were never read, so no sweep saw one."""
+
+    LINUX_ONLY = frozenset({".github/workflows/pr-checks.yml"})
+
+    def test_reads_the_oldest_linux_only_runs_past_the_orphan_age_within_the_budget(self):
+        old = [make_run(status="queued", age=600 - n, path=".github/workflows/pr-checks.yml") for n in range(5)]
+        young = make_run(status="queued", age=30, path=".github/workflows/pr-checks.yml")
+        mac = make_run(status="queued", age=900)
+        nightly = make_run(status="queued", age=900, event="schedule", branch="main",
+                           path=".github/workflows/nightly-linux.yml", name="nightly")
+        picked = janitor.linux_orphan_reads([young, mac, nightly, *reversed(old)],
+                                            self.LINUX_ONLY | {nightly["path"]},
+                                            min_age=dt.timedelta(minutes=120), budget=3, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in old[:3]])
+
+    def test_a_linux_lost_assignment_is_cancelled_only_with_a_newer_served_job(self):
+        stuck = make_run(status="queued", age=600, path=".github/workflows/pr-checks.yml")
+        other = make_run(status="in_progress", age=20)
+        jobs = {stuck["id"]: [orphan_job(age=590, name="title", label="ubuntu-24.04")],
+                other["id"]: [served_job(age=15, label="ubuntu-24.04")]}
+        orphans = find(janitor.linux_orphan_reads([stuck, other], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                                  budget=10, now=NOW) + [other], jobs)
+        self.assertEqual([o.run["id"] for o in orphans], [stuck["id"]])
+        self.assertIn("newer job(s) on `ubuntu-24.04` got one", orphans[0].evidence)
+        # A backed-up label that started nothing newer is not orphaned before the ghost age.
+        del jobs[other["id"]]
+        self.assertEqual(find([stuck], jobs), [])
+
+    def test_a_delivery_run_is_never_read_or_cancelled(self):
+        for run in (make_run(status="queued", age=600, event="schedule", branch="main",
+                             path=".github/workflows/nightly-next.yml", name="nightly-next"),
+                    make_run(status="queued", age=600, event="workflow_dispatch", branch="feat-cmux-next",
+                             path=".github/workflows/cmux-next-dev-daily.yml", name="dev daily"),
+                    make_run(status="queued", age=600, event="workflow_dispatch", branch="feat-cmux-next",
+                             path=".github/workflows/promote-nightly.yml", name="promote"),
+                    make_run(status="queued", age=600, event="release", branch="v1",
+                             path=".github/workflows/release.yml", name="release")):
+            self.assertEqual(janitor.linux_orphan_reads([run], frozenset({run["path"]}),
+                                                        min_age=dt.timedelta(minutes=120), budget=10, now=NOW), [],
+                             run["path"])
+
+    def test_the_linux_cap_keeps_the_budget_floor(self):
+        self.assertEqual(janitor.DEFAULT_MAX_LINUX_ORPHAN_CANCELS, 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {}), 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 6670}}), 40)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 2030}}), 10)
+        self.assertEqual(janitor.linux_cancel_cap(40, {"core": {"remaining": 1500}}), 0)
+
+    def test_the_linux_cap_is_its_own(self):
+        runs = [make_run(status="queued", age=600 - n, path=".github/workflows/pr-checks.yml") for n in range(4)]
+        served = make_run(status="in_progress", age=20)
+        jobs = {run["id"]: [orphan_job(age=590, label="ubuntu-24.04")] for run in runs}
+        jobs[served["id"]] = [served_job(age=10, label="ubuntu-24.04")]
+        plan = orphan_plan(find(runs + [served], jobs), max_cancels=3)
+        self.assertEqual([d.action for d in plan], ["cancel", "cancel", "cancel", "skip"])
+
+    def test_the_old_listings_reach_the_oldest_runs_of_the_flood_band(self):
+        """Dry run 44288789127: 2,500 queued runs past the orphan age, GitHub answers 1,000 of a filtered list, and the
+        30 runs read were 10 h to 27 days old with 1 stuck job. The band below the ghost age is narrowed until its
+        oldest runs are reachable; an in_progress run whose other jobs finished is listed the same way."""
+        asked = []
+        flood = [make_run(status="queued", age=60 * 23 - n // 2) for n in range(2500)]  # 23 h to about 2.6 h old
+        ancient = [make_run(status="queued", age=60 * 24 * 27 - n) for n in range(300)]
+        stuck = [make_run(status="in_progress", age=60 * 20 - n) for n in range(50)]
+        everything = flood + ancient + stuck
+
+        def created_ok(run, created):
+            at = run["created_at"]
+            if created.startswith("<"):
+                return at < created[1:]
+            low, high = created.split("..")
+            return low <= at <= high
+
+        class Fake(janitor.GitHub):
+            def __init__(self):
+                self.repo = "manaflow-ai/cmux"
+                self.old_run_totals = {}
+
+            def request(self, method, path, body=None):
+                asked.append(path)
+                query = {k: v[0] for k, v in urllib.parse.parse_qs(path.split("?", 1)[1]).items()}
+                if "created" not in query:
+                    return {"workflow_runs": []}
+                match = sorted((r for r in everything if r["status"] == query["status"]
+                                and created_ok(r, query["created"])), key=lambda r: r["created_at"], reverse=True)
+                page = int(query["page"])
+                reachable = match[:janitor.RUN_LIST_RESULT_CAP]
+                return {"total_count": len(match), "workflow_runs": reachable[(page - 1) * 100: page * 100]}
+
+        fake = Fake()
+        found = {run["id"] for run in fake.old_runs(NOW - dt.timedelta(minutes=120), NOW - dt.timedelta(hours=24))}
+        self.assertIn(flood[0]["id"], found)  # the flood's oldest
+        self.assertIn(stuck[0]["id"], found)
+        self.assertIn(ancient[0]["id"], found)  # a ghost, for the listing-only rule
+        self.assertLessEqual(len(asked), 3 * (1 + janitor.BAND_NARROWINGS + janitor.OLD_RUN_PAGES))
+        asked.clear()
+        Fake().in_flight_runs()
+        self.assertFalse(any("created=" in path for path in asked))
+
+    def test_a_ghost_queued_run_is_never_read_and_the_band_goes_first(self):
+        ghost = make_run(status="queued", age=60 * 24 * 27, path=".github/workflows/pr-checks.yml")
+        ancient = make_run(status="in_progress", age=60 * 24 * 27, path=".github/workflows/pr-checks.yml")
+        band = [make_run(status="queued", age=60 * 20 - n, path=".github/workflows/pr-checks.yml") for n in range(3)]
+        picked = janitor.linux_orphan_reads([ghost, ancient, *band], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=3, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in band])
+        picked = janitor.linux_orphan_reads([ghost, ancient, *band], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=10, now=NOW)
+        self.assertEqual([run["id"] for run in picked], [run["id"] for run in band] + [ancient["id"]])
+
+    def test_an_old_only_run_of_any_workflow_is_read_and_a_listed_one_is_not(self):
+        """An old in_progress CI run past the newest pages holds a lost Linux job no other pass reads."""
+        old_ci = make_run(status="in_progress", age=1300)
+        listed_ci = make_run(status="in_progress", age=1200)
+        picked = janitor.linux_orphan_reads([old_ci, listed_ci], self.LINUX_ONLY, min_age=dt.timedelta(minutes=120),
+                                            budget=10, now=NOW, also={old_ci["id"]})
+        self.assertEqual([run["id"] for run in picked], [old_ci["id"]])
+
+    def test_stuck_jobs_are_counted_per_label_with_their_evidence(self):
+        stuck = make_run(status="in_progress", age=1300)
+        served = make_run(status="in_progress", age=20)
+        read = {stuck["id"]: [orphan_job(age=1290, label="ubuntu-24.04"),
+                              orphan_job(age=1290, label="blacksmith-4vcpu-ubuntu-2404"), served_job(age=1295)]}
+        everything = {**read, served["id"]: [served_job(age=15, label="blacksmith-4vcpu-ubuntu-2404")]}
+        found = janitor.stuck_by_pool(read, everything, min_age=dt.timedelta(minutes=120), now=NOW)
+        self.assertEqual({pool: values[:2] for pool, values in found.items()},
+                         {"ubuntu-24.04": (1, 0), "blacksmith-4vcpu-ubuntu-2404": (1, 1)})
+        self.assertEqual(found["ubuntu-24.04"][2], dt.timedelta(minutes=1290))
+
+    def test_protected_linux_runs_are_counted_not_read(self):
+        """Review of 87691bf0 (F2): a dry run shows the protected Linux runs, though their jobs are never read."""
+        nightly = make_run(status="queued", age=600, event="schedule", branch="main",
+                           path=".github/workflows/nightly-linux.yml", name="nightly")
+        plain = make_run(status="queued", age=600, path=".github/workflows/pr-checks.yml")
+        paths = self.LINUX_ONLY | {nightly["path"]}
+        self.assertEqual([r["id"] for r in janitor.linux_protected_runs([nightly, plain], paths,
+                                                                        min_age=dt.timedelta(minutes=120), now=NOW)],
+                         [nightly["id"]])
 
 
 class OrphanDetectionTests(unittest.TestCase):
@@ -1138,6 +1282,42 @@ class OrphanSweepTests(unittest.TestCase):
                     mock.patch("builtins.print"):
                 code = janitor.main(argv)
             return code, fake, summary.read_text(), (stuck, ghost)
+
+    def test_a_spent_budget_skips_the_sweep_instead_of_failing_it(self):
+        reset = int((NOW + dt.timedelta(minutes=7)).timestamp())
+
+        def refuse(method, path, body=None):
+            fake.rate_limits["core"] = {"limit": 12500, "remaining": 0, "used": 12500, "reset": reset}
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed (403)")
+
+        fake = FakeGitHub({})
+        fake.request = refuse
+        with tempfile.TemporaryDirectory() as temp:
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            text = summary.read_text()
+        self.assertIn("Skipped: the token's core API budget is spent until", text)
+        self.assertIn((NOW + dt.timedelta(minutes=7)).strftime("%H:%M:%SZ"), text)
+
+    def test_a_refusal_with_budget_left_still_fails_the_sweep(self):
+        def refuse(method, path, body=None):
+            fake.rate_limits["core"] = {"limit": 12500, "remaining": 40, "used": 12460, "reset": 0}
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed (403)")
+
+        fake = FakeGitHub({})
+        fake.request = refuse
+        with tempfile.TemporaryDirectory() as temp:
+            argv = ["--repo", "manaflow-ai/cmux", "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo: fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 1)
 
     def test_dry_run_cancels_nothing_and_reports_orphans(self):
         code, fake, text, (stuck, ghost) = self.sweep("--dry-run")

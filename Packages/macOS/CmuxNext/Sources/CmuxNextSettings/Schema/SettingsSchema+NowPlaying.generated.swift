@@ -43,7 +43,7 @@ nonisolated enum NowPlayingSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.nowPlaying.otherApps", "Include Other Apps in Now Playing"),
-                help: SettingsText.keyed("settings.sidebar.nowPlaying.otherApps.help", "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."),
+                help: SettingsText.keyed("settings.sidebar.nowPlaying.otherApps.help", "Also shows what plays in apps like Spotify or Music."),
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.otherAppsDefault),
                 keywords: ["music", "now playing", "player", "media", "spotify", "other apps", "browser", "chrome", "safari"]
@@ -77,7 +77,7 @@ nonisolated enum NowPlayingSettingsSchema {
                 section: .browser,
                 group: group,
                 title: SettingsText.keyed("settings.media.pictureInPicture.enabled", "Picture in Picture"),
-                help: SettingsText.keyed("settings.media.pictureInPicture.enabled.help", "Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected."),
+                help: SettingsText.keyed("settings.media.pictureInPicture.enabled.help", "Offer Picture in Picture for web videos."),
                 kind: .toggle,
                 default: .bool(NowPlayingSettings.pictureInPictureDefault),
                 keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "media", "now playing"]

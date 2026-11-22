@@ -427,6 +427,9 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// Where the app's workspaces are read for an enrolled browser's sidebar
+    /// (`_acpmux/browser_workspace_source_set`, memory only; `server/browser_workspaces.rs`).
+    pub(crate) browser_workspaces: crate::server::browser_workspaces::Sources,
     /// The agent and model the person's app picked last for a new chat
     /// (`_acpmux/new_chat_picks_set`, memory only), shown in
     /// `_acpmux/harnesses` as `lastPicks`.
@@ -833,13 +836,7 @@ pub fn decision_proof(
     )))
 }
 
-/// A connection's nonce: 32 random bytes as lowercase hex.
-pub fn new_nonce() -> String {
-    let mut bytes = [0u8; 32];
-    // No randomness means no safe challenge: the daemon cannot serve.
-    getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
-    cmux_local_auth::frontend_proof::hex(&bytes)
-}
+pub use crate::person_tokens::new_nonce;
 
 /// The declared refusal.
 pub fn person_required(what: &str) -> RpcError {
@@ -1105,7 +1102,10 @@ impl Hub {
                         params.get("value").and_then(Value::as_str),
                     )
                 };
-                if id.is_some_and(|i| crate::web_modes::FREE_CONFIG_IDS.contains(&i)) {
+                // A model, effort, speed (`fast-mode`), suggestion or collaboration choice
+                // (`web_modes::cli_config_id`): no approval mode, so no person. A Web
+                // connection's set is still held to its table by the remote guard.
+                if id.is_some_and(crate::web_modes::cli_config_id) {
                     return Ok(());
                 }
                 // An unknown session is the handler's not-found; a peer's

@@ -30,6 +30,18 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 /// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
 /// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    // `--machine <Cloud VM>`: the whole request goes to the VM's daemon over the app's link
+    // (cloud_route.rs); the local daemon has no such machine.
+    #[cfg(unix)]
+    let global = match super::cloud_route::route(&global, &plan) {
+        Some(super::cloud_route::Route::Link { socket, .. }) => {
+            super::cloud_route::routed(&global, &socket)
+        }
+        Some(super::cloud_route::Route::Refused(error)) => {
+            return print_local_error(&error, global.output, 1);
+        }
+        Some(super::cloud_route::Route::Local) | None => global,
+    };
     if !plan.stream
         && plan.operation.class() == OperationClass::Mutation
         && plan.idempotency_key.is_none()
@@ -192,7 +204,8 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
-        | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
+        | created_by_stamp::stamp(&mut request)
+        | created_by_stamp::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -901,6 +914,9 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     {
         result = program_status_view::human_records(result);
     }
+    if global.output == OutputMode::Human {
+        created_by_stamp::human_rows(plan, &mut result);
+    }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
         && let Some(text) = result.get("text").and_then(Value::as_str)
@@ -968,10 +984,18 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     ) {
         return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
-    let personal = matches!(
+    let workspaces = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    );
+    if workspaces
+        && plan.filter.tree
+        && let Some(rows) = result.as_array()
+    {
+        return std::borrow::Cow::Owned(list_filter::tree_human_rows(rows));
+    }
+    let personal =
+        workspaces && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
@@ -1273,6 +1297,7 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
 
 mod agent_roster;
 mod closed_view;
+mod created_by_stamp;
 mod hints;
 mod human;
 mod list_filter;
@@ -1284,23 +1309,30 @@ mod retry;
 mod sanitize;
 mod socket;
 pub(super) mod wait_timeout;
-mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
 // terminal_talk (unix-only) reads unread notifications the same way.
 #[cfg(unix)]
 pub(super) use agent_roster::unseen_terminals;
+pub(super) use created_by_stamp::{
+    drop_unsupported as drop_unsupported_created_by, stamp as stamp_created_by,
+};
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
 use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
-pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_created_by;
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
 /// CLI shows a daemon's own words).
 pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
     sanitize_human_block(value)
+}
+
+/// A remote-supplied string for one line or table cell of human output: controls become inert and
+/// line breaks a visible `\n`.
+pub(in crate::cli) fn sanitize_remote_cell(value: &str) -> String {
+    sanitize_human_cell(value)
 }
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;

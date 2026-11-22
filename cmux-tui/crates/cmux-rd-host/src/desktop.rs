@@ -29,8 +29,15 @@ pub trait FrameSource: Send {
     /// The encoder profile for the next frame, and whether that frame refines a still screen
     /// (ultra). An encoder without an ultra mode keeps its settings.
     fn set_profile(&mut self, _profile: EncodeProfile, _refine: bool) {}
+    /// Pixels of damage in the next frame (ultra's frame-size guard sizes the frame from it).
+    fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// Why the last [`FrameSource::encode`] made an IDR it was not asked for (the encoder's
+    /// [`cmux_encode::VideoEncoder::idr_cause`]).
+    fn idr_cause(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Both halves of one opened desktop.
@@ -66,7 +73,7 @@ pub trait Desktop {
 pub fn reports_cursor() -> bool {
     #[cfg(target_os = "macos")]
     {
-        crate::mac::cursor::available()
+        synthetic_size().is_none() && crate::mac::cursor::available()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -147,8 +154,34 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
             Err(reason) => Err(reason.into()),
         },
     };
+    #[cfg(all(target_os = "macos", feature = "bench"))]
+    if let Some(source) = crate::synthetic::selected() {
+        return crate::mac::synthetic::open(cfg, source);
+    }
     #[cfg(target_os = "macos")]
     return crate::mac::open(cfg, cursor_metadata);
+}
+
+/// The size of the generated picture `--source synthetic` picked instead of the display (macOS
+/// bench builds; src/synthetic.rs), else None.
+#[cfg(target_os = "macos")]
+fn synthetic_size() -> Option<(u32, u32)> {
+    #[cfg(feature = "bench")]
+    return crate::synthetic::selected().map(|source| source.size);
+    #[cfg(not(feature = "bench"))]
+    None
+}
+
+/// The displays a viewer may pick, the index of the one `which` picks, and their
+/// CGDirectDisplayIDs (macOS). A synthetic source is one display of its own size, listed without
+/// asking ScreenCaptureKit (which needs the grant), with no id.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn displays(which: &str) -> Res<crate::mac::capture::Displays> {
+    match synthetic_size() {
+        Some(size) => Ok((vec![size], 0, Vec::new())),
+        None => crate::mac::capture::displays(which),
+    }
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured
@@ -161,5 +194,8 @@ pub fn default_max_fps(display: &str) -> u32 {
         60
     }
     #[cfg(target_os = "macos")]
-    return crate::mac::capture::refresh_fps(display);
+    return match synthetic_size() {
+        Some(_) => crate::mac::capture::FALLBACK_FPS,
+        None => crate::mac::capture::refresh_fps(display),
+    };
 }

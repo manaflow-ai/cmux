@@ -141,7 +141,16 @@ export class FakeHost {
           const n = nodes.get(op.id)!
           for (const [k, v] of Object.entries(op.props!)) if (v === null) delete n.props[k]; else n.props[k] = v
         } else if (op.op === "children") nodes.get(op.id)!.children = op.children!
-        else if (op.op === "remove") nodes.delete(op.id)
+        else if (op.op === "remove") {
+          // The scene protocol removes a whole subtree with one op, just as the native host does.
+          const pending = [op.id]
+          while (pending.length) {
+            const id = pending.pop()!
+            const node = nodes.get(id)
+            if (node) pending.push(...node.children)
+            nodes.delete(id)
+          }
+        }
         else if (op.op === "root") root = op.id
       }
     }
@@ -154,6 +163,11 @@ export class FakeHost {
 
   dispatch(mountId: string, nodeId: string, event: string, payload: unknown = {}) {
     this.global.__cmuxAppDispatch(mountId, nodeId, event, JSON.stringify(payload))
+  }
+
+  /** A widget mount's host-owned tick (`cmux.widget/1`): sets its `now()` clock. */
+  tick(mountId: string, nowMs: number) {
+    this.global.__cmuxAppTick(mountId, nowMs)
   }
 
   /** Runs a command export; `ctx` is the invocation context (`{gesture}`). */

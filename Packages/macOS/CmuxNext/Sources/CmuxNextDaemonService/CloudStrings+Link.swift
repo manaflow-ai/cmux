@@ -7,7 +7,7 @@ extension CloudStrings {
     package static var linkUnsupported: String {
         String(localized: "cloud.link.unsupported",
                defaultValue: "This version of cmux can't connect to the Cloud machine this way. Update cmux, then click Connect.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
 
     /// Other users can open the link socket's folder or change one of its
@@ -15,19 +15,19 @@ extension CloudStrings {
     package static func linkOpenDirectory(_ path: String, fix: String) -> String {
         String(format: String(localized: "cloud.link.openDirectory",
                               defaultValue: "cmux didn't connect because other users can open %1$@. Run `%2$@` in Terminal, then click Connect.",
-                              table: "Cloud", bundle: .module), path, fix)
+                              table: "Cloud", bundle: .localizedModule), path, fix)
     }
 
     /// The connect answer or its socket failed a safety check (the check is in the log).
     package static var linkCheckFailed: String {
         String(localized: "cloud.link.checkFailedPlain",
                defaultValue: "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again.",
-               table: "Cloud", bundle: .module)
+               table: "Cloud", bundle: .localizedModule)
     }
 
     /// The machine's carrier is in `state` (the Cloud server's word), not up.
     package static func linkNotReady(_ state: String) -> String {
         String(format: String(localized: "cloud.link.notReady", defaultValue: "The machine's connection isn't ready yet (%@). Click Connect to try again.",
-                              table: "Cloud", bundle: .module), state)
+                              table: "Cloud", bundle: .localizedModule), state)
     }
 }

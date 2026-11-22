@@ -15,6 +15,16 @@
 #   prebuild-one PACKAGE LOG
 #             build PACKAGE and its tests into LOG; the packages phase runs
 #             several of these at once before its serial test pass.
+#   probe-host  print this Mac's iOS simulator host readiness and exit, changing
+#             nothing (simctl may start CoreSimulatorService): one `probe-host
+#             KEY=VALUE` line each for host, os, ram_gib, work_volume_free_gib and
+#             work_volume_total_gib (the step's checkout volume), xcode_apps,
+#             xcode_select, developer_dir, xcodebuild, runtime_builds and simslim,
+#             then `xcrun simctl runtime list`. hq's ios-simulators role records the
+#             runtime builds it shows (mini-fleet.json ios_simulator_observed)
+#             for minis an operator cannot reach over SSH:
+#               cmux-ci run --class light --script scripts/ci/package-test-lane.sh \
+#                 --ref SHA --arg probe-host --target-worker HOST --pin-strict
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
 #   suite PACKAGE_DIR FILTER[,FILTER...] [FILTER[,FILTER...]...]
@@ -57,6 +67,45 @@
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
 set -euo pipefail
+
+# probe-host (see the usage above): read-only, so it runs before any setup and
+# never fails on a missing tool; each line is `probe-host KEY=VALUE`.
+if [ "${1:-}" = probe-host ]; then
+  probe() { printf 'probe-host %s=%s\n' "$1" "$2"; }
+  have() { command -v "$1" >/dev/null 2>&1; }
+  probe host "$(hostname -s 2>/dev/null || hostname)"
+  probe os "$(sw_vers -productVersion 2>/dev/null || uname -sr)"
+  if have sysctl && mem=$(sysctl -n hw.memsize 2>/dev/null); then
+    probe ram_gib "$(( mem / 1073741824 ))"
+  elif [ -r /proc/meminfo ]; then
+    probe ram_gib "$(awk '/^MemTotal:/ {printf "%d", $2 / 1048576}' /proc/meminfo)"
+  else
+    probe ram_gib unknown
+  fi
+  probe work_volume_free_gib "$(df -Pk . 2>/dev/null | awk 'NR == 2 {printf "%d", $4 / 1048576}')"
+  probe work_volume_total_gib "$(df -Pk . 2>/dev/null | awk 'NR == 2 {printf "%d", $2 / 1048576}')"
+  probe xcode_apps "$(cd /Applications 2>/dev/null && ls -d Xcode*.app 2>/dev/null | tr '\n' ' ' || true)"
+  probe xcode_select "$(xcode-select -p 2>/dev/null || echo none)"
+  probe developer_dir "${DEVELOPER_DIR:-unset}"
+  # Capture, then flatten: a tool that prints and then fails keeps one line.
+  first_line() { local v; v=$("$@" 2>/dev/null) && [ -n "$v" ] && printf '%s' "$v" | tr '\n' ' ' || printf unreadable; }
+  if have xcodebuild; then probe xcodebuild "$(first_line xcodebuild -version)"; else probe xcodebuild none; fi
+  if have xcrun && json=$(xcrun simctl list -j runtimes 2>/dev/null); then
+    probe runtime_builds "$(printf '%s' "$json" | python3 -c 'import json, sys
+print(" ".join(r["buildversion"] + ("" if r.get("isAvailable") else "(unavailable)") for r in json.load(sys.stdin).get("runtimes", [])))' 2>/dev/null || echo unreadable)"
+    echo "probe-host simctl runtime list:"
+    xcrun simctl runtime list 2>&1 | sed 's/^/  /' || true
+  else
+    probe runtime_builds none
+  fi
+  simslim=/Users/Shared/cmux-build-fleet/tools/bin/simslim
+  if [ -x "$simslim" ]; then
+    probe simslim "$(first_line "$simslim" --version)"
+  else
+    probe simslim missing
+  fi
+  exit 0
+fi
 
 phase=run
 case "${1:-}" in
@@ -242,16 +291,16 @@ PY
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
 # registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
-# passed `suite` on an owned Mac at ccc9958672bf before they joined.
+# passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
     CmuxAuthRuntime
+    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxComputerUseHelper
     CmuxConnectivityTelemetry
     CmuxDeviceHub
     CmuxHomeCore
@@ -441,6 +490,7 @@ package_args() {
 record_built_ref() {
   [ -z "${CMUX_SWIFT_SANITIZE:-}" ] && [ -d "$1/.build" ] || return 0
   git rev-parse HEAD > "$1/.build/.cmux-ci-built-ref" 2>/dev/null || true
+  rm -f "$1/.build/.cmux-ci-unverified"
 }
 
 # One package's build. It exits non-zero when the package is not found or its
@@ -772,7 +822,7 @@ linux_suite_setup() {
 # for a broad filter shares one main thread: `--filter Sidebar` started about 250 GUI tests at once and none
 # finished for minutes until the watchdog ended it (fleet bd721902, 2026-11-15). A word that names no suite fails.
 expand_each_filters() {
-  local package="$1" filter word list filters expanded=() matched line suite
+  local package="$1" filter word list filters expanded=() found=() matched line suite
   for filter in "${suite_filters[@]}"; do
     [[ "$filter" == each:* ]] || { expanded+=("$filter"); continue; }
     if [ "$lane_os" = Linux ]; then
@@ -789,7 +839,7 @@ expand_each_filters() {
       suite="$(filter_label "$line")"
       suite="${suite#*.}"
       if [[ "$suite" == *"$word"* ]]; then
-        expanded+=("$line")
+        expanded+=("$line") found+=("$line")
         matched=$((matched + 1))
       fi
     done < "$filters"
@@ -799,6 +849,9 @@ expand_each_filters() {
     echo "$filter: $matched suites, each in its own process"
   done
   suite_filters=("${expanded[@]}")
+  # The suites each: found, one per line: one whose own traits skip all of it (an opt-in gallery or profile,
+  # a display check) is "skipped", not "no result", since nobody named it; a named suite that runs nothing fails.
+  printf '%s\n' ${found[@]+"${found[@]}"} > "$each_found"
 }
 
 # filter_label FILTER: Target.Suite for an expanded ^Target\.Suite/ filter, else FILTER as given.
@@ -886,8 +939,15 @@ run_suite() {
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
     | tee "$build_log" || build_status=$?
   # Backstop for a stale module the guard did not see (a header outside a
-  # binary target): one build from clean outputs, as a cold slot would do.
-  if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
+  # binary target), or for a failed build on a .build an unfinished step left
+  # (swiftpm_unverified_build): one build from clean outputs, as a cold slot would do.
+  if [ "$build_status" -ne 0 ] && swiftpm_unverified_build "$scratch"; then
+    echo "::warning title=Unfinished warm build::$suite_package: the build failed on the .build an unfinished step left; building again from clean outputs"
+    swiftpm_purge_build_outputs "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
+    build_status=0
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+  elif [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
@@ -921,6 +981,8 @@ run_suite() {
   # way, and display tests gate nothing (Leo, 2026-10-31: "i dont like doing display tests anymore"): it
   # reads "skipped (needs a display)" with a notice and does not fail the step, unless the step asked for a
   # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
+  local each_found
+  each_found="$(mktemp -t swift-suite-each.XXXXXX)"
   expand_each_filters "$suite_package"
   local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
   local ran skipped reason reasons daemon_skips display_skips hint display_step_skips
@@ -973,6 +1035,10 @@ run_suite() {
       display_only=$((display_only + 1))
       result="skipped (needs a display)"
       echo "::notice title=Swift suite needs a display::$filter in $suite_package: none of its $skipped tests ran (each needs a display); display tests gate nothing, so the step goes on. Run it on a display worker with cmux-ci run --display"
+    elif [ "$status" -eq 0 ] && [ "$ran" -eq 0 ] && [ "$daemon_skips" -eq 0 ] && [ "$skipped" -gt 0 ] &&
+         grep -qxF -- "$filter" "$each_found"; then
+      result="skipped (all $skipped skipped)"
+      echo "::notice title=Swift suite skipped::$(filter_label "$filter") in $suite_package: its own traits skipped all $skipped of its tests; each: found it, so it does not fail the step"
     elif [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
       failed=$((failed + 1))
       status=1
@@ -1031,14 +1097,15 @@ run_suite() {
 }
 
 # compile_one LOG SWIFT_BUILD_ARGS...: one `swift build` into LOG (and the step
-# log), built again from clean outputs when it read a stale explicit module
-# (the backstop run_suite has). Returns the build's status.
+# log), built again from clean outputs when it read a stale explicit module or
+# failed on an unfinished step's .build (the backstops run_suite has). Returns
+# the build's status.
 compile_one() {
   local log="$1" status=0
   shift
   swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
-  if [ "$status" -ne 0 ] && swiftpm_stale_module_failure "$log"; then
-    echo "::warning title=Stale precompiled module::the warm build read a stale explicit module; building again from clean outputs"
+  if [ "$status" -ne 0 ] && { swiftpm_unverified_build "$compile_scratch" || swiftpm_stale_module_failure "$log"; }; then
+    echo "::warning title=Stale precompiled module::the warm build read a stale explicit module or an unfinished step's .build; building again from clean outputs"
     swiftpm_purge_build_outputs "$compile_scratch"
     swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
     status=0
