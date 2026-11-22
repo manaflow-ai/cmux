@@ -836,6 +836,12 @@ fn resend_scale_bench() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A busy chat's id of turn `turn`, as long as the UUIDs its records carry.
+#[cfg(unix)]
+fn busy_id(prefix: char, turn: u64) -> String {
+    format!("{prefix}{turn:035}")
+}
+
 #[cfg(unix)]
 /// A busy chat's turn as Leo's coordinators log one: its prompt records, a dozen process and
 /// background task updates (indexed, never asked of a keyed scan), agent updates (not indexed),
@@ -864,12 +870,12 @@ fn append_busy_turn(
             _ => 120,
         };
         let msg = match kind {
-            "inbox" => json!({"promptId": format!("m{turn}"), "text": "x".repeat(pad)}),
+            "inbox" => json!({"promptId": busy_id('m', turn), "text": "x".repeat(pad)}),
             "inbox_noticed" => {
-                json!({"promptIds": [format!("m{turn}")], "turnId": format!("t{turn}")})
+                json!({"promptIds": [busy_id('m', turn)], "turnId": busy_id('t', turn)})
             }
             _ => {
-                json!({"promptId": format!("p{turn}"), "turnId": format!("t{turn}"), "text": "x".repeat(pad)})
+                json!({"promptId": busy_id('p', turn), "turnId": busy_id('t', turn), "text": "x".repeat(pad)})
             }
         };
         let dir = if kind == "tool_call_update" { "in" } else { "mux" };
@@ -928,11 +934,11 @@ fn a_resend_of_a_chat_past_the_heads_budget_reads_no_copy_again() {
         kind_heads::EVERY_KIND.with(|k| k.set(every_kind));
         kind_heads::BUDGET_FOR.with(|b| b.set(budget));
         // The first resends read each copy once (and make those the log lacks).
-        resend_reads(&store, "c", "p0");
-        resend_reads(&store, "c", "p0");
+        resend_reads(&store, "c", &busy_id('p', 0));
+        resend_reads(&store, "c", &busy_id('p', 0));
         kind_heads::COPY_READS.with(|n| n.set(0));
         for call in 0..10u64 {
-            let prompt = format!("p{}", (call * 37) % 240);
+            let prompt = busy_id('p', (call * 37) % 240);
             assert_eq!(
                 resend_reads(&store, "c", &prompt),
                 resend_records(&log, &prompt),
@@ -973,9 +979,10 @@ fn a_resend_of_a_chat_past_the_heads_budget_reads_no_copy_again() {
 /// A resend's reads of a chat the size of Leo's busiest, timed (one harness, before and after):
 /// `ACPMUX_PROMPT_BENCH=1 cargo test --release -p acpmux --lib resend_past_budget_bench --
 /// --ignored --nocapture`. One chat of `ACPMUX_PROMPT_BENCH_TURNS` turns (default 12,000: about
-/// 220,000 indexed lines in some 200 segments of 8 MiB, as his chat of 221,388 indexed lines in
-/// 771 segments, half of them process and background task updates). `before`: the heads of
-/// every indexed kind held, least recently read evicted across chats, as the NIGHTLY ran.
+/// 220,000 indexed lines with ids as long as UUIDs, in 8 MiB segments, as his chat of 221,388
+/// indexed lines in 771 segments, half of them process and background task updates).
+/// `before`: the heads of every indexed kind held, least recently read evicted across chats, as
+/// the NIGHTLY ran; past the heads' 32 MiB budget, so each resend reads every copy again.
 #[cfg(unix)]
 #[test]
 #[ignore = "a timing harness, run by hand"]
@@ -1007,18 +1014,20 @@ fn resend_past_budget_bench() {
         let store = LocalStore::new(root.clone(), 8 << 20).unwrap();
         let segments = store.segments("coord").unwrap().len();
         kind_heads::EVERY_KIND.with(|k| k.set(every_kind));
-        resend_reads(&store, "coord", "p0");
+        resend_reads(&store, "coord", &busy_id('p', 0));
         kind_heads::COPY_READS.with(|n| n.set(0));
         let calls = 50u64;
         let (started, cpu0) = (std::time::Instant::now(), cpu());
         for call in 0..calls {
-            resend_reads(&store, "coord", &format!("p{}", (call * 7919) % turns));
+            resend_reads(&store, "coord", &busy_id('p', (call * 7919) % turns));
         }
         let (wall, cpu_ms) = (started.elapsed().as_secs_f64() * 1e3, cpu() - cpu0);
         let copies = kind_heads::COPY_READS.with(|n| n.get());
         println!(
             "PROMPT_BENCH {label} turns={turns} segments={segments} resends={calls} \
-             copy_reads_per_resend={:.1} wall_ms_per_resend={:.2} cpu_ms_per_resend={:.2}",
+             heads_held_mib={:.1} copy_reads_per_resend={:.1} wall_ms_per_resend={:.2} \
+             cpu_ms_per_resend={:.2}",
+            store.kind_heads.held_bytes() as f64 / f64::from(1 << 20),
             copies as f64 / calls as f64,
             wall / calls as f64,
             cpu_ms / calls as f64,
