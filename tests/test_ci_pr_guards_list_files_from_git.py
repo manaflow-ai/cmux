@@ -15,6 +15,7 @@ files come from git and `gh` is never called; with no merge ref, the REST listin
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -26,6 +27,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 PR = "7"
 
 # A recording gh: each call is one line in $GH_LOG; it prints $GH_OUT (as if --jq ran) or fails like a spent quota.
@@ -47,7 +52,8 @@ def step(workflow: str, name: str) -> dict:
 
 
 def git(cwd: Path, *args: str) -> str:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # fixture_env drops an inherited GIT_DIR, GIT_INDEX_FILE and the like, and turns auto maintenance off.
+    env = git_fixture_env.fixture_env()
     return subprocess.run(
         ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",
          "-c", "core.hooksPath=/dev/null", "-c", "init.defaultBranch=main", *args],
@@ -60,7 +66,7 @@ class PullRequest:
     def __init__(self, root: Path, added: dict[str, str], merge_ref: bool = True) -> None:
         work = root / "work"
         work.mkdir()
-        git(work, "init", "-q")
+        git_fixture_env.init_repo(work, "-b", "main")
         (work / "README.md").write_text("base\n")
         git(work, "add", "-A")
         git(work, "commit", "-qm", "base")
@@ -78,7 +84,7 @@ class PullRequest:
         git(work, "merge", "-q", "--no-ff", "-m", "merge", "head")
         merge = git(work, "rev-parse", "HEAD")
         self.origin = root / "origin.git"
-        git(root, "init", "-q", "--bare", str(self.origin))
+        git_fixture_env.init_repo(self.origin, "--bare", "-b", "main")
         refs = [f"{self.head}:refs/pull/{PR}/head"] + ([f"{merge}:refs/pull/{PR}/merge"] if merge_ref else [])
         git(work, "push", "-q", self.origin.as_uri(), *refs)
 
@@ -90,7 +96,7 @@ class GuardStep:
         self.root, self.pr = root, pr
         self.checkout = root / "checkout"
         self.checkout.mkdir()
-        git(self.checkout, "init", "-q")
+        git_fixture_env.init_repo(self.checkout, "-b", "main")
         git(self.checkout, "remote", "add", "origin", pr.origin.as_uri())
         for rel in copies:
             (self.checkout / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +111,7 @@ class GuardStep:
 
     def run(self, workflow: str, name: str, env: dict[str, str], gh_out: str | None = None) -> subprocess.CompletedProcess:
         item = step(workflow, name)
-        full = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        full = git_fixture_env.fixture_env()
         full.update(PATH=f"{self.bin}:{os.environ['PATH']}", GH_LOG=str(self.log), RUNNER_TEMP=str(self.temp),
                     GH_TOKEN="test-token-not-real", REPOSITORY="manaflow-ai/cmux", PR=PR,
                     HEAD_SHA=self.pr.head, BASE_SHA=self.pr.base, **env)

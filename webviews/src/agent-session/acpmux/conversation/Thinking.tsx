@@ -462,6 +462,7 @@ export function Thinking({
   phaseAt,
   heardAt,
   heardKey,
+  waitAt,
   turnTotal = false,
   untimed = false,
   verbKey,
@@ -507,6 +508,9 @@ export function Thinking({
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// "Waiting on N subagents": when that wait began (turns.ts `codexLiveTurn`), the time beside the
+  /// words ticking from it, or from when the line itself turned to the wait, whichever is later.
+  waitAt?: number;
   /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
@@ -584,8 +588,16 @@ export function Thinking({
   const silentFor = silent && heard !== undefined ? formatDuration(Math.max(0, time - heard)) : undefined;
   // This stretch of thinking began when the turn's rows say (`phaseAt`), or later, when the line
   // itself turned to Thinking (a reply gone quiet, a silence that ended).
-  const stateChanged = useChangedAt(silent ? "waiting" : thinkingNow ? "thinking" : "other", now);
+  const stateChanged = useChangedAt(
+    silent ? "waiting" : thinkingNow ? "thinking" : waitsOnAgents ? "subagents" : "other",
+    now,
+  );
   const thinkingFrom = phaseAt === undefined ? stateChanged : Math.max(phaseAt, stateChanged ?? phaseAt);
+  // The subagent wait's own start: the turn's rows say when it began (`waitAt`), or later, when the
+  // line itself turned to the wait. Never the prompt: a turn that worked 5m before it waited 2m reads
+  // "Waiting on 1 subagent 2m" (Leo, 2026-11-20, on "waiting on one sub-agent for seven minutes and
+  // 39 seconds").
+  const waitFrom = waitAt === undefined ? stateChanged : Math.max(waitAt, stateChanged ?? waitAt);
   const decorative = thinkingNow && !silent;
   const label =
     doing === undefined
@@ -640,14 +652,18 @@ export function Thinking({
     : doing === undefined
       ? silent && heard !== undefined
         ? Math.max(0, time - heard)
-        : waitsOnAgents ||
-            writing ||
-            from === undefined ||
-            thinkingFrom === undefined ||
-            thinkingFrom - from < 1_000 ||
-            time - thinkingFrom < 1_000
-          ? undefined
-          : time - thinkingFrom
+        : waitsOnAgents
+          ? // A wait from the turn's start has the turn's clock alone, which is already the wait's.
+            from === undefined || waitFrom === undefined || waitFrom - from < 1_000
+            ? undefined
+            : Math.max(0, time - waitFrom)
+          : writing ||
+              from === undefined ||
+              thinkingFrom === undefined ||
+              thinkingFrom - from < 1_000 ||
+              time - thinkingFrom < 1_000
+            ? undefined
+            : time - thinkingFrom
       : done
         ? doneMs
         : undefined;
@@ -681,7 +697,11 @@ export function Thinking({
         : undefined
     : silentFor !== undefined && own === undefined
       ? silentFor
-      : (own ?? turnTime);
+      : waitsOnAgents && own === undefined && ownMs !== undefined
+        ? // One clock (the `turn` look): beside "Waiting on 1 subagent" it is the wait's, never the
+          // turn's, which read 7m 39s for a two-minute wait (Leo, 2026-11-20).
+          formatDuration(ownMs)
+        : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
   // The label already names the subagents it waits on: no second count of them.
