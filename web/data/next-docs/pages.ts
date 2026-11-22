@@ -7,6 +7,8 @@ export type DocBlock =
   | { h2: string }
   | { p: string }
   | { ul: string[] }
+  /** Numbered steps, done in order. */
+  | { ol: string[] }
   | { code: string; lang?: string }
   | { note: string }
   /** Places in the repository, each linked to its source; a test checks each path exists and is that kind. */
@@ -61,7 +63,58 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { h2: "Next" },
     ],
-    links: ["home-and-chief", "workspaces", "command-palette", "cli"],
+    links: ["start", "home-and-chief", "workspaces", "command-palette", "cli"],
+  },
+  {
+    slug: "start",
+    navKey: "nextStart",
+    title: "Start here",
+    description: "From nothing to a working agent on cmux Cloud, five ways: in the app, from the CLI, by pointing an agent at one URL, through Chief, and from your phone.",
+    body: [
+      { p: "This page takes you from nothing to an agent that works for you on a cmux Cloud machine. Pick the way in that fits you. Each one ends at the same place: a chat that replies, on a machine that keeps going after you close the lid." },
+      { note: "cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works." },
+      { h2: "Point an agent at this page" },
+      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The agent reads this page and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Read https://cmux.com/docs/nightly/next/start.md and follow its \"If you are an agent\" steps to set up cmux on this Mac and get me a working agent on cmux Cloud. Tell me only what I must do myself.", lang: "text" },
+      { h2: "If you are an agent" },
+      { p: "A person asked you to set up cmux and cmux Cloud for them. Do these steps in order, on their Mac, in the folder they started you in." },
+      { ol: [
+        "Install. If ~/Applications/cmux NEXT DEV.app is missing, download https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh to /tmp, run it with bash, then open the app. Run every cmux command below with the CLI inside that app, \"$HOME/Applications/cmux NEXT DEV.app/Contents/Resources/bin/cmux\", not another cmux on PATH.",
+        "Set up this Mac. Run `cmux setup local` and `cmux setup harness`, and start any sign-in they name.",
+        "Sign in. Run `cmux cloud diagnostics`. If the person is signed out, run `cmux login` and tell them to finish it in the browser. Wait for them.",
+        "Find or make a machine. Run `cmux cloud list-machines`. If there is none, run `cmux setup cloud-machine` and tell the person which card to click. Say plainly that it costs money every hour it runs.",
+        "Start an agent there. Run `cmux cloud start-session --target machine:<id> --agent claude --from-folder .` with that machine's id, and give the person the chat it opens.",
+        "Show it works. Tell the person what the chat replied and how long each step took.",
+        "Say how to stop paying. `cmux vm pause NAME` pauses the machine and `cmux vm rm NAME --yes` deletes it.",
+      ] },
+      { p: "Rules for the agent: never type a password or a payment detail; never say yes to a paid machine for the person; if a step fails, show its error and the command to retry, and do not guess. `cmux setup list` names every other setup task, each with its own prompt." },
+      { h2: "In the app" },
+      { ol: [
+        "Install cmux NEXT and open it (Getting started has the two builds).",
+        "Sign in to cmux in Settings > Accounts. The sign-in finishes in your browser.",
+        "Choose File > New Cloud Chat, or run New Cloud Chat from the command palette (Cmd+Shift+P).",
+        "Type what you want done and press Return. cmux prepares a machine, shows its progress in the chat, and the agent replies there.",
+      ] },
+      { p: "If cmux needs something first (a Cloud plan, a model connection, GitHub), the chat shows a card that names the one thing to do. Do it and the same chat goes on." },
+      { h2: "From the CLI" },
+      { p: "In a cmux terminal. The second command prints who you are signed in as; the third starts a chat on a Cloud machine, waits for its first reply and prints it with the chat's session_id." },
+      { code: "cmux login\ncmux whoami\ncmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json", lang: "bash" },
+      { p: "Send it more work, list your machines, and stop one:" },
+      { code: "cmux chat send SESSION_ID 'Now run the tests.' --wait\ncmux cloud list-machines\ncmux vm pause NAME", lang: "bash" },
+      { h2: "Through Chief" },
+      { p: "Open Home and paste this to Chief, with HARNESS changed to claude or codex. Chief runs each step, shows you the reply, and asks before anything that costs money." },
+      { code: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.", lang: "text" },
+      { h2: "From your phone" },
+      { p: "Watch and steer your agents from an iPhone. Paste this into Chief or any agent chat in cmux on your Mac. The iPhone app is in beta, so installing it needs a TestFlight invite." },
+      { code: "Set up the cmux iPhone app with this Mac: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks.", lang: "text" },
+      { h2: "Keep going" },
+      { ul: [
+        "Move a chat you already have to Cloud with cmux cloud move, and bring it back with cmux cloud bring-back.",
+        "Run cmux setup list for every setup task: trust a folder, add another machine, connect GitHub, turn on Computer Use.",
+        "Stuck? Run cmux cloud diagnostics and read what it names.",
+      ] },
+    ],
+    links: ["getting-started", "cloud", "home-and-chief", "plans"],
   },
   {
     slug: "updates",
