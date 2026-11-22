@@ -49,13 +49,16 @@ class UpdateArm(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.smoke = FakeSmoke(self.tmp)
         self.launched = []
+        self.log_premain_flags = []
 
-    def fake_launch(self, smoke, root, app, executable, home, seconds, label, sample=False):
+    def fake_launch(self, smoke, root, app, executable, home, seconds, label, sample=False, log_premain=False):
         self.launched.append((label, Path(app)))
+        self.log_premain_flags.append(log_premain)
         return {"exit": None, "rendered_at": 3.0, "phases": {}, "marks": {"main_start": 50.0}, "repeats": []}
 
     def run_round(self, arms: str):
-        more = {"update": M.UPDATE_ARMS, "prewarm": M.PREWARM_ARMS}[arms]
+        more = {"update": M.UPDATE_ARMS, "prewarm": M.PREWARM_ARMS,
+                "premain": M.PREMAIN_ARMS}[arms]
         chromium = subprocess.CompletedProcess([], 0, "loaded", "")
         with mock.patch.object(M, "launch", self.fake_launch), \
                 mock.patch.object(M, "prewarm_until_main", return_value={"seconds": 0.4, "main_start_at": 0.3}), \
@@ -63,7 +66,7 @@ class UpdateArm(unittest.TestCase):
                 mock.patch.object(M, "facts", return_value={}), \
                 mock.patch.object(M.subprocess, "run", return_value=chromium):
             return M.round_once(self.smoke, Path("/Volumes/x/cmux NIGHTLY.app"), "com.cmuxterm.app.nightly", "cmux",
-                                0.0, 1, {}, more=more, base=arms != "update")
+                                0.0, 1, {}, more=more, base=arms != "update", log_premain=arms == "premain")
 
     def test_update_runs_only_the_update_arm(self):
         rows = self.run_round("update")
@@ -87,6 +90,21 @@ class UpdateArm(unittest.TestCase):
         rows = self.run_round("prewarm")
         self.assertEqual([r["arm"] for r in rows][:3], list(M.ARMS))
         self.assertNotIn("prewarm-update-moved", [r["arm"] for r in rows])
+
+    def test_premain_streams_the_log_around_every_launch(self):
+        rows = self.run_round("premain")
+        self.assertEqual([r["arm"] for r in rows], list(M.ARMS) + list(M.PREMAIN_ARMS))
+        self.assertTrue(self.log_premain_flags and all(self.log_premain_flags))
+
+    def test_other_modes_keep_no_log_stream(self):
+        self.run_round("prewarm")
+        self.assertFalse(any(self.log_premain_flags))
+
+    def test_the_cli_accepts_premain(self):
+        with mock.patch.object(M, "load_smoke", side_effect=SystemExit(9)):
+            with self.assertRaises(SystemExit) as raised:
+                M.main(["--dmg", "x.dmg", "--out", str(self.tmp / "o"), "--arms", "premain", "--rounds", "1"])
+        self.assertEqual(raised.exception.code, 9)
 
     def test_the_cli_accepts_update(self):
         with mock.patch.object(M, "load_smoke", side_effect=SystemExit(9)):
