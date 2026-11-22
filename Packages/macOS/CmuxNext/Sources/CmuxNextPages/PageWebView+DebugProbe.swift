@@ -4,7 +4,8 @@ import AppKit
 
 /// The DOM read behind `debug.page {action: "query"}` and `debug.agent_pane {action: "query"}`: every
 /// element matching `selector`, in document order, with its `data-*` attributes, classes, the first 120
-/// characters of its text as drawn (a closed Details hides its raw words), and, when it has them, its
+/// characters of its text as drawn (a closed Details hides its raw words) with the whole text's `length` when it is
+/// longer (UTF-16 units; a bench reads a long draft's growth there), and, when it has them, its
 /// `role` and accessible `label` (`aria-label`, else the text `aria-labelledby` names). A capture's
 /// read-back checks what a person and VoiceOver get: a toast stack is a region named "Notifications".
 public struct PageDebugQuery {
@@ -12,7 +13,9 @@ public struct PageDebugQuery {
     /// A page function of `selector`; it answers the elements as JSON text.
     public static let script = """
     return JSON.stringify([...document.querySelectorAll(selector)].map((el) => {
-      const item = { data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) };
+      const whole = el.innerText || '';
+      const item = { data: Object.assign({}, el.dataset), classes: [...el.classList], text: whole.slice(0, 120) };
+      if (whole.length > 120) item.length = whole.length;
       const role = el.getAttribute('role');
       if (role) item.role = role;
       const named = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean)

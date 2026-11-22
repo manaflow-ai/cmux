@@ -101,6 +101,23 @@ pub struct DatagramHeader {
     pub transport_seq: u16,
 }
 
+/// Maximum undrained local socket receipts per carrier. Overflow is counted;
+/// it never backpressures media or creates a second media queue.
+pub const MAX_DEPARTURE_RECEIPTS: usize = 8192;
+
+/// Local observation of one datagram accepted by the transport socket.
+/// This is not a wire format and does not claim physical NIC transmission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DatagramDeparture {
+    /// Parsed before link encryption; includes frame/shard and transport sequence.
+    pub header: DatagramHeader,
+    /// CLOCK_MONOTONIC microseconds, the host frame-ledger clock domain.
+    pub departed_us: u64,
+    /// Accepted socket payload bytes, including encryption/relay or stream framing,
+    /// but excluding IP/UDP/TCP headers and any outer tunnel encapsulation.
+    pub wire_bytes: usize,
+}
+
 impl DatagramHeader {
     /// Appends the header to `out`.
     pub fn encode_into(&self, out: &mut Vec<u8>) {
