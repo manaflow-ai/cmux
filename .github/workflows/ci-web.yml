@@ -1975,6 +1975,153 @@ jobs:
           python3 scripts/ci/webviews_test_history.py stuck "$RUNNER_TEMP/webviews-test-history/history.json" \
             --repo "$GITHUB_REPOSITORY" --summary "$GITHUB_STEP_SUMMARY" --fail
 
+  # The base batch's culprit bisect (scripts/ci/webviews_bisect.py). Pull request pushes run sampled shards (the push
+  # classes above), so the batch is the full run, and a file it finds red that was green on the previous batch it ran
+  # on is pinned to one merged commit within minutes: the file alone, at bisect midpoints of the first-parent commits
+  # between that green batch and this one (log2(n) probes), each file its own job. Red at the green sha too: base-red,
+  # not a culprit. The verdicts land in the job summary and in the webviews-culprits artifact (culprits.json, schema
+  # webviews-bisect/1), which a revert or page step reads; this job reverts nothing. Optional upkeep outside the
+  # required gate, like webviews-test-history, and it runs only where that job records a batch.
+  webviews-culprit-targets:
+    needs: [web-subarea-scope, webviews-test-history]
+    if: ${{ !cancelled() && needs.webviews-test-history.result == 'success' && vars.CI_WEBVIEWS_CULPRIT_BISECT != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+      count: ${{ steps.targets.outputs.count }}
+    steps:
+      - name: Checkout the bisect helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          sparse-checkout: |
+            scripts/ci/webviews_bisect.py
+            scripts/ci/webviews_test_history.py
+            scripts/ci/web_subareas.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download the history this batch recorded
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: webviews-test-history
+          path: ${{ runner.temp }}/history
+
+      - name: Name the newly red files
+        id: targets
+        run: |
+          python3 scripts/ci/webviews_bisect.py targets "$RUNNER_TEMP/history/history.json" --out "$RUNNER_TEMP/targets.json" \
+            --max-files 8 --github-output "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/targets.json"
+
+  webviews-culprit-bisect:
+    needs: [webviews-culprit-targets]
+    if: ${{ !cancelled() && needs.webviews-culprit-targets.outputs.count != '' && needs.webviews-culprit-targets.outputs.count != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Each probe pays a checkout, bun install and bundle build (2 to 4 min) and the one file; 1 + log2(n) probes.
+    timeout-minutes: 60
+    name: webviews-culprit-bisect (${{ matrix.file }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.webviews-culprit-targets.outputs.matrix) }}
+    steps:
+      - name: Checkout with history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Install headless engines
+        run: |
+          (cd webviews && bun install --frozen-lockfile && ./node_modules/.bin/playwright install --with-deps webkit)
+          scripts/ci/ensure-system-chrome.sh && scripts/ci/pin-browser-test-font.sh
+          cp scripts/ci/webviews_bisect.py scripts/ci/webviews_test_history.py "$RUNNER_TEMP/"
+
+      # The bisect script stays this batch's copy (copied above); each probe checks out its commit and runs that
+      # commit's own runner on the one file. Exit 0 is green.
+      - name: Bisect the file
+        env:
+          GOOD: ${{ matrix.good }}
+          FILE: ${{ matrix.file }}
+        run: |
+          bad="$(git rev-parse HEAD)"
+          slug="$(printf '%s' "$FILE" | tr -c 'A-Za-z0-9._-' '_')"
+          mkdir -p "$RUNNER_TEMP/bisect"
+          python3 "$RUNNER_TEMP/webviews_bisect.py" run --good "$GOOD" --bad "$bad" --file "$FILE" --repo . --confirm-bad \
+            --out "$RUNNER_TEMP/bisect/$slug.json" --cmd '
+              git checkout -q --force --detach "$BISECT_SHA" &&
+              (cd webviews && bun install --frozen-lockfile > /dev/null) &&
+              ./scripts/cmux-next/build-web-bundles.sh --force > /dev/null &&
+              (cd webviews && CMUX_WEB_TEST_FILES="$BISECT_FILE" bash ../scripts/ci/run-webviews-tests.sh)'
+          echo "SLUG=$slug" >> "$GITHUB_ENV"
+
+      - name: Upload the file's verdict
+        if: ${{ always() && env.SLUG != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-bisect-${{ env.SLUG }}
+          path: ${{ runner.temp }}/bisect/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  webviews-culprit-report:
+    needs: [webviews-culprit-targets, webviews-culprit-bisect]
+    if: ${{ !cancelled() && needs.webviews-culprit-targets.outputs.count != '' && needs.webviews-culprit-targets.outputs.count != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the bisect helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          sparse-checkout: |
+            scripts/ci/webviews_bisect.py
+            scripts/ci/webviews_test_history.py
+            scripts/ci/web_subareas.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download every file's verdict
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: webviews-bisect-*
+          path: ${{ runner.temp }}/bisect
+          merge-multiple: true
+
+      # A file whose job left no verdict is "unresolved" (--expect: the targets matrix).
+      - name: Name the culprits
+        env:
+          TARGETS: ${{ needs.webviews-culprit-targets.outputs.matrix }}
+          BAD: ${{ inputs.sha || github.sha }}
+        run: |
+          shopt -s nullglob
+          results=("$RUNNER_TEMP"/bisect/*.json)
+          python3 scripts/ci/webviews_bisect.py merge "${results[@]}" --expect "$TARGETS" --out "$RUNNER_TEMP/culprits.json" \
+            --bad "$BAD" --summary "$GITHUB_STEP_SUMMARY" --repo-slug "$GITHUB_REPOSITORY" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          cat "$RUNNER_TEMP/culprits.json"
+
+      - name: Upload the culprits
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: webviews-culprits
+          path: ${{ runner.temp }}/culprits.json
+          retention-days: 14
+
   diff-sidecar-check:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope

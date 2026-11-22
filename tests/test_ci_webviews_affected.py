@@ -437,7 +437,8 @@ class PullRequestShardsTest(unittest.TestCase):
         summary = self.root / "summary.md"
         script = str(ROOT / "scripts/ci/webviews_pr_shards.py")
         run = subprocess.run([sys.executable, script, "--base", "HEAD^1", "--count", "12", "--repo", str(self.root),
-                              "--summary", str(summary)], capture_output=True, text=True, check=True)
+                              "--summary", str(summary)], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, CI_WEBVIEWS_PUSH_CLASSES="0"))
         self.assertEqual(len(__import__("json").loads(run.stdout)), 3, run.stderr)
         text = summary.read_text()
         self.assertIn("sampled shards", text)
@@ -458,6 +459,164 @@ class PullRequestShardsTest(unittest.TestCase):
                               "--count", "3", "--files-of", "4"], capture_output=True, text=True)
         self.assertNotEqual(run.returncode, 0)
         self.assertEqual(run.stdout, "")
+
+
+class PushClassTest(unittest.TestCase):
+    """webviews_pr_shards.classify: every pull request push is fast (docs or comments only), sampled (shard 1, the
+    touched tests, and two head-sampled shards where the pick would have run every shard) or full (a FULL path).
+    Leo, 2026-11-22: "there must surely be some changes which can get the fast track route. like a nexus card." """
+
+    setUp = SelectTest.setUp
+
+    def commit(self, edits: dict[str, str]) -> None:
+        for path, text in edits.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "change")
+
+    def classify(self, edits: dict[str, str], count: int = 12):
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.commit(edits)
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, n, selected: {"webviews/test/leaf.test.ts"} if shard == 5 else set()
+        try:
+            return ps.classify(self.root, "HEAD^1", "HEAD", count)
+        finally:
+            ps.shard_files = real
+
+    def head(self) -> str:
+        return git(self.root, "rev-parse", "HEAD").strip()
+
+    def test_comment_only_edits_are_fast(self) -> None:
+        cls, shards, why, own = self.classify({"webviews/src/leaf.ts": TREE["webviews/src/leaf.ts"] + "// a note\n"})
+        self.assertEqual((cls, shards, own), ("fast", [1], {}))
+        self.assertIn("changes only comments", why)
+        block = 'import { hub } from "./hub";\n/**\n * Why leaf exists.\n */\nexport const leaf = hub;\n'
+        self.assertEqual(self.classify({"webviews/src/leaf.ts": block})[0], "fast")
+        self.assertEqual(self.classify({"unrelated/tool.py": "# why\nx = 1\n"})[0], "fast")
+
+    def test_a_tool_directive_or_a_code_line_is_not_a_comment_edit(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        leaf = TREE["webviews/src/leaf.ts"]
+        for added in ("// @ts-expect-error\n", "/* oxlint-disable */\n", "export const more = 2;\n"):
+            self.assertFalse(ps.comment_only("webviews/src/leaf.ts", leaf, leaf + added), added)
+        # A `*` continuation line is code, and a `//` inside a string is not a comment.
+        self.assertFalse(ps.comment_only("a.ts", "const x = 1\n  * 2;\n", "const x = 1\n  * 3;\n"))
+        self.assertFalse(ps.comment_only("a.ts", 'const u = "a // b";\n', 'const u = "a // c";\n'))
+        self.assertFalse(ps.comment_only("a.ts", None, "// new file\n"))
+        self.assertFalse(ps.comment_only("a.json", "{}\n", "{} \n"))
+        self.assertTrue(ps.comment_only("a.yml", "a: 1\n", "# why\na: 1\n"))
+        self.assertFalse(ps.comment_only("a.sh", "echo\n", "#!/bin/bash\necho\n"))
+        cls, shards, _, _ = self.classify({"webviews/src/leaf.ts": leaf + "// @ts-ignore\n"})
+        self.assertEqual((cls, shards), ("sampled", [1, 5]))
+
+    def test_a_doc_is_fast_unless_a_webviews_file_reads_it(self) -> None:
+        self.assertEqual(self.classify({"docs/readme.md": "y\n"})[0], "fast")
+        self.assertEqual(self.classify({"webviews/src/gallery/sample.md": "y\n"})[0], "sampled")  # imported ?raw
+        self.assertEqual(self.classify({"README.md": "y\n"})[0], "sampled")  # named by src/docs.ts
+
+    def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
+        cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
+        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {5: ["test/leaf.test.ts"]}))
+        cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
+        self.assertEqual((cls, shards), ("sampled", [1]))
+        self.assertIn("touches no webviews test", why)
+
+    def test_an_every_shard_input_outside_full_is_sampled(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        for path in (".github/workflows/ci-web.yml", "webviews/vite.config.ts", "scripts/ci/webviews_affected.py"):
+            cls, shards, why, _ = self.classify({path: "x = 1\n" if path.endswith(".py") else "const a = 1;\n"})
+            sample = ps.sampled_shards(self.head(), 12)
+            self.assertEqual(cls, "sampled", path)
+            self.assertTrue(set(shards) >= {1, *sample} and len(shards) <= 4, (path, shards))
+            self.assertIn(ps.SAMPLE_WHY, why)
+        # A comment-only edit of this workflow is fast.
+        self.commit({".github/workflows/ci-web.yml": "on: push\n"})
+        self.assertEqual(self.classify({".github/workflows/ci-web.yml": "# why\non: push\n"})[0], "fast")
+
+    def test_full_paths_run_every_shard(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        for path in ("scripts/ci/run-webviews-tests.sh", "scripts/ci/webviews_test_shards.py",
+                     "scripts/ci/webviews_test_results.py", "webviews/bun.lock", "webviews/package.json",
+                     "webviews/bunfig.toml", "webviews/test/preload.ts"):
+            cls, shards, why, own = self.classify({path: f"changed {path}\n", "docs/readme.md": f"{path}\n"})
+            self.assertEqual((cls, shards, own), ("full", list(range(1, 13)), {}), path)
+            self.assertIn(path, why)
+        self.assertLessEqual(len(ps.FULL), 6)  # the list stays short
+
+    def run_cli(self, *args: str, classes: str = "1") -> tuple[list, str, str]:
+        import json  # noqa: PLC0415
+        summary, class_out = self.root / "summary.md", self.root / "class.txt"
+        for f in (summary, class_out):
+            f.unlink(missing_ok=True)
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--count", "12",
+                              "--repo", str(self.root), "--summary", str(summary), "--class-out", str(class_out),
+                              *args], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, CI_WEBVIEWS_PUSH_CLASSES=classes))
+        return (json.loads(run.stdout), summary.read_text() if summary.exists() else "",
+                class_out.read_text().strip() if class_out.exists() else "")
+
+    def test_the_summary_names_the_class_the_rule_and_the_full_run(self) -> None:
+        self.commit({"webviews/src/leaf.ts": TREE["webviews/src/leaf.ts"] + "// a note\n"})
+        shards, text, cls = self.run_cli("--base", "HEAD^1")
+        self.assertEqual((len(shards), cls), (1, "fast"))
+        self.assertIn("react-apps-check: fast", text)
+        self.assertIn("Rule: webviews/src/leaf.ts changes only comments", text)
+        self.assertIn("`full-ci` label", text)
+        self.assertIn("CI_WEBVIEWS_PUSH_CLASSES", text)
+        shards, text, cls = self.run_cli("--all", "--full-why", "a push run on the base")
+        self.assertEqual((len(shards), cls), (12, "full"))
+        self.assertIn("Rule: a push run on the base", text)
+
+    def test_the_off_switch_returns_the_pick_before_the_classes(self) -> None:
+        self.commit({"webviews/vite.config.ts": "const a = 1;\n"})
+        self.assertEqual(len(self.run_cli("--base", "HEAD^1")[0]) < 12, True)
+        shards, _, cls = self.run_cli("--base", "HEAD^1", classes="0")
+        self.assertEqual((len(shards), cls), (12, ""))
+
+
+class CiWebWorkflowTest(unittest.TestCase):
+    """ci-web.yml parses strictly (no duplicate keys) and wires the push class from the pick to the shards."""
+
+    def test_strict_parse_and_class_wiring(self) -> None:
+        try:
+            import yaml  # noqa: PLC0415
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+
+        class Strict(yaml.SafeLoader):
+            pass
+
+        def mapping(loader, node, deep=False):
+            keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+            dupes = {k for k in keys if keys.count(k) > 1}
+            if dupes:
+                raise yaml.constructor.ConstructorError(None, None, f"duplicate keys {sorted(map(str, dupes))}",
+                                                        node.start_mark)
+            return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+        Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, mapping)
+        text = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        doc = yaml.load(text, Loader=Strict)  # noqa: S506 - a SafeLoader subclass
+        jobs = doc["jobs"]
+        self.assertIn("CI_WEBVIEWS_PUSH_CLASSES", doc["env"])
+        self.assertEqual(jobs["web-subarea-scope"]["outputs"]["react_class"], "${{ steps.react-shards.outputs.class }}")
+        pick = next(s for s in jobs["web-subarea-scope"]["steps"] if s.get("id") == "react-shards")
+        self.assertIn("--class-out", pick["run"])
+        self.assertIn('echo "class=', pick["run"])
+        test = next(s for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "webview-tests")
+        self.assertEqual(test["env"]["REACT_APPS_CLASS"], "${{ needs.web-subarea-scope.outputs.react_class }}")
+        self.assertIn('"$REACT_APPS_CLASS" = fast', test["run"])
+        self.assertIn("webviews-test-history", jobs["webviews-culprit-targets"]["needs"])
+        bisect = jobs["webviews-culprit-bisect"]
+        self.assertEqual(bisect["strategy"]["matrix"]["include"],
+                         "${{ fromJSON(needs.webviews-culprit-targets.outputs.matrix) }}")
+        self.assertIn("webviews_bisect.py\" run", str(bisect["steps"]).replace("'", '"'))
+        report = jobs["webviews-culprit-report"]
+        self.assertIn("--expect", str(report["steps"]))
+        upload = next(s for s in report["steps"] if s.get("name") == "Upload the culprits")
+        self.assertEqual(upload["with"]["name"], "webviews-culprits")
 
 
 if __name__ == "__main__":
