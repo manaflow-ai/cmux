@@ -46,16 +46,16 @@ fn proxy_entries_are_placeholders_and_env_entries_are_values() {
 #[test]
 fn the_port_outlives_the_daemon_and_moves_only_when_taken() {
     let dir = tempfile::tempdir().unwrap();
-    let first = bind_stable(dir.path()).unwrap();
+    let first = bind_stable(dir.path(), true).unwrap();
     let port = first.local_addr().unwrap().port();
     let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
     assert_eq!(kept.trim(), port.to_string());
     // The daemon restarts: its listener is gone, the next one takes the same port.
     drop(first);
-    let second = bind_stable(dir.path()).unwrap();
+    let second = bind_stable(dir.path(), true).unwrap();
     assert_eq!(second.local_addr().unwrap().port(), port);
     // Another process holds it: a new port, written down for the next start.
-    let third = bind_stable(dir.path()).unwrap();
+    let third = bind_stable(dir.path(), true).unwrap();
     let moved = third.local_addr().unwrap().port();
     assert_ne!(moved, port);
     let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
@@ -70,7 +70,8 @@ fn the_ca_outlives_the_daemon() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let mode = std::fs::metadata(dir.path().join(CA_KEY_FILE)).unwrap().permissions().mode();
+        let mode =
+            std::fs::metadata(dir.path().join(CA_KEY_FILE)).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }
     // The daemon restarts: the next one serves the same CA, under the same epoch.
@@ -98,7 +99,7 @@ fn the_ca_outlives_the_daemon() {
 fn a_kept_port_file_that_is_not_a_port_is_replaced() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join(PORT_FILE), "nope").unwrap();
-    let listener = bind_stable(dir.path()).unwrap();
+    let listener = bind_stable(dir.path(), true).unwrap();
     let port = listener.local_addr().unwrap().port();
     let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
     assert_eq!(kept.trim(), port.to_string());
@@ -134,8 +135,10 @@ fn only_an_agent_on_another_start_of_our_proxy_is_stale() {
         ("NODE_EXTRA_CA_CERTS", "/h/vault-egress/node-extra-ca.pem"),
     ]);
     assert!(!stale_proxy_env(&corp, ca, None));
-    let other_ca =
-        env(&[("HTTPS_PROXY", "http://127.0.0.1:43007"), ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem")]);
+    let other_ca = env(&[
+        ("HTTPS_PROXY", "http://127.0.0.1:43007"),
+        ("NODE_EXTRA_CA_CERTS", "/etc/corp.pem"),
+    ]);
     assert!(!stale_proxy_env(&other_ca, ca, None));
 }
 
@@ -168,10 +171,11 @@ fn a_running_agent_is_judged_by_the_env_it_was_started_with() {
 
 #[test]
 fn a_spawn_carries_the_start_its_stamp_names() {
-    let env =
-        child_env_with(vec![given("T", "s", Some(&["x.example.com"]))], Some(&running()), &|_| {
-            None
-        });
+    let env = child_env_with(
+        vec![given("T", "s", Some(&["x.example.com"]))],
+        Some(&running()),
+        &|_| None,
+    );
     let node_ca = running().node_ca;
     assert!(!stale_proxy_env(&env, &node_ca, Some("e1")));
     assert!(stale_proxy_env(&env, &node_ca, Some("e9")));
@@ -185,7 +189,8 @@ fn no_proxy_entry_means_no_proxy_settings() {
 
 #[test]
 fn a_proxy_that_did_not_start_still_withholds_the_value() {
-    let env = child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
+    let env =
+        child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
     assert_eq!(env, vec![("T".to_owned(), "cmux-secret://T".to_owned())]);
 }
 
@@ -224,7 +229,8 @@ fn policy_holds_only_proxy_entries_with_their_valid_hosts() {
 fn trust_files_extend_what_the_launch_trusted() {
     let dir = tempfile::tempdir().unwrap();
     let base = dir.path().join("base.pem");
-    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----").unwrap();
+    std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----")
+        .unwrap();
     let node = dir.path().join("node.pem");
     std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n")
         .unwrap();
@@ -241,6 +247,62 @@ fn trust_files_extend_what_the_launch_trusted() {
     assert!(node_text.contains("NODE") && node_text.ends_with(ca));
     let bundle_text = std::fs::read_to_string(bundle.unwrap()).unwrap();
     assert!(
-        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE") && bundle_text.ends_with(ca)
+        bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
+            && bundle_text.ends_with(ca)
     );
+}
+
+#[test]
+fn only_the_daemon_writes_the_port_down() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = bind_stable(dir.path(), true).unwrap();
+    let port = daemon.local_addr().unwrap().port();
+    // Another acpmux process starts a proxy while the daemon holds the port.
+    let other = bind_stable(dir.path(), false).unwrap();
+    assert_ne!(other.local_addr().unwrap().port(), port);
+    let kept = std::fs::read_to_string(dir.path().join(PORT_FILE)).unwrap();
+    assert_eq!(kept.trim(), port.to_string());
+}
+
+#[test]
+fn the_trust_files_do_not_grow_when_the_launch_names_ours() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("egress");
+    let ca = "-----BEGIN CERTIFICATE-----\nOURS\n-----END CERTIFICATE-----\n";
+    let (node_ca, bundle) = write_trust(&out, ca, &|_| None).unwrap();
+    // A process an agent of ours started inherits our files, and starts the proxy again.
+    let (n, b) =
+        (node_ca.display().to_string(), bundle.as_ref().map(|b| b.display().to_string()));
+    let inherited = move |name: &str| match name {
+        "NODE_EXTRA_CA_CERTS" => Some(n.clone()),
+        "SSL_CERT_FILE" => b.clone(),
+        _ => None,
+    };
+    let first_bundle = bundle.as_ref().map(|b| std::fs::read_to_string(b).unwrap());
+    for _ in 0..3 {
+        write_trust(&out, ca, &inherited).unwrap();
+    }
+    assert_eq!(std::fs::read_to_string(&node_ca).unwrap(), ca);
+    assert_eq!(bundle.as_ref().map(|b| std::fs::read_to_string(b).unwrap()), first_bundle);
+    if let Some(text) = first_bundle {
+        assert_eq!(text.matches("OURS").count(), 1);
+    }
+}
+
+#[test]
+fn an_expired_or_corrupt_kept_ca_is_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    private_folder(dir.path()).unwrap();
+    let first = kept_or_new_authority(dir.path()).unwrap();
+    // A certificate that is not one: a new CA, kept for the next daemon.
+    std::fs::write(dir.path().join(CA_CERT_FILE), "-----BEGIN CERTIFICATE-----\nnope").unwrap();
+    let second = kept_or_new_authority(dir.path()).unwrap();
+    assert_ne!(second.pem(), first.pem());
+    assert_eq!(kept_or_new_authority(dir.path()).unwrap().pem(), second.pem());
+    // A CA within 45 days of its end is replaced too.
+    let old = Authority::generate_for(30).unwrap();
+    std::fs::write(dir.path().join(CA_KEY_FILE), old.key_pem().as_bytes()).unwrap();
+    std::fs::write(dir.path().join(CA_CERT_FILE), old.pem()).unwrap();
+    let third = kept_or_new_authority(dir.path()).unwrap();
+    assert_ne!(third.pem(), old.pem());
 }

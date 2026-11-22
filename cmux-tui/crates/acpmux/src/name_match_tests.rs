@@ -36,6 +36,14 @@ fn a_short_name_is_read_by_the_same_steps_but_never_as_a_prefix() {
 }
 
 #[test]
+fn a_numbered_name_is_never_the_prefix_of_a_larger_number() {
+    assert_eq!(names("lane-1", &["lane-10", "lane-12"]), Ok(None));
+    assert_eq!(names("lanevm-1", &["lanevm-10"]), Ok(None));
+    assert_eq!(names("lane-1", &["lane-1-review"]), Ok(Some("lane-1-review")));
+    assert_eq!(names("lane-", &["lane-10"]), Ok(Some("lane-10")));
+}
+
+#[test]
 fn separators_and_case_are_ignored_last() {
     assert_eq!(names("td2_a", &["td2-A", "td2-B"]), Ok(Some("td2-A")));
     assert_eq!(names("td2 a", &["td2-A"]), Ok(Some("td2-A")));

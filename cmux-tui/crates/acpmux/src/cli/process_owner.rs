@@ -237,7 +237,7 @@ pub fn is_acpmux_own(argv: &[String]) -> bool {
 }
 
 /// Whether `argv` runs `daemon run` (the acpmux daemon).
-fn is_daemon_run(argv: &[String]) -> bool {
+pub(crate) fn is_daemon_run(argv: &[String]) -> bool {
     argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
 }
 

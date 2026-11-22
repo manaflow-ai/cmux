@@ -29,6 +29,7 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
             .as_bytes()
             .get(..key.len())
             .is_some_and(|head| head.eq_ignore_ascii_case(key.as_bytes()))
+        && !splits_a_number(name, key)
     {
         Some(Step::Prefix)
     } else if folded(key).next().is_some() && folded(name).eq(folded(key)) {
@@ -36,6 +37,14 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
     } else {
         None
     }
+}
+
+/// Whether `key` stops inside a number of `name`: `lane-1` is not the start of `lane-10`, nor
+/// `lanevm-1` of the machine `lanevm-12`, so a numbered lane or machine is never
+/// reached by its smaller sibling's name.
+fn splits_a_number(name: &str, key: &str) -> bool {
+    key.as_bytes().last().is_some_and(u8::is_ascii_digit)
+        && name.as_bytes().get(key.len()).is_some_and(u8::is_ascii_digit)
 }
 
 /// The step at which `key` names a sub-session `name` (`PARENT/SHORT`) by its last segments:
