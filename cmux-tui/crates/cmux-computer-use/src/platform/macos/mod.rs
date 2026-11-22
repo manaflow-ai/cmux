@@ -501,7 +501,12 @@ impl Desktop for MacDesktop {
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: grant(ax::trusted()),
-            screen_capture: grant(capture::screen_capture_granted()),
+            screen_capture: grant(
+                self.host
+                    .as_ref()
+                    .and_then(|h| h.screen_capture_granted())
+                    .unwrap_or_else(capture::screen_capture_granted),
+            ),
             input: grant(post_event_granted()),
         }
     }
