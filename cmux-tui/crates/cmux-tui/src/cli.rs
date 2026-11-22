@@ -54,6 +54,7 @@ mod beside;
 mod billing;
 #[cfg(unix)]
 mod caller_browser;
+mod caller_scope;
 mod capability_cache;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
