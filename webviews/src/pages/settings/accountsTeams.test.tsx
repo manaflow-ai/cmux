@@ -1,11 +1,13 @@
 // Settings > Accounts, Teams: each team with your role, its details as an admin and as a member,
 // and create, rename and delete as `team.*` gestures (the mock host answers like the app's
 // AccountsTeamsModel over the cmux team API).
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
+import { setExperimentSwitches } from "../../experiments/switches";
 
 const restore = installDom();
 afterAll(() => restore());
+afterEach(() => setExperimentSwitches({}));
 const { renderPage, settle, changeValue, click, fire } = await import("./testing");
 
 type Page = Awaited<ReturnType<typeof renderPage>>;
@@ -36,6 +38,22 @@ test("an unknown role says so", async () => {
   });
   expect(team(page, "team-acme")!.querySelector('[data-team-role="unknown"]')?.textContent).toBe("Role unknown");
   page.unmount();
+});
+
+test("team pricing preview is off by default and shows the decided examples when enabled", async () => {
+  const off = await renderPage({ path: "/settings/accounts" });
+  await click(teamButton(team(off, "team-personal")!, "team.details"));
+  expect(off.container.querySelector("[data-team-pricing-preview]")).toBeNull();
+  off.unmount();
+
+  setExperimentSwitches({ teamPricingPreview: true });
+  const on = await renderPage({ path: "/settings/accounts" });
+  await click(teamButton(team(on, "team-personal")!, "team.details"));
+  const preview = on.container.querySelector<HTMLElement>("[data-team-pricing-preview]")!;
+  expect(preview.textContent).toContain("$25");
+  expect(preview.querySelector('[data-team-pricing-example="overage"]')?.textContent).toContain("$100 → $108");
+  expect(preview.querySelector('[data-team-pricing-example="seat"]')?.textContent).toContain("$160 → $168");
+  on.unmount();
 });
 
 test("an admin's details list members, pending invitations, Rename and Delete", async () => {
