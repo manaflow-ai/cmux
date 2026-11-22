@@ -358,10 +358,19 @@ async fn the_remote_guard_answers_the_owner_as_a_peer_daemon_for_every_method() 
                 let hub = hub.clone();
                 let (m, mut params) = (m.clone(), shape.clone());
                 async move {
-                    remote_guard::check(&hub, Origin::Peer, auth, None, &m, &mut params, false)
-                        .await
-                        .map(|()| params)
-                        .map_err(|e| (e.code, e.message))
+                    remote_guard::check(
+                        &hub,
+                        Origin::Peer,
+                        auth,
+                        None,
+                        &m,
+                        &mut params,
+                        false,
+                        false,
+                    )
+                    .await
+                    .map(|()| params)
+                    .map_err(|e| (e.code, e.message))
                 }
             };
             assert_eq!(
