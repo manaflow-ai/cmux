@@ -497,10 +497,25 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
     assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
     assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
     assert!(hub.mesh_for_here(&mine, None).is_err());
+    // The chat's info once it is idle with `ran` turns or more (bounded at 30 s).
+    async fn settled(local: &mut Client, session: &str, ran: u64) -> Value {
+        let mut info = Value::Null;
+        for _ in 0..600 {
+            info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+            let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
+            if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        info
+    }
     let own = acpmux::pairing::machine_name();
     let mut ran = 0;
     if own != "host" {
-        // Its own host, as a field and as a prefix, is this one: those run.
+        // Its own host, as a field and as a prefix, is this one: those run. Two agent messages
+        // that come close together go in as one turn by design (`hub/digest.rs`), so each runs
+        // its own turn before the next is sent, and the count says each ran.
         let mine = [
             ("own-host", named(Some(&own.to_uppercase()), None)),
             ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
@@ -510,17 +525,10 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
             fake.until(id, |s| !s.acked(id).is_empty()).await;
             assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
             ran += 1;
+            settled(&mut local, &session, ran).await;
         }
     }
-    let mut info = Value::Null;
-    for _ in 0..600 {
-        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
-        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
-        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    let info = settled(&mut local, &session, ran).await;
     let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
     assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
     relay.stop().await;

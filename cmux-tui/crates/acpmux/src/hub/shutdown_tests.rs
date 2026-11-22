@@ -725,11 +725,15 @@ async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Waits up to a second for every process of the agent's group `group` to be gone (no
-/// signal reaches the group): the agent's own process, and any it started under it.
+/// Waits, bounded by `WAIT`, for every process of the agent's group `group` to be gone (no
+/// signal reaches the group): the agent's own process, and any it started under it. A killed
+/// agent stays in its group as a zombie until its exit watcher reaps it, and that watcher reaps
+/// only after the agent's stdout closes and its stderr drains (up to `STDERR_DRAIN`, a second),
+/// so a one-second bound here failed under a loaded full suite with the SIGKILL already sent.
+/// Nothing else kills the group inside the wait, so it still proves the agent's end.
 #[cfg(unix)]
 async fn until_group_gone(group: i32, what: &str) {
-    let by = tokio::time::Instant::now() + Duration::from_secs(1);
+    let by = tokio::time::Instant::now() + WAIT;
     loop {
         let gone = unsafe { libc::killpg(group, 0) } != 0
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
