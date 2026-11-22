@@ -55,7 +55,9 @@ impl Default for CcConfig {
             start_bps: 8_000_000,
             relay_max_bps: 4_000_000,
             lan_start_bps: 30_000_000,
-            lan_rtt_us: 5_000,
+            // The wired fleet pair (cmux20 to cmux17) measures 3.8 to 5.8 ms; at 5 ms its
+            // first second sat at the 8 Mbit/s start. A WAN is 20 ms and up.
+            lan_rtt_us: 10_000,
         }
     }
 }

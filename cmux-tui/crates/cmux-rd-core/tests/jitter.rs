@@ -258,6 +258,11 @@ fn the_first_feedback_on_a_lan_starts_high_without_a_carrier_round_trip() {
         mbps(cc.target_bps())
     );
 
+    // A wired LAN whose round trip is 5 to 6 ms (the fleet pair) starts high too.
+    let mut wired = lan_controller();
+    one_frame_feedback(&mut wired, &mut seq, 1_000, 6_000);
+    assert!(wired.target_bps() >= start.lan_start_bps, "{}", mbps(wired.target_bps()));
+
     // A WAN's feedback comes a WAN round trip later: no LAN start.
     let mut wan = CongestionController::new(start, PathKind::DirectWan);
     one_frame_feedback(&mut wan, &mut seq, 1_000, 25_000);
