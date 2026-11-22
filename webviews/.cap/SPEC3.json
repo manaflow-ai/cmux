@@ -1,0 +1,44 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "film-code",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "code",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-chart",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "chart",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,3500))",
+      "arms": {
+        "after": "",
+        "before": ".cv-diagram__chart > :is(svg, div), .cv-diagram__chart[data-reserve]:empty::before{margin-inline:0 !important}"
+      }
+    },
+    {
+      "name": "pane-chart-finished",
+      "entry": "agent-pane.stream-partials",
+      "variant": "chart-finished",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,3500))",
+      "arms": {
+        "after": "",
+        "before": ".cv-diagram__chart > :is(svg, div), .cv-diagram__chart[data-reserve]:empty::before{margin-inline:0 !important}"
+      }
+    }
+  ]
+}

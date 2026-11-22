@@ -1,0 +1,157 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"],
+    ["dark", "busy"]
+  ],
+  "shots": [
+    {
+      "name": "film-table",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "table",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))",
+      "arms": {
+        "now": "",
+        "start-while-last": ".stream-frame .cv-md > .cv-table-block:last-child{margin-inline:0}"
+      }
+    },
+    {
+      "name": "film-table-bare",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "table-bare",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-code",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "code",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-diagram",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "diagram",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-chart",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "chart",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-math",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "math",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-list",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "list",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "film-inline",
+      "entry": "agent-pane.stream-filmstrip",
+      "variant": "inline",
+      "width": 1200,
+      "height": 1450,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,2500))"
+    },
+    {
+      "name": "pane-table-short-rows",
+      "entry": "agent-pane.stream-partials",
+      "variant": "table-short-rows",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-table-wide-row",
+      "entry": "agent-pane.stream-partials",
+      "variant": "table-wide-row",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-table-finished",
+      "entry": "agent-pane.stream-partials",
+      "variant": "table-finished",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-code-open",
+      "entry": "agent-pane.stream-partials",
+      "variant": "code-open",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-diagram-open",
+      "entry": "agent-pane.stream-partials",
+      "variant": "diagram-open",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-chart-open",
+      "entry": "agent-pane.stream-partials",
+      "variant": "chart-open",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-math-open",
+      "entry": "agent-pane.stream-partials",
+      "variant": "math-open",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    },
+    {
+      "name": "pane-list-growing",
+      "entry": "agent-pane.stream-partials",
+      "variant": "list-growing",
+      "width": 760,
+      "height": 560,
+      "deviceScaleFactor": 1,
+      "setup": "new Promise(r=>setTimeout(r,1500))"
+    }
+  ]
+}
