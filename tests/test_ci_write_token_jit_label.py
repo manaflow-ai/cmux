@@ -27,6 +27,9 @@ SWITCHES = {
 LEAD = re.compile(
     r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| "
 )
+# A job may name a JIT label alone, with no switch and no Blacksmith route after it: it waits for a one-job VM and
+# never reaches a reused machine (web-complexity-trusted.yml, which reads untrusted pull request source, #49117).
+BARE_JIT = re.compile(r"'cmux-gcp-[a-z-]+-jit-x64' \}\}")
 # The queue-management jobs (sweeps, janitors, rescues) may put one operand before their JIT label: an on switch for
 # the reserved queue label, which only they name, so no PR job can take its runners (Leo-ask c-b672a25975: "what do we
 # do for ourselves? ... what do we do about this sort of situation?"). Unset, the operand is skipped and the job keeps
@@ -73,6 +76,8 @@ class WriteTokenJitLabelTests(unittest.TestCase):
                 rest = rest[len(QUEUE_OPERAND):]
             if rest is not None and rest.startswith("github.event_name == 'pull_request' && "):
                 rest = rest.split(" || ", 1)[1]
+            if rest is not None and BARE_JIT.fullmatch(rest):
+                continue
             matched = LEAD.match(rest) if rest is not None else None
             if matched is None:
                 failures.append(f"{name}:{number} does not lead with a JIT label: {runs_on}")

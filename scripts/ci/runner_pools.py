@@ -61,7 +61,8 @@ label outside the pool.
 Other variables hold one raw Blacksmith Linux label that runs-on reads ahead of a pool (RAW_LABEL_VARS:
 LINUX_BUILD_RUNNER, LINUX_RUNNER_DARWIN_CROSS, CI_TRUSTED_RUNNER, ...). Each pass moves one that names a `_dead`
 label to the nearest live size of the same image, records the label it left in RUNNER_POOLS' `_raw_home`, and
-moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. A value
+moves it back once that label leaves `_dead` (raw_homes(), raw_writes()); each move is a workflow warning. One on
+the dead GCP secret JIT label moves to linux_4's first live Blacksmith member (owned_lead_overflow()). Any other value
 that is not a Blacksmith Linux pool label is left alone.
 
 Moving jobs already queued on a dead member is not done here: GitHub binds a job's label when it
@@ -70,12 +71,14 @@ that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU
 The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
 runs once (dead_labels() there), and they then read the pool's new member.
 
-Every member is a Blacksmith label or, as a pool's first member only, an owned Linux label: one of the owned Mac
-fleet's Linux VM labels (OWNED_EPHEMERAL_LINUX: one job per fresh VM clone, so it is ephemeral too), or, for an x64
+Every member is a Blacksmith label or, as a pool's first member only, an owned Linux label: an owned one-job label
+(OWNED_EPHEMERAL_LINUX: the Mac fleet's Linux VM clones, and the GCP fleet's secret JIT label, one job per fresh VM,
+so it is ephemeral too and may lead an ephemeral_only pool), or, for an x64
 pool not marked `"ephemeral_only": true`, the owned GCP pool's label (OWNED_GCP_LINUX), which Blacksmith's runners
 never take, so those pools run on our machines and Blacksmith is only their overflow. A job reading a pool can never
 land on an owned Mac, whoever started it; a job that needs a fresh machine (secrets, write tokens, a fork's pull
-request) reads an ephemeral_only pool (linux_4) or sends a fork's pull request to a Blacksmith label before it.
+request) reads an ephemeral_only pool (linux_4, led by the GCP JIT label) or sends a fork's pull request to a
+Blacksmith label before it; tests/test_ci_runner_pools.py fails when a secret-bearing job can reach a reused machine.
 An owned Linux member is a small fleet: once its oldest queued job has waited BLACKSMITH_STALL_MINUTES, running or
 not, it is marked dead (label_evidence()) and the pool takes its Blacksmith members until that queue drains. Owned Macs come first through a picker's output (the routing order: owned Macs, then
 Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
@@ -122,7 +125,8 @@ MIRRORS = {"LINUX_RUNNER": "linux"}
 # pass moves such a variable off a label `_dead` names to the nearest live size of its image (raw_substitute()),
 # keeps where it came from in RUNNER_POOLS' `_raw_home`, and moves it back once that label leaves `_dead`
 # (raw_homes(), raw_writes()). A value that is no Blacksmith Linux pool label (an owned runner, a hosted label,
-# unset) is never touched. tests/test_ci_runner_pools.py fails when a main workflow reads another variable that way.
+# unset) is never touched, except the GCP secret JIT label, which overflows like linux_4 (owned_lead_overflow()).
+# tests/test_ci_runner_pools.py fails when a main workflow reads another variable that way.
 # macOS variables are never here: macOS moves through its pickers and the overflow switch.
 RAW_LABEL_VARS = (
     "CI_CLASSIC_NIGHTLY_MINI",
@@ -173,10 +177,13 @@ HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 # overflows to Blacksmith once its queue waits (label_evidence()). Leo, 2026-11-19: "dont we have linux vms set up
 # on everybody yet? we shuold" ... "on the fleet".
 OWNED_EPHEMERAL_LINUX = frozenset(pr_runner_pool.OWNED_EPHEMERAL_LINUX)
+# The GCP fleet's one-job x64 label (pr_runner_pool.OWNED_GCP_JIT_LINUX): it leads linux_4, the pool secret-bearing
+# and write-token jobs read, and a RAW_LABEL_VARS variable on it overflows like that pool (owned_lead_overflow()).
+OWNED_GCP_JIT_LINUX = frozenset(pr_runner_pool.OWNED_GCP_JIT_LINUX)
 
 
 def owned_ephemeral(label: object) -> bool:
-    """One of the owned Mac fleet's Linux VM labels (OWNED_EPHEMERAL_LINUX)."""
+    """An owned one-job Linux label (OWNED_EPHEMERAL_LINUX): the Mac fleet's VM clones or the GCP secret JIT label."""
     return isinstance(label, str) and label in OWNED_EPHEMERAL_LINUX
 
 
@@ -192,6 +199,11 @@ OWNED_GCP_LINUX = frozenset(pr_runner_pool.OWNED_GCP_LINUX)
 def owned_gcp(label: object) -> bool:
     """The owned GCP Linux pool's label (OWNED_GCP_LINUX)."""
     return isinstance(label, str) and label in OWNED_GCP_LINUX
+
+
+def owned_x64_lead(label: object) -> bool:
+    """An owned GCP x64 label a pool may lead with: the persistent pool's (owned_gcp()) or the one-job secret label."""
+    return owned_gcp(label) or (isinstance(label, str) and label in OWNED_GCP_JIT_LINUX)
 
 
 def owned_lead(label: object) -> bool:
@@ -245,9 +257,10 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
     for name, spec in declared.items():
         listed = spec.get("members")
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or owned_gcp(m) and m == listed[0]) for m in listed):
-            # An owned GCP lead (owned_gcp()) stays first: the override replaces only the Blacksmith overflow.
-            lead = listed[:1] if owned_gcp(listed[0]) else []
+                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or owned_x64_lead(m) and m == listed[0])
+                        for m in listed):
+            # An owned GCP lead (owned_x64_lead()) stays first: the override replaces only the Blacksmith overflow.
+            lead = listed[:1] if owned_x64_lead(listed[0]) else []
             declared[name] = {**spec, "members": [*lead, label, *listed[len(lead):]], "hosted": True,
                               "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared
@@ -522,7 +535,7 @@ def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[
     one, never below `least` vCPU (RAW_LABEL_MIN_VCPU). None when no other allowed size of that image is live."""
     match = BLACKSMITH_LINUX.match(label)
     if not match:
-        return None
+        return owned_lead_overflow(label, dead, pools, least)
     size, image, dead = int(match.group(1)), match.group(2), set(dead)
     sizes: dict[str, int] = {}
     for spec in pools.values():
@@ -536,6 +549,26 @@ def raw_substitute(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[
     return next(iter([*down, *up]), None)
 
 
+def owned_lead_overflow(label: str, dead: Iterable[str], pools: Mapping[str, Mapping[str, Any]],
+                        least: int = 0) -> str | None:
+    """Where a RAW_LABEL_VARS variable on the dead GCP secret JIT label (OWNED_GCP_JIT_LINUX, e.g. CI_TRUSTED_RUNNER)
+    goes: the first live Blacksmith Linux member at or above `least` vCPU of the x64 pool that label leads (linux_4),
+    the same overflow that pool takes (label_evidence()). None for any other label (the Mac fleet's VMs are arm64,
+    their pool's overflow x64), when it leads no pool, or when none is live."""
+    if label not in OWNED_GCP_JIT_LINUX:
+        return None
+    dead = set(dead)
+    for spec in pools.values():
+        listed = members(spec)
+        if not listed or listed[0] != label:
+            continue
+        for member in listed[1:]:
+            size = BLACKSMITH_LINUX.match(member)
+            if size and member not in dead and int(size.group(1)) >= least:
+                return member
+    return None
+
+
 def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str | None], dead: Iterable[str],
               pools: Mapping[str, Mapping[str, Any]], *, owned: frozenset[str]) -> tuple[dict[str, dict[str, str]],
                                                                                          list[str]]:
@@ -547,7 +580,8 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
     it holds `home` again with `home` live, the entry goes. A variable set by hand to anything else loses its entry
     and is left alone, as is one this pass could not read or the overflow switch's record names (`owned`)."""
     dead = set(dead)
-    known = {label for spec in pools.values() for label in members(spec) if BLACKSMITH_LINUX.match(label)}
+    known = {label for spec in pools.values() for label in members(spec)
+             if BLACKSMITH_LINUX.match(label) or label in OWNED_GCP_JIT_LINUX}
     homes: dict[str, dict[str, str]] = {}
     lines: list[str] = []
     for name in RAW_LABEL_VARS:

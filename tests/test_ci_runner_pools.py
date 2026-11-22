@@ -98,6 +98,8 @@ class Declared(unittest.TestCase):
                 listed = runner_pools.members(pools[name])
                 if pools[name].get("ephemeral_only"):
                     self.assertFalse(runner_pools.owned_gcp(listed[0]))
+                    if runner_pools.owned_ephemeral(listed[0]):
+                        listed = listed[1:]
                 else:
                     self.assertEqual(listed[0], "cmux-fleet-linux-x64")
                     listed = listed[1:]
@@ -132,6 +134,52 @@ class Declared(unittest.TestCase):
                     if index == 0 and runner_pools.owned_gcp(label) and not spec.get("ephemeral_only"):
                         continue
                     self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
+
+    def test_linux_4_leads_with_the_gcp_jit_label_and_overflows_to_blacksmith(self) -> None:
+        # Leo, 2026-11-19, on Blacksmith: "stop ... relying on it". Secret-bearing and write-token jobs read linux_4;
+        # its lead is a one-job GCP label no persistent runner carries, so they stay on a fresh machine.
+        pools = runner_pools.load_pools()
+        self.assertEqual(runner_pools.members(pools["linux_4"]),
+                         ["cmux-gcp-secret-jit-x64", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+        self.assertTrue(pools["linux_4"]["ephemeral_only"])
+        self.assertTrue(runner_pools.owned_ephemeral("cmux-gcp-secret-jit-x64"))
+        self.assertFalse(runner_pools.owned_gcp("cmux-gcp-secret-jit-x64"))
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(fresh["linux_4"], "cmux-gcp-secret-jit-x64")
+        moved, _ = runner_pools.reconcile(fresh, pools, dead_now={"cmux-gcp-secret-jit-x64"}, served_now=(), now=NOW)
+        self.assertEqual(moved["linux_4"], "blacksmith-4vcpu-ubuntu-2404")
+
+    def test_every_ephemeral_only_pool_names_only_one_job_machines(self) -> None:
+        # The persistent GCP pool label in an ephemeral_only pool is refused (spec_problems()); so is any label that
+        # is not a Blacksmith size or a named owned one-job label.
+        pools = runner_pools.load_pools()
+        for name, spec in pools.items():
+            if spec.get("ephemeral_only"):
+                for label in runner_pools.members(spec):
+                    with self.subTest(pool=name, label=label):
+                        self.assertTrue(runner_pools.owned_ephemeral(label) or runner_pools.EPHEMERAL.match(label))
+        for lead in ("cmux-fleet-linux-x64", "cmux-linux", "glaeda-side-std-xcode-26.6"):
+            with self.subTest(lead=lead):
+                bad = copy.deepcopy(pools)
+                bad["linux_4"]["members"] = [lead, *bad["linux_4"]["members"][1:]]
+                self.assertNotEqual(runner_pools.spec_problems(bad), [])
+
+    def test_a_dead_gcp_jit_label_moves_a_raw_variable_to_its_pool_overflow(self) -> None:
+        # CI_TRUSTED_RUNNER on the GCP secret JIT label overflows like linux_4 while the label is dead; the Mac
+        # fleet's arm64 VM label never moves to an x64 Blacksmith size.
+        pools = runner_pools.load_pools()
+        jit, arm = "cmux-gcp-secret-jit-x64", "glaeda-linux-arm64"
+        live = {"CI_TRUSTED_RUNNER": jit, "LINUX_ARM64_RUNNER": arm}
+        homes, _ = runner_pools.raw_homes({}, live, {jit, arm}, pools, owned=frozenset())
+        self.assertEqual(homes, {"CI_TRUSTED_RUNNER": {"home": jit, "to": "blacksmith-4vcpu-ubuntu-2404"}})
+        value = {runner_pools.DEAD_KEY: {jit: runner_pools.iso(NOW)}, runner_pools.RAW_HOME_KEY: homes}
+        self.assertEqual([(n, t) for n, t, _c, _w in runner_pools.raw_writes(value, live, owned=frozenset())],
+                         [("CI_TRUSTED_RUNNER", "blacksmith-4vcpu-ubuntu-2404")])
+        back = {runner_pools.RAW_HOME_KEY: homes}
+        moved = {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}
+        self.assertEqual([(n, t) for n, t, _c, _w in runner_pools.raw_writes(back, moved, owned=frozenset())],
+                         [("CI_TRUSTED_RUNNER", jit)])
 
     def test_the_owned_linux_vm_pool_leads_with_the_fleet_and_overflows_to_blacksmith(self) -> None:
         # Leo, 2026-11-19: "dont we have linux vms set up on everybody yet? we shuold" ... "on the fleet".
@@ -364,8 +412,8 @@ class Evidence(unittest.TestCase):
         fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
         for name in ("linux", "linux_2", "linux_8", "linux_16", "linux_32"):
             self.assertEqual(fresh[name], label, name)
-        for name in ("linux_4", "promotion"):
-            self.assertRegex(fresh[name], runner_pools.EPHEMERAL, name)
+        self.assertEqual(fresh["linux_4"], "cmux-gcp-secret-jit-x64")
+        self.assertRegex(fresh["promotion"], runner_pools.EPHEMERAL)
         dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
         self.assertIn(label, dead)
         value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
@@ -728,7 +776,7 @@ class HostedOverride(unittest.TestCase):
         for name in self.X64:
             listed = declared[name]["members"]
             # An owned GCP lead stays first: the override replaces only the Blacksmith overflow.
-            lead = listed[:1] if runner_pools.owned_gcp(listed[0]) else []
+            lead = listed[:1] if runner_pools.owned_x64_lead(listed[0]) else []
             self.assertEqual(pools[name]["members"], [*lead, "ubuntu-24.04", *listed[len(lead):]])
         for name in set(declared) - set(self.X64):
             self.assertEqual(pools[name], declared[name], name)
@@ -743,7 +791,7 @@ class HostedOverride(unittest.TestCase):
         written = json.loads(raw)
         declared = runner_pools.load_pools(env={})
         self.assertEqual({k: written[k] for k in self.X64},
-                         {k: "cmux-fleet-linux-x64" if runner_pools.owned_gcp(declared[k]["members"][0])
+                         {k: declared[k]["members"][0] if runner_pools.owned_x64_lead(declared[k]["members"][0])
                           else "ubuntu-24.04" for k in self.X64})
         self.assertEqual({k: v for k, v in written.items() if k not in self.X64 and not k.startswith("_")},
                          {k: v for k, v in before.items() if k not in self.X64 and not k.startswith("_")})
