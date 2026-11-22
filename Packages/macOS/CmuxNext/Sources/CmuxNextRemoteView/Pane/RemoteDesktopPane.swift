@@ -332,6 +332,7 @@ public final class RemoteDesktopPane {
 
 /// A flag one thread arms and another consumes once.
 nonisolated final class OneShotSignal: Sendable {
+    // carve-out: `consume()` answers synchronously on the capture thread; an actor would make it async.
     private let armed = Mutex(true)
 
     func arm() { armed.withLock { $0 = true } }

@@ -19,7 +19,7 @@ import CmuxNextWakeups
 /// anchors to a toolbar cmux never shows, so it opened over the page.
 @MainActor
 final class BrowserDownloadsPopup {
-    static let shared = BrowserDownloadsPopup()
+    static let shared = BrowserDownloadsPopup() // lint:allow singleton: the app shows one downloads popup at a time.
 
     /// How long a popup that opened by itself stays without the pointer (Chrome: 5 s).
     static let autoCloseDelay: Duration = .seconds(5)
