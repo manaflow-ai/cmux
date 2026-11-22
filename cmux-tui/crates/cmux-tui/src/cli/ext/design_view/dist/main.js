@@ -553,6 +553,10 @@
         scope: "cloud:read",
         class: "read"
       },
+      "cloud.surge.preview": {
+        scope: "cloud:read",
+        class: "read"
+      },
       "cloud.vm.attention.emit": {
         scope: "cloud:execute",
         class: "mutation"
@@ -2253,6 +2257,7 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.restore",
+      "cloud.surge.create",
       "cloud.vm.domains",
       "cloud.vm.firewall_create",
       "cloud.vm.firewall_delete",
