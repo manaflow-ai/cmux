@@ -227,6 +227,17 @@ class SwapOutCommitTest(unittest.TestCase):
         self.assertIn("-m 1", piece_swap.whole_revert_command(self.culprit, "feat-cmux-next", parents=2))
 
 
+class WebPiecesTest(unittest.TestCase):
+    def test_web_piece_ids_use_the_bundle_form(self):
+        cls = piece_swap.load_classifier()
+        pieces = piece_swap.split(["webviews/src/pages/settings/Row.tsx", "webviews/src/kit/Button.tsx", "docs/a.md"], cls)
+        ids = {p.id: piece_swap.web_piece_id(p) for p in pieces}
+        self.assertEqual(ids["webviews/src/pages/settings"], "pages/settings")
+        self.assertIsNone(ids["webviews/src/kit"])
+        sw = piece_swap.web_switches(pieces, "cmux#1 red")
+        self.assertEqual(sw, {"pages/settings": {"serve": "last-good", "reason": "cmux#1 red"}})
+
+
 class WorkflowTest(unittest.TestCase):
     def test_probe_carries_piece_state(self):
         probe = batch.Probe("drill", "drill / drill", "drill", "a" * 40, "b" * 40, "a" * 40, "1", pieces='{"x":1}')

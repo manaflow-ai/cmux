@@ -116,6 +116,7 @@
   ],
   "piece_roots": [
     "webviews/src/*/*",
+    "webviews/src/*",
     "webviews/*",
     "cmux-tui/crates/*",
     "acpmux/crates/*",

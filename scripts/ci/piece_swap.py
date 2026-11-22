@@ -200,6 +200,45 @@ def neutralize_list(culprit: str, pieces: list[Piece]) -> str:
     return json.dumps({"culprit": culprit, "neutralize": [asdict(p) for p in pieces]}, sort_keys=True)
 
 
+# webviews/src/<folder> -> the web bundle (cmux-tui/crates/cmux-web-pieces BUNDLES, lane ship-without-update) that ships it.
+# A folder not named here (kit, ui, protocol: shared by every bundle) has no bundle piece of its own.
+WEB_BUNDLE = {"agent-session": "agent-pane", "pages": "pages", "agent-activity": "agent-activity",
+              "optchat-inspector": "inspector", "markdown-viewer": "webviews-app", "diff-viewer": "webviews-app"}
+
+
+def web_piece_id(piece: Piece) -> str | None:
+    """The piece's id in the signed web-pieces switch file: `<bundle>/<sub>` (pages/settings), the form the app
+    matches by longest known prefix. None: not a web piece one bundle ships."""
+    parts = piece.id.split("#")[0].split("/")
+    if len(parts) < 3 or parts[:2] != ["webviews", "src"] or parts[2] not in WEB_BUNDLE:
+        return None
+    return "/".join([WEB_BUNDLE[parts[2]], *parts[3:4]])
+
+
+def web_switches(pieces: list[Piece], reason: str) -> dict:
+    """The `pieces` map of a cmux-web-pieces switch file (schema 1) that serves these pieces' last good bundle. The
+    serial, channel, signature and publishing belong to ship-without-update's tool, which signs this map as is."""
+    return {wid: {"serve": "last-good", "reason": reason} for wid in sorted({web_piece_id(p) for p in pieces} - {None})}
+
+
+def from_web_bisect(report: dict, classifier: Classifier, cwd: Path | None = None) -> list[dict]:
+    """The pieces of each culprit a web-bisect/2 report (cmux-next-web.yml web-bisect artifact) pins, and the ones
+    its red test files sit under. Only verdict "culprit" with a pull request number counts. It finds no culprit
+    itself: the bisect did."""
+    out = []
+    for verdict in report.get("verdicts") or []:
+        culprit = verdict.get("culprit") or {}
+        if verdict.get("verdict") != "culprit" or not culprit.get("pr") or not SHA_RE.match(str(culprit.get("sha") or "")):
+            continue
+        pieces = split(changed(culprit["sha"], cwd=cwd), classifier)
+        test = str(verdict.get("file") or "")
+        near = [p for p in pieces if test.startswith(p.id.split("#")[0].rsplit("/", 1)[0] + "/")]
+        out.append({"file": test, "culprit": culprit["sha"], "pr": culprit["pr"], "green": verdict.get("green"),
+                    "pieces": [p.id for p in pieces], "suspects": [p.id for p in (near or pieces)],
+                    "web_switches": web_switches(near or pieces, f"cmux#{culprit['pr']} turned {test} red")})
+    return out
+
+
 def whole_revert_command(culprit: str, branch: str, parents: int = 1) -> str:
     mainline = " -m 1" if parents > 1 else ""
     return (f"git fetch origin {branch} && git switch -c revert/{culprit[:12]} origin/{branch} && "
@@ -293,8 +332,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("sha")
     p.add_argument("--piece", action="append", required=True)
     p.add_argument("--onto", default="")
+    p = sub.add_parser("web-bisect", help="the pieces of each culprit in a web-bisect/2 report.json")
+    p.add_argument("report")
     args = parser.parse_args(argv)
     classifier = load_classifier()
+    if args.cmd == "web-bisect":
+        print(json.dumps(from_web_bisect(json.loads(Path(args.report).read_text()), classifier), indent=2))
+        return 0
     sha = git("rev-parse", args.sha).strip()
     if args.cmd == "manifest":
         print(json.dumps(manifest(sha, classifier, live=args.live), indent=2))
