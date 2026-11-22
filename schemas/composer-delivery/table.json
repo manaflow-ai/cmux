@@ -788,14 +788,20 @@
       "to": "read"
     },
     {
+      "effects": [
+        "clear_timers"
+      ],
       "event": "refused",
       "from": "held_host_starting",
-      "refusal": "not_awaited"
+      "to": "failed"
     },
     {
+      "effects": [
+        "clear_timers"
+      ],
       "event": "unanswered",
       "from": "held_host_starting",
-      "refusal": "not_awaited"
+      "to": "failed_unanswered"
     },
     {
       "event": "host_away",
@@ -863,14 +869,20 @@
       "to": "read"
     },
     {
+      "effects": [
+        "clear_timers"
+      ],
       "event": "refused",
       "from": "held_host_starting_behind_turn",
-      "refusal": "not_awaited"
+      "to": "failed"
     },
     {
+      "effects": [
+        "clear_timers"
+      ],
       "event": "unanswered",
       "from": "held_host_starting_behind_turn",
-      "refusal": "not_awaited"
+      "to": "failed_unanswered"
     },
     {
       "event": "host_away",

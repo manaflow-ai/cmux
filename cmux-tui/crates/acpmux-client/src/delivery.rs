@@ -583,11 +583,13 @@ pub fn step(machine: &Machine, event: &Event) -> Step {
                 )),
                 Event::Accepted => taken(Delivery::Delivered { attempt }),
                 Event::Read => taken(Delivery::Read { attempt }),
-                Event::Refused { generation, hop, code } if resent => {
+                // The resent frame's answer, or the wait for acpmux given up (its deadline, the
+                // pane's connection closed): the send ends failed, with Retry.
+                Event::Refused { generation, hop, code } => {
                     current(attempt, *generation)?;
                     taken(failed(attempt, *hop, code, FailCause::Refused))
                 }
-                Event::Unanswered { generation, hop, code } if resent => {
+                Event::Unanswered { generation, hop, code } => {
                     current(attempt, *generation)?;
                     taken(failed(attempt, *hop, code, FailCause::Unanswered))
                 }
@@ -596,9 +598,7 @@ pub fn step(machine: &Machine, event: &Event) -> Step {
                     let hold = Hold::HostStarting { attempt, resent: false, behind_turn };
                     settle(Delivery::Held { hold }, vec![])
                 }
-                Event::Refused { .. } | Event::Unanswered { .. } | Event::HostAway { .. } => {
-                    Err(Refusal::NotAwaited)
-                }
+                Event::HostAway { .. } => Err(Refusal::NotAwaited),
                 // The resent frame's deadline runs from the release (sendWhenReady.ts).
                 Event::FailTimer { generation } if resent => {
                     current(attempt, *generation)?;
