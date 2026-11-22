@@ -904,6 +904,20 @@ try:
                     lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
                     for l in [l for l in lines if "tool" in l.lower()][-40:]:
                         log(f"BRAIN diag agent.log: {l[:300]}")
+            # Why the brain refused or failed a session: Hermes names it at WARNING level
+            # ("receipt refused: storage_unavailable at restore_policy, caused by ...") in its own
+            # logs, and only "Internal error" reaches the Chief (cmux-ci step be2ad7da45a6).
+            bad = re.compile(r"refused|storage_unavailable|invalid polic|Traceback|ERROR|Exception|caused by", re.I)
+            for root, _dirs, files in os.walk(MUX):
+                if os.sep + "brains" + os.sep not in root + os.sep:
+                    continue
+                for name in sorted(f for f in files if f.endswith(".log")):
+                    try:
+                        lines = open(os.path.join(root, name), errors="replace").read().splitlines()
+                    except OSError:
+                        continue
+                    for l in [l for l in lines if bad.search(l)][-30:]:
+                        log(f"BRAIN diag brain {name}: {l[:400]}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 
