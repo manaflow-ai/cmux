@@ -88,8 +88,9 @@ public final class HomeChiefSettingsView: NSView {
     /// The harness whose backend check is running (`pickHarness`); nil when none is.
     var checkingHarness: String?
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
-    /// hello turn); true when it passed. The app sets it; unset, every harness passes.
-    public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
+    /// hello turn): passed, or the first step that failed and why. The app sets it; unset, every
+    /// harness passes.
+    public var checkHarness: @MainActor (String) async -> HomeHarnessCheck = { _ in .passed }
     /// The ids of this Mac's acpmux harnesses (`_acpmux/harnesses`), which the Harness picker
     /// offers after the official engines for a Chief whose brain runs on this Mac. The app sets
     /// it; unset, the picker offers only the official engines.
