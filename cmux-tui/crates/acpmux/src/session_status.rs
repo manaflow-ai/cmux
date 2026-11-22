@@ -48,7 +48,7 @@ pub fn has_plan_limits(auth: &str, route: &str) -> bool {
 
 /// A launcher that brings its own sign-in and endpoint (the harness argv): the env acpmux saw
 /// is not the one Claude Code runs with.
-fn launcher(argv: &[String]) -> Option<(&'static str, &'static str)> {
+pub(crate) fn launcher(argv: &[String]) -> Option<(&'static str, &'static str)> {
     let program = argv.first().map(|a| a.rsplit('/').next().unwrap_or(a));
     match program {
         Some("sr2") if argv.get(1).is_some_and(|a| a.starts_with("claude")) => {

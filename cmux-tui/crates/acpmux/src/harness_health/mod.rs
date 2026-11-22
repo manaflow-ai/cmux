@@ -23,6 +23,7 @@ mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
 pub mod probe;
+pub mod provenance;
 
 use channel::{Channel, UpdatePlan};
 use serde::{Deserialize, Serialize};
