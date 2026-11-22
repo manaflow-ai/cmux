@@ -211,7 +211,7 @@ public final class PaletteRankerBridge {
 }
 
 /// A query's search filter as the shared ranker reads it (cmux-palette-ranker `filter::QueryFilter`).
-public struct PaletteQueryFilter: Decodable, Sendable, Equatable {
+nonisolated public struct PaletteQueryFilter: Decodable, Sendable, Equatable {
     /// The query without its filter tokens.
     public var rest: String
     /// Section indexes to keep; empty keeps every section not excluded.
