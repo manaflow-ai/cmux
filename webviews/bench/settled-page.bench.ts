@@ -697,6 +697,16 @@ try {
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, markOf(target));
       stopStream();
+      // A page that drew its failure screen (or lost the target's rows) after the switch has no settled page: a
+      // blank "settled" there, with a bound of the failure screen's few bytes, once read as a fast 54 ms against 4 ms.
+      const ended = await page.evaluate(() => ({
+        failed: document.querySelector(".acpmux-pane-failed")?.textContent?.trim() ?? null,
+        rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+      }));
+      if (ended.failed !== null || ended.rows === 0)
+        throw new Error(
+          `${scenario}.${arm}: the page ended without a transcript (${ended.failed ? `failure screen: ${ended.failed}` : "no rows"}); nothing settled to time`,
+        );
       if (profiler) {
         // CDP's Profile leaves samples and timeDeltas optional; a profile with no samples prints as empty.
         const { profile } = await profiler.send("Profiler.stop");
