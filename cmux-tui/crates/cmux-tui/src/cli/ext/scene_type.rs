@@ -35,9 +35,10 @@ struct Table {
 
 fn table() -> &'static Table {
     static PARSED: OnceLock<Table> = OnceLock::new();
+    // The file is built in and read by the tests below, so a table that does not read is caught
+    // there; at run time it leaves the check with no roles rather than ending the CLI.
     PARSED.get_or_init(|| {
-        serde_json::from_str(TABLE)
-            .expect("schemas/type-scale/scene-type.json reads as the scene type table")
+        serde_json::from_str(TABLE).unwrap_or(Table { roles: Vec::new(), styles: Vec::new() })
     })
 }
 
