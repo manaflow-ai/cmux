@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -19,6 +20,12 @@ public final class MacScreenDevicesSettings {
     private var checks: [String: State.Check] = [:]
     private var checking: Set<String> = []
     private var error: String?
+    /// Bumped when the hub link's redial hold ends: the card's state reads it and says "Connecting…".
+    private var linkRevealed = 0
+    /// Holds the hub link's "Connecting…" back (``quietStatus(_:)``); tests give it a manual clock.
+    @ObservationIgnored var linkHold = QuietHold(owner: "devices-settings-link", delay: ScreenSession.reconnectNoticeDelay)
+    /// The last status shown that was not a redial: it stays while a redial is held.
+    @ObservationIgnored private var settledStatus: State.Status?
 
     @ObservationIgnored let box: MacScreenHubBox
     @ObservationIgnored let hubHost: MacScreenHubHost
@@ -33,6 +40,10 @@ public final class MacScreenDevicesSettings {
     @ObservationIgnored public var thisDeviceRemoved: @MainActor () -> Void = {}
     /// This Mac's name changed (the app keeps it for the next registration).
     @ObservationIgnored public var thisDeviceRenamed: @MainActor (String) -> Void = { _ in }
+    /// Opens a verified Mac Screen device from Settings > Devices.
+    @ObservationIgnored public var openScreen: @MainActor (String) -> Void = { _ in }
+    /// Starts the same guided Share This Mac flow used by the sidebar.
+    @ObservationIgnored public var shareThisMac: @MainActor () -> Void = {}
     /// Checks a relay; tests replace it.
     @ObservationIgnored var checkRelay: @Sendable ([ICEServerConfig]) async -> ICERelayCheck.Outcome = { servers in
         await ICERelayCheck(servers: servers).run()
@@ -82,6 +93,11 @@ public final class MacScreenDevicesSettings {
         }
 
         public struct Device: Encodable, Equatable, Sendable {
+            public struct ScreenAction: Encodable, Equatable, Sendable {
+                var kind: String
+                var title: String
+                var disabled: Bool
+            }
             public struct Confirm: Encodable, Equatable, Sendable {
                 var title: String
                 var body: String
@@ -99,10 +115,11 @@ public final class MacScreenDevicesSettings {
             var thisDevice: Bool
             var sharesText: String?
             var access: String?
+            var screenAction: ScreenAction?
             var removeConfirm: Confirm
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, screenAction, removeConfirm
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -118,6 +135,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(thisDevice, forKey: .thisDevice)
                 try c.encode(sharesText, forKey: .sharesText)
                 try c.encode(access, forKey: .access)
+                try c.encode(screenAction, forKey: .screenAction)
                 try c.encode(removeConfirm, forKey: .removeConfirm)
             }
         }
@@ -216,7 +234,7 @@ public final class MacScreenDevicesSettings {
     }
 
     public var state: State {
-        let labels = Labels.current
+        var labels = Labels.current
         guard box.configured else {
             return State(available: false, status: .init(text: L.t("devices.status.invalidHubAddress", "The Device Hub Address in Settings › Development is not a valid web address. Fix it, or clear it to use the built-in hub."), tone: "neutral"),
                          signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
@@ -226,6 +244,11 @@ public final class MacScreenDevicesSettings {
                 return State(available: true, status: .init(text: message, tone: "danger"), signIn: nil,
                              error: message, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
             }
+            if box.restoring || box.connecting {
+                // The saved sign-in is still restoring, or signed in with the hub still starting: not signed out.
+                return State(available: true, status: .init(text: L.t("macScreen.home.devicesLoading", "Loading your devices…"), tone: "neutral"),
+                             signIn: nil, error: nil, labels: labels, thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
+            }
             let signIn = canSignIn() ? L.t("devices.signIn", "Sign In to Your Devices") : nil
             let text = signIn == nil ? L.t("devices.status.signedOut", "Sign in to cmux to see your devices.")
                 : L.t("devices.status.removed", "This Mac left your devices.")
@@ -233,6 +256,12 @@ public final class MacScreenDevicesSettings {
                          thisDevice: nil, others: [], sharing: nil, relays: [], history: [])
         }
         let me = hub.identity.id
+        // Other Devices with no row: "sign in on your other Macs" only after a list read succeeded (ask-6a79af928f).
+        switch DeviceDiscovery.of(hub, shown: hub.otherDevices.count) {
+        case .list, .noDevices: break
+        case .finding: labels.noOthers = L.t("macScreen.home.devicesLoading", "Loading your devices…")
+        case let .failed(reason, detail): labels.noOthers = reason.words(detail: detail)
+        }
         let names = store.deviceNames.merging(hub.devices.map { ($0.id, $0.name) }) { _, listed in listed }
         let this = hub.thisDevice.map { device(for: $0, hub: hub, me: me) }
         let sharing = hub.thisDevice.map { _ in
@@ -250,9 +279,38 @@ public final class MacScreenDevicesSettings {
                         enabled: relay.enabled, priority: relay.priority, hasSecret: hub.relaySecret(relay.id) != nil,
                         checking: checking.contains(relay.id), check: checks[relay.id])
         }
-        return State(available: true, status: Self.status(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
+        return State(available: true, status: quietStatus(hub), signIn: nil, error: error ?? hubHost.lastError, labels: labels,
                      thisDevice: this, others: hub.otherDevices.map { device(for: $0, hub: hub, me: me) }, sharing: sharing,
                      relays: relays, history: hub.audit.map { Self.historyRow($0, names: names, me: me) })
+    }
+
+    /// ``status(_:)`` with the hub link's redial held back (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the f*** up"): the socket redials on its own, so "Connecting…" says
+    /// nothing for ``ScreenSession/reconnectNoticeDelay`` (10 s, the sidebar's and every reconnect
+    /// label's wait). Under it the last status that was not a redial stays (none on a first connect).
+    /// A link that will not redial (removed, replaced, signed out) is never held.
+    private func quietStatus(_ hub: DeviceHub) -> State.Status {
+        let redialing: Bool = if case .ready = hub.status { Self.redials(hub.connection) } else { false }
+        return quiet(Self.status(hub), redialing: redialing)
+    }
+
+    /// `status` as the card shows it now: while `redialing` is younger than its hold, the last settled one.
+    func quiet(_ status: State.Status, redialing: Bool) -> State.Status {
+        _ = linkRevealed
+        linkHold.update(redialing) { [weak self] in self?.linkRevealed &+= 1 }
+        guard redialing else {
+            settledStatus = status
+            return status
+        }
+        return linkHold.held ? settledStatus ?? State.Status(text: "", tone: "neutral") : status
+    }
+
+    /// A hub link state that ends without anyone acting: not up yet, coming up, or backing off to redial.
+    nonisolated static func redials(_ connection: DeviceHubSocket.State) -> Bool {
+        switch connection {
+        case .disconnected, .connecting, .reconnecting: true
+        case .connected, .replaced, .removed, .signedOut: false
+        }
     }
 
     static func status(_ hub: DeviceHub) -> State.Status {
@@ -289,10 +347,24 @@ public final class MacScreenDevicesSettings {
                                    body: L.t("devices.removeBody", "Its Mac Screen sessions end and it can no longer see or share screens. It comes back as a new device when it signs in again."),
                                    confirm: L.t("devices.removeConfirm", "Remove"))
         return State.Device(
-            id: device.id, name: device.name, platform: device.platform == .ios ? L.t("devices.platform.ios", "iPhone") : L.t("devices.platform.mac", "Mac"),
+            id: device.id, name: device.name, platform: Self.platformLabel(device.platform),
             fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
-            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue, removeConfirm: confirm)
+            access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue,
+            screenAction: device.hostsScreenThisMacViews
+                ? .init(kind: isMe ? "share" : "view", title: isMe ? L.t("devices.shareScreen", "Share") : L.t("devices.viewScreen", "View screen"), disabled: !isMe && !device.online)
+                : nil,
+            removeConfirm: confirm)
+    }
+
+    /// The device row's platform label (a device from before the hub sent a platform reads as a Mac).
+    nonisolated static func platformLabel(_ platform: DevicePlatform?) -> String {
+        switch platform {
+        case .ios: L.t("devices.platform.ios", "iPhone")
+        case .linux: L.t("devices.platform.linux", "Linux")
+        case .windows: L.t("devices.platform.windows", "Windows")
+        case .macos, nil: L.t("devices.platform.mac", "Mac")
+        }
     }
 
     nonisolated static func modeText(_ mode: RelayAuthMode) -> String {
@@ -415,7 +487,9 @@ public final class MacScreenDevicesSettings {
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
         case .expired: L.t("devices.history.expired", "No answer in time")
+        case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
+        case .moved: L.t("devices.history.moved", "Moved to another device")
         case .other: L.t("devices.history.other", "Ended")
         }
     }
@@ -473,6 +547,16 @@ public final class MacScreenDevicesSettings {
                 await share.refreshPermissions()
                 await hub.refreshAll()
                 await hub.refreshAudit()
+            case "openScreen":
+                guard let id = run.id, let device = hub.devices.first(where: { $0.id == id }) else {
+                    return RunResult(error: L.t("devices.error.gone", "That device is no longer in your devices."))
+                }
+                guard id != hub.identity.id, device.hostsScreenThisMacViews else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
+                guard device.online else { return RunResult(error: L.t("devices.error.offline", "That Mac is offline.")) }
+                openScreen(id)
+            case "shareThisMac":
+                guard run.id == hub.identity.id else { return RunResult(error: L.t("devices.error.invalidAction", "That action is not available for this device.")) }
+                shareThisMac()
             case "rename":
                 guard let id = run.id, let name = run.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
                     return RunResult(error: L.t("devices.error.name", "Enter a name."))
@@ -482,7 +566,10 @@ public final class MacScreenDevicesSettings {
             case "remove":
                 guard let id = run.id else { return RunResult(error: "id") }
                 let isMe = id == hub.identity.id
-                try await hub.removeDevice(id)
+                // Another Mac lists once for all its records (its builds, renewals): Remove takes them all.
+                for record in isMe ? [id] : hub.recordIDs(of: id) {
+                    try await hub.removeDevice(record)
+                }
                 if isMe { thisDeviceRemoved() }
             case "setAccess":
                 guard let id = run.id, let scope = run.scope.flatMap(MacScreenAccess.init(value:)) else {
@@ -490,7 +577,8 @@ public final class MacScreenDevicesSettings {
                 }
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
-                try await hubHost.setSharing(run.on ?? false)
+                if run.on == true { shareThisMac() }
+                else { try await hubHost.setSharing(false) }
             case "openPermission":
                 share.openSettings(screenRecording: run.id == "screenRecording")
             case "saveRelay":

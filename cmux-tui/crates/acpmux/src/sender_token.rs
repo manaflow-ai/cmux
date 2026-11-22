@@ -240,14 +240,14 @@ pub fn label(mut provenance: Value, matched: bool) -> Value {
         return provenance;
     }
     let field = |k: &str| provenance.get(k).and_then(Value::as_str);
-    if provenance.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool) == Some(true) {
+    if provenance.get(crate::provenance_keys::VERIFIED).and_then(Value::as_bool) == Some(true) {
         return provenance;
     }
-    let named = field("from") == Some(crate::prompt_provenance::NAMED_SENDER)
-        && matches!(field("kind"), Some("agent_message" | crate::prompt_provenance::NOTICE_KIND))
+    let named = field("from") == Some(crate::provenance_keys::NAMED_SENDER)
+        && matches!(field("kind"), Some("agent_message" | crate::provenance_keys::NOTICE_KIND))
         && field("fromName").is_some_and(|name| !name.trim().is_empty());
     if let (true, Some(fields)) = (named, provenance.as_object_mut()) {
-        fields.insert(crate::prompt_provenance::VERIFIED.into(), json!(true));
+        fields.insert(crate::provenance_keys::VERIFIED.into(), json!(true));
         fields.insert(VERIFIED_BY_KEY.into(), json!(VERIFIED_BY));
     }
     provenance
@@ -255,7 +255,7 @@ pub fn label(mut provenance: Value, matched: bool) -> Value {
 
 /// Whether a provenance's sender was verified by the host token ([`label`]).
 pub fn verified_by_token(provenance: &Value) -> bool {
-    provenance.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool) == Some(true)
+    provenance.get(crate::provenance_keys::VERIFIED).and_then(Value::as_bool) == Some(true)
         && provenance.get(VERIFIED_BY_KEY).and_then(Value::as_str) == Some(VERIFIED_BY)
 }
 

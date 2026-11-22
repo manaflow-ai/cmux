@@ -96,9 +96,12 @@ dropped and the attempt asks; any line that is not an answer is `bad_request` (6
 
 `carrier key --public` prints this device's carrier Noise static public key on stdout as
 one line of unpadded base64url (43 characters), the `carrier.noise_key` of a create
-request, and exits 0. It is the key dial and serve use: on a Mac the login Keychain item
-`com.cmuxterm.app.next.carrier-noise-key` (account `device`), made the same way when
-missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
+request, and exits 0. It is the key dial and serve use: on a Mac, for a Team-signed build,
+the login Keychain item `com.cmuxterm.app.next.carrier-noise-key` (account `device`, read
+with prompts off, so a locked or foreign item fails at once); for a build with no Team ID
+(an ad-hoc DEV build), never the Keychain but the 0600 file
+`~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`, one per
+build and tag. Either is made the same way when missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
 nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
 `bad_request` (64).
 
@@ -313,7 +316,7 @@ cmux daemon start [START OPTIONS]
 cmux daemon status [--session <name>] [--socket <path>]
 cmux daemon stats [--session <name>] [--socket <path>] [--json]
 cmux daemon stop [--session <name>] [--socket <path>] [--force] [--end-terminals]
-  [--restore-wait-seconds <n>]
+  [--if-idle] [--restore-wait-seconds <n>]
 cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
@@ -342,13 +345,42 @@ bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
-retried after the owner is ready. `server ensure` waits for a restoring
+retried after the owner is ready. `daemon stop --if-idle` stops the owner only
+while no other client is connected (the owner's own journal plugin aside) and
+no terminal is launching, adopting or running; otherwise it fails with
+`server.in_use` (exit 1; `details`: `clients`, each `client`, `name` and
+`kind`, and `terminals`, the live count), names them in the message and leaves
+the owner running. A client that connects meanwhile is refused, and no
+terminal may start between the check and the stop. An owner without
+`daemon-stop-if-idle-v1` (an older build) is left running: the stop fails with
+`server.if_idle_unsupported` (exit 4). `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. An owner at its connection limit refuses each new connection with a
+another. Its `status` is `started` only for an owner this call
+spawned, that announced itself on its ready pipe (Unix) and that answers with
+the pid this call spawned (a DEV build that runs the owner under its launcher
+checks only the announcement). When that owner lost the bind to a racing
+ensure's owner, or a successor replaced it, the owner that answers is reported
+as `running` (this call started none). An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an
-owner that refuses every connection for that long.
+owner that refuses every connection for that long. This is the explicit **Restart
+cmux-tui** action, including when healthy clients hold every connection: it closes
+their live connections. Terminal hosts survive and the new owner adopts them;
+clients must reconnect. To keep those connections, release an unused client and
+retry normal ensure instead.
+
+The refusal is emitted before reading any request, so neither `identify` nor
+`server-stats` can check a full owner's health through a new connection. The
+accept loop can keep refusing while request workers are wedged; conversely,
+healthy idle clients need not make progress or release a permit. CPU or I/O
+activity also does not prove those workers can serve requests. There is no
+reliable bounded progress signal in this protocol that distinguishes both cases,
+so explicit Restart retains recovery of a wedged full owner. Automatic ensure
+keeps reporting `server.busy` without replacing it. The
+`replace_unresponsive_owner` integration tests cover both healthy and wedged
+saturation and normal ensure adopting the original owner once capacity is available.
+
 `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
 extra page origins, a comma-separated list: the app passes every first-party page origin
@@ -741,13 +773,25 @@ agent report --terminal <selector> --state working|blocked|idle|ended|unknown --
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
+agent ls [--all] [--json]
+agent send [--no-wait] SESSION MESSAGE
+agent history SESSION [-n COUNT]
+agent search QUERY... [-n COUNT]
+agent resolve NAME|ID|LINK
+agent register NAME [--code CODE]
+agent open SESSION_ID
+agent open-tab SESSION_ID [--target PANE_OR_TAB]
+agent bg start [--cwd DIR] [--description TEXT] COMMAND
+agent bg list [--all]
+agent notices [SESSION] [--thread THREAD [--mark-read]]
+
 client list
 client <selector> show|detach
 client <selector> metadata set
 client <selector> sizing set|release
 client <selector> cell pixels set
 
-workspace list [--order session|personal] [--name <name>] [--cwd <path>]
+workspace list [--order session|personal] [--name <name>] [--cwd <path>] [--id <id,...>] [--tree]
 workspace create
 workspace create --worktree <name> [--repo <path>] [--base <revision>] [workspace create options]
 workspace <selector> show|rename|move|focus|close|run
@@ -1103,7 +1147,9 @@ for a file explorer: each candidate `git files` would rank folds into its
 first path component, a `directory` when paths sit below it or it is a
 submodule, else a `file`. Directories come first, then names
 case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
-and sets `truncated` when more exist.
+and sets `truncated` when more exist. A folder in no repository lists too, from
+one read of the folder on disk: its children only, names
+that start with `.` left out, a symlink a `file`.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 
@@ -1352,6 +1398,26 @@ takes `until` and `match` (an object of path to value) within its 60 s bound.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Agent sessions
+
+`cmux agent ls` lists named sessions on this host and its peers. Use a session
+name or `HOST/NAME` with `cmux agent history` to read its turns or with
+`cmux agent send` to message it. `cmux agent resolve` accepts a name, an ID or
+a session link.
+
+`cmux agent search "failing test"` finds prompts and replies in the session
+history on this host and its peers. Results include the session, host, UTC turn
+time ending in `Z`, and a one-line preview. Open a result by passing its session
+ID to `cmux agent open` or `cmux agent open-tab`. Include `--host HOST` for
+a session on a peer.
+
+From inside a session, `cmux agent bg start 'make test'` starts a background
+shell command owned by that session. `cmux agent bg list` shows its tasks.
+`cmux agent notices` shows the session's inbox threads. Pass a thread ID
+with `--thread` to read its messages.
+
+The engine, acpmux, also accepts its existing standalone commands.
 
 ## Agent list
 

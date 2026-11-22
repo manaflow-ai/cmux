@@ -1,0 +1,21 @@
+{
+  "title": "One settings area (David Beyer, 2026-11-20: Personalization and Settings are redundant, Settings is overwhelming): the profile menu, Settings' sidebar on General, Personalization… and Customize Appearance…, light and dark. Record it with: cmux-ci capture SHA --state tour:one-settings-area",
+  "settings": {},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "The profile menu", "rpc": {"method": "action.run", "params": {"action": "sidebar.profileMenu"}}, "wait": 1.5},
+    {"title": "Settings, General, light", "cmux": ["action", "run", "openSettings"], "wait": 4},
+    {"title": "Settings, General, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Personalization…, light", "cmux": ["action", "run", "appearance.personalize"], "wait": 3},
+    {"title": "Personalization…, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Customize Appearance…, light", "cmux": ["action", "run", "appearance.customize"], "wait": 3},
+    {"title": "Customize Appearance…, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

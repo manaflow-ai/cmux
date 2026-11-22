@@ -5,6 +5,7 @@
 //! this boundary, so a relay or a TLS terminator is never an authority.
 
 mod dial;
+pub mod hedge;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod iroh_config;
@@ -35,7 +36,8 @@ use crate::observability::TransportSnapshot;
 #[cfg(feature = "wireguard-transport")]
 pub use dial::WireGuardDialer;
 pub use dial::{
-    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, SocksDialer, resolve_dial_target,
+    DialedIo, DialedStream, Dialer, HubClientToken, OsTcpDialer, PER_ADDRESS_CONNECT_TIMEOUT,
+    SocksDialer, resolve_dial_target,
 };
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
@@ -49,8 +51,8 @@ pub use machine_pipe::{
     MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
 };
 pub use relay::{
-    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    RegistrationState, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
+    RelayDaemonRegistration, RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
     register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
     spawn_relay_daemon_registration,
 };
@@ -61,9 +63,10 @@ pub use ssh::{
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
+pub(crate) use websocket::DisplaySeconds;
 pub use websocket::{
-    AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
-    connect_websocket_via,
+    AxumWebSocketLink, DIRECT_DIAL_TIMEOUT, DirectWebSocketProvider, TungsteniteWebSocketLink,
+    connect_websocket, connect_websocket_via, connect_websocket_within,
 };
 
 /// Non-authoritative facts learned from the carrier.
@@ -309,8 +312,24 @@ impl ProviderError {
     /// Whether a provider failed because its current carrier path disappeared
     /// or could not be established. Configuration, authentication, and
     /// protocol failures remain terminal.
+    ///
+    /// A far refusal ([`LinkError::Refused`]) counts as retryable here, as it did before it had
+    /// a type: an established link keeps redialing through one (a far daemon restarting answers
+    /// `service.off` for a moment). Only a first connect ends on it, by asking [`Self::refusal`]
+    /// first.
     pub fn is_retryable_carrier_failure(&self) -> bool {
-        matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
+        matches!(
+            self,
+            Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+        )
+    }
+
+    /// The far side's refusal, when it refused the route for good ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Link(error) => error.refusal(),
+            _ => None,
+        }
     }
 }
 

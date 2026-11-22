@@ -61,6 +61,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: minimalDefault, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
+        result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
+        result.showAutomaticSessions = flag(root, showAutomaticSessionsPath, fallback: showAutomaticSessionsDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)
         result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: WorkspaceColorsSetting.indicatorStyleDefault, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: showLocalMachineDefault, &diagnostics)
@@ -79,6 +81,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
+        result.nav = SidebarNavResolver.parse(root, diagnostics: &diagnostics)
         return result
     }
 

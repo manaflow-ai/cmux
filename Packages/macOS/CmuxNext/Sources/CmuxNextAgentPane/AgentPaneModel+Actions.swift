@@ -22,6 +22,10 @@ extension AgentPaneModel {
     /// commandPlace.ts). It opens a tab, so it spends the person's gesture; its `handoff` is the page's
     /// one-time token, handed to the new tab's page unread (the page keeps what it names).
     static let cloudStartActions: Set<String> = ["palette.newCloudChat"]
+    /// The chat menu's Switch to Terminal on half of a terminal and chat pair (``AgentPaneHeaderHooks/switchesToTerminal``,
+    /// user 2026-11-20): the app's Toggle Terminal and Chat on this tab, the tab right-click's same row. It shows another
+    /// tab, so it spends the person's gesture.
+    static let terminalSwitchActions: Set<String> = ["palette.toggleTerminalChat"]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -42,7 +46,9 @@ extension AgentPaneModel {
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
+        let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
+            || Self.terminalSwitchActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -52,6 +58,7 @@ extension AgentPaneModel {
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
+        if screenShare, let session { arguments["session"] = session }
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         switch onRunAction(id, arguments) {

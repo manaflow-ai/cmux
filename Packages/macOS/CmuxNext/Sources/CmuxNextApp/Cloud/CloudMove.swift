@@ -48,6 +48,7 @@ struct CloudMove {
 
     static func hiddenMenuItems(_ record: AgentSessionRef?) -> Set<ActionID> {
         let back = CloudBringBack.hiddenMenuItems(record, movedChats: CloudMovedChats.app)
+            .union(CloudTransferLocal.hiddenMenuItems(record, movedChats: CloudMovedChats.app))
         guard let record, !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else { return back.union([action]) }
         return back
     }
@@ -186,6 +187,7 @@ struct CloudMove {
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
+        _ = await cli.startChatPreflight(local: folder.root) // the copy's estimate and decision (whole, first pass, seed) before any machine is picked or made; never refuses (cmux-tui sync_cli/estimate.rs)
         let machine = try await self.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
@@ -278,7 +280,7 @@ struct CloudMove {
               suffix: String = "") async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = Self.remote(folder, under: root, suffix: suffix)
+            let remote = folder.remote(under: root, suffix: suffix)
             do {
                 last = try await cli.seedPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -290,13 +292,6 @@ struct CloudMove {
             guard last.errorCode == "fs.permission_denied" else { break }
         }
         throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
-    }
-
-    /// `folder`'s place under `root` on a machine, its folder name ending in `suffix` (``sync``).
-    static func remote(_ folder: CloudMoveFolder, under root: String, suffix: String) -> (folder: String, chat: String) {
-        let remote = folder.remote(under: root)
-        guard !suffix.isEmpty else { return remote }
-        return (remote.folder + suffix, remote.folder + suffix + String(remote.chat.dropFirst(remote.folder.count)))
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -355,14 +350,9 @@ struct CloudMove {
         let up = await session.linkUp(within: CloudStartSession.connectWait)
         if let failure = session.resumeFailure { throw Failure(message: failure, retry: .move(machineID: session.machineID)) }
         guard up, session.daemon.connection != nil, AgentTabStore.registryHost(of: session.daemon) != nil else {
-            throw Failure(message: notConnected(session), retry: .move(machineID: session.machineID))
+            throw Failure(message: CloudMoveStrings.notConnected(session.machine.title, because: session.linkEnded == nil ? nil : session.linkRefusal.reason), retry: .move(machineID: session.machineID))
         }
         return session
-    }
-
-    /// Why `session` did not connect, in the person's words.
-    static func notConnected(_ session: CloudMachineSession) -> String {
-        CloudMoveStrings.notConnected(session.machine.title)
     }
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
@@ -388,7 +378,7 @@ struct CloudMove {
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.
     static func movedName(_ workspace: WorkspaceModel?, folder: String) -> String? {
-        workspace?.kind == SidebarMapping.homeKind ? URL(fileURLWithPath: folder).lastPathComponent : workspace?.name
+        workspace?.kind == SidebarMapping.homeKind ? (folder as NSString).lastPathComponent : workspace?.name
     }
 
     private func toast(_ id: String, _ message: String, duration: Duration, retry: (@MainActor () -> Void)? = nil) { Self.toast(services, id, message, duration: duration, retry: retry) }

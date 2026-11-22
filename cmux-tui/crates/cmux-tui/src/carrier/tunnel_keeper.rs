@@ -75,8 +75,9 @@ pub(crate) enum KeeperEvent {
     Started,
     /// Its tunnel is up: the hub serves the socket.
     Ready,
-    /// It ended by itself, with its final status.
-    Ended(TunnelStatus),
+    /// It ended by itself, with its final status and the team it asked for
+    /// (a "no mesh" is that team's answer).
+    Ended(TunnelStatus, String),
     /// It was stopped: `left` (no longer joined) or `signed_out`.
     Stopped(&'static str),
     /// The wait before the next start.
@@ -215,7 +216,7 @@ impl Keeper {
                         TunnelStatus::Unavailable(_) => self.timing.unavailable_wait,
                         _ => self.restart_delay(restarts),
                     };
-                    self.emit(KeeperEvent::Ended(status));
+                    self.emit(KeeperEvent::Ended(status, joined.team.clone()));
                     if self.wait_unless_rejoined(delay, &joined).await {
                         restarts = 0;
                     }

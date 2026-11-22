@@ -18,6 +18,7 @@ use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::library::keys::{self, KEYBINDINGS};
 use crate::redact::{self, find_secret};
 use crate::tree::{self, Part, SETTINGS};
 use crate::{Begun, Customize, Error, validate};
@@ -80,6 +81,29 @@ impl Customize {
                 "{name:?}: a profile name is lowercase letters, digits, '-' and '_' (like \"compact-night\")"
             )));
         }
+        let (profile, left_out) = self.shareable_profile(name, description, now_ms)?;
+        let path = self.roots().profiles_dir().join(format!("{name}.json"));
+        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
+        text.push('\n');
+        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
+        Ok(Saved {
+            name: name.to_owned(),
+            path,
+            settings: profile.settings.len(),
+            files: profile.files.keys().cloned().collect(),
+            left_out,
+        })
+    }
+
+    /// What is live now as a profile to share, and what was left out of it
+    /// (one line each). The live tree must validate, as for an apply. What
+    /// `save` writes and `cmux setup export` puts in a setup repo.
+    pub(crate) fn shareable_profile(
+        &self,
+        name: &str,
+        description: &str,
+        now_ms: u64,
+    ) -> Result<(Profile, Vec<String>), Error> {
         let scan = tree::scan(self.roots())?;
         let mut live = BTreeMap::new();
         for path in scan.tree.keys() {
@@ -87,7 +111,13 @@ impl Customize {
                 live.insert(path.clone(), bytes);
             }
         }
-        let problems = validate::problems(&live);
+        let all = validate::problems(&live);
+        // A value the schema refuses in the person's own settings does not
+        // stop a save: that key is left out of the profile (and said so),
+        // since no one could use a profile that carries it.
+        let refused: Vec<String> =
+            all.iter().filter_map(validate::Problem::refused_setting).map(str::to_owned).collect();
+        let problems = validate::introduced(all.clone(), &all);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -122,6 +152,13 @@ impl Customize {
                     let (settings, credentials, private) =
                         shareable_settings(&String::from_utf8_lossy(bytes));
                     profile.settings = settings;
+                    for key in &refused {
+                        if profile.settings.remove(key).is_some() {
+                            left_out.push(format!(
+                                "the setting {key}: its value is one this setting does not accept"
+                            ));
+                        }
+                    }
                     for key in credentials {
                         left_out.push(format!(
                             "the setting {key}: its value carries a credential (a user, password or token)"
@@ -164,17 +201,7 @@ impl Customize {
                 ));
             }
         }
-        let path = self.roots().profiles_dir().join(format!("{name}.json"));
-        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
-        text.push('\n');
-        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
-        Ok(Saved {
-            name: name.to_owned(),
-            path,
-            settings: profile.settings.len(),
-            files: profile.files.keys().cloned().collect(),
-            left_out,
-        })
+        Ok((profile, left_out))
     }
 
     /// The saved profiles, by name.
@@ -211,6 +238,12 @@ impl Customize {
         } else {
             PathBuf::from(source)
         };
+        if path.file_name().is_some_and(|name| name == crate::setup::SETUP_FILE) {
+            return crate::setup::read_dir(
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map(|setup| setup.profile);
+        }
         read_profile(&path)
     }
 
@@ -239,12 +272,15 @@ impl Customize {
             if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
                 // The key says where to look; the refused value (which may be
                 // a credential under the wrong key) stays in the file.
-                return Err(Error::Profile(format!(
-                    "the profile's value for {key} is not one that setting accepts"
-                )));
+                let message = if key == "workspaceColors.indicatorStyle" {
+                    "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                } else {
+                    format!("the profile's value for {key} is not one that setting accepts")
+                };
+                return Err(Error::Profile(message));
             }
         }
-        for path in profile.files.keys() {
+        for (path, text) in &profile.files {
             // Only a path the scan reads: anything else (a dot file like
             // `customize/.env`) would be overwritten with no generation
             // holding what was there.
@@ -252,6 +288,11 @@ impl Customize {
                 && !matches!(Part::of(path), Part::Settings | Part::Automations);
             if !owned {
                 return Err(Error::Profile(format!("{path}: a profile may not write there")));
+            }
+            if path == KEYBINDINGS && !keys::readable(text) {
+                return Err(Error::Profile(format!(
+                    "{path} in the profile is not a list of bindings ([{{ \"key\": ..., \"command\": ... }}])"
+                )));
             }
             // A name that reads as something else is refused by position,
             // never shown: the path would carry the hidden character.
@@ -309,6 +350,24 @@ impl Customize {
             .iter()
             .map(|(path, text)| (path.clone(), text.as_bytes().to_vec()))
             .collect();
+        // A profile's shortcuts are bindings to add, as its settings are keys
+        // to set: they go into the file you have, which keeps your own.
+        if let Some(text) = profile.files.get(KEYBINDINGS) {
+            let live = tree::read(self.roots(), KEYBINDINGS)?
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            let merged =
+                keys::compose(live.as_deref(), &keys::winners(std::iter::once(text.as_str())))
+                    .map_err(|_| {
+                        Error::Profile(
+                            "your keybindings.json is not a list of bindings; fix its syntax first"
+                                .to_owned(),
+                        )
+                    })?;
+            match merged {
+                Some(merged) => files.insert(KEYBINDINGS.to_owned(), merged.into_bytes()),
+                None => files.remove(KEYBINDINGS),
+            };
+        }
         let settings_text = if profile.settings.is_empty() {
             None
         } else {
@@ -354,6 +413,19 @@ impl Customize {
             .into_iter()
             .filter(|problem| files.contains_key(&problem.path))
             .collect();
+        // What the person's own files already hold that the schema refuses
+        // (a value an older build wrote) is theirs and stays as written; only
+        // what this profile brings stops it. "Already" is what the apply
+        // after this will judge by, so a preview never writes what its apply
+        // then refuses: with no preview open, the live files (the begin below
+        // records them as a generation); with one open, the applied
+        // generation (the open preview's edits are not the person's yet).
+        let before = if self.store().draft()?.is_some() {
+            self.settings_problems_in(&self.current_tree(&self.store().index()?)?)?
+        } else {
+            self.live_problems(files.keys())?
+        };
+        let problems = validate::introduced(problems, &before);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }
@@ -363,6 +435,15 @@ impl Customize {
         let label = format!("the preview before the profile {}", profile.name);
         self.keep_draft_locked(&label, origin, now_ms)?;
         let begun = self.begin_locked(&format!("profile {}", profile.name), origin, now_ms)?;
+        // The library entry this becomes says what the profile says it is.
+        let description = profile.description.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !description.is_empty()
+            && let Some(mut draft) = self.store().draft()?
+            && let Some(ask) = draft.asks.last_mut()
+        {
+            ask.description = Some(description);
+            self.store().put_draft(Some(&draft))?;
+        }
         let manifest_last = |path: &String| path.starts_with("customize/cmux-app");
         for (path, bytes) in
             files.iter().filter(|(path, _)| !manifest_last(path) && *path != SETTINGS)
@@ -414,16 +495,26 @@ pub(crate) fn shareable_settings(text: &str) -> (BTreeMap<String, Value>, Vec<St
 fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| Error::Profile(format!("{}: {error}", path.display())))?;
-    // Where it stops reading, never what it read there: the parser's own
-    // message quotes the value it did not expect.
-    serde_json::from_str::<Profile>(&text).map_err(|error| {
+    // Parse errors never quote a value, which might contain credentials.
+    let invalid = |error: serde_json::Error| {
         Error::Profile(format!(
             "{}: not a cmux profile (line {}, column {})",
             path.display(),
             error.line(),
             error.column()
         ))
-    })
+    };
+    let original_error = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => return Ok(profile),
+        Err(error) => error,
+    };
+    let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+    crate::file_refs::resolve(
+        &mut value,
+        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+    )
+    .map_err(Error::Profile)?;
+    serde_json::from_value(value).map_err(|_| invalid(original_error))
 }
 
 #[cfg(test)]

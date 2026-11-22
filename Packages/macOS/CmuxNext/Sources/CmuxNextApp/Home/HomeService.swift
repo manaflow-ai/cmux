@@ -64,7 +64,7 @@ final class HomeService {
         // The default Chief is this Mac's while its brain runs, so a brain that
         // just started or died re-runs the Chief tab check (HomeService+ChiefRoster).
         hostChanged: { [weak self] _ in self?.localChiefHostChanged() })
-    @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
+    @ObservationIgnored private(set) var sessions = HomeLiveSessions() // shown + unconfirmed + 8 used last
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
@@ -78,15 +78,14 @@ final class HomeService {
     @ObservationIgnored var activationObserver: (any NSObjectProtocol)?
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
-    /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
-    /// show the new home workspace before its kind row, so launch waits for
-    /// the answer before it decides on a first workspace (`needsFirstWorkspace`).
-    var homeEnsureInFlight = false
-    /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
-    @ObservationIgnored var homeEnsureGeneration = 0
+    /// Its `ensure_home` requests: in flight, answered, and whether the launch waits for Home (`HomeEnsureState`).
+    @ObservationIgnored let ensure = HomeEnsureState()
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The last step the Chief tab's setup reached, beside the home workspace's (``HomeChiefTabStep``).
+    @ObservationIgnored var chiefTabStep = HomeChiefTabStep.notStarted
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent
@@ -135,7 +134,7 @@ final class HomeService {
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
     /// nil when the bundle lacks the script: fences stay text.
     @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
-    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { HomeAgentStarts(peers: AgentLaneStore.chief.chiefSubagentPeers, startedAt: AgentLaneStore.chief.chiefSubagentStarts) })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
@@ -278,12 +277,12 @@ final class HomeService {
                 // after a stop: start the host now if it does not run.
                 if homeWasOpened { homeDidOpen(asked: false) }
                 // The Chief tab may wait on this owner (a local Chief with history
-                // takes it back from a placed chief): check it again now.
-                if let local = services.machines.local.connection,
+                // takes it back from a placed chief): check it again now, unless the running ensure waits for this owner (CMUX-571).
+                if let local = services.machines.local.connection, !ensureOwner.follows(current: ensure.generation, connected: connection),
                    services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
                     ensureHomeWorkspace(local)
                 }
-                for session in sessions.values {
+                for session in sessions.trimmed() {
                     session.load(from: connection) { [weak self, weak session] in
                         guard let self, let session else { return }
                         for send in session.log.resendable { submit(send, in: session) }
@@ -313,11 +312,11 @@ final class HomeService {
         brain.ensure(asked: asked)
     }
 
-    /// The open session for `conversation`, loaded on first use.
+    /// The open session for `conversation`, loaded on first use and again once it left the live set.
     func session(_ conversation: String) -> HomeConversationSession {
-        if let session = sessions[conversation] { return session }
+        if let session = sessions.use(conversation) { return session }
         let session = HomeConversationSession(id: conversation)
-        sessions[conversation] = session
+        sessions.insert(session, for: conversation)
         if let connection { session.load(from: connection) }
         return session
     }
@@ -423,7 +422,7 @@ final class HomeService {
     }
 
     func retry(_ clientMsgID: String, in conversation: String) {
-        guard let session = sessions[conversation], let send = session.retry(clientMsgID) else { return }
+        guard let session = sessions.use(conversation), let send = session.retry(clientMsgID) else { return }
         submit(send, in: session)
     }
 

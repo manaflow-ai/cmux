@@ -10,6 +10,9 @@ public import AppKit
 /// 12114: "do not have extra bg").
 /// Pages read `pageValue`, the setting itself: WebKit draws legacy bars for
 /// "Always", which the shared web rules (webviews/src/scrollers.ts) thin.
+/// The app pins the setting to "When scrolling" at launch (``ScrollerStylePin``), so AppKit makes
+/// every scroll view overlay, a view that never calls `follow(_:)` included, also with a mouse
+/// attached; `follow(_:)` stays for the thin scroller and for a process without the pin (tests).
 /// The setting is tracked live through
 /// `NSScroller.preferredScrollerStyleDidChangeNotification` (one observer,
 /// no polling).
@@ -89,6 +92,8 @@ public struct SystemScrollers {
     private static func startObserving() {
         guard notifications == nil else { return }
         // task-owner: process lifetime (one observer for every scroll view); event-driven.
+        // A turn after AppKit's own reset: an ``OverlayScrollView`` never takes that reset, so this
+        // only puts back the scroll views that are not one (a SwiftUI ScrollView's).
         notifications = Task { @MainActor in
             for await _ in NotificationCenter.default.notifications(named: NSScroller.preferredScrollerStyleDidChangeNotification) {
                 systemStyleDidChange()
@@ -116,6 +121,26 @@ public struct SystemScrollers {
     }
 }
 
+
+/// The scroll view of every native NEXT surface: its style is pinned to ``SystemScrollers/nativeStyle``.
+///
+/// AppKit resets a scroll view to the system's style when `NSScroller.preferredScrollerStyle` changes,
+/// and that changes whenever a pointing device comes or goes: a mouse plugged in, or Universal
+/// Control's shared mouse leaving and returning (Leo 2026-11-15: "there's some crazy sort of layout
+/// shift on teh sidebar when i move my mouse over to another display/desktop maybe?"). A legacy style
+/// reserves the scroller's width in the clip, so every row narrowed by it and widened back. Putting
+/// the style back from an observer of the notification came after AppKit's reset, so at least one
+/// frame drew the narrow layout. The setter here
+/// takes no other style, AppKit's reset included, so the clip's width never depends on the setting
+/// (the terminal's scroller pins it the same way in its own override). Detectors: `OverlayScrollViewTests` and
+/// `scripts/cmux-next/check-scrollbars.sh` (rule `scroll-view`: a NEXT scroll view is one of these).
+@MainActor
+open class OverlayScrollView: NSScrollView {
+    override open var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = SystemScrollers.nativeStyle }
+    }
+}
 
 /// AppKit's scroller with names on its arrow and page parts. A stock scroller's parts are buttons
 /// with a subrole and nothing else, which an accessibility client that reads names sees as
@@ -159,17 +184,17 @@ struct ScrollerPartNames {
     static func name(for subrole: NSAccessibility.Subrole, vertical: Bool) -> String? {
         switch subrole {
         case .incrementPage:
-            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .module)
-                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .localizedModule)
         case .decrementPage:
-            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .module)
-                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .localizedModule)
         case .incrementArrow:
-            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .module)
-                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .localizedModule)
         case .decrementArrow:
-            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .module)
-                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .localizedModule)
         default: nil
         }
     }

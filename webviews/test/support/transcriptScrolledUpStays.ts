@@ -32,6 +32,7 @@ import { chromium, webkit, type Browser, type BrowserContext, type BrowserType, 
 import { installPaintedFrames } from "./paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./requireBrowserLane";
 import { warmViteServer } from "./warmDevServer";
+import { JUMP_LATEST_SHOWN } from "../../src/agent-session/acpmux/transcriptSelectors";
 
 type Probe = Window & {
   __showRowsSync(rows: unknown[]): void;
@@ -319,7 +320,7 @@ export async function scrolledUpStays({ file, engine, cases, configFile }: Scrol
         return "end-key";
       },
       "Jump to latest": async (page) => {
-        await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").click();
+        await page.locator(JUMP_LATEST_SHOWN).click();
         return "jump";
       },
       "a send": async (page) => {

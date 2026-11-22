@@ -55,6 +55,7 @@
     Icon: () => Icon,
     Image: () => Image,
     LazyVStack: () => LazyVStack,
+    Line: () => Line,
     Menu: () => Menu,
     Panel: () => Panel,
     ProgressView: () => ProgressView,
@@ -69,7 +70,9 @@
     Toggle: () => Toggle,
     VStack: () => VStack,
     ViewNode: () => ViewNode,
-    ZStack: () => ZStack
+    ZStack: () => ZStack,
+    linearGradient: () => linearGradient,
+    radialGradient: () => radialGradient
   });
   var currentComputation = null;
   var currentOwner = null;
@@ -240,6 +243,7 @@
     timers: new Map,
     app: { id: "", version: "" },
     context: null,
+    mount: null,
     apiVersion: "0.0.0",
     allowedOps: null,
     knownOps: null,
@@ -625,6 +629,9 @@
     monospaced() {
       return this.set("monospaced", true);
     }
+    fontDesign(v) {
+      return this.set("fontDesign", v);
+    }
     color(v) {
       return this.set("color", v);
     }
@@ -639,6 +646,9 @@
     }
     truncation(v) {
       return this.set("truncation", v);
+    }
+    strikethrough(v = true) {
+      return this.set("strikethrough", v);
     }
     marquee(delaySeconds = 0.5) {
       return this.set("marquee", delaySeconds);
@@ -670,6 +680,9 @@
     hoverBackground(v) {
       return this.set("hoverBackground", v);
     }
+    glass(level = "popover") {
+      return this.set("glass", level);
+    }
     cornerRadius(v) {
       return this.set("cornerRadius", v);
     }
@@ -697,11 +710,29 @@
     rotation(degrees) {
       return this.set("rotation", degrees);
     }
+    rotationEffect(degrees) {
+      return this.set("rotation", degrees);
+    }
+    offset(v) {
+      return this.set("offset", v);
+    }
+    position(v) {
+      return this.set("position", v);
+    }
     cursor(v) {
       return this.set("cursor", v);
     }
     help(v) {
       return this.set("help", v);
+    }
+    transition(v) {
+      return this.set("transition", v);
+    }
+    contentTransition(v) {
+      return this.set("contentTransition", v);
+    }
+    animation(v = "smooth") {
+      return this.set("animation", v);
     }
     fixed() {
       return this.set("fixed", true);
@@ -720,6 +751,36 @@
       this.menu = items;
       return this;
     }
+    symbolRendering(mode, colors) {
+      if (!SYMBOL_RENDERINGS.includes(mode))
+        throw new TypeError(`symbolRendering: unknown mode ${JSON.stringify(mode)}`);
+      this.set("symbolRendering", mode);
+      if (colors === undefined)
+        return this;
+      if (!Array.isArray(colors) || colors.length < 1 || colors.length > 3 || !colors.every(isSceneColor))
+        throw new TypeError(`symbolRendering: colors must be 1 to 3 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+      return this.set("symbolColors", [...colors]);
+    }
+  }
+  var SCENE_COLOR_TOKENS = ["primary", "secondary", "tertiary", "accent", "separator", "success", "warning", "danger", "hover", "selected", "badge", "clear"];
+  var HEX_COLOR = /^#[\da-f]{6}([\da-f]{2})?$/i;
+  var isSceneColor = (value) => typeof value === "string" && (SCENE_COLOR_TOKENS.includes(value) || HEX_COLOR.test(value));
+  var SYMBOL_RENDERINGS = ["monochrome", "hierarchical", "palette", "multicolor"];
+  function gradientStops(name, colors) {
+    if (!Array.isArray(colors) || colors.length < 2 || colors.length > 8 || !colors.every(isSceneColor))
+      throw new TypeError(`${name}: colors must be 2 to 8 color tokens or #RRGGBB[AA], got ${JSON.stringify(colors)}`);
+    return [...colors];
+  }
+  function linearGradient(colors, angle) {
+    const stops = gradientStops("linearGradient", colors);
+    if (angle === undefined)
+      return { linear: { colors: stops } };
+    if (typeof angle !== "number" || !Number.isFinite(angle))
+      throw new TypeError("linearGradient: angle must be a finite number of degrees");
+    return { linear: { colors: stops, angle } };
+  }
+  function radialGradient(colors) {
+    return { radial: { colors: gradientStops("radialGradient", colors) } };
   }
   var clean = (children) => children.filter((c) => !!c);
   function container(type) {
@@ -737,6 +798,15 @@
   var LazyVStack = container("LazyVStack");
   var Group = container("Group");
   function Text(text) {
+    if (text !== null && typeof text === "object") {
+      const node = new ViewNode("Text");
+      node.props.text = "";
+      node.props.date = text.date;
+      node.props.dateStyle = text.style ?? "time";
+      if (text.timeZone !== undefined)
+        node.props.timeZone = text.timeZone;
+      return node;
+    }
     const node = new ViewNode("Text");
     node.props.text = typeof text === "function" ? () => String(text() ?? "") : String(text ?? "");
     return node;
@@ -772,6 +842,7 @@
   var Circle = (props = {}) => new ViewNode("Circle").withProps(props);
   var Capsule = (props = {}) => new ViewNode("Capsule").withProps(props);
   var Rectangle = (props = {}) => new ViewNode("Rectangle").withProps(props);
+  var Line = (props = {}) => new ViewNode("Line").withProps(props);
   var RoundedRectangle = (props = {}) => new ViewNode("RoundedRectangle").withProps(props);
   function ProgressView(value) {
     const node = new ViewNode("ProgressView");
@@ -1039,7 +1110,12 @@
           } else {
             const owner = createOwner();
             const [read, write] = signal(item, { equals: () => false });
-            const nodeId = runWithOwner(owner, () => build(m, template(read, key), depth + 1));
+            const nodeId = runWithOwner(owner, () => {
+              const child = template(read, key);
+              if (view.type === "Reorderable" && spec.onMove)
+                child.props.reorderKey = key;
+              return build(m, child, depth + 1);
+            });
             next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId });
           }
           nextOrder.push(key);
@@ -1527,7 +1603,7 @@
         body: null
       });
       if (r.status < 200 || r.status >= 300)
-        throw new CmuxError("upstream.failed", `GitHub answered ${r.status}`, { status: r.status }, r.status === 403 || r.status === 429 || r.status >= 500);
+        throw publicFailure(r.status);
       return JSON.parse(r.body || "{}").items ?? [];
     };
     const byId = new Map;
@@ -1547,7 +1623,260 @@
     }
     return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  var READERS = { "github.pulls": githubPulls };
+  var ETAGS = new Map;
+  var ETAG_CAP = 256;
+  function keep(path, etag, body, at) {
+    ETAGS.delete(path);
+    ETAGS.set(path, { etag, body, at });
+    while (ETAGS.size > ETAG_CAP)
+      ETAGS.delete(ETAGS.keys().next().value);
+  }
+  var PUBLIC_LIST_AGE_MS = 300000;
+  var PUBLIC_DETAIL_AGE_MS = 900000;
+  var PUBLIC_ROWS = 5;
+  var NO_GATEWAY = new Set(["integration.unavailable", "integration.not_connected", "scope.missing", "operation.unsupported", "op.unknown", "method.not_found"]);
+  var SANDBOXED = "This extension runs sandboxed, with no network. To let it read GitHub, turn off Run sandboxed in the App Store: Installed, Permissions.";
+  function isSandboxed(e) {
+    return e instanceof CmuxError && e.code === "scope.missing" && /sandboxed/i.test(e.message);
+  }
+  function publicFailure(status) {
+    const limited = status === 403 || status === 429;
+    return new CmuxError("upstream.failed", limited ? "GitHub's public API limit for this network is used up; it resets within the hour. Sign in to GitHub (gh auth login) to read without it." : `GitHub answered ${status}`, { status, ...limited ? { limit: "public" } : {} }, limited || status >= 500);
+  }
+  function githubGetter(call, signalName) {
+    let viaGateway = true;
+    let gatewayError = null;
+    const refused = (netError) => {
+      if (gatewayError instanceof CmuxError && gatewayError.retryable)
+        return gatewayError;
+      const code = codeOf(gatewayError);
+      return new CmuxError(code === "scope.missing" ? "scope.missing" : "integration.unavailable", isSandboxed(gatewayError) || isSandboxed(netError) ? SANDBOXED : "Sign in to GitHub (gh auth login), or set a GitHub login for public repositories.", { signal: signalName, gateway: code, sandboxed: isSandboxed(gatewayError) || isSandboxed(netError) }, code !== "scope.missing");
+    };
+    const get = async (path) => {
+      if (viaGateway) {
+        try {
+          return await call("integration.request", { provider: "github", method: "GET", path });
+        } catch (e) {
+          if (!NO_GATEWAY.has(codeOf(e)))
+            throw e;
+          viaGateway = false;
+          gatewayError = e;
+        }
+      }
+      if (path.includes("%40me"))
+        throw refused();
+      const known = ETAGS.get(path);
+      const now = Date.now();
+      const age = path.startsWith("/search/") || /\/pulls\?/.test(path) ? PUBLIC_LIST_AGE_MS : PUBLIC_DETAIL_AGE_MS;
+      if (known && now - known.at < age)
+        return known.body;
+      let r;
+      try {
+        r = await call("net.fetch", {
+          url: `https://api.github.com${path}`,
+          method: "GET",
+          headers: { Accept: "application/vnd.github+json", ...known?.etag ? { "If-None-Match": known.etag } : {} },
+          body: null
+        });
+      } catch (e) {
+        if (e instanceof CmuxError && e.code === "scope.missing")
+          throw refused(e);
+        throw e;
+      }
+      if (r.status === 304 && known?.etag) {
+        keep(path, known.etag, known.body, now);
+        return known.body;
+      }
+      if (r.status < 200 || r.status >= 300)
+        throw publicFailure(r.status);
+      const body = JSON.parse(r.body || "null");
+      const etag = Object.entries(r.headers ?? {}).find(([k]) => k.toLowerCase() === "etag")?.[1];
+      keep(path, etag ?? "", body, now);
+      return body;
+    };
+    return { get, onGateway: () => viaGateway };
+  }
+  async function pool(items, n, job) {
+    const out = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await job(items[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+    return out;
+  }
+  var FAILED = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"]);
+  function rollup(runs, statuses) {
+    let failing = 0;
+    let pending = 0;
+    let passing = 0;
+    for (const r of runs) {
+      if (r.status !== "completed")
+        pending++;
+      else if (FAILED.has(String(r.conclusion)))
+        failing++;
+      else
+        passing++;
+    }
+    for (const s of statuses) {
+      if (s.state === "failure" || s.state === "error")
+        failing++;
+      else if (s.state === "pending")
+        pending++;
+      else if (s.state === "success")
+        passing++;
+    }
+    const state = failing ? "failing" : pending ? "pending" : passing ? "passing" : "none";
+    return { state, failing, pending, passing };
+  }
+  function decision(reviews, requested) {
+    const latest = new Map;
+    let commented = false;
+    for (const r of reviews) {
+      const who = String(r.user?.login ?? "");
+      const s = String(r.state ?? "");
+      if (s === "COMMENTED")
+        commented = true;
+      else if (s === "DISMISSED")
+        latest.delete(who);
+      else if (s === "APPROVED" || s === "CHANGES_REQUESTED")
+        latest.set(who, s);
+    }
+    const states = [...latest.values()];
+    if (states.includes("CHANGES_REQUESTED"))
+      return "changes-requested";
+    if (states.includes("APPROVED"))
+      return "approved";
+    if (requested > 0)
+      return "review-required";
+    return commented ? "commented" : "none";
+  }
+  function searchQuery(params, who) {
+    const show = params.show ?? "mine";
+    const parts = ["is:pr"];
+    if (params.include !== "open-and-merged")
+      parts.push("is:open");
+    if (params.repo)
+      parts.push(`repo:${params.repo}`);
+    if (show === "mine")
+      parts.push(`author:${who}`);
+    else if (show === "mentions")
+      parts.push(`mentions:${who}`);
+    else if (show === "review-requested")
+      parts.push(`review-requested:${who}`);
+    else if (show === "search")
+      parts.push(String(params.query ?? "").replace(/\bis:pr\b/g, "").trim());
+    return parts.filter(Boolean).join(" ");
+  }
+  async function githubChanges(params, call) {
+    const show = params.show ?? "mine";
+    const limit = typeof params.limit === "number" ? params.limit : 10;
+    const login = typeof params.login === "string" ? params.login.trim() : "";
+    const gh = githubGetter(call, "github.changes");
+    const merged = params.include === "open-and-merged";
+    const wanted = (p) => p.state === "open" || merged && !!p.merged_at;
+    let refs;
+    if (show === "branch") {
+      if (!params.repo || !params.branch)
+        throw new CmuxError("signal.params", "github.changes: show: branch needs repo and branch", { signal: "github.changes" });
+      const owner = String(params.repo).split("/")[0];
+      const state = params.include === "open-and-merged" ? "all" : "open";
+      const head = encodeURIComponent(`${owner}:${params.branch}`);
+      const pulls = await gh.get(`/repos/${params.repo}/pulls?head=${head}&state=${state}&per_page=${limit}`);
+      refs = (pulls ?? []).filter(wanted).map((p) => ({ repo: String(params.repo), number: Number(p.number) }));
+    } else {
+      if (show === "search" && !String(params.query ?? "").trim())
+        throw new CmuxError("signal.params", "github.changes: show: search needs query", { signal: "github.changes" });
+      const path = (who) => `/search/issues?q=${encodeURIComponent(searchQuery(params, who))}&sort=updated&order=desc&per_page=${limit}`;
+      let found;
+      try {
+        found = await gh.get(path("@me"));
+      } catch (e) {
+        if (gh.onGateway() || !login)
+          throw e;
+        found = await gh.get(path(login || "@me"));
+      }
+      refs = (found?.items ?? []).filter((i) => wanted({ state: i.state, merged_at: i.pull_request?.merged_at })).map((i) => ({ repo: repoOf(i.repository_url), number: Number(i.number) }));
+    }
+    const signedIn = gh.onGateway();
+    const rows = await pool(refs.slice(0, signedIn ? limit : Math.min(limit, PUBLIC_ROWS)), 4, async ({ repo, number }) => {
+      const p = await gh.get(`/repos/${repo}/pulls/${number}`);
+      const state = p.merged_at ? "merged" : p.state === "closed" ? "closed" : "open";
+      const sha = String(p.head?.sha ?? "");
+      let checks = { state: "none", failing: 0, pending: 0, passing: 0 };
+      let review = "none";
+      if (state === "open" && sha) {
+        const part = async (path) => {
+          try {
+            return await gh.get(path);
+          } catch (e) {
+            if (e instanceof CmuxError && e.retryable)
+              throw e;
+            return null;
+          }
+        };
+        const runs = await part(`/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100`);
+        const status = signedIn ? await part(`/repos/${repo}/commits/${sha}/status`) : null;
+        checks = rollup(runs?.check_runs ?? [], status?.statuses ?? []);
+        const requested = (p.requested_reviewers?.length ?? 0) + (p.requested_teams?.length ?? 0);
+        const reviews = signedIn ? await part(`/repos/${repo}/pulls/${number}/reviews?per_page=100`) : null;
+        review = decision(reviews ?? [], requested);
+      }
+      return {
+        id: Number(p.id),
+        number,
+        title: String(p.title ?? ""),
+        url: String(p.html_url ?? ""),
+        repo,
+        author: String(p.user?.login ?? ""),
+        draft: !!p.draft,
+        state,
+        headRef: String(p.head?.ref ?? ""),
+        headSha: sha,
+        additions: Number(p.additions ?? 0),
+        deletions: Number(p.deletions ?? 0),
+        checks,
+        review,
+        updatedAt: String(p.updated_at ?? "")
+      };
+    });
+    return rows.filter((r) => r.state === "open" || merged && r.state === "merged").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  async function httpJson(params, call) {
+    const url = String(params.url ?? "");
+    const r = await call("net.fetch", {
+      url,
+      method: "GET",
+      headers: {},
+      body: null,
+      cache: "shared"
+    });
+    const host = () => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return url;
+      }
+    };
+    const retryable = (status) => status === 408 || status === 429 || status >= 500;
+    const failed = r.cache?.failed;
+    if (failed) {
+      const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`;
+      throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status));
+    }
+    if (r.status < 200 || r.status >= 300) {
+      throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status));
+    }
+    try {
+      return JSON.parse(r.body ?? "");
+    } catch {
+      throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true);
+    }
+  }
+  var READERS = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson };
   var pointer = (base, key) => `${base}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
   var typeOf = (v) => {
     if (v === null)
@@ -1707,7 +2036,6 @@
       }
     }
   }
-  // cmux-tui/crates/cmux-app-host/generated/signals.json
   var signals_default = {
     version: 1,
     signals: {
@@ -1765,8 +2093,198 @@
         pollFloorSeconds: 5,
         staleAfterSeconds: 60
       },
+      "github.changes": {
+        docs: "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
+        scopes: [
+          "integration:github:read",
+          "net:api.github.com"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            show: {
+              enum: [
+                "branch",
+                "mine",
+                "mentions",
+                "review-requested",
+                "search"
+              ],
+              description: "branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added)."
+            },
+            repo: {
+              type: "string",
+              maxLength: 140,
+              pattern: "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
+              description: "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
+            },
+            branch: {
+              type: "string",
+              maxLength: 255,
+              description: "The head branch for show: branch."
+            },
+            query: {
+              type: "string",
+              maxLength: 256,
+              description: "The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`."
+            },
+            include: {
+              enum: [
+                "open",
+                "open-and-merged"
+              ],
+              description: "open (default) or open-and-merged (closed unmerged ones are left out)."
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 30,
+              description: "At most this many pull requests (default 10). Each costs four conditional reads."
+            },
+            login: {
+              type: "string",
+              maxLength: 39,
+              description: "The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com)."
+            }
+          }
+        },
+        value: {
+          type: "array",
+          items: {
+            type: "object",
+            required: [
+              "id",
+              "number",
+              "title",
+              "url",
+              "repo",
+              "author",
+              "draft",
+              "state",
+              "headRef",
+              "headSha",
+              "additions",
+              "deletions",
+              "checks",
+              "review",
+              "updatedAt"
+            ],
+            properties: {
+              id: {
+                type: "integer"
+              },
+              number: {
+                type: "integer"
+              },
+              title: {
+                type: "string"
+              },
+              url: {
+                type: "string"
+              },
+              repo: {
+                type: "string",
+                description: "owner/name"
+              },
+              author: {
+                type: "string"
+              },
+              draft: {
+                type: "boolean"
+              },
+              state: {
+                enum: [
+                  "open",
+                  "merged",
+                  "closed"
+                ]
+              },
+              headRef: {
+                type: "string",
+                description: "The head branch."
+              },
+              headSha: {
+                type: "string"
+              },
+              additions: {
+                type: "integer",
+                description: "Lines added."
+              },
+              deletions: {
+                type: "integer",
+                description: "Lines removed."
+              },
+              checks: {
+                type: "object",
+                required: [
+                  "state",
+                  "failing",
+                  "pending",
+                  "passing"
+                ],
+                properties: {
+                  state: {
+                    enum: [
+                      "failing",
+                      "pending",
+                      "passing",
+                      "none"
+                    ],
+                    description: "failing when any check failed, else pending when any runs, else passing; none with no checks."
+                  },
+                  failing: {
+                    type: "integer"
+                  },
+                  pending: {
+                    type: "integer"
+                  },
+                  passing: {
+                    type: "integer"
+                  }
+                },
+                description: "The head commit's check runs and commit statuses, the latest of each."
+              },
+              review: {
+                enum: [
+                  "approved",
+                  "changes-requested",
+                  "review-required",
+                  "commented",
+                  "none"
+                ],
+                description: "Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came."
+              },
+              updatedAt: {
+                type: "string"
+              }
+            }
+          }
+        },
+        read: {
+          reader: "github.changes",
+          ops: [
+            {
+              op: "integration.request",
+              scope: "integration:github:read",
+              docs: "GET /search/issues or /repos/{repo}/pulls, then each pull request, its reviews, and its head's check runs and status, through the person's GitHub sign-in; the gateway sends If-None-Match and replays an unchanged body."
+            },
+            {
+              op: "net.fetch",
+              scope: "net:api.github.com",
+              docs: "The same reads on the public API when the gateway refuses, each with If-None-Match from the runtime's own ETag cache."
+            }
+          ]
+        },
+        push: [
+          "github.changed"
+        ],
+        pollFloorSeconds: 30,
+        staleAfterSeconds: 60,
+        safetyPollSeconds: 900
+      },
       "github.pulls": {
-        docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
+        docs: "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",
         scopes: [
           "integration:github:read",
           "net:api.github.com"
@@ -1892,8 +2410,150 @@
             }
           ]
         },
+        push: [
+          "github.changed"
+        ],
+        pollFloorSeconds: 60,
+        staleAfterSeconds: 300,
+        safetyPollSeconds: 900
+      },
+      "http.json": {
+        docs: "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+        scopes: [
+          "net:<host>"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "url"
+          ],
+          properties: {
+            url: {
+              type: "string",
+              minLength: 9,
+              maxLength: 2048,
+              pattern: "^https://",
+              description: "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+            },
+            everySeconds: {
+              type: "integer",
+              minimum: 60,
+              maximum: 86400,
+              description: "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+            }
+          }
+        },
+        value: {
+          description: "The response body, parsed as JSON."
+        },
+        read: {
+          reader: "http.json",
+          ops: [
+            {
+              op: "net.fetch",
+              scope: "net:<host>",
+              docs: `GET params.url with cache: "shared": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope.`
+            }
+          ]
+        },
         push: [],
         pollFloorSeconds: 60,
+        staleAfterSeconds: 300
+      },
+      "system_calendar.events": {
+        docs: "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+        scopes: [
+          "system_calendar:read"
+        ],
+        params: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            days: {
+              type: "integer",
+              minimum: 1,
+              maximum: 31
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 50
+            }
+          }
+        },
+        value: {
+          type: "object",
+          required: [
+            "access",
+            "events"
+          ],
+          properties: {
+            access: {
+              enum: [
+                "granted",
+                "denied",
+                "restricted",
+                "notDetermined",
+                "unavailable"
+              ]
+            },
+            events: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "title",
+                  "start",
+                  "end",
+                  "allDay",
+                  "calendar"
+                ],
+                properties: {
+                  id: {
+                    type: "string"
+                  },
+                  title: {
+                    type: "string"
+                  },
+                  start: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  end: {
+                    type: "number",
+                    description: "Unix ms"
+                  },
+                  allDay: {
+                    type: "boolean"
+                  },
+                  calendar: {
+                    type: "string",
+                    description: "The calendar's title"
+                  },
+                  color: {
+                    type: "string",
+                    description: "The calendar's color, #rrggbb"
+                  },
+                  location: {
+                    type: "string"
+                  },
+                  url: {
+                    type: "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        read: {
+          op: "system_calendar.events"
+        },
+        push: [
+          "system_calendar.changed"
+        ],
+        pollFloorSeconds: 5,
         staleAfterSeconds: 300
       },
       "workspace.list": {
@@ -1936,6 +2596,8 @@
   var FINAL = new Set(["scope.missing", "operation.unsupported", "signal.unknown", "signal.params", "validation.invalid"]);
   var watchStats = { reads: 0, entries: () => entries.size };
   var entries = new Map;
+  var watches = new Map;
+  var served = (e) => !e.local && ("op" in e.def.read) && typeof state.native?.watch === "function";
   var nextReader = 1;
   var validators = new Map;
   function canonical(v) {
@@ -1976,6 +2638,7 @@
     return next;
   }
   var asError = (e) => e instanceof CmuxError ? e : new CmuxError("operation.failed", e instanceof Error ? e.message : String(e));
+  var pacedByParams = (def) => def.params.properties?.everySeconds !== undefined;
   function lookup(name, params) {
     const def = typeof name === "string" ? SIGNALS[name] : undefined;
     if (!def)
@@ -1987,6 +2650,10 @@
     const errors = v.validate(p);
     if (errors.length)
       throw new CmuxError("signal.params", `${name}: ${errors.map((e) => `${e.path || "params"} ${e.message}`).join("; ")}`, { signal: name, errors });
+    if (pacedByParams(def) && typeof p.everySeconds === "number") {
+      const { everySeconds, ...read } = p;
+      return { def, params: JSON.parse(canonical(read)), pace: everySeconds };
+    }
     return { def, params: JSON.parse(canonical(p)) };
   }
   function missingScope(def) {
@@ -2018,7 +2685,13 @@
       again: false,
       queued: false,
       failures: 0,
-      lastUse: Date.now()
+      lastUse: Date.now(),
+      pushLive: false,
+      liveHeard: false,
+      readerMounts: new Map,
+      remote: new Map,
+      local: false,
+      waiters: []
     };
     entries.set(key, e);
     return e;
@@ -2038,6 +2711,16 @@
         s = Math.min(s, every);
     return Math.max(e.def.pollFloorSeconds, s) * 1000;
   }
+  function idleMs(e) {
+    if (!e.def.push.length)
+      return pollMs(e);
+    if (e.def.safetyPollSeconds === undefined)
+      return null;
+    if (!e.pushLive)
+      return pollMs(e);
+    return Math.max(e.def.pollFloorSeconds, e.def.safetyPollSeconds) * 1000;
+  }
+  var readerPaced = (e) => !e.def.push.length || e.def.safetyPollSeconds !== undefined && !e.pushLive;
   function schedule(e, ms) {
     if (e.timer !== null)
       clearTimer(e.timer);
@@ -2053,14 +2736,13 @@
     if (!active(e))
       return;
     if (error) {
-      if (FINAL.has(error.code))
+      if (FINAL.has(error.code) || error.code === "upstream.failed" && !error.retryable)
         return schedule(e, -1);
       const floor = e.def.pollFloorSeconds * 1000;
       return schedule(e, Math.min(MAX_BACKOFF_MS, floor * 2 ** Math.min(e.failures - 1, 20)));
     }
-    if (e.def.push.length)
-      return schedule(e, -1);
-    schedule(e, pollMs(e));
+    const ms = idleMs(e);
+    schedule(e, ms === null ? -1 : ms);
   }
   function upstream(e) {
     const call = (op, params) => callWith(op, params, {}, undefined).then((r) => r.value);
@@ -2072,6 +2754,13 @@
     return reader(e.params, call);
   }
   function read2(e) {
+    if (served(e) && e.remote.size) {
+      const id = e.remote.values().next().value;
+      return new Promise((resolve) => {
+        e.waiters.push(resolve);
+        state.native.unwatch(id, true);
+      });
+    }
     if (e.inFlight) {
       e.again = true;
       return e.inFlight;
@@ -2115,6 +2804,25 @@
     if (e.failures === 1)
       log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
   }
+  function onPush(e, payload) {
+    const live = payload && typeof payload === "object" ? payload.live : undefined;
+    if (typeof live !== "boolean") {
+      e.pushLive = true;
+      e.liveHeard = true;
+      return pushed(e);
+    }
+    const first = !e.liveHeard;
+    e.liveHeard = true;
+    if (live === e.pushLive)
+      return;
+    e.pushLive = live;
+    if (live && !first)
+      return pushed(e);
+    if (active(e) && !e.inFlight && e.failures === 0) {
+      const ms = idleMs(e);
+      schedule(e, ms === null ? -1 : ms);
+    }
+  }
   function pushed(e) {
     if (e.queued)
       return;
@@ -2125,12 +2833,67 @@
         read2(e);
     });
   }
+  function watchRemote(e, mount) {
+    if (e.remote.has(mount))
+      return;
+    let every = 0;
+    for (const [id, m] of e.readerMounts) {
+      const s = e.readers.get(id);
+      if (m === mount && typeof s === "number" && s > 0)
+        every = every ? Math.min(every, s) : s;
+    }
+    const id = state.native.watch(e.name, JSON.stringify(e.params), mount, every);
+    e.remote.set(mount, id);
+    watches.set(id, e);
+  }
+  function unwatchRemote(e, mount) {
+    const id = e.remote.get(mount);
+    if (id === undefined)
+      return;
+    e.remote.delete(mount);
+    watches.delete(id);
+    state.native?.unwatch?.(id, false);
+  }
+  function deliverWatch(id, json) {
+    const e = watches.get(id);
+    if (!e)
+      return;
+    const s = JSON.parse(json || "{}");
+    if (s.fallback) {
+      for (const mount of [...e.remote.keys()])
+        unwatchRemote(e, mount);
+      e.local = true;
+      for (const done of e.waiters.splice(0))
+        done();
+      if (active(e))
+        activate(e);
+      return;
+    }
+    batch(() => {
+      if (s.value !== undefined && s.value !== null)
+        e.value[1](() => share(e.value[0].peek(), s.value));
+      const error = s.error ? new CmuxError(String(s.error.code ?? "operation.failed"), String(s.error.message ?? "operation failed"), s.error.details, s.error.retryable === true) : undefined;
+      if (error && !e.error[0].peek())
+        log("warn", `watch ${e.name}: ${error.code}: ${error.message}`);
+      e.error[1](error);
+      e.status[1](s.status ?? "fresh");
+      e.updatedAt[1](typeof s.updatedAt === "number" ? s.updatedAt : null);
+    });
+    if (s.status !== "stale" || s.error !== undefined)
+      for (const done of e.waiters.splice(0))
+        done();
+  }
   function activate(e) {
+    if (served(e)) {
+      for (const mount of new Set(e.readerMounts.values()))
+        watchRemote(e, mount);
+      return;
+    }
     runWithOwner(null, () => {
       for (const stream of e.def.push) {
         try {
           const subId = state.native.subscribe(stream, "{}");
-          state.subscriptions.set(subId, () => pushed(e));
+          state.subscriptions.set(subId, (payload) => onPush(e, payload));
           e.subs.push(() => {
             if (state.subscriptions.delete(subId))
               state.native?.unsubscribe(subId);
@@ -2148,8 +2911,12 @@
       schedule(e, Math.max(e.def.pollFloorSeconds * 1000, pollMs(e) - age));
   }
   function deactivate(e) {
+    for (const mount of [...e.remote.keys()])
+      unwatchRemote(e, mount);
     for (const off of e.subs.splice(0))
       off();
+    e.pushLive = false;
+    e.liveHeard = false;
     if (e.timer !== null)
       clearTimer(e.timer);
     e.timer = null;
@@ -2162,12 +2929,15 @@
       if (!x.inFlight)
         entries.delete(x.key);
   }
-  function join(e, id, everySeconds) {
+  function join(e, id, everySeconds, mount) {
     const first = !active(e);
     e.readers.set(id, everySeconds);
+    e.readerMounts.set(id, mount);
     if (first)
       activate(e);
-    else if (everySeconds && !e.def.push.length && !e.inFlight && e.timer !== null && e.failures === 0)
+    else if (served(e))
+      watchRemote(e, mount);
+    else if (everySeconds && readerPaced(e) && !e.inFlight && e.timer !== null && e.failures === 0)
       schedule(e, pollMs(e));
     let released = false;
     return () => {
@@ -2175,21 +2945,27 @@
         return;
       released = true;
       e.readers.delete(id);
+      e.readerMounts.delete(id);
       if (!active(e))
         deactivate(e);
-      else if (!e.def.push.length && e.timer !== null && !e.inFlight && e.failures === 0)
+      else if (served(e) && ![...e.readerMounts.values()].includes(mount))
+        unwatchRemote(e, mount);
+      else if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
         schedule(e, pollMs(e));
     };
   }
   function watch(name, params, options = {}) {
-    const every = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    const option = typeof options.everySeconds === "number" ? options.everySeconds : undefined;
+    let every = option;
     const id = nextReader++;
+    const mount = state.mount ?? "";
     const resolve = (p) => {
       const found = lookup(name, p);
+      every = option ?? found.pace;
       return entryFor(name, found.def, found.params);
     };
     const [current, setCurrent] = signal(resolve(typeof params === "function" ? untrack(params) : params));
-    let release = untrack(() => join(current.peek(), id, every));
+    let release = untrack(() => join(current.peek(), id, every, mount));
     let disposed = false;
     const dispose = () => {
       if (disposed)
@@ -2215,10 +2991,16 @@
             log("error", `watch ${name}: ${asError(err).message}`);
             return;
           }
-          if (e === current.peek())
+          if (e === current.peek()) {
+            if (e.readers.get(id) !== every && e.readers.has(id)) {
+              e.readers.set(id, every);
+              if (readerPaced(e) && e.timer !== null && !e.inFlight && e.failures === 0)
+                schedule(e, pollMs(e));
+            }
             return;
+          }
           const old = release;
-          release = join(e, id, every);
+          release = join(e, id, every, mount);
           setCurrent(e);
           old();
         });
@@ -2262,7 +3044,8 @@
     return untracked(e);
   };
   var g = globalThis;
-  var RUNTIME_VERSION = "1.2.0";
+  var widgetClocks = new Map;
+  var RUNTIME_VERSION = "1.3.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -2321,13 +3104,23 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
+          widgetClocks.delete(mountId);
+          if (ctx && ctx.surface === "widget") {
+            const [now, setNow] = signal(Date.now());
+            widgetClocks.set(mountId, setNow);
+            ctx.now = now;
+          }
           state.context = ctx;
+          state.mount = mountId;
           mount(mountId, () => render(ctx), ctx);
           state.context = null;
+          state.mount = null;
         });
         return "";
       } catch (e) {
         state.context = null;
+        state.mount = null;
+        widgetClocks.delete(mountId);
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -2336,7 +3129,14 @@
         sendPendingOps();
       }
     };
-    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => unmount(mountId), undefined);
+    g.__cmuxAppUnmount = (mountId) => entry("unmount", () => {
+      widgetClocks.delete(mountId);
+      unmount(mountId);
+    }, undefined);
+    g.__cmuxAppTick = (mountId, nowMs) => entry("tick", () => {
+      if (Number.isFinite(nowMs))
+        widgetClocks.get(mountId)?.(nowMs);
+    }, undefined);
     g.__cmuxAppDispatch = (mountId, nodeId, event, payloadJSON) => entry("dispatch", () => {
       if (!mountExists(mountId))
         return;
@@ -2346,11 +3146,13 @@
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
       state.context = record.mount.context;
+      state.mount = mountId;
       try {
         dispatchEvent(record, event, payload);
       } finally {
         state.gesture = null;
         state.context = null;
+        state.mount = null;
       }
     }, undefined);
     function dispatchEvent(record, event, payload) {
@@ -2412,6 +3214,7 @@
     g.__cmuxAppPaletteDetail = (scopeId, itemId, reqId) => entry("paletteDetail", () => paletteDetail(scopeId, itemId, reqId), undefined);
     g.__cmuxAppResolve = (cbId, ok, json) => entry("resolve", () => resolveCall(cbId, ok, json), undefined);
     g.__cmuxAppEvent = (subId, json) => entry("event", () => deliverEvent(subId, json), undefined);
+    g.__cmuxAppWatch = (watchId, json) => entry("watch", () => deliverWatch(watchId, json), undefined);
     g.__cmuxAppTimer = (timerId) => entry("timer", () => fireTimer(timerId), undefined);
     g.__cmuxAppFlush = () => entry("flush", flush, undefined);
     g.__cmuxAppRuntimeVersion = RUNTIME_VERSION;

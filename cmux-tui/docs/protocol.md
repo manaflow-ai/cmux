@@ -406,7 +406,11 @@ session's saved-state directory: nothing is left to resume, and
 launch snapshot and the terminal-host records) once the owner released its
 session locks. The registry, the Chief store, conversations, git checkpoints,
 diff comments and session settings stay (an older owner answers no
-`session_dir`, and all its state stays). To close many tabs at once, send
+`session_dir`, and all its state stays). `shutdown-daemon` with
+`"if_idle":true` (`daemon-stop-if-idle-v1`, `cmux daemon stop --if-idle`)
+stops only while no other client is connected and no terminal is live;
+else it refuses with `daemon_busy` and names what uses it, checked under the
+handoff reservation that refuses new clients. To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same
@@ -422,6 +426,8 @@ Then it sends ordered stream frames:
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
 
 Each PTY read is one `output` frame, so a busy terminal wakes the client hundreds or thousands of times a second. A client that renders at most once per display frame (a phone) declares `attach-output-coalesce-v1` in `set-client-info` before attaching, when `identify` advertises it. Its bytes attach then gets at most one `output` per frame (16.667 ms, or `output_coalesce_ms` on `attach-surface`, 0 to 1000, 0 off), with the bytes of that frame concatenated in order. The first bytes after an idle frame go out at once, so a typed key's echo is not delayed; an event holds at most about 1 MiB; any other frame first sends the held bytes. `scroll-changed` follows the same frame clock (newest position). Without the capability nothing changes. Details: `spec/commands.md` (`attach-surface`) and `spec/events.md` (`output`).
+
+An agent CLI's terminal (Claude Code, Codex, opencode) can reach a viewer as cell deltas instead of PTY bytes: a client that declares `agent-cli-hybrid-v1` in `set-client-info` gets `agent-cli-frame` events in place of `vt-state` and `output` on a bytes attach of such a terminal, at most one per 100 ms, and resumes after a drop with `hybrid_stream` and `hybrid_frame` from its last frame instead of the whole screen. With only that declared, every other program keeps the byte stream, as does a client that declares nothing. With `agent-cli-hybrid-v2` declared too, the frames come as `agent-cli-lean` events, which say only what the viewer does not know yet and cost fewer bytes than the PTY for every agent CLI. With `terminal-shell-lines-v1` declared too, every other terminal (a shell or any program) comes as the same lean frames, and only a full-screen program comes as `output` PTY bytes. Details: `spec/commands.md` (`attach-surface`) and `spec/events.md` (`agent-cli-frame`, `agent-cli-lean`).
 
 For browser surfaces, the server first sends `browser-state` with URL, title, size, status, stalled-frame state, `pointer_frame_seq`, and the latest PNG frame if one exists. A null pointer sequence keeps the retained image renderable but blocks pointer input. Later updates send `browser-state` and `frame` events. Each frame event couples the PNG with its authoritative `status`, `error`, and `pointer_frame_seq`; that sequence changes with every admitted replacement but authorizes input only after the client acknowledges presenting it. Clients must not infer pointer admission from the image sequence. Frame payloads are base64 PNG data and slow clients skip older frames rather than buffering unboundedly.
 

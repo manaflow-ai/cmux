@@ -27,6 +27,8 @@ parsing, test compilation, executed tests and runtime evidence.
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
+| The cmux-next iPhone app (`cmux-next-ios/`): fleet simulator tests, App Review gate, TestFlight, iOS merges | [cmux-ios](cmux-ios/SKILL.md) |
+| An iPhone flow's speed and motion next to Claude, Codex and other chat apps, frame by frame (`compare-mobile FLOW`) | [compare-mobile](compare-mobile/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
 | Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
 | Agent session partitioning, ACPM coordination and daemon-local mailbox policy | [cmux-acpmux](cmux-acpmux/SKILL.md) |
@@ -45,7 +47,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Work in the caller's existing workspace without disrupting it | [cmux-workspace](cmux-workspace/SKILL.md) |
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
-| Desktop apps on the Mac (computer use) | [cmux-cua](cmux-cua/SKILL.md) |
+| Desktop apps on any of your machines (cmux Computer Use) | [cmux-computer-use](cmux-computer-use/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
 | Long-term memory shared by agent sessions, on one machine or several | [cmux-agent-memory](cmux-agent-memory/SKILL.md) |
 | Find cmux operations a few at a time instead of loading every tool | [cmux-code-mode](cmux-code-mode/SKILL.md) |
@@ -58,3 +60,10 @@ parsing, test compilation, executed tests and runtime evidence.
 Start with diagnostics for a user's broken installation; use debugging when
 investigating or changing the source implementation. Similarly, Cloud VM operations
 belong to `cmux-cloud-vm`, while its service implementation belongs to `cmux-backend`.
+
+## Adding a skill
+
+Claude Code finds a repo skill only through `.claude/skills/<name>`, a link to `../../skills/<name>`
+(Codex reads `skills/` through `.agents/skills`). Add the link with the skill:
+`ln -s ../../skills/<name> .claude/skills/<name>`. `python3 scripts/validate-cmux-browser-skill.py`
+checks every skill has one; `cmux-hot-loop` and `cmux-live` shipped without it.

@@ -1,0 +1,111 @@
+# Containers with buttons that predate the concentric rule (check-concentric-containers.py).
+# This list may only shrink: fix a surface (Metrics.buttonContainer / calc(var(--ds-radius-control) + pad))
+# and remove its line.
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneActAsMeCard.swift: let glass = Glass.makeSurface(.toast, content: row, cornerRadius: Metrics.surfaceCornerRadius)
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift: glass.cornerRadius = Metrics.panelCornerRadius
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelView.swift: private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false, tone: .neutralGlass(.transient))
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/PageUnresponsiveView.swift: glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/PageUnresponsiveView.swift: let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius, tone: .neutralGlass(.transient))
+Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport/CookieImportConsentPanel.swift: let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeSheetController.swift: let surface = OverlaySurfaceView(interactive: true)
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.swift: surface.layer?.cornerRadius = Self.cornerRadius
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.swift: surface.layer?.cornerRadius = Self.cornerRadius * scale
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift: surface.layer?.cornerRadius = HomeFirstRunRow.cornerRadius
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift: surface.layer?.cornerRadius = HomeFirstRunRow.cornerRadius * scale
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelView.swift: private let backdrop = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteLatencyBanner.swift: let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteStateCard.swift: let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift: private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift: dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift: let surface = CardSurfaceView()
+Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdatedCardHost.swift: glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
+Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Share/ShareCmuxView.swift: surface = Glass.makeOverlayPanel(interactive: true, tone: .neutralGlass(.transient))
+webviews/src/agent-session/acpmux/backgroundTasks/backgroundTaskCard.css: .acpmux-bg-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/backgroundTasks/backgroundTasks.css: .acpmux-bg__prompt { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/cloudStart.css: .acpmux-cloud-start__card { border-radius: 14px }
+webviews/src/agent-session/acpmux/composer/dropOverlay.css: .acpmux-drop-sheet { border-radius: var(--acpmux-drop-ring-radius, var(--ds-radius-composer)) }
+webviews/src/agent-session/acpmux/composerAttachments.css: .acpmux-pdf-sheet { border-radius: 3px }
+webviews/src/agent-session/acpmux/composerAttachments.css: .acpmux-pdf-sheet.is-large { border-radius: 6px }
+webviews/src/agent-session/acpmux/composerLocation.css: .acpmux-composer-strip { border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0 }
+webviews/src/agent-session/acpmux/composerLocation.css: .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface { border-radius: 10px }
+webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="bump"] .acpmux-composer-strip { border-radius: 10px 10px 5px 5px }
+webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="bump"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip { border-radius: 0 0 5px 5px }
+webviews/src/agent-session/acpmux/composerLocation.css: :root[data-top-strip="tray"] .acpmux-composer-strip, :root[data-top-strip="tray"] .acpmux-composer:h { border-radius: 14px 14px 0 0 }
+webviews/src/agent-session/acpmux/composerLook.css: :where(:root:not([data-top-strip="plain"])) .acpmux-composer[data-composer-look="codex"] > .acpmux-c { border-radius: 14px 14px 0 0 }
+webviews/src/agent-session/acpmux/computerUse/computerUsePreview.css: .acpmux-cu-preview__close { border-radius: 50% }
+webviews/src/agent-session/acpmux/context/context.css: .acpmux-context-screen-close { border-radius: 6px }
+webviews/src/agent-session/acpmux/contextCard.css: .acpmux-context-card.ui-card { border-radius: var(--ui-popup-radius, 10px) }
+webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: .cv-agentmsg[data-look="card"] .cv-agentmsg__card, .cv-agentmsg[data-look="corner"] .cv-agentmsg__ca { border-radius: 8px }
+webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="bordered"] .cv-agentmsg__card { border-radius: 10px }
+webviews/src/agent-session/acpmux/conversation/AgentMessageRow.css: :root[data-message-surfaces="soft"] .cv-agentmsg__card { border-radius: 8px }
+webviews/src/agent-session/acpmux/conversation/MessageGroupHover.css: .ui-card.cv-group-hover__popup { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/conversation/PendingAsks.css: .acpmux-pending-ask__dismiss { border-radius: 6px }
+webviews/src/agent-session/acpmux/conversation/PromptCoachCard.css: .cv-coach__prompt { border-radius: 8px }
+webviews/src/agent-session/acpmux/conversation/conversation.css: .acpmux-render-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/conversation/conversation.css: .cv-tool-error-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/harnessStatus.css: .acpmux-harness-status__close { border-radius: 6px }
+webviews/src/agent-session/acpmux/harnesses/harnesses.css: .acpmux-harnesses-close { border-radius: 6px }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-card { border-radius: 16px }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-row-action kbd { border-radius: 4px }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
+webviews/src/agent-session/acpmux/newtab/screen.css: .nt-stage-card { border-radius: 14px }
+webviews/src/agent-session/acpmux/quickModelColumns.css: .acpmux-cols-card { border-radius: var(--ui-popup-radius, var(--ds-radius-popup)) }
+webviews/src/agent-session/acpmux/repoTour/tourOfferDesigns.css: .tour-designs-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/run-board/variants/compare/styles.css: .compare-replay-banner { border-radius: 9px }
+webviews/src/agent-session/acpmux/started/sessionHover.css: .acpmux-session-hover-card.ui-card { border-radius: 12px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-chief-card { border-radius: 48px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-chief-card-dismiss { border-radius: 50% }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-dictation-notice { border-radius: 12px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-dictation-settings,.acpmux-dictation-dismiss { border-radius: 6px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-host-error-card { border-radius: 12px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-menu-hint { border-radius: 5px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-omni-action kbd { border-radius: 4px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-open-app-card { border-radius: var(--ds-radius-xl) }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-card { border-radius: 12px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-card.acpmux-permission-ask { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-panel .acpmux-permission-card { border-radius: 6px }
+webviews/src/agent-session/acpmux/styles.css: .acpmux-secret-card { border-radius: 12px }
+webviews/src/agent-session/acpmux/subagents/AgentCard.css: .cv-agent-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/subagents/subagents.css: .cv-subagent-of__close { border-radius: var(--ds-radius-sm) }
+webviews/src/agent-session/acpmux/subagents/subagents.css: .ui-card.acpmux-agent-card__popup { border-radius: var(--ds-radius-popup) }
+webviews/src/agent-session/acpmux/summary/WorkflowCard.css: .acpmux-workflow-card { border-radius: var(--grid-cards-radius) }
+webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card { border-radius: var(--ui-popup-radius) }
+webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card[data-placement=popover] { border-radius: var(--ui-popup-radius) }
+webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-tab__close { border-radius: 4px }
+webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__card { border-radius: var(--ds-radius-xl) }
+webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__prompt[data-pending] { border-radius: var(--ds-radius-sm) }
+webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-kbd { border-radius: 4px }
+webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-label, .cmux-ui-pointer-hint { border-radius: 6px }
+webviews/src/browser-chrome/cookie-import/cookieImport.css: .ci-card { border-radius: var(--transient-surface-radius) }
+webviews/src/icon-picker/styles.css: .icon-keycap { border-radius: 5px }
+webviews/src/optchat-inspector/styles.css: .card { border-radius: 8px }
+webviews/src/optchat-inspector/styles.css: .term .tip { border-radius: 6px }
+webviews/src/pages/apps/styles.css: .apps-card { border-radius: 12px }
+webviews/src/pages/bookmarks/styles.css: .bm-notice { border-radius: 6px }
+webviews/src/pages/changelog/styles.css: .cln-card { border-radius: 12px }
+webviews/src/pages/changelog/updateSurfaces.css: .wn-card { border-radius: var(--cmux-sidebar-card-radius, 10px) }
+webviews/src/pages/changelog/updateSurfaces.css: .wn-card.wn-updated { border-radius: var(--composer-material-radius) }
+webviews/src/pages/changelog/updateSurfaces.css: .wn-card[data-decoration="doodle"] { border-radius: var(--composer-material-radius) }
+webviews/src/pages/chief-usage/styles.css: .cu-tile, .cu-card { border-radius: var(--ds-radius-lg) }
+webviews/src/pages/chief-usage/styles.css: .cu-tooltip { border-radius: var(--ds-radius-lg) }
+webviews/src/pages/chief-views/styles.css: .cv-card { border-radius: var(--cv-radius) }
+webviews/src/pages/cloud-progress/styles.css: .cloud-progress__card { border-radius: var(--ds-radius-xl) }
+webviews/src/pages/cloud/styles.css: .cloud-machine-notice { border-radius: 6px }
+webviews/src/pages/feed/styles.css: .feed-needs .feed-card { border-radius: var(--ds-radius-md) }
+webviews/src/pages/github/styles.css: .gh-md kbd { border-radius: 4px }
+webviews/src/pages/history/styles.css: .history-sheet { border-radius: 12px }
+webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chief-work__close { border-radius: 6px }
+webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
+webviews/src/pages/home-channels/ledger.css: .lg-kbd { border-radius: 4px }
+webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
+webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius: 50% }
+webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
+webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
+webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }
+webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: var(--page-size-10) }
+webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
+webviews/src/ui/importCards.css: .import-card { border-radius: 10px }
+webviews/src/ui/ui.css: .ui-sheet { border-radius: 12px 12px 0 0 }
+webviews/src/viewer-empty/styles.css: .ve-hint kbd { border-radius: var(--ui-row-radius, 4px) }

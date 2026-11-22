@@ -24,6 +24,29 @@ public nonisolated enum MacScreenSharingLook: String, Sendable, CaseIterable, Ha
     }
 }
 
+/// How the home page draws Your Devices (Debug Settings `macScreen.devicesLook`, Leo 2026-11-16 on the
+/// list: "this needs to shut up"). A row says something only when there is something to do now: a Mac
+/// that can be viewed shows its name, a dot and the buttons; one that cannot shows one short word.
+public nonisolated enum MacScreenDevicesLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// Viewable Macs first; offline Macs folded under one "Offline" row that opens to their names.
+    case quiet
+    /// The same rows, offline Macs listed last as one dim line each.
+    case offlineLines
+    /// Only Macs that are online; one dim line counts the offline ones.
+    case onlineOnly
+    /// The list before 2026-11-16: status, access and an instruction on every row, disabled buttons.
+    case classic
+
+    public var tunableTitle: String {
+        switch self {
+        case .quiet: "Quiet (default): offline Macs folded under Offline"
+        case .offlineLines: "Offline as dim lines at the end"
+        case .onlineOnly: "Online only, offline counted"
+        case .classic: "Classic (before 2026-11-16)"
+        }
+    }
+}
+
 /// Debug Settings declarations of Mac Screen.
 public nonisolated struct MacScreenTunables {
     public nonisolated init() {}
@@ -35,6 +58,34 @@ public nonisolated struct MacScreenTunables {
         help: "How the Screen Sharing page draws Allow Mac Screen on this Mac and its permissions. Applies at once.",
         default: .list, code: "MacScreenTunables.sharingLook")
 
+    /// The look of the home page's Your Devices list.
+    public static let devicesLook = Tunable<MacScreenDevicesLook>.choice(
+        "macScreen.devicesLook", section, "Your Devices look",
+        help: "How the Screen Sharing page lists your other Macs, offline ones above all. Applies at once.",
+        default: .quiet, code: "MacScreenTunables.devicesLook")
+
+    // The default is look A, quiet glass and picture first (Leo 2026-11-21: "our screen shared scren look slike ass");
+    // `current`, B and C stay one switch away here.
+    /// The look of the screen-share viewer pane.
+    public static let viewerLook = Tunable<MacScreenViewerLook>.choice(
+        "macScreen.viewerLook", section, "Screen viewer look",
+        help: "How the screen-share viewer draws its toolbar, the area around the picture and its state cards. Applies at once.",
+        default: .a, code: "MacScreenTunables.viewerLook")
+
+    /// Where the viewer shows the stream's rate and quality (D10: an ultra session shows the link it spends).
+    public static let qualityReadout = Tunable<MacScreenQualityReadout>.choice(
+        "macScreen.qualityReadout", section, "Screen viewer quality readout",
+        help: "Where the screen-share viewer shows the stream's rate, frames, round trip, loss and encode time. Applies at once.",
+        default: .inline, code: "MacScreenTunables.qualityReadout")
+
+    /// How the floating viewer bar arranges its controls (Leo 2026-11-22: "this is still bad looking").
+    public static let toolbarBar = Tunable<MacScreenToolbarBar>.choice(
+        "macScreen.toolbarBar", section, "Screen viewer bar",
+        help: "How the screen-share viewer's floating bar arranges its controls: one row, glyphs, controls only, or the two-row bar. Applies at once.",
+        default: .row, code: "MacScreenTunables.toolbarBar")
+
     /// Every Mac Screen tunable, for Debug Settings.
-    public static var all: [TunableDescriptor] { [sharingLook.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [sharingLook.descriptor, devicesLook.descriptor, viewerLook.descriptor, qualityReadout.descriptor, toolbarBar.descriptor]
+    }
 }

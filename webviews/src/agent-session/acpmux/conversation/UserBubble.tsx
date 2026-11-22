@@ -32,7 +32,8 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { PendingDelivery, usePendingShown } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
+import { ImageIcon, Pencil } from "./icons";
+import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
@@ -42,7 +43,6 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
-import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
@@ -90,7 +90,7 @@ export function UserBubble({
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
-  const pendingShown = usePendingShown(row.delivery);
+  const pendingShown = usePendingShown(row.delivery, Boolean(row.steer || row.delivery?.queued));
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -125,20 +125,21 @@ export function UserBubble({
     const kept = imageOriginals(row);
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
-  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
-  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
-  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
-  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
-  // to read beside its attachments, keep the legacy bands above the bubble.
-  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
-  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
+  // A prompt whose attachments the composer placed in its text (`placed`, acpmux keeps it;
+  // inlinePrompt.ts), or whose text follows an attachment (which the old shape never has), draws
+  // every attachment in one block above its bubble, in its recorded order, and its text as plain
+  // flow in the bubble below (Leo, 2026-11-17: "Attachments render inline in the middle of the
+  // text line, at odd sizes. Put them in a block above the text."), in every attachment view: the
+  // view places attachments in the composer only. The old shape (its text, then its pastes, then
+  // its attachments) keeps the legacy bands above the bubble.
+  // The row's height estimate reads the same rule (bubbleParts.ts `bubbleLayout`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
   // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
   // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
   const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
-  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
+  const strip = hasInterleaved || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
@@ -150,9 +151,7 @@ export function UserBubble({
     inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
       ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
       : [];
-  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
-  const banded = (part: PromptContentPart) =>
-    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
+  const banded = (part: PromptContentPart) => strip && isStripMedia(part);
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
@@ -188,9 +187,14 @@ export function UserBubble({
       />
     );
   }
+  // An answered prompt of an agent that forks only from its latest reply keeps the control and says
+  // why, rather than drawing it on the latest prompt alone (Leo, 2026-11-11: "why are only some
+  // chats forkable").
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : fork && own !== undefined ? (
+      <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
@@ -226,18 +230,20 @@ export function UserBubble({
         </div>
       )}
       <div className="cv-user__body">
+        {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
+                messageAt={row.at}
                 parts={shownParts!}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
               />
             ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
             )}
           </div>
         ) : null}
@@ -258,42 +264,9 @@ export function UserBubble({
             }
           >
             <MessageFooterRow>
-              {branch && branches && (
-                <span className="cv-user__versions">
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.previousVersion")}
-                    title={t("message.previousVersion")}
-                    disabled={branch.index === 0}
-                    onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-                  >
-                    <ChevronLeft size={ROW_ICON} />
-                  </button>
-                  <span
-                    className="cv-user__version-count"
-                    aria-label={t("message.versionCount", {
-                      index: branch.index + 1,
-                      total: branch.sessions.length,
-                    })}
-                  >
-                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                    {branch.index + 1}/{branch.sessions.length}
-                  </span>
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.nextVersion")}
-                    title={t("message.nextVersion")}
-                    disabled={branch.index === branch.sessions.length - 1}
-                    onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
-                  >
-                    <ChevronRight size={ROW_ICON} />
-                  </button>
-                </span>
-              )}
+              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
               {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} queued={Boolean(row.steer || row.delivery.queued)} />
+                <PendingDelivery delivery={row.delivery} />
               ) : (
                 <MessageTime at={row.at} className="cv-user__time" />
               )}

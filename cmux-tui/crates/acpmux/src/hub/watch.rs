@@ -380,7 +380,12 @@ impl Hub {
     /// (it is neither stored nor heard, `append_record_locked`): the read position and the open
     /// turn stay where they were, so the batch is read again on the next check rather than lost.
     /// Its records stored before the refusal show again then; a duplicate beats a lost turn.
-    async fn show_watched(&self, session: &Session, lines: &[String], offset: u64) -> bool {
+    async fn show_watched(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        lines: &[String],
+        offset: u64,
+    ) -> bool {
         // This journal is also written by a live turn. Keep the entire watched
         // batch, its checkpoint and the takeover transition in one order.
         let _turn = session.turn_lock.lock().await;
@@ -393,9 +398,25 @@ impl Hub {
         let refused = session.append_errors.load(std::sync::atomic::Ordering::SeqCst);
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        let bridged = session.meta().tags.contains_key("bridge");
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
+            // The app's own record of a request the provider refused ends its turn as failed,
+            // never as the agent's answer (`bridge_hold.rs`).
+            if let Some(error) = super::bridge::hold::api_error(&watching.family, &record) {
+                let turn = open.take();
+                // Held before the turn's call answers, so nothing sent after that answer goes
+                // into the app before the reset.
+                if bridged && super::bridge::hold::rate_limited(&record, &error) {
+                    let turn_id = turn.as_ref().map(|t| t.turn_id.as_str());
+                    self.bridge_rate_limited(session, turn_id, &error);
+                }
+                if let Some(turn) = &turn {
+                    self.end_watched_turn_failed(session, turn, at, &error);
+                }
+                continue;
+            }
             // A prompt acpmux delivered into the app (`bridge.rs`) shows as sent, under its id.
             if let Some((prompt_id, text)) = bridged_line(&watching.family, &session.id, &record) {
                 if let Some(turn) = open.take() {
@@ -499,6 +520,25 @@ impl Hub {
         self.append_at(session, "mux", "turn_end", end, None, at);
         let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
         self.append_at(session, "mux", "turn_result", result, None, at);
+        super::bridge::answered(&session.id, prompt_id, turn_id);
+        // A turn that completed ends a rate-limit hold's doubling (`bridge_hold.rs`).
+        super::bridge::hold::settled(&session.id);
+    }
+
+    /// The records a turn ends with when the app wrote an API error line for it (`error`).
+    fn end_watched_turn_failed(
+        &self,
+        session: &Session,
+        turn: &WatchedTurn,
+        at: Option<u64>,
+        error: &str,
+    ) {
+        let WatchedTurn { turn_id, prompt_id, turn_seq, .. } = turn;
+        let end = json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq});
+        self.append_at(session, "mux", "turn_end", end, None, at);
+        let result = json!({"status": "failed", "error": error, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+        self.append_at(session, "mux", "turn_result", result, None, at);
+        // Delivered all the same: the app has the message, so it is never sent again.
         super::bridge::answered(&session.id, prompt_id, turn_id);
     }
 

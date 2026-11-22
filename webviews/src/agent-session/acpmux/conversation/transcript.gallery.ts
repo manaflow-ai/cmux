@@ -19,6 +19,7 @@ import {
   LOGIN_SCREENSHOT_PNG,
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
+import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -977,10 +978,11 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
-  doc.body.append(probe);
-  const runGap = probe.getBoundingClientRect().height;
+  // The gap over the live line in a run, from its one source (transcriptGrid.ts transcriptLiveVars, set on the
+  // scroller), including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-gap)";
+  (doc.querySelector<HTMLElement>(".acpmux-scroll") ?? doc.body).append(probe);
+  const stepGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
   const footerGap = probe.getBoundingClientRect().height;
   probe.remove();
@@ -994,8 +996,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
   const gap = live.top - nearest.bottom;
-  if (nearest.step && Math.abs(gap - runGap) > 0.5)
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (nearest.step && Math.abs(gap - stepGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not its ${stepGap}px gap`);
   if (!nearest.step && gap < footerGap - 0.5)
     throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
@@ -1349,10 +1351,8 @@ const ENVELOPE_TOOLS = [
       ],
     }),
   }),
-  tool("Read package.json", "read", "completed", {
-    output:
-      '{\n  "name": "@cmux/webviews",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "test": "bun test"\n  }\n}\n',
-  }),
+  // (A read of a JSON file drew here, kept as printed; a read is a plain row that does not open since
+  // 2026-11-17, readPath.ts, so its output has no card.)
 ];
 
 /// A render call (renderCall.ts); one with `update` redraws the card it names and draws nothing itself.
@@ -2433,6 +2433,45 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "turn-end-tool-only": {
+      note: "A finished turn that only ran a command ends on its footer row at rest: Copy copies the command's line and its output (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+      ]),
+    },
+    "turn-end-api-error": {
+      note: "A turn that ran a command and then ended in an API error: the error card, then its footer row with Copy and the failed mark (G04).",
+      snapshot: chat([
+        user("Run the sidebar tests", 6),
+        activity(
+          [
+            tool("bun test src/sidebar", "execute", "completed", {
+              command: "bun test src/sidebar",
+              output: "12 pass\n0 fail\n",
+              exitCode: 0,
+            }),
+          ],
+          5.9,
+        ),
+        summary(5.6, {
+          status: "failed",
+          durationMs: 41_000,
+          toolCount: 1,
+          error: "API Error: Request rejected (429) · This request would exceed your account's rate limit.",
+        }),
+      ]),
+    },
     "dense-live-run": {
       note: "A running turn folds its finished calls into one counted summary line (Read a file, ran 7 commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
@@ -2724,7 +2763,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -2907,7 +2946,7 @@ export default agentPaneEntry({
       ),
     },
     "tool-result-envelopes": {
-      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text, a JSON file kept as printed.",
+      note: "Opened tool results read as their content, not the JSON a harness wrapped them in: one-line JSON pretty-printed, an MCP text list as Markdown, a result envelope and Codex's output as their text.",
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
@@ -3329,8 +3368,7 @@ export default agentPaneEntry({
         summary(5.5, { status: "completed" }),
         user("Why does the dashboard look like this on the staging build?", 1, {
           failed: true,
-          error:
-            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          error: "Not sent: too large. Remove dashboard-recording.png with Edit, or send it separately.",
           delivery: {
             state: "failed",
             promptId: "p1",
@@ -3629,7 +3667,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     "jump-latest-working": {
@@ -3638,7 +3676,7 @@ export default agentPaneEntry({
       snapshot: chat(longChatRows, { isWorking: true }),
       play: async (ctx) => {
         await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+        await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
       },
     },
     selection: {
@@ -3770,7 +3808,7 @@ export default agentPaneEntry({
       note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3784,7 +3822,7 @@ export default agentPaneEntry({
       note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-wrapped", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG,
           exitCode: 0,
         }),
@@ -3804,7 +3842,7 @@ export default agentPaneEntry({
       note: "A long command output with Wrap lines off: it scrolls in an eight-line box whose bottom fades, and below the lines the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
       checks: shellDisclosureChecks,
       snapshot: chat(
-        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "./scripts/retry-log.sh", {
           output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),

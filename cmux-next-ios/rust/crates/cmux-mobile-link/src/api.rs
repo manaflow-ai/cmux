@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::build_space::BuildSpace;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IceServer {
     pub urls: Vec<String>,
@@ -137,6 +139,8 @@ pub struct ApiClient {
     base: String,
     token: String,
     http: reqwest::Client,
+    /// Sent as `x-cmux-build-space` on every request when set (a dev build).
+    build_space: Option<BuildSpace>,
 }
 
 impl ApiClient {
@@ -148,7 +152,35 @@ impl ApiClient {
     /// warm TLS connection instead of a new handshake. Keep one pool per
     /// Tokio runtime (pooled connections belong to the runtime that made them).
     pub fn with_http(base_url: &str, token: &str, http: reqwest::Client) -> Self {
-        Self { base: base_url.trim_end_matches('/').to_owned(), token: token.to_owned(), http }
+        Self {
+            base: base_url.trim_end_matches('/').to_owned(),
+            token: token.to_owned(),
+            http,
+            build_space: None,
+        }
+    }
+
+    /// This client sending `build_space` (a dev build's `dev:<slug>`) on
+    /// every request; `None` sends no header.
+    #[must_use]
+    pub fn with_build_space(mut self, build_space: Option<BuildSpace>) -> Self {
+        self.build_space = build_space;
+        self
+    }
+
+    /// The build space this client sends, if any.
+    pub fn build_space(&self) -> Option<&BuildSpace> {
+        self.build_space.as_ref()
+    }
+
+    /// `method` on `path` with the bearer token and, for a dev build, the
+    /// build space header.
+    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let request = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(&self.token);
+        match &self.build_space {
+            Some(space) => request.header(crate::build_space::HEADER, space.as_str()),
+            None => request,
+        }
     }
 
     /// A new HTTP client with the API's timeouts.
@@ -173,9 +205,7 @@ impl ApiClient {
     /// `GET /v1/ice`.
     pub async fn ice(&self) -> Result<IceConfig, ApiError> {
         let response = self
-            .http
-            .get(format!("{}/v1/ice", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::GET, "/v1/ice")
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -188,9 +218,7 @@ impl ApiClient {
         registration: &DeviceRegistration,
     ) -> Result<serde_json::Value, ApiError> {
         let response = self
-            .http
-            .post(format!("{}/v1/devices", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::POST, "/v1/devices")
             .json(registration)
             .send()
             .await
@@ -209,9 +237,7 @@ impl ApiClient {
         event: &NotifyEvent,
     ) -> Result<serde_json::Value, ApiError> {
         let response = self
-            .http
-            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
             .json(event)
             .send()
             .await
@@ -226,9 +252,7 @@ impl ApiClient {
         body: &serde_json::Value,
     ) -> Result<serde_json::Value, ApiError> {
         let response = self
-            .http
-            .post(format!("{}/v1/devices/{mac_device_id}/notify", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
             .json(body)
             .send()
             .await
@@ -243,9 +267,7 @@ impl ApiClient {
             devices: Vec<MyDevice>,
         }
         let response = self
-            .http
-            .get(format!("{}/v1/me/devices", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::GET, "/v1/me/devices")
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -261,9 +283,7 @@ impl ApiClient {
             macs: Vec<crate::signaling::MacPresence>,
         }
         let response = self
-            .http
-            .get(format!("{}/v1/teams/{team_id}/macs", self.base))
-            .bearer_auth(&self.token)
+            .request(reqwest::Method::GET, &format!("/v1/teams/{team_id}/macs"))
             .send()
             .await
             .map_err(|e| ApiError::Http(e.to_string()))?;
@@ -300,6 +320,10 @@ pub struct MyDevice {
 #[derive(Debug, Default)]
 pub struct IceCache {
     entry: std::sync::Mutex<Option<(Vec<IceServer>, std::time::Instant)>>,
+    /// The last servers fetched, kept past their expiry and through
+    /// [`IceCache::mark_stale`] (a wake or a network change), so an answer
+    /// can use them while a refresh runs in the background.
+    last: std::sync::Mutex<Option<Vec<IceServer>>>,
 }
 
 impl IceCache {
@@ -336,10 +360,25 @@ impl IceCache {
         let expires = std::time::Instant::now() + Self::lifetime(config);
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             Some((config.ice_servers.clone(), expires));
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(config.ice_servers.clone());
     }
 
+    /// Forget everything, the last servers too.
     pub fn clear(&self) {
         *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// No longer fresh (a wake can outlast the credentials), but kept as
+    /// [`IceCache::last`]: the next caller answers with them and refreshes.
+    pub fn mark_stale(&self) {
+        *self.entry.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    /// The last servers fetched, fresh or not.
+    pub fn last(&self) -> Option<Vec<IceServer>> {
+        self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// The cached servers when fresh (`true`), else `GET /v1/ice` within
@@ -413,8 +452,12 @@ mod tests {
         cache.store(&config(&["turn:t"], Some(1)));
         assert!(cache.fresh().is_none());
         cache.store(&turn);
+        cache.mark_stale();
+        assert!(cache.fresh().is_none());
+        assert_eq!(cache.last().unwrap(), turn.ice_servers, "stale servers stay as the last ones");
         cache.clear();
         assert!(cache.fresh().is_none());
+        assert!(cache.last().is_none());
     }
 
     #[test]

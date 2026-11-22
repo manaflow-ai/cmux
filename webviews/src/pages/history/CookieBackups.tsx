@@ -10,6 +10,7 @@ import type { Strings } from "../shared/i18n";
 import { PageMenu, pageMenuKey, type PageMenuItem } from "../shared/PageMenu";
 import { UiProvider, usePopupHost, useUiDirection } from "../../ui/UiProvider";
 import type { HistorySnapshot, HistoryStore } from "./store";
+import { intl } from "../../ui/intl";
 
 type OpenMenu = { session: number; x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
 
@@ -70,7 +71,7 @@ export function CookieBackupsPanel({
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, []);
-  const date = new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" });
+  const date = intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" });
   const keys = (event: KeyboardEvent) => {
     // An open row menu owns its keys (its Escape closes the menu, not the dialog).
     if (menu || event.defaultPrevented) return;
@@ -116,7 +117,6 @@ export function CookieBackupsPanel({
           <h2 id="cookie-backups-title" className="history-sheet-title">
             {t("cookieBackups.title")}
           </h2>
-          <p className="history-sheet-text">{t("cookieBackups.explanation")}</p>
           {state.error ? (
             <p className="history-sheet-text" role="alert">
               {state.error}

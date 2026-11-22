@@ -19,7 +19,11 @@ public final class AppSectionProvider {
     /// `apps.section.look` unless overridden (demo).
     public var lookOverride: AppSectionLook?
     /// Runs when a mounted section's content height may have changed.
-    public var onContentChange: (() -> Void)?
+    public var onContentChange: (() -> Void)? {
+        didSet { widgets?.onContentChange = onContentChange }
+    }
+    /// The window's widget area (``AppWidgetSection/contribution``), once ``showWidgets(place:)`` ran.
+    public private(set) var widgets: AppWidgetSection?
 
     public init(client: AppsClient, isPresented: ((String) -> Bool)? = nil) {
         self.client = client
@@ -28,12 +32,21 @@ public final class AppSectionProvider {
 
     /// The section's title, or nil when no visible app implements it (the
     /// sidebar then shows its "App not installed" placeholder).
+    /// Draws the window's widget area of `place` too (the sidebar's); reads its layout now.
+    public func showWidgets(place: String) {
+        guard widgets == nil else { return }
+        widgets = AppWidgetSection(client: client, place: place)
+        widgets?.onContentChange = onContentChange
+    }
+
     public func title(for contribution: String) -> String? {
+        if contribution == AppWidgetSection.contribution { return widgets?.title }
         if let (app, section) = resolve(contribution) { return section.title?.resolved() ?? client.app(app)?.manifest.name.resolved() ?? app }
         return provisional(contribution).map { $0.app }
     }
 
     public func makeView(for contribution: String) -> NSView? {
+        if contribution == AppWidgetSection.contribution { return widgets?.makeView() }
         if appsCannotRunHere {
             release(contribution)
             return nil
@@ -56,6 +69,7 @@ public final class AppSectionProvider {
     }
 
     public func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
+        if contribution == AppWidgetSection.contribution { return widgets?.preferredHeight(width: width) ?? 0 }
         guard let view = mounts[contribution]?.view as? AppSectionView else { return 0 }
         return view.preferredHeight(width: width)
     }
@@ -104,8 +118,10 @@ public final class AppSectionProvider {
     }
     private var list: SidebarListService?
 
-    /// Unmounts every section (the window's sidebar went away or replaced its sections).
+    /// Unmounts every section, widget and the workspace list (the window's sidebar went away or replaced its sections).
+    /// The widget area is not released with its section: it keeps its tiles while they are placed.
     public func releaseAll() {
+        widgets?.releaseAll()
         for contribution in Array(mounts.keys) { release(contribution) }
         list?.release()
         list = nil

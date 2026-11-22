@@ -53,6 +53,8 @@ if [ "$1 $2" = "api rate_limit" ]; then
   if [ "${4:-}" = ".resources.core.remaining" ]; then echo "${CORE_LEFT:-5000}"; else echo 0; fi
   exit 0
 fi
+# A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
+if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -157,9 +159,56 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
         self.assertEqual(h.waited(), 1020)
 
+    def test_a_refusal_moves_to_the_spare_token_at_once(self) -> None:
+        # Run 43797999732's image roll dispatch: "HTTP 403: API rate limit exceeded for installation" on
+        # github.token, whose budget every workflow shares; the cmux-bot App's token has its own.
+        h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="bot",
+                         GH_TOKEN_SPARE="bot")
+        result = h.gh("workflow", "run", "cloud-vm-image-roll.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run cloud-vm-image-roll.yml",
+                                     "spare call workflow run cloud-vm-image-roll.yml"])
+        self.assertIn("the next try goes out on GH_TOKEN_SPARE now", result.stderr)
+        self.assertEqual(h.waited(), 0)
+
+    def test_a_refused_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call api x", "call api x", "rate_limit", "call api x"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_no_spare_token_waits_as_before(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="")
+        self.assertEqual(h.gh("api", "x").returncode, 0)
+        self.assertEqual(h.calls(), ["call api x", "rate_limit", "call api x"])
+
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
         self.assertEqual(h.gh("api", "x").returncode, 0)
+
+    def test_a_request_that_never_reached_github_is_tried_again(self) -> None:
+        # Run 44154643146: wake-nightly-next-tick's `gh workflow run` and retry-nightly-next's died on
+        # one "net/http: TLS handshake timeout", and nothing restarted the nightly loop. A request
+        # that failed before it was sent did nothing on GitHub's side, so a dispatch is safe to retry.
+        for error in ('Get "https://api.github.com/repos/o/r/actions/workflows/nightly.yml": '
+                      "net/http: TLS handshake timeout",
+                      'Post "https://api.github.com/graphql": dial tcp 140.82.112.6:443: i/o timeout',
+                      'Get "https://api.github.com/x": dial tcp: lookup api.github.com: no such host'):
+            with self.subTest(error=error):
+                h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR=error)
+                result = h.gh("workflow", "run", "nightly-next-tick.yml")
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
+                self.assertIn("did not reach GitHub", result.stderr)
+                self.assertEqual(h.waited(), 1)
+
+    def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
+        # A reset or timeout after the request went out may have dispatched it already.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR='Post "https://api.github.com/x": read tcp 10.0.0.2:5->1.2.3.4:443: read: connection reset by peer')
+        self.assertEqual(h.gh("workflow", "run", "x.yml").returncode, 1)
+        self.assertEqual(h.calls(), ["call workflow run x.yml"])
 
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
@@ -415,6 +464,10 @@ SHARED_TOKEN_ONLY = {
     # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
     # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+    # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
+    # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
+    # read is git ls-remote.
+    ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),

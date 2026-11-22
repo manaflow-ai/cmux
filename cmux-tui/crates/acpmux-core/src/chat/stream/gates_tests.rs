@@ -16,6 +16,7 @@
 
 use super::*;
 use crate::wire::{CONNECTION_BUDGET_BYTES, CREDIT_WINDOW_BYTES, ReplayMark};
+use acpmux_book::gate_rounds;
 use acpmux_book::row::RowHead;
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -85,6 +86,10 @@ fn emit(name: &str, measures: Measures, unit: &str) {
     }
 }
 
+fn as_u128(samples: &[u64]) -> Vec<u128> {
+    samples.iter().map(|&sample| u128::from(sample)).collect()
+}
+
 fn percentile(samples: &[u64]) -> u64 {
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
@@ -92,7 +97,8 @@ fn percentile(samples: &[u64]) -> u64 {
 }
 
 /// Five rounds, each god round after its small twin; the best round p95 of each side and the
-/// p95 of all its samples.
+/// p95 of all its samples. Every round's p95 is reported through [`gate_rounds::report`], so a
+/// round that did different work from the rest is named.
 fn paired(
     name: &str,
     mode: &str,
@@ -118,13 +124,18 @@ fn paired(
     }
     let (mut small_samples, mut god_samples) = (Vec::new(), Vec::new());
     let (mut small_best, mut god_best) = (u64::MAX, u64::MAX);
+    let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     for number in 1..=ROUNDS {
+        let (small_start, god_start) = (small_samples.len(), god_samples.len());
         let small_round = round(&mut small, warmup, samples, &mut small_samples);
         let god_round = round(&mut god, warmup, samples, &mut god_samples);
         small_best = small_best.min(small_round);
         god_best = god_best.min(god_round);
+        small_rounds.push(as_u128(&small_samples[small_start..]));
+        god_rounds.push(as_u128(&god_samples[god_start..]));
         println!("{name} mode={mode} round={number} small_p95={small_round} god_p95={god_round}");
     }
+    gate_rounds::report(name, &[("small", &small_rounds), ("god", &god_rounds)]);
     let measures = Measures {
         small: small_best,
         god: god_best,
@@ -1206,6 +1217,7 @@ impl View {
                     self.keep(row);
                 }
                 ChatOp::Text { seq, .. } | ChatOp::Queue { seq, .. } => self.seq(*seq, false),
+                ChatOp::Presence { .. } => {}
             }
         }
     }

@@ -2,7 +2,7 @@ public import CmuxNextCloud
 import CmuxNextCompat
 import Foundation
 
-/// Signing in enrolls this Mac on the hub (Leo: "Signing in enrolls the machine."). acpmux decides
+/// Signing in enrolls this Mac on the hub (the rule of the sign-in, in the code since 2026-11-14). acpmux decides
 /// and does all of it (`server/sign_in_follow.rs`: when to enroll, its retry, recording the account
 /// signing out before anything waits, and the leave of only a join signing in made). This only
 /// tells the app's acpmux who is signed in now (`userId`, or none) and who was before (`previous`).

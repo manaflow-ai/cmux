@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
+/* cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f. */
 
 
 import type * as T from "./types.js";
@@ -23,7 +23,29 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "source": T.AgentSource;
   "state": T.AgentState;
   "surface": T.Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type AgentCliFrameEvent = { event: "agent-cli-frame" } & {
+  "base": (bigint) | null;
+  "cols": number;
+  "cursor_visible": boolean;
+  "cursor_x": number;
+  "cursor_y": number;
+  "data": T.Base64;
+  "frame": bigint;
+  "rows": number;
+  "stream": string;
+  "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: attach-byte. */
+export type AgentCliLeanEvent = { event: "agent-cli-lean" } & {
+  "f": T.Base64;
+  "surface": T.Id;
 };
 
 /** Protocol v12; emission: emitted; streams: control. */
@@ -57,6 +79,11 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "tool": (string) | null;
   /** When the hook observed the event; null on clear. */
   "updated_at_ms": (bigint) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentSessionShareChangedEvent = { event: "agent-session-share-changed" } & {
+  "session": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -287,6 +314,15 @@ export type DetachedEvent = { event: "detached" } & {
   "scope"?: string;
   "surface": T.Id;
   "view"?: string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DeviceSetupStepEvent = { event: "device-setup-step" } & {
+  "detail": string;
+  "device": string;
+  "fix": string;
+  "state": string;
+  "step": string;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -588,6 +624,8 @@ export type TabAddedEvent = { event: "tab-added" } & {
   "pane": T.Id;
   "screen": T.Id;
   "surface": T.Id;
+  /** The transaction of the create request that made the tab, when it sent one (conversation-tab-transaction-v1, tab-create-place-v1). */
+  "transaction"?: (string) | null;
   "workspace": T.Id;
 };
 
@@ -768,9 +806,12 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -801,6 +842,7 @@ export type KnownCmuxEvent =
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
+  | DeviceSetupStepEvent
   | EmptyEvent
   | FeedReportsChangedEvent
   | FeedViewChangedEvent
@@ -868,6 +910,7 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | AgentPresenceChangedEvent
+  | AgentSessionShareChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ChiefChangedEvent
@@ -965,6 +1008,8 @@ export type TreeDeltaEvent =
 
 /** Known events from any attach mode. */
 export type KnownAttachEvent =
+  | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | BrowserStateEvent
   | ColorsChangedEvent
   | DetachedEvent
@@ -981,6 +1026,8 @@ export type KnownAttachEvent =
 
 /** Known byte attach events. */
 export type KnownByteAttachEvent =
+  | AgentCliFrameEvent
+  | AgentCliLeanEvent
   | ColorsChangedEvent
   | DetachedEvent
   | NotificationEvent

@@ -256,6 +256,45 @@ export class SubagentFold {
     for (const agent of promoted) this.moveAgent(agent, null);
     return named;
   }
+  /// Lets go of subagents only records a chat let go of named (direct.ts `dropHeldRun`): their group rows left with
+  /// those records, and a fold of the records kept never met them, so nothing of them stays to draw a row again (a
+  /// turn's stop ending one still "running", a later batch joining its group) or to hold memory. O(what they left)
+  /// plus a walk of the per-call sets.
+  forget(ids: ReadonlySet<string>): void {
+    if (ids.size === 0) return;
+    for (const id of ids) {
+      const group = this.groupOf.get(id);
+      if (group) {
+        group.ids = group.ids.filter((child) => !ids.has(child));
+        if (group.ids.length === 0) {
+          this.changed.delete(group);
+          if (this.open === group) this.open = undefined;
+        }
+      }
+      this.agents.delete(id);
+      this.progressSource.remove(id);
+      this.startedSeq.delete(id);
+      this.groupOf.delete(id);
+      this.own.delete(id);
+      this.viewRevisions.delete(id);
+      this.settledViews.delete(id);
+      this.viewTools.delete(id);
+      this.viewToolSummaries.delete(id);
+      this.replyMessageIds.delete(id);
+      this.drawn.delete(id);
+      this.versions.delete(id);
+      this.turn.delete(id);
+      this.ended.delete(id);
+      this.latestCall.delete(id);
+      this.called.delete(id);
+    }
+    for (const map of [this.spawnedBy, this.runs, this.children])
+      for (const [key, agent] of map) if (ids.has(agent)) map.delete(key);
+    const owner = (key: string) => key.slice(0, key.indexOf("\u0000"));
+    for (const set of [this.shellCalls, this.bareShellCalls, this.calls, this.openCalls, this.hiddenCalls])
+      for (const key of set) if (key.includes("\u0000") && ids.has(owner(key))) set.delete(key);
+  }
+
   /// Removes a root thread that was folded as a subagent before its identity was known.
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
@@ -445,6 +484,11 @@ export class SubagentFold {
   /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
   isRun(call: string): boolean {
     return this.runs.has(call);
+  }
+
+  /// Whether `call` spawned a subagent acpmux named (its record's `toolCallId`): Claude Code's Agent call.
+  isSpawnCall(call: string): boolean {
+    return this.spawnCalls.has(call);
   }
 
   /// A call becomes a session card only after `reduceChild` receives its explicit child-session

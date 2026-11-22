@@ -1,0 +1,13 @@
+{
+  "name": "cmux-extension-web-pane",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example cmux extension whose pane is its own web page, built only against cmux-extension-sdk.",
+  "scripts": {
+    "build": "bun build src/page.ts --outfile web/page.js --target browser --format esm"
+  },
+  "dependencies": {
+    "cmux-extension-sdk": "file:../../../cmux-tui/crates/cmux-extension-sdk/typescript"
+  }
+}

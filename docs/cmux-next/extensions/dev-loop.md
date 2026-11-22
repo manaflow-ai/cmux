@@ -83,6 +83,26 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
   The window comes out as an agent sees it, with browser pages and chats masked in gray. The
   extension's own view is not masked.
 
+- **Design warnings** follow the reload line when the first scene breaks a design rule: a font
+  size off the type roles, an Apple text style the web and macOS draw at different sizes, more than
+  two accent colors, a gap or padding off the spacing scale (0 2 4 6 8 12 16 20 24 32 48), a raw or
+  unknown color, text below the contrast minimum, and in a widget more than four type roles or text
+  with no line limit. Each names its fix (`use Caption(...) (12 pt)`, `use 8`). They warn; the load still counts.
+  `--json` carries them as `design`: `{check, message, fix, node, count}`. `cmux ext design FILE...
+  [--widget] [--system cmux-design.json]` runs the same check on recorded scenes (a gallery fixture,
+  a store preview). How to build a view with none, and every check's fix:
+  [extension-design.md](../../../skills/cmux-customization/references/extension-design.md).
+- **Recording scenes for review.** `cmux ext shot --record` writes the scene it rendered into
+  `preview/scenes.json`, keyed by interface and size (`cmux.widget/1 small`), and keeps scenes
+  recorded before. Record each size the extension offers, and add `"preview/"` to the manifest's
+  `files` so the package ships it. `--json` adds `recorded`: the file's path, or `{"error"}`.
+- **Your own design system.** A `cmux-design.json` (`"design": "cmux.design/1"`) in the folder sets
+  your type roles, spacing scale, color names (each a cmux color role) and per-view limits on top of
+  cmux's; `defineDesign` in the SDK reads it, and `DesignSystemView` draws it. `ext dev` then checks
+  against your system and names your roles and steps in each fix. A file that does not read is one
+  `system` warning, and the check uses cmux's system. `examples/extensions/design-system` is a pane
+  that shows yours next to cmux's.
+
 `--json` adds `shot` to the `ext dev --once` fields: `{"path", "width", "height"}`, or
 `{"error"}` when there is no picture.
 
@@ -95,12 +115,59 @@ picture of the window (2880x1800): /tmp/shot.png; the extension is in the sideba
 An agent's loop is: edit, `cmux ext shot --json`, read `errors` and `scene`, look at `shot.path`,
 and repeat until both look right.
 
+## Share it, and add other people's
+
+An extension is shared as a git repository: a whole repository, or one folder of it. Anyone
+adds it with one command, from the link you send:
+
+```sh
+cmux ext share                    # in your extension's folder: prints the link
+cmux ext add https://github.com/you/widgets/tree/4f2c9e1/clock
+cmux ext add you/widgets          # a repository on GitHub, its default branch
+cmux ext add you/widgets@v1       # a branch, tag or commit
+cmux ext add https://git.example.com/team/widgets#clock   # any https git host; #PATH is the folder
+cmux ext add ./clock              # a folder on this Mac
+cmux ext search [WORDS]           # extensions people tagged on GitHub
+```
+
+- **`ext share`** checks that the folder can be added elsewhere, then prints a link pinned to the
+  commit. To pass, the manifest must be valid, the folder must be in a git repository whose
+  origin is on GitHub or an https host, the commit must be pushed, and the built main script
+  (`dist/main.js`) must be committed. Anything missing is listed, and the exit code is 8. For a
+  repository on GitHub it also reminds you to add the topic `cmux-extension`, which is what
+  `ext search` lists.
+- **`ext add SOURCE`** clones the repository into `~/.cache/cmux/extensions/HOST/OWNER/NAME`, or
+  fetches it again when it is already there, and checks out the commit the source names. It
+  then runs the reload `ext dev --once` runs: validate, copy into cmux, reload, render once.
+  Last, it asks you to install the extension on the usual consent card. Until you confirm, it
+  loads as a preview.
+  - Adding it again updates it to the source's current commit.
+  - `cmux ext remove local/NAME` removes it.
+  - `cmux ext list` shows where each extension came from.
+  - `--no-install` skips the card, and `--json` returns the `ext dev --once` fields plus `from`
+    (`url`, `ref`, `path`, `commit`, `link`).
+- **A fetched extension is never built.** Its committed `dist/main.js` loads as it is, because a
+  build would run someone else's tooling on your Mac. Like every app, it runs in cmux's sandboxed
+  app host, and it gets a scope only when you grant it.
+- **`ext search`** lists GitHub repositories with the topic `cmux-extension`, most-starred
+  first, each with the `cmux ext add` line that adds it. It sends no token unless `GH_TOKEN` or
+  `GITHUB_TOKEN` is set. With one, GitHub allows more than 10 searches a minute.
+
+| Exit | Means |
+|---|---|
+| 7 | `ext add` could not fetch the source, or `ext search` could not reach GitHub |
+| 8 | `ext share`: the folder cannot be shared yet (each reason is listed) |
+
 ## What happens on a save
 
 1. A change in the folder (dot files, `node_modules` and editor backups ignored) wakes the
    watch; 120 ms of quiet later one reload starts. A save that leaves the folder's contents as
    they were reloads nothing.
-2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
+2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`). When step 3
+   will build, the main script it writes (`runtime.main`, `dist/main.js`) need not exist yet, so a
+   fresh clone (examples gitignore `dist/`) builds; the full check, the main script included,
+   runs again after the build. With nothing to build, a missing main script ends the reload at
+   phase manifest.
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
    `dist/main.js` needs no build. `cmux-extension-sdk` resolves to the folder's own copy
@@ -126,6 +193,29 @@ the app's folder. Every `CMUX_APPS_DIRS` folder is watched like the local apps f
 an app there (its built `dist/main.js` or its manifest) reloads it and remounts its open views.
 These apps keep no rollback copy: they are your files.
 
+## Reload on request
+
+A save reloads by itself. To reload when you choose (a file written where the watch did not see it, a
+folder on a network volume, a script you want to start over), ask for it with one command:
+
+```sh
+cmux ext reload my-prs        # local/my-prs: read its folder again and rerun it
+cmux ext reload               # every extension in a local folder, the customize folder too
+cmux ext reload --json        # {"reloaded": [...], "refused": [{"app", "reason"}], "removed": [...]}
+cmux reload-config            # cmux-next.json and the Ghostty config, then every local extension
+```
+
+The daemon reads the folder again and restarts the app whether or not its files changed; its open
+views draw again in place (a sidebar section keeps its place, its region and its row). A script
+that does not load keeps the last good view on screen, and the command names the file and line and
+exits 1. In the app the same reload is **Reload Custom Views** in the command palette (`cmux apps
+reload`), and **Reload Configuration** (Cmd-Shift-,) reads the settings and Ghostty files.
+
+A reload never places a section: a section you removed from the sidebar stays removed until you
+place it again (`cmux apps place local/my-prs#cmux.section/1 --region bottom`, or the sidebar's edit
+mode). To take one back out, remove the section in the sidebar's edit mode, turn the extension off in
+Settings > Apps, or `cmux ext remove local/my-prs`.
+
 ## Kinds
 
 | `--kind` | What it adds | Interface |
@@ -149,3 +239,47 @@ real app host).
 `tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
 `file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
 `API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.
+
+## Share it from a git repository
+
+An extension folder is a git repository with the manifest and `README.md` at its root.
+`cmux ext new NAME --repo OWNER/REPO` (or `cmux ext new NAME --dir .` in a clone of a new,
+empty GitHub repository, whose `origin` names it) writes:
+
+- the id `owner/NAME` (the GitHub owner, lowercased) and `"repository": "https://github.com/OWNER/REPO"`;
+- a README with the badge and the install line:
+
+  ```markdown
+  [![Get it on cmux](https://cmux.com/extensions/badge.svg)](https://cmux.com/extensions/OWNER/REPO)
+  ```
+
+  ```sh
+  cmux apps install github.com/OWNER/REPO
+  ```
+
+- a `.gitignore`, and `git init` (branch `main`) when the folder is in no repository.
+
+With no repository, the id stays `local/NAME` and the README carries a marked `OWNER/REPO`
+placeholder. `cmux ext dev` loads an `owner/NAME` folder as `local/NAME` (its copy in the local
+apps folder says `local/`; the folder keeps its own id).
+
+`cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]` writes nothing to the
+network. It checks the manifest validates, the id starts with the owner, the `repository` field,
+the README badge (`--write-badge` adds it or fills the placeholder), and an image `icon` or
+`screenshots`, and the `design` step: registry review's design check on `preview/scenes.json`,
+which refuses on any warning (each with its fix), on a missing file, or when the package does not
+ship `preview/`; an extension that draws nothing passes. Then it prints the steps: push to GitHub; a release whose tag is the manifest's
+`version`, with the assets `cmux ext pack` writes (the exact `gh release create` line); and a pull
+request to manaflow-ai/cmux-extensions adding the printed entry to `extensions.json`, the list of
+record. Exit 0 when ready, 1 when something is left (each `todo` line says what), 2 for a bad
+`--repo` or folder. Commit `dist/main.js` too, so the source tree loads as it is.
+
+`cmux ext design --listing DIR [--json]` runs that design step alone, as registry review runs it
+on an unpacked release: exit 0 with no warning, 1 when it refuses, 4 with no manifest. `--json`
+prints `{ok, missing, warnings, scenes: [{scene, design}]}`. `ext dev` and `ext shot` only warn;
+review is the one that refuses.
+
+`cmux ext pack [DIR] [--out DIR] [--json]` validates the folder as `ext dev` does and writes
+`release/cmux-extension.tar.gz` (the manifest and the files it names, sorted, with no times or
+owners, so the same files give the same bytes) and `release/cmux-app.v2.json`, and prints the
+archive's sha256. Exit 4 when the folder does not validate.

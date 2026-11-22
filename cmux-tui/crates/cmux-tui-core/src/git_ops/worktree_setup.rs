@@ -69,7 +69,8 @@ const PORT_BLOCKS: u16 = 1_000;
 /// The output a read returns at most.
 pub(super) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 /// The most bytes that are read of a file that cmux keeps in a git folder
-/// (a setup's status, the repository's ports). A real one is far smaller.
+/// (a setup's status, the repository's ports), and of the `.git` file of a
+/// new worktree ([`read_small`]). A real one is far smaller.
 const MAX_OWN_BYTES: u64 = 1024 * 1024;
 /// Teardown output a removal reply carries.
 const MAX_TEARDOWN_OUTPUT_BYTES: u64 = 16 * 1024;
@@ -131,6 +132,12 @@ impl Place {
         self.own.is_of(&self.root, common_dir)
     }
 
+    /// Why the worktree's own git folder is not open in this place
+    /// ([`OwnFolder::not_opened`]); `None` when it is open.
+    pub(super) fn not_opened(&self) -> Option<std::io::ErrorKind> {
+        self.own.not_opened()
+    }
+
     fn name(&self) -> String {
         self.root.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
     }
@@ -178,10 +185,11 @@ pub(super) fn start(place: Place, recipe: Recipe) -> Value {
         started_ms: now_ms(),
         ..Status::default()
     };
-    if allocated.is_err() {
-        // The ports that other worktrees have are not known: nothing runs.
+    if let Err(why) = allocated {
+        // The ports that other worktrees have are not known, or the block
+        // of this worktree is in no list: nothing runs.
         if let Some(mut log) = open_log(&place.own) {
-            let _ = writeln!(log, "Setup did not start: {PORTS_NOT_READ}");
+            let _ = writeln!(log, "Setup did not start: {}", why.text());
         }
         finish(&mut status, &place.own, "failed", None);
         return json!({"state": "failed", "port": port});
@@ -446,6 +454,48 @@ pub(super) fn teardown(place: &Place, teardown: Option<&str>) -> Option<Value> {
         Outcome::TimedOut => json!({"output": output, "state": "timed_out"}),
         Outcome::NotStarted(error) => json!({"output": error, "state": "failed"}),
     })
+}
+
+/// Whether `git_dir` is the git folder that the repository whose git folder
+/// is `common_dir` keeps for the worktree `root` ([`OwnFolder::is_of`]). The
+/// folder is opened here for this one check.
+pub(super) fn keeps(git_dir: &Path, root: &Path, common_dir: &Path) -> bool {
+    OwnFolder::open(git_dir).is_of(root, common_dir)
+}
+
+/// What the check of a worktree's git folder gives ([`kept`]).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Kept {
+    /// The repository keeps the folder for the worktree, and git has no lock
+    /// on the worktree.
+    Yes,
+    /// The repository keeps the folder for the worktree, and git has its
+    /// lock on the worktree.
+    Locked,
+    /// The folder is open, and the repository does not keep it for the
+    /// worktree.
+    No,
+    /// The folder is not open: the kind of the error of its open.
+    NotOpened(std::io::ErrorKind),
+}
+
+/// The name that git gives the lock of a worktree in the worktree's git
+/// folder. `git worktree add` keeps the lock while it checks the files out.
+const LOCKED: &str = "locked";
+
+/// [`keeps`], and whether git has its lock on the worktree. The folder is
+/// opened here one time: the check and the look for the lock are at the
+/// folder that was opened, and the lock is read by its name in that folder,
+/// not by a path. A thing at the name is a lock; a link is not followed.
+pub(super) fn kept(git_dir: &Path, root: &Path, common_dir: &Path) -> Kept {
+    let folder = OwnFolder::open(git_dir);
+    if let Some(kind) = folder.not_opened() {
+        return Kept::NotOpened(kind);
+    }
+    if !folder.is_of(root, common_dir) {
+        return Kept::No;
+    }
+    if folder.has(LOCKED) { Kept::Locked } else { Kept::Yes }
 }
 
 /// A worktree folder with its links resolved, as the setup and its ports
@@ -738,10 +788,6 @@ fn read_status(folder: &OwnFolder) -> Option<Status> {
 /// A file that cmux keeps in a git folder is larger than [`MAX_OWN_BYTES`].
 #[derive(Clone, Copy, Debug)]
 struct TooLarge;
-
-/// What a setup's log says when the repository's ports file is not read.
-const PORTS_NOT_READ: &str =
-    "the file cmux-worktree-ports.json in the repository's git folder is larger than 1 MiB";
 
 /// The bytes of the small file `name` in the folder `folder` of a work
 /// tree, read as a file that cmux keeps in a git folder is read

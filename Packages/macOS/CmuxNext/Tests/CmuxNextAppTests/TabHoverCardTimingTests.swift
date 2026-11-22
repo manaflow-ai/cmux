@@ -9,9 +9,10 @@ import CmuxNextWakeupsTestSupport
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
 /// tab takes it over at once; leaving the tab hides it at once; a tab reached within the reshow
-/// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
-/// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
-/// clock the test moves.
+/// window (a gap between tabs) shows its card at once. The card touches its tab (Lawrence
+/// 2026-10-19), but it is a preview the pointer never enters (user 2026-11-16, taking back
+/// 2026-10-19's "moving onto it keeps it"): the pointer moving from the tab onto the card hides it.
+/// The delays run on a manual clock the test moves.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
@@ -119,29 +120,42 @@ import CmuxNextWakeupsTestSupport
         #expect(s.shows("c"), "the open card did not swap to the next tab at once")
     }
 
-    @Test func theCardStaysWithThePointerOnItAndFadesOutAtOnceOffIt() async throws {
+    /// User 2026-11-16: "for horizontal tabs i should not be able to hover mouse over horiztonal tab
+    /// preview popover thing". The pointer leaving the tab for its card is leaving the tab: the card
+    /// fades out on that move, never takes the mouse, and resting on the card past the grace brings
+    /// nothing back.
+    @Test func thePointerNeverEntersTheCardAndItFadesOutAtOnceOffTheTab() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         try await Self.open("a", s)
+        let panel = try #require(s.coordinator.panel)
+        #expect(panel.ignoresMouseEvents, "a tab's card takes the mouse")
         let card = try s.cardFrame()
-        // Straight down from the tab onto the card: it stays, also resting there past the grace.
+        let screen = NSRectFromString(try #require(s.coordinator.report["card_frame"]))
+        // Straight down from the tab onto the card, as the strip reports it.
         s.move(to: CGPoint(x: card.midX, y: card.midY))
-        #expect(s.shows("a"), "the card hid as the pointer moved from its tab onto it")
+        #expect(!s.showsAny, "the card stayed with the pointer on it: \(s.coordinator.report["phase"] ?? "-")")
+        #expect(!panel.isShowingCard, "the fade did not start on the move onto the card")
+        // Further over the card, as the coordinator's move monitor reports it: nothing comes back,
+        // also resting there past the reshow window.
+        s.coordinator.cardPointerMoved(CGPoint(x: screen.midX + 6, y: screen.midY + 6))
+        #expect(!s.showsAny, "a move over the fading card brought it back")
         try await s.clock.waitForSleeper()
         s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
         try await Self.settle()
-        #expect(s.shows("a"), "the card hid with the pointer resting on it")
-        // Off the card and off the strip: it fades out on this move, with no grace timer first.
-        s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
-        #expect(!s.showsAny, "the card stayed after the pointer left it: \(s.coordinator.report["phase"] ?? "-")")
-        let panel = try #require(s.coordinator.panel)
-        #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
+        #expect(!s.showsAny, "resting on where the card was showed it again")
+        try await Self.open("b", s)
+        let reopened = try #require(s.coordinator.panel)
+        // Off the tab and off the strip, away from the card: it fades out on this move, with no grace timer first.
+        s.move(to: CGPoint(x: s.strip.bounds.maxX - 10, y: s.strip.bounds.minY - 120))
+        #expect(!s.showsAny, "the card stayed after the pointer left its tab: \(s.coordinator.report["phase"] ?? "-")")
+        #expect(!reopened.isShowingCard, "the fade did not start on the move off the tab")
         let fade = Motion.hoverCards.duration(.fadeOut)
         let start = ContinuousClock.now
-        while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
+        while reopened.isVisible, reopened.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(!panel.isVisible || panel.alphaValue <= 0.001, "the card was still at alpha \(panel.alphaValue)")
+        #expect(!reopened.isVisible || reopened.alphaValue <= 0.001, "the card was still at alpha \(reopened.alphaValue)")
         // "At once" is the fade starting on the move (`isShowingCard` above, with the grace
         // timer on the manual clock, which never fires here). This bound only catches a fade
         // that runs far longer than its own: the main actor polls it, and a loaded CI mini
@@ -262,5 +276,47 @@ import CmuxNextWakeupsTestSupport
         s.strip.appearance = NSAppearance(named: dark ? .aqua : .darkAqua)
         try await Self.settle(until: { previews.asked == 2 })
         #expect(previews.asked == 2, "the card kept its picture from the other theme")
+    }
+
+    /// Lawrence 2026-11-15 (msg 34360): the card snapped taller when its tab's picture landed; the user
+    /// 2026-11-20 (a sweep across loading pages): the card changed size on nearly every tab. The card now
+    /// opens with the picture's frame (the tab's glyph in it until the picture is known), and a picture
+    /// landing late fades into that frame: the card never changes size for it.
+    @Test func aPictureLandingLateFadesIntoTheCardsFrame() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let s = Self.strip()
+        defer { s.tearDown() }
+        let previews = HeldPreviews()
+        s.strip.hoverCard.previewProvider = previews
+        try await Self.open("a", s)
+        try await Self.settle(until: { previews.waiting })
+        try #require(previews.waiting, "the card asked for no picture")
+        let before = try s.cardFrame()
+        // Later than a picture at hand (`instantPicture`): it fades in.
+        try await Task.sleep(for: TabHoverCardController.instantPicture + .milliseconds(20))
+        previews.release()
+        try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
+        try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
+        try await Self.settle()
+        let after = try s.cardFrame().size
+        #expect(after == before.size, "the card changed size for its picture: \(before.size) then \(after)")
+    }
+
+    /// A picture that lands when the test says so.
+    private final class HeldPreviews: TabPreviewProvider {
+        private var held: CheckedContinuation<Void, Never>?
+        var waiting: Bool { held != nil }
+        let image: CGImage? = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+        func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
+            await withCheckedContinuation { held = $0 }
+            return image
+        }
+        func release() {
+            held?.resume()
+            held = nil
+        }
     }
 }
